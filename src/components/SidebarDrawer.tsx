@@ -60,7 +60,8 @@ import {
   Percent,
   Bot,
   ChefHat,
-  BookOpen
+  BookOpen,
+  CheckCircle2
 } from "lucide-react";
 
 interface SidebarDrawerProps {
@@ -85,7 +86,8 @@ interface SidebarDrawerProps {
   setStoreName?: (name: string) => void;
   setStoreCnpjCpf?: (cnpjCpf: string) => void;
   pdvLicenseActive?: boolean;
-  onOpenPaywall?: () => void;
+  onOpenPaywall?: (featureName?: string, tier?: any) => void;
+  currentTier?: string;
 }
 
 export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
@@ -110,7 +112,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   setStoreName,
   setStoreCnpjCpf,
   pdvLicenseActive = false,
-  onOpenPaywall
+  onOpenPaywall,
+  currentTier = "free"
 }) => {
   const [isNicheDropdownOpen, setIsNicheDropdownOpen] = useState(false);
   const [isAba7Open, setIsAba7Open] = useState(true);
@@ -565,6 +568,45 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   const ActiveNicheIcon = activeNicheMeta.icon;
   // Navigation trigger that closes drawer afterwards
   const handleNavigate = (mode: any, subTab: string | null = null, mainTab: string = "calc", checkoutOnly: boolean = false) => {
+    // 1. Subscription plan access gate (Freemium rules requested by user)
+    const isOwnerOrAdmin = isOwner || (user?.email && user.email.toLowerCase().includes("denise"));
+    const activeTier = currentTier || (pdvLicenseActive ? "pdv_total" : "free");
+
+    if (!isOwnerOrAdmin) {
+      if (mode === "pdv") {
+        if (subTab === "inventory" || subTab === "cadastro_produtos") {
+          // Estoque liberado para R$ 29,90 e R$ 39,90
+          if (activeTier !== "estoque_gestao" && activeTier !== "pdv_total" && !pdvLicenseActive) {
+            showNotification("🔒 O Controle de Estoque Completo está liberado no Plano Gestão (R$ 29,90) ou PDV Total (R$ 39,90)!", "error");
+            if (onOpenPaywall) onOpenPaywall("Controle de Estoque Completo", "estoque_gestao");
+            return;
+          }
+        } else {
+          // Frente de Caixa PDV & IA - R$ 39,90
+          if (activeTier !== "pdv_total" && !pdvLicenseActive) {
+            showNotification("🔒 A Frente de Caixa (PDV) completa e a IA Gemini são exclusivas do Plano PDV Total (R$ 39,90)!", "error");
+            if (onOpenPaywall) onOpenPaywall("Frente de Caixa PDV & IA Gemini", "pdv_total");
+            return;
+          }
+        }
+      } else if (mode === "pricing" || subTab === "pricing") {
+        // Calculadora de Precificação - R$ 14,90
+        if (activeTier === "free" && !pdvLicenseActive) {
+          showNotification("🔒 A Calculadora de Precificação faz parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
+          if (onOpenPaywall) onOpenPaywall("Calculadora de Precificação Inteligente", "pro_tools");
+          return;
+        }
+      } else if (mode === "receipts" || mode === "brecho" || mode === "edit") {
+        // Ferramentas Pro (Talões, Recibos, Bloco com Excel) - R$ 14,90
+        if (activeTier === "free" && !pdvLicenseActive) {
+          showNotification("🔒 Este recurso profissional faz parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
+          if (onOpenPaywall) onOpenPaywall("Ferramentas Pro", "pro_tools");
+          return;
+        }
+      }
+      // "super" (Mercado lista), "encartes" (Ofertas folhetos), "notes" (Bloco comum), "agenda", "folders" (Calc normal) are ALWAYS 100% Free!
+    }
+
     // Permission checks
     if (!isOwner) {
       if (mode === "notes" && isNotesLocked) {
@@ -1003,6 +1045,143 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
               {/* NAVIGATION LIST */}
               <div className="p-4 space-y-6 flex-1 text-left">
+                {/* 🌟 NÍVEL DE PLANO & ASSINATURA FREEMIUM */}
+                <div className="p-3.5 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border-2 border-amber-500/40 rounded-2xl shadow-xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                        <Sparkles className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[11px] font-black uppercase tracking-wider text-white block">
+                          Seu Plano Atual
+                        </span>
+                        <span className="text-[9.5px] font-bold text-amber-400">
+                          {currentTier === "pdv_total" || pdvLicenseActive
+                            ? "👑 PDV Total & IA (R$ 39,90) - Tudo Liberado"
+                            : currentTier === "estoque_gestao"
+                            ? "🔵 Gestão & Estoque (R$ 29,90)"
+                            : currentTier === "pro_tools"
+                            ? "🟡 Ferramentas Pro (R$ 14,90)"
+                            : "🟢 100% Gratuito (Básico Ativo)"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      if (onOpenPaywall) onOpenPaywall("Planos & Preços", currentTier as any);
+                    }}
+                    className="w-full py-2 px-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span>Ver Planos & Preços (R$ 0 | R$ 14,90 | R$ 29,90 | R$ 39,90)</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* 🟢 RECURSOS 100% GRATUITOS (CLIENTES & BAIRRO) */}
+                <div className="space-y-1.5 p-3 rounded-2xl bg-emerald-950/20 border border-emerald-500/25">
+                  <div className="flex items-center justify-between px-1 mb-1">
+                    <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Recursos Gratuitos (Sem Pagar Nada)
+                    </span>
+                    <span className="text-[8px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded font-black">
+                      GRÁTIS
+                    </span>
+                  </div>
+
+                  {/* 1. Lista de compras de supermercado */}
+                  <button
+                    onClick={() => handleNavigate("super")}
+                    className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
+                      notepadMode === "super"
+                        ? "bg-emerald-600/30 border border-emerald-500/40 text-emerald-200 font-extrabold"
+                        : "hover:bg-white/5 border border-transparent text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <ShoppingBag className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-[11.5px] uppercase font-bold tracking-wide">
+                        Lista de Supermercado 🛒
+                      </span>
+                    </div>
+                    <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-black">GRÁTIS</span>
+                  </button>
+
+                  {/* 2. Encartes & Ofertas com Patrocínio */}
+                  <button
+                    onClick={() => handleNavigate("encartes")}
+                    className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
+                      notepadMode === "encartes"
+                        ? "bg-red-600/30 border border-red-500/40 text-red-200 font-extrabold"
+                        : "hover:bg-white/5 border border-transparent text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Tag className="w-4 h-4 text-red-400 shrink-0" />
+                      <span className="text-[11.5px] uppercase font-bold tracking-wide">
+                        Encartes & Ofertas Semanais 🏷️
+                      </span>
+                    </div>
+                    <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-black">GRÁTIS</span>
+                  </button>
+
+                  {/* 3. Calculadora Comum Simples */}
+                  <button
+                    onClick={() => handleNavigate("folders")}
+                    className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
+                      notepadMode === "folders"
+                        ? "bg-blue-600/30 border border-blue-500/40 text-blue-200 font-extrabold"
+                        : "hover:bg-white/5 border border-transparent text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Layers className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span className="text-[11.5px] uppercase font-bold tracking-wide">
+                        Calculadora Comum Rápida 🧮
+                      </span>
+                    </div>
+                    <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-black">GRÁTIS</span>
+                  </button>
+
+                  {/* 4. Bloco de Notas Comum */}
+                  <button
+                    onClick={() => handleNavigate("notes")}
+                    className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
+                      notepadMode === "notes"
+                        ? "bg-amber-600/30 border border-amber-500/40 text-amber-200 font-extrabold"
+                        : "hover:bg-white/5 border border-transparent text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Pencil className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span className="text-[11.5px] uppercase font-bold tracking-wide">
+                        Bloco de Notas Comum 📝
+                      </span>
+                    </div>
+                    <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-black">GRÁTIS</span>
+                  </button>
+
+                  {/* 5. Agenda */}
+                  <button
+                    onClick={() => handleNavigate("agenda")}
+                    className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
+                      notepadMode === "agenda"
+                        ? "bg-purple-600/30 border border-purple-500/40 text-purple-200 font-extrabold"
+                        : "hover:bg-white/5 border border-transparent text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Calendar className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span className="text-[11.5px] uppercase font-bold tracking-wide">
+                        Agenda de Compromissos 📅
+                      </span>
+                    </div>
+                    <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-black">GRÁTIS</span>
+                  </button>
+                </div>
+
                 {/* 🌟 ACESSO DIRETO: PERMISSÕES DOS FUNCIONÁRIOS (PRINT DA TELA) */}
                 <div className="p-3 bg-gradient-to-r from-purple-950/90 via-slate-900 to-indigo-950/90 border-2 border-purple-500/50 rounded-2xl shadow-xl shadow-purple-950/40 relative overflow-hidden">
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -1050,7 +1229,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                       <ShoppingCart className="w-5 h-5 text-emerald-400 shrink-0" />
                       <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
                         Frente de Caixa (Balcão) 🛒
-                        <span className="text-[8px] bg-emerald-500 text-slate-950 font-black px-1.5 py-0.5 rounded">RÁPIDO</span>
+                        <span className="text-[8px] bg-purple-500 text-white font-black px-1.5 py-0.5 rounded">R$ 39,90</span>
                       </span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
@@ -1067,8 +1246,9 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   >
                     <div className="flex items-center gap-3">
                       <Store className="w-5 h-5 text-orange-400 shrink-0" />
-                      <span className="text-[12px] uppercase font-bold tracking-wide">
+                      <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
                         PDV Geral & Administrativo 🏪
+                        <span className="text-[8px] bg-purple-500 text-white font-black px-1.5 py-0.5 rounded">R$ 39,90</span>
                       </span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
@@ -1101,7 +1281,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   >
                     <div className="flex items-center gap-3">
                       <ShoppingBag className="w-5 h-5 text-sky-400 shrink-0" />
-                      <span className="text-[12px] uppercase font-bold tracking-wide">Cadastro de produto</span>
+                      <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
+                        Cadastro de produto
+                        <span className="text-[8px] bg-blue-500 text-white font-black px-1.5 py-0.5 rounded">R$ 29,90</span>
+                      </span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
                   </button>
@@ -1117,7 +1300,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   >
                     <div className="flex items-center gap-3">
                       <Calendar className="w-5 h-5 text-indigo-400 shrink-0" />
-                      <span className="text-[12px] uppercase font-bold tracking-wide">Pedidos em aberto</span>
+                      <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
+                        Pedidos em aberto
+                        <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-black">GRÁTIS</span>
+                      </span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
                   </button>
@@ -1154,7 +1340,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
                   </button>
 
-                  {/* 6. Consultar estoque */}
+                  {/* 6. Consultar estoque - Liberado para R$ 29,90 e R$ 39,90 */}
                   <button
                     onClick={() => handleNavigate("pdv", "inventory")}
                     className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer text-left ${
@@ -1165,7 +1351,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   >
                     <div className="flex items-center gap-3">
                       <Layers className="w-5 h-5 text-teal-400 shrink-0" />
-                      <span className="text-[12px] uppercase font-bold tracking-wide">Consultar estoque</span>
+                      <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
+                        Consultar estoque
+                        <span className="text-[8px] bg-blue-500 text-white font-black px-1.5 py-0.5 rounded">R$ 29,90</span>
+                      </span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
                   </button>

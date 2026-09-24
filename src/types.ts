@@ -61,3 +61,54 @@ export interface AgendaEvent {
   status: 'pending' | 'completed';
   createdAt: any;
 }
+
+export interface CartItem {
+  id?: string;
+  productId?: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice?: number;
+  unit?: string;
+  category?: string;
+}
+
+export interface Transaction {
+  id: string;
+  type: 'entrada' | 'saida';
+  category?: string;
+  amount: number;
+  description?: string;
+  paymentMethod: string;
+  timestamp: string | number | Date;
+  date?: string;
+  cartItems?: CartItem[];
+  feeRate?: number;
+  feeAmount?: number;
+  isDeleted?: boolean;
+  customerName?: string;
+  customerPhone?: string;
+  changeAmount?: number;
+}
+
+export interface CustomProduct {
+  id: string;
+  name: string;
+  price: number;
+  costPrice?: number;
+  category?: string;
+  barcode?: string;
+  unit?: string;
+  validity?: string;
+  stock?: number;
+  image?: string;
+}
+
+export interface ProductStockInfo {
+  stockQty: number;
+  minStock?: number;
+  costPrice?: number;
+  unit?: string;
+  lastUpdated?: any;
+}
+

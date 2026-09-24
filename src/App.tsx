@@ -137,6 +137,14 @@ import { BalcaoComandosModule } from "./components/BalcaoComandosModule";
 import { SidebarDrawer } from "./components/SidebarDrawer";
 import { PINUnlockScreen } from "./components/PINUnlockScreen";
 import { InspirationalQuotesBar } from "./components/InspirationalQuotesBar";
+import { SubscriptionPlansModal } from "./components/SubscriptionPlansModal";
+import {
+  getCurrentSubscriptionTier,
+  saveSubscriptionTier,
+  SubscriptionTier,
+  isFeatureAllowedForTier,
+  SUBSCRIPTION_PLANS,
+} from "./utils/subscriptionTiers";
 import {
   initializeFirestore,
   getFirestore,
@@ -1246,6 +1254,53 @@ export default function App() {
   const [paywallType, setPaywallType] = useState<"pro" | "pdv" | "pdv_pc">("pro");
   const [showPaywall, setShowPaywall] = useState(false);
 
+  // Freemium subscription tiers state
+  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>(() => getCurrentSubscriptionTier());
+  const [showPlansModal, setShowPlansModal] = useState<boolean>(false);
+  const [targetPlanFeature, setTargetPlanFeature] = useState<string>("");
+  const [initialSelectedTier, setInitialSelectedTier] = useState<SubscriptionTier>("pdv_total");
+
+  const openSubscriptionModal = (featureName?: string, tier?: SubscriptionTier) => {
+    setTargetPlanFeature(featureName || "");
+    if (tier) setInitialSelectedTier(tier);
+    setShowPlansModal(true);
+  };
+
+  const handleUpdateSubscriptionTier = (tier: SubscriptionTier) => {
+    saveSubscriptionTier(tier);
+    setSubscriptionTier(tier);
+    if (tier === "pdv_total") {
+      setPdvLicenseActive(true);
+      setIsPremium(true);
+    } else if (tier === "estoque_gestao") {
+      setPdvLicenseActive(false);
+      setIsPremium(true);
+    } else if (tier === "pro_tools") {
+      setIsPremium(true);
+      setPdvLicenseActive(false);
+    } else {
+      setIsPremium(false);
+      setPdvLicenseActive(false);
+    }
+  };
+
+  const requestPushNotificationPermission = async () => {
+    if (!("Notification" in window)) {
+      showNotification("Notificações Push não são suportadas neste navegador.", "info");
+      return;
+    }
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm === "granted") {
+        showNotification("🔔 Alertas de Ofertas Ativados! Você receberá encartes e promoções semanais no seu celular.", "success");
+      } else {
+        showNotification("Permissão de notificações não concedida.", "info");
+      }
+    } catch {
+      showNotification("Não foi possível ativar notificações no momento.", "error");
+    }
+  };
+
   useEffect(() => {
     localStorage.setItem("is_premium", isPremium ? "true" : "false");
   }, [isPremium]);
@@ -1292,13 +1347,14 @@ export default function App() {
     | "contabilidade"
     | "balcao"
   >(() => {
-    try { return (localStorage.getItem("notepad_mode") as any) || "notes"; } catch { return "notes"; }
+    try { return (localStorage.getItem("notepad_mode") as any) || "pdv"; } catch { return "pdv"; }
   });
   const [pdvCheckoutOnly, setPdvCheckoutOnly] = useState<boolean>(() => {
     try {
-      return localStorage.getItem("pdv_checkout_only") === "true";
+      const stored = localStorage.getItem("pdv_checkout_only");
+      return stored !== null ? stored === "true" : true;
     } catch {
-      return false;
+      return true;
     }
   });
 
@@ -1452,6 +1508,48 @@ export default function App() {
   };
 
   const handleSetNotepadMode = (mode: any, checkoutOnly?: boolean) => {
+    // 1. Subscription plan access gate (Freemium rules requested by user)
+    const isOwnerOrAdmin = isAdmin || (user?.email && user.email.toLowerCase().includes("denise"));
+
+    if (!isOwnerOrAdmin) {
+      if (mode === "edit") {
+        if (!isFeatureAllowedForTier("excel_notas", subscriptionTier, pdvLicenseActive)) {
+          showNotification("🔒 A Calculadora de Bloco com Excel faz parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
+          openSubscriptionModal("Calculadora Nota de Bloco & Excel (R$ 14,90)", "pro_tools");
+          return;
+        }
+      } else if (mode === "pricing") {
+        if (!isFeatureAllowedForTier("precificacao", subscriptionTier, pdvLicenseActive)) {
+          showNotification("🔒 A Calculadora de Precificação faz parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
+          openSubscriptionModal("Calculadora de Precificação Inteligente (R$ 14,90)", "pro_tools");
+          return;
+        }
+      } else if (mode === "receipts" || mode === "brecho") {
+        if (!isFeatureAllowedForTier("taloes", subscriptionTier, pdvLicenseActive)) {
+          showNotification("🔒 Talões & Recibos fazem parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
+          openSubscriptionModal("Talões & Papelarias / Recibos (R$ 14,90)", "pro_tools");
+          return;
+        }
+      } else if (mode === "pdv") {
+        if (pdvActiveSubTab === "inventory" || pdvActiveSubTab === "cadastro_produtos") {
+          // Estoque liberado para R$ 29,90 e R$ 39,90
+          if (!isFeatureAllowedForTier("estoque", subscriptionTier, pdvLicenseActive)) {
+            showNotification("🔒 O Controle de Estoque Completo está liberado no Plano Gestão (R$ 29,90) ou PDV Total (R$ 39,90)!", "error");
+            openSubscriptionModal("Controle de Estoque Completo (R$ 29,90)", "estoque_gestao");
+            return;
+          }
+        } else {
+          // Frente de Caixa PDV & IA - R$ 39,90
+          if (!isFeatureAllowedForTier("pdv_completo", subscriptionTier, pdvLicenseActive)) {
+            showNotification("🔒 A Frente de Caixa (PDV) completa e a IA Gemini são exclusivas do Plano PDV Total (R$ 39,90)!", "error");
+            openSubscriptionModal("Frente de Caixa PDV & IA Gemini (R$ 39,90)", "pdv_total");
+            return;
+          }
+        }
+      }
+      // "super" (Mercado lista), "encartes" (Ofertas folhetos), "notes" (Bloco comum), "folders" (Calc normal), "agenda", "revisão" are ALWAYS 100% Free!
+    }
+
     if (checkModulePermission(mode)) {
       setNotepadMode(mode);
       localStorage.setItem("notepad_mode", mode);
@@ -2188,10 +2286,11 @@ export default function App() {
 
   const showNotification = (
     message: string,
-    type: "success" | "error" | "info" | "syncing" = "info",
+    type: "success" | "error" | "info" | "syncing" | "warning" = "info",
   ) => {
-    setNotification({ message, type });
-    if (type !== "syncing") {
+    const mappedType = type === "warning" ? "info" : type;
+    setNotification({ message, type: mappedType });
+    if (mappedType !== "syncing") {
       setTimeout(() => setNotification(null), 4000);
     }
   };
@@ -6709,16 +6808,18 @@ export default function App() {
                   } as any);
                 }
                 setActiveTab("calc");
+                handleSetNotepadMode("pdv", true);
               }}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
-                activeTab === "calc" 
-                  ? "bg-blue-600 text-white shadow-md shadow-blue-500/15" 
-                  : "text-slate-400 hover:text-white hover:bg-white/5"
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3.5 rounded-xl transition-all cursor-pointer font-bold ${
+                activeTab === "calc" && notepadMode === "pdv" && pdvCheckoutOnly
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20 ring-1 ring-emerald-400" 
+                  : "text-emerald-400 hover:text-white hover:bg-emerald-500/10 border border-emerald-500/20"
               }`}
+              title="Frente de Caixa Rápido - Lançar produtos, código de barras, cartões, dinheiro e troco sem poluição"
             >
-              <Plus className="w-3.5 h-3.5 shrink-0" />
+              <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
               <span className="text-[10px] font-black uppercase tracking-tight">
-                Início
+                Vendas 🛒
               </span>
             </button>
 
@@ -6732,18 +6833,18 @@ export default function App() {
                   } as any);
                 }
                 setActiveTab("calc");
-                handleSetNotepadMode("pdv", true);
+                handleSetNotepadMode("notes");
               }}
               className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
-                activeTab === "calc" && notepadMode === "pdv" && pdvCheckoutOnly
-                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/15" 
-                  : "text-emerald-400 hover:text-white hover:bg-emerald-500/10 border border-emerald-500/20"
+                activeTab === "calc" && !(notepadMode === "pdv" && pdvCheckoutOnly)
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-500/15" 
+                  : "text-slate-400 hover:text-white hover:bg-white/5"
               }`}
-              title="Ir diretamente para a aba simplificada de Frente de Caixa / Registrar Vendas"
+              title="Bloco de Notas Comum, Lista de Supermercado e Pastas"
             >
-              <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+              <Plus className="w-3.5 h-3.5 shrink-0" />
               <span className="text-[10px] font-black uppercase tracking-tight">
-                Vendas 🛒
+                Bloco & Compras 📝
               </span>
             </button>
             <button
@@ -8488,7 +8589,7 @@ export default function App() {
                 </div>
               </div>
             </header>
-          ) : (
+          ) : (notepadMode === "pdv" && pdvCheckoutOnly) ? null : (
             <header className="w-full bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border-b border-white/5 px-6 py-6 sm:py-8 shadow-md animate-fadeIn">
               <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-left">
                 <div className="space-y-1">
@@ -8532,7 +8633,7 @@ export default function App() {
           )}
 
           {/* Main Container */}
-          <main className="w-full max-w-6xl mx-auto px-4 py-8 flex flex-col gap-8">
+          <main className={`w-full max-w-6xl mx-auto px-4 ${notepadMode === "pdv" && pdvCheckoutOnly ? "py-3 flex flex-col gap-4" : "py-8 flex flex-col gap-8"}`}>
             {/* Unified PIN Login & Identification Card */}
             {notepadMode === "pdv" && !pdvCheckoutOnly && (
               <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-indigo-950/20 border border-white/10 rounded-[2.5rem] p-6 shadow-xl space-y-4 text-left">
@@ -9122,8 +9223,69 @@ export default function App() {
               </div>
             )}
 
-            {/* Notepad Header / Tabs */}
-            <div className="flex flex-col gap-4 mb-[-1.5rem] relative z-40">
+            {/* When in dedicated checkout mode: Show only the clean Cashier status bar */}
+            {notepadMode === "pdv" && pdvCheckoutOnly ? (
+              <div className="flex items-center justify-between bg-slate-900/90 border border-emerald-500/30 px-4 py-3 rounded-2xl shadow-xl">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                  <div>
+                    <h2 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider flex items-center gap-1.5 leading-none">
+                      🛒 Frente de Caixa Rápido (PDV Balcão)
+                    </h2>
+                    <p className="text-[9.5px] text-emerald-400 font-bold uppercase tracking-tight mt-0.5">
+                      Vendas Diretas • Código de Barras, Carrinho, Troco & Comprovante
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleSetNotepadMode("pdv", false)}
+                    className="text-[10px] font-black uppercase tracking-wider text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl border border-white/10 transition-all cursor-pointer flex items-center gap-1"
+                    title="Abrir o painel completo de relatórios e configurações"
+                  >
+                    <span>⚙️ Painel Geral</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetNotepadMode("notes")}
+                    className="text-[10px] font-black uppercase tracking-wider text-blue-300 hover:text-white bg-blue-500/15 hover:bg-blue-500/25 px-3 py-1.5 rounded-xl border border-blue-500/30 transition-all cursor-pointer flex items-center gap-1"
+                    title="Ir para o Bloco de Notas e Utilidades"
+                  >
+                    <span>📝 Utilidades & Bloco</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4 mb-[-1.5rem] relative z-40">
+              {/* PLAN STATUS AND UPGRADE PILL BAR */}
+              <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-900/90 border border-white/10 rounded-2xl mx-2 shadow-lg">
+                <div className="flex items-center gap-2 truncate">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="text-[10px] sm:text-xs font-bold text-slate-300 truncate">
+                    Plano Ativo:{" "}
+                    <strong className="text-amber-400 font-black">
+                      {subscriptionTier === "pdv_total" || pdvLicenseActive
+                        ? "👑 PDV Total & IA (R$ 39,90) - Tudo Liberado"
+                        : subscriptionTier === "estoque_gestao"
+                        ? "🔵 Gestão & Estoque (R$ 29,90)"
+                        : subscriptionTier === "pro_tools"
+                        ? "🟡 Ferramentas Pro (R$ 14,90)"
+                        : "🟢 100% Gratuito (Básico Ativo)"}
+                    </strong>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openSubscriptionModal("Planos de Assinatura", subscriptionTier)}
+                  className="px-3 py-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider rounded-xl transition-all shadow cursor-pointer flex items-center gap-1 shrink-0"
+                >
+                  <span>Planos & Preços</span>
+                  <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+
               {/* ROW 1: PLANEJAR */}
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar px-2 items-stretch">
                 <div className="flex-shrink-0 flex items-center justify-center gap-2 px-4 shadow-sm bg-gradient-to-r from-blue-700/20 to-blue-500/5 border border-blue-500/20 rounded-l-2xl min-w-[120px]">
@@ -9141,7 +9303,10 @@ export default function App() {
                   }`}
                 >
                   <TableIcon className={`w-4 h-4 transition-transform ${notepadMode === "edit" ? "text-blue-500 scale-110" : "text-slate-400"}`} />
-                  <span>Calculadora</span>
+                  <span className="flex items-center gap-1">
+                    Calculadora
+                    <span className="text-[7.5px] bg-amber-500/20 text-amber-300 font-black px-1 rounded border border-amber-500/30">R$ 14,90</span>
+                  </span>
                 </button>
                 <button
                   onClick={() => handleSetNotepadMode("folders")}
@@ -9152,7 +9317,10 @@ export default function App() {
                   }`}
                 >
                   <Calculator className={`w-4 h-4 transition-transform ${notepadMode === "folders" ? "text-indigo-500 scale-110" : "text-slate-400"}`} />
-                  <span>Calc Normal</span>
+                  <span className="flex items-center gap-1">
+                    Calc Normal
+                    <span className="text-[7.5px] bg-emerald-500/20 text-emerald-400 font-black px-1 rounded border border-emerald-500/30">GRÁTIS</span>
+                  </span>
                 </button>
                 <button
                   onClick={() => handleSetNotepadMode("notes")}
@@ -9163,7 +9331,10 @@ export default function App() {
                   }`}
                 >
                   <Pencil className={`w-4 h-4 transition-transform ${notepadMode === "notes" ? "text-blue-500 scale-110 rotate-3" : "text-slate-400"}`} />
-                  <span>Bloco de Notas</span>
+                  <span className="flex items-center gap-1">
+                    Bloco de Notas
+                    <span className="text-[7.5px] bg-emerald-500/20 text-emerald-400 font-black px-1 rounded border border-emerald-500/30">GRÁTIS</span>
+                  </span>
                 </button>
                 <button
                   onClick={() => handleSetNotepadMode("pricing")}
@@ -9174,7 +9345,10 @@ export default function App() {
                   }`}
                 >
                   <Percent className={`w-4 h-4 transition-transform ${notepadMode === "pricing" ? "text-amber-550 scale-110" : "text-slate-400"}`} />
-                  <span>Precificação</span>
+                  <span className="flex items-center gap-1">
+                    Precificação
+                    <span className="text-[7.5px] bg-amber-500/20 text-amber-300 font-black px-1 rounded border border-amber-500/30">R$ 14,90</span>
+                  </span>
                 </button>
               </div>
 
@@ -9195,7 +9369,10 @@ export default function App() {
                   }`}
                 >
                   <ShoppingBag className={`w-4 h-4 transition-transform ${notepadMode === "super" ? "text-sky-600 scale-110" : "text-slate-400"}`} />
-                  <span>Mercado</span>
+                  <span className="flex items-center gap-1">
+                    Mercado
+                    <span className="text-[7.5px] bg-emerald-500/20 text-emerald-400 font-black px-1 rounded border border-emerald-500/30">GRÁTIS</span>
+                  </span>
                 </button>
                 <button
                   onClick={() => handleSetNotepadMode("encartes")}
@@ -9206,7 +9383,10 @@ export default function App() {
                   }`}
                 >
                   <Tag className={`w-4 h-4 transition-transform ${notepadMode === "encartes" ? "text-red-500 scale-110" : "text-slate-400"}`} />
-                  <span>Ofertas</span>
+                  <span className="flex items-center gap-1">
+                    Ofertas
+                    <span className="text-[7.5px] bg-emerald-500/20 text-emerald-400 font-black px-1 rounded border border-emerald-500/30">GRÁTIS</span>
+                  </span>
                 </button>
                 <button
                   onClick={() => handleSetNotepadMode("revisão")}
@@ -9217,7 +9397,10 @@ export default function App() {
                   }`}
                 >
                   <CheckCircle2 className={`w-4 h-4 transition-transform ${notepadMode === "revisão" ? "text-emerald-600 scale-110" : "text-slate-400"}`} />
-                  <span>Verificação</span>
+                  <span className="flex items-center gap-1">
+                    Verificação
+                    <span className="text-[7.5px] bg-emerald-500/20 text-emerald-400 font-black px-1 rounded border border-emerald-500/30">GRÁTIS</span>
+                  </span>
                 </button>
                 <button
                   onClick={() => handleSetNotepadMode("agenda")}
@@ -9228,7 +9411,10 @@ export default function App() {
                   }`}
                 >
                   <Calendar className={`w-4 h-4 transition-transform ${notepadMode === "agenda" ? "text-indigo-500 scale-110" : "text-slate-400"}`} />
-                  <span>Agenda</span>
+                  <span className="flex items-center gap-1">
+                    Agenda
+                    <span className="text-[7.5px] bg-emerald-500/20 text-emerald-400 font-black px-1 rounded border border-emerald-500/30">GRÁTIS</span>
+                  </span>
                 </button>
               </div>
 
@@ -9250,7 +9436,10 @@ export default function App() {
                   }`}
                 >
                   <FileText className={`w-4 h-4 transition-transform ${notepadMode === "receipts" ? "text-amber-600 scale-110" : "text-slate-400"}`} />
-                  <span>Talões & Recibos 🧾</span>
+                  <span className="flex items-center gap-1">
+                    Talões & Recibos 🧾
+                    <span className="text-[7.5px] bg-amber-500/20 text-amber-300 font-black px-1 rounded border border-amber-500/30">R$ 14,90</span>
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -9263,7 +9452,10 @@ export default function App() {
                   title="Frente de Caixa simplificada focado 100% nas vendas diárias sem complicação"
                 >
                   <ShoppingCart className={`w-4 h-4 transition-transform ${notepadMode === "pdv" && pdvCheckoutOnly ? "scale-110" : "text-emerald-400"}`} />
-                  <span>Vendas Balcão 🛒</span>
+                  <span className="flex items-center gap-1">
+                    Vendas Balcão 🛒
+                    <span className="text-[7.5px] bg-purple-500 text-white font-black px-1 rounded">R$ 39,90</span>
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -9276,7 +9468,10 @@ export default function App() {
                   title="Painel administrativo completo com caixa, estoque, relatórios e equipe"
                 >
                   <Store className={`w-4 h-4 transition-transform ${notepadMode === "pdv" && !pdvCheckoutOnly ? "scale-110" : "text-slate-400"}`} />
-                  <span>PDV Geral & Adm 🏪</span>
+                  <span className="flex items-center gap-1">
+                    PDV Geral & Adm 🏪
+                    <span className="text-[7.5px] bg-purple-500 text-white font-black px-1 rounded">R$ 39,90</span>
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -9705,9 +9900,11 @@ export default function App() {
                 </button>
               </div>
             </div>
+            )}
 
             {/* Notepad Paper */}
             <div className="relative">
+              {!(notepadMode === "pdv" && pdvCheckoutOnly) && (
               <div
                 className={`${
                   notepadMode === "notes"
@@ -9910,6 +10107,7 @@ export default function App() {
                   )}
                 </div>
               </div>
+              )}
 
               <div id="internal-active-module-container" className="p-2 relative min-h-[400px]">
                 {/* Real-time Listening Feedback */}
@@ -10460,6 +10658,57 @@ export default function App() {
                       {/* SUBTAB 1: MURAL DE FOLHETOS / ENCARTES */}
                       {encarteSubTab === "mural" && (
                         <div className="space-y-6">
+                          {/* 📢 BANNER DE PATROCÍNIO PARA SUPERMERCADOS DA REGIÃO */}
+                          <div className="bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white rounded-3xl p-5 shadow-xl shadow-red-500/20 flex flex-col md:flex-row items-center justify-between gap-4 border border-white/20">
+                            <div className="space-y-1.5 text-center md:text-left">
+                              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-[10px] font-black uppercase tracking-wider backdrop-blur-sm">
+                                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                                Espaço para Supermercados Patrocinadores & Anúncios
+                              </div>
+                              <h3 className="text-base sm:text-lg font-black tracking-tight">
+                                Supermercados & Atacadistas: Anunciem Seus Folhetos de Ofertas Aqui!
+                              </h3>
+                              <p className="text-xs text-white/90 max-w-xl leading-relaxed">
+                                Divulgue as promoções semanais do seu mercado para milhares de clientes do bairro e envie <strong>Notificações Push instantâneas</strong> para os celulares de todos os usuários cadastrados.
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-center">
+                              <a
+                                href="https://wa.me/5521999999999?text=Ol%C3%A1!%20Sou%20respons%C3%A1vel%20por%20um%20supermercado%20e%20quero%20anunciar%20meus%20encartes%20e%20disparar%20notifica%C3%A7%C3%B5es%20no%20aplicativo."
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-5 py-3 rounded-2xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 flex items-center gap-2"
+                              >
+                                <MessageCircle className="w-4 h-4 text-emerald-600" />
+                                Quero Patrocinar (WhatsApp)
+                              </a>
+                            </div>
+                          </div>
+
+                          {/* 🔔 BARRA DE ATIVAÇÃO DE PUSH NOTIFICATIONS PARA CLIENTES */}
+                          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+                                <Bell className="w-5 h-5 animate-bounce" />
+                              </div>
+                              <div>
+                                <span className="text-xs font-black text-white uppercase tracking-wider block">
+                                  Receber Alertas de Ofertas Semanais no Celular
+                                </span>
+                                <span className="text-[10px] text-slate-400 block">
+                                  Ative para receber avisos em tempo real quando Guanabara, Assaí e mercados locais publicarem novos encartes!
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={requestPushNotificationPermission}
+                              className="px-4 py-2 bg-red-500 hover:bg-red-400 active:scale-95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-md shrink-0 cursor-pointer flex items-center gap-1.5"
+                            >
+                              <Bell className="w-3.5 h-3.5" />
+                              <span>Ativar Alertas 🔔</span>
+                            </button>
+                          </div>
+
                           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
                             {[
                               "Todos",
@@ -12785,7 +13034,7 @@ export default function App() {
             )}
           </main>
           {/* Palavra de Inspiração, Fé e O Poder da Mente */}
-          <InspirationalQuotesBar />
+          {!(notepadMode === "pdv" && pdvCheckoutOnly) && <InspirationalQuotesBar />}
         </>
       )}
 
@@ -13163,226 +13412,23 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Subscription Paywall Modal */}
-      <AnimatePresence>
-        {showPaywall && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] flex items-center justify-center px-6"
-          >
-            <div
-              className="absolute inset-0 bg-slate-950/95"
-              onClick={() => setShowPaywall(false)}
-            />
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className="relative bg-white w-full max-w-sm rounded-[3rem] overflow-hidden shadow-[0_32px_64px_rgba(0,0,0,0.4)] border border-white/20"
-            >
-              {paywallType === "pro" ? (
-                <>
-                  <div className="bg-slate-900 p-10 text-center relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-                      <div className="absolute top-[-10%] left-[-10%] w-[120%] h-[120%] border-[20px] border-amber-500 rounded-full animate-pulse" />
-                    </div>
-                    <Zap className="w-16 h-16 text-amber-400 mx-auto mb-6 fill-amber-400" />
-                    <h2 className="text-3xl font-black text-white uppercase tracking-tight mb-2 italic">
-                      R$ 4,90 / MÊS
-                    </h2>
-                    <p className="text-amber-400 font-bold uppercase tracking-[0.2em] text-xs">
-                      Calculadoras & Recibos Pro
-                    </p>
-                  </div>
-
-                  <div className="p-10 space-y-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center text-amber-500 shrink-0">
-                          <CheckCircle2 className="w-5 h-5" />
-                        </div>
-                        <p className="text-slate-700 font-bold text-sm">
-                          Calculadora de Precificação
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-500 shrink-0">
-                          <TableIcon className="w-5 h-5" />
-                        </div>
-                        <p className="text-slate-700 font-bold text-sm">
-                          Calculadora de Notas & Excel
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-500 shrink-0">
-                          <Sparkles className="w-5 h-5" />
-                        </div>
-                        <p className="text-slate-700 font-bold text-sm">
-                          Emissor de Recibos de Bazar
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setIsPremium(true);
-                        showNotification(
-                          "Plano Calculadoras & Recibos Pro Ativado! 💎🎉",
-                          "success",
-                        );
-                        const cel = (window as any).setShowCelebration || setShowCelebration;
-                        if (cel) cel(true);
-                        setShowPaywall(false);
-                      }}
-                      className="w-full bg-amber-500 text-slate-950 py-6 rounded-[2rem] font-black uppercase tracking-widest text-sm shadow-xl shadow-amber-500/30 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3 cursor-pointer"
-                    >
-                      Assinar Plano (Simular) <CreditCard className="w-4 h-4" />
-                    </button>
-
-                    <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
-                      Assinatura via Google Play Store. <br />
-                      Cancele a qualquer momento nas definições.
-                    </p>
-                  </div>
-                </>
-              ) : paywallType === "pdv" ? (
-                <>
-                  <div className="bg-slate-900 p-10 text-center relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-                      <div className="absolute top-[-10%] left-[-10%] w-[120%] h-[120%] border-[20px] border-emerald-500 rounded-full animate-pulse" />
-                    </div>
-                    <Smartphone className="w-16 h-16 text-emerald-400 mx-auto mb-6 fill-emerald-400/10" />
-                    <h2 className="text-3xl font-black text-white uppercase tracking-tight mb-2 italic">
-                      R$ 29,90 / MÊS
-                    </h2>
-                    <p className="text-emerald-400 font-bold uppercase tracking-[0.2em] text-xs">
-                      Licença PDV Celular / Tablet
-                    </p>
-                  </div>
-
-                  <div className="p-10 space-y-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-500 shrink-0">
-                          <CheckCircle2 className="w-5 h-5" />
-                        </div>
-                        <p className="text-slate-700 font-bold text-sm">
-                          Vendas e Fluxos ilimitados
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-500 shrink-0">
-                          <TrendingUp className="w-5 h-5" />
-                        </div>
-                        <p className="text-slate-700 font-bold text-sm">
-                          Relatórios completos de Faturamento
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-500 shrink-0">
-                          <Users className="w-5 h-5" />
-                        </div>
-                        <p className="text-slate-700 font-bold text-sm">
-                          Múltiplos Empregados e Caixas
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setPdvLicenseActive(true);
-                        showNotification(
-                          "Licença PDV Celular Play Store Ativada! 📲✨",
-                          "success",
-                        );
-                        const cel = (window as any).setShowCelebration || setShowCelebration;
-                        if (cel) cel(true);
-                        setShowPaywall(false);
-                      }}
-                      className="w-full bg-emerald-500 text-slate-950 py-6 rounded-[2rem] font-black uppercase tracking-widest text-sm shadow-xl shadow-emerald-500/30 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3 cursor-pointer"
-                    >
-                      Ativar PDV (Simular) <CreditCard className="w-4 h-4" />
-                    </button>
-
-                    <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
-                      Gerencie seu comércio como profissional. <br />
-                      Faturamento diário, semanal e mensal!
-                    </p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="bg-slate-900 p-10 text-center relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-                      <div className="absolute top-[-10%] left-[-10%] w-[120%] h-[120%] border-[20px] border-blue-500 rounded-full animate-pulse" />
-                    </div>
-                    <Laptop className="w-16 h-16 text-blue-400 mx-auto mb-6 fill-blue-400/10" />
-                    <h2 className="text-3xl font-black text-white uppercase tracking-tight mb-2 italic">
-                      R$ 100,00 / MÊS
-                    </h2>
-                    <p className="text-blue-400 font-bold uppercase tracking-[0.2em] text-xs">
-                      Licença PDV PC & Notebook
-                    </p>
-                  </div>
-
-                  <div className="p-10 space-y-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-400 shrink-0">
-                          <CheckCircle2 className="w-5 h-5" />
-                        </div>
-                        <p className="text-slate-700 font-bold text-sm">
-                          Frente de Caixa para Computadores
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-500 shrink-0">
-                          <Sparkles className="w-5 h-5" />
-                        </div>
-                        <p className="text-slate-700 font-bold text-sm">
-                          Sincronizado com Mercado Pago
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-500 shrink-0">
-                          <Users className="w-5 h-5" />
-                        </div>
-                        <p className="text-slate-700 font-bold text-sm">
-                          Sincronização em tempo real
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setPdvLicenseActive(true);
-                        setPdvPcLicenseActive(true);
-                        showNotification(
-                          "Licença PDV PC & Notebook Mercado Pago Ativada! 💻✨",
-                          "success",
-                        );
-                        const cel = (window as any).setShowCelebration || setShowCelebration;
-                        if (cel) cel(true);
-                        setShowPaywall(false);
-                      }}
-                      className="w-full bg-blue-500 text-slate-950 py-6 rounded-[2rem] font-black uppercase tracking-widest text-sm shadow-xl shadow-blue-500/30 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3 cursor-pointer"
-                    >
-                      Ativar PDV PC (Simular) <CreditCard className="w-4 h-4" />
-                    </button>
-
-                    <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
-                      Configuração automática via Mercado Pago. <br />
-                      Pix Dinâmico de faturamento integrado!
-                    </p>
-                  </div>
-                </>
-              )}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Comprehensive Subscription Plans & Freemium Paywall Modal */}
+      <SubscriptionPlansModal
+        isOpen={showPaywall || showPlansModal}
+        onClose={() => {
+          setShowPaywall(false);
+          setShowPlansModal(false);
+        }}
+        currentTier={subscriptionTier}
+        onTierChange={(newTier) => {
+          handleUpdateSubscriptionTier(newTier);
+          const cel = (window as any).setShowCelebration || setShowCelebration;
+          if (cel && newTier !== "free") cel(true);
+        }}
+        showNotification={showNotification}
+        targetFeatureName={targetPlanFeature}
+        initialSelectedTier={initialSelectedTier}
+      />
       {/* Celebration Feedback Overlay */}
       <AnimatePresence>
         {showCelebration && (
@@ -13960,9 +14006,9 @@ export default function App() {
             setStoreName={setStoreName}
             setStoreCnpjCpf={setStoreCnpjCpf}
             pdvLicenseActive={pdvLicenseActive}
-            onOpenPaywall={() => {
-              setPaywallType("pdv");
-              setShowPaywall(true);
+            currentTier={subscriptionTier}
+            onOpenPaywall={(feature, tier) => {
+              openSubscriptionModal(feature, tier);
             }}
           />
         )}

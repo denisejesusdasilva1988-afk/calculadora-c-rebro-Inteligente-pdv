@@ -9,6 +9,7 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
+    "deploy:hosting": "npm run build && npx firebase-tools deploy --only hosting",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

@@ -45,7 +45,7 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
   onOpenPDVWithSubTab,
   formatCurrency = (v) =>
     v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
-  showNotification = () => {}
+  showNotification = (_msg?: string, _type?: string) => {}
 }) => {
   const [showReconciliation, setShowReconciliation] = useState(false);
   const [useBillCounter, setUseBillCounter] = useState(false);
@@ -86,8 +86,8 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
     "0.05": 20
   });
 
-  const countedFromBills = Object.entries(billCounts).reduce((acc, [denom, count]) => {
-    return acc + parseFloat(denom) * (count || 0);
+  const countedFromBills = Object.entries(billCounts).reduce((acc: number, [denom, count]) => {
+    return acc + parseFloat(denom) * (Number(count) || 0);
   }, 0);
 
   const physicalCashInDrawer = useBillCounter

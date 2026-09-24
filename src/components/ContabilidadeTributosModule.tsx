@@ -24,18 +24,19 @@ import {
 } from "lucide-react";
 
 interface ContabilidadeTributosProps {
+  key?: React.Key;
   onBack?: () => void;
   formatCurrency?: (val: number) => string;
   monthlyRevenueDefault?: number;
-  showNotification?: (msg: string, type: "success" | "error" | "info" | "warning") => void;
+  showNotification?: (msg: string, type?: any) => void;
 }
 
-export function ContabilidadeTributosModule({
+export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> = ({
   onBack,
   formatCurrency = (v) => `R$ ${v.toFixed(2).replace(".", ",")}`,
   monthlyRevenueDefault = 0,
   showNotification = () => {}
-}: ContabilidadeTributosProps) {
+}) => {
   // Sub-abas do módulo
   const [activeTab, setActiveTab] = useState<"tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa">("tributos");
 
