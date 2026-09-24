@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Kalam:wght@400;700&family=JetBrains+Mono:wght@500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-hand: "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --color-notepad-yellow: #fef9c3;
+  --color-notepad-line: #bae6fd;
+  --color-emerald-550: #10b981;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-900 text-slate-100 font-sans antialiased;
+  }
+  
+  /* Remove default browser tap highlighting */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Enable clean text selection on body without degrading rendering performance */
+  body {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  button, svg, img, [role="button"] {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+
+.notepad-paper {
+  background-color: var(--color-notepad-yellow);
+  background-image: linear-gradient(var(--color-notepad-line) 1px, transparent 1px);
+  background-size: 100% 2rem;
+  background-attachment: local;
+  @apply shadow-2xl rounded-xl border-l-8 border-red-400/30;
+}
+
+.handwritten {
+  font-family: var(--font-hand);
+}
+
+.mono-display {
+  font-family: var(--font-mono);
+}
+
+/* Hide scrollbar for cleaner look */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

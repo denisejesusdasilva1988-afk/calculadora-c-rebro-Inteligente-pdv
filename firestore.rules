@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+       return isSignedIn() 
+          && 'email' in request.auth.token 
+          && (request.auth.token.email == 'denisejesusdasilva1988@gmail.com' 
+              || request.auth.token.email == 'denisejesusdasilva1988@gmail.com.br'
+              || request.auth.token.email == 'calculadoracerebrointeligente@gmail.com'
+              || request.auth.token.email.matches('.*wellington.*'));
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidEncarte(data) {
+      return data.keys().hasAll(['shopName', 'imageUrl', 'createdAt', 'validUntil']) 
+          && data.shopName is string && data.shopName.size() <= 200
+          && data.imageUrl is string && data.imageUrl.size() <= 1048576;
+    }
+
+    function isValidShoppingList(data) {
+      return (data.userId == request.auth.uid) || isAdmin();
+    }
+
+    function isValidUserData(data) {
+      return (data.userId == request.auth.uid) || isAdmin();
+    }
+
+    function isValidAgendaEvent(data) {
+      return ((data.userId == request.auth.uid) || isAdmin())
+          && data.title is string && data.title.size() <= 200
+          && data.type in ['shopping', 'payment_received', 'payment_made', 'general'];
+    }
+
+    function isValidNote(data) {
+      return ((data.userId == request.auth.uid) || isAdmin())
+          && data.text is string && data.text.size() <= 100000;
+    }
+
+    function isValidSugestaoMelhoria(data) {
+      return data.title is string && data.title.size() <= 300
+          && data.description is string && data.description.size() <= 2000
+          && data.author is string && data.author.size() <= 100
+          && data.votes is int && data.votes >= 0
+          && data.timestamp is int;
+    }
+
+    function isValidAuditLog(data) {
+      return data.userId == request.auth.uid
+          && data.staffName is string && data.staffName.size() <= 200
+          && data.staffRole is string && data.staffRole.size() <= 100
+          && data.action is string && data.action.size() <= 200
+          && data.description is string && data.description.size() <= 1000;
+    }
+
+    function isValidSystemSettings(data) {
+      return data.userId == request.auth.uid;
+    }
+
+    function isValidUser(data) {
+      return data.uid == request.auth.uid 
+          && data.email is string && data.email.size() <= 200;
+    }
+
+    match /encartes/{encarteId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidEncarte(incoming());
+    }
+
+    match /listas/{listaId} {
+      allow list: if (isSignedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+      allow get: if (isSignedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+      allow create: if isSignedIn() && isValidShoppingList(incoming());
+      allow update: if ((isSignedIn() && existing().userId == request.auth.uid) || isAdmin()) && isValidShoppingList(incoming());
+      allow delete: if (isSignedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+    }
+
+    match /userData/{userId} {
+      allow get: if isSignedIn() && userId == request.auth.uid;
+      allow write: if isSignedIn() && userId == request.auth.uid && isValidUserData(incoming());
+    }
+
+    match /agenda/{eventId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidAgendaEvent(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidAgendaEvent(incoming());
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /notas/{notaId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidNote(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidNote(incoming());
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /sugestoes_melhorias/{suggestionId} {
+      allow read: if true;
+      allow create: if isValidSugestaoMelhoria(incoming());
+      allow update: if (isValidSugestaoMelhoria(incoming())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['votes'])
+          && incoming().votes == existing().votes + 1) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /audit_logs/{logId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /configuracoes_sistema/{settingId} {
+      allow read, write: if isSignedIn() && settingId == request.auth.uid;
+    }
+
+    match /configuracoes_globais/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow list: if isAdmin();
+      allow get: if isAdmin() || (isSignedIn() && userId == request.auth.uid);
+      allow create: if isSignedIn() && userId == request.auth.uid && isValidUser(incoming());
+      allow update: if isAdmin() || (isSignedIn() && userId == request.auth.uid && isValidUser(incoming()) && (!incoming().keys().hasAny(['isOwner']) || incoming().get('isOwner', false) == existing().get('isOwner', false)));
+      allow delete: if isAdmin();
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

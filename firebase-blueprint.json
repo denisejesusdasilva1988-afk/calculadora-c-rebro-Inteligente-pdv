@@ -1,0 +1,189 @@
+{
+  "entities": {
+    "Encarte": {
+      "title": "Encarte",
+      "description": "Supermarket flyer with products and prices",
+      "type": "object",
+      "properties": {
+        "shopName": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "validUntil": { "type": "string", "format": "date-time" }
+      },
+      "required": ["shopName", "imageUrl", "createdAt"]
+    },
+    "ShoppingList": {
+      "title": "Shopping List",
+      "description": "Users shopping list with items and totals",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "texto_digitado": { "type": "string" },
+        "total_gasto": { "type": "number" },
+        "saldo_total": { "type": "string" },
+        "saldo_restante": { "type": "number" },
+        "data": { "type": "string", "format": "date-time" },
+        "pasta": { "type": "string" },
+        "excelRows": { "type": "array" },
+        "superListData": { "type": "object" },
+        "checkedIndices": { "type": "array" }
+      },
+      "required": ["userId", "data"]
+    },
+    "UserData": {
+      "title": "User Data",
+      "description": "User specific app state and preferences",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "inputText": { "type": "string" },
+        "budget": { "type": "string" },
+        "freeNotesText": { "type": "string" },
+        "futureItemsText": { "type": "string" },
+        "checkedIndices": { "type": "array" },
+        "superListData": { "type": "object" },
+        "excelRows": { "type": "array" },
+        "brechoClients": { "type": "array" },
+        "brechoRestockItems": { "type": "array" },
+        "garimpoItems": { "type": "array" },
+        "perishables": { "type": "array" },
+        "bakingBatches": { "type": "array" },
+        "produceLosses": { "type": "array" },
+        "deboningLogs": { "type": "array" },
+        "brechoCustomExpenses": { "type": "array" },
+        "brechoCashTransactions": { "type": "array" },
+        "pdvTransactions": { "type": "array" },
+        "pdvInitialCash": { "type": "number" },
+        "pdvCustomProducts": { "type": "array" },
+        "pdvProductOverrides": { "type": "object" },
+        "pdvCustomNiches": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "lastModifiedAt": { "type": "number", "description": "Local timestamp of last modification in milliseconds" }
+      },
+      "required": ["userId"]
+    },
+    "AgendaEvent": {
+      "title": "Agenda Event",
+      "description": "Appointment, payment or shopping schedule",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["shopping", "payment_received", "payment_made", "general"] },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "date", "type"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "User custom saved notepad note",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "text": { "type": "string" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "text", "date"]
+    },
+    "SugestaoMelhoria": {
+      "title": "User Suggestion",
+      "description": "Feedback or suggestions submitted by users",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "author": { "type": "string" },
+        "votes": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "isCustom": { "type": "boolean" }
+      },
+      "required": ["title", "description", "author", "votes", "timestamp"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Risk actions logged for auditing, e.g., Reset System, Void Sale, close shift, adjust cash",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "staffName": { "type": "string" },
+        "staffRole": { "type": "string" },
+        "action": { "type": "string" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "details": { "type": "object" }
+      },
+      "required": ["userId", "staffName", "staffRole", "action", "timestamp"]
+    },
+    "SystemSettings": {
+      "title": "System Settings",
+      "description": "System settings and role-based permissions",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "caixa": { "type": "object" },
+        "vendedor": { "type": "object" },
+        "gerente": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId"]
+    },
+    "User": {
+      "title": "User Profile",
+      "description": "User profile with owner privilege flag",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "isOwner": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    }
+  },
+  "firestore": {
+    "/encartes/{encarteId}": {
+      "schema": "Encarte",
+      "description": "Collection of supermarket flyers"
+    },
+    "/listas/{listaId}": {
+      "schema": "ShoppingList",
+      "description": "Collection of user shopping lists"
+    },
+    "/userData/{userId}": {
+      "schema": "UserData",
+      "description": "User data and state"
+    },
+    "/agenda/{eventId}": {
+      "schema": "AgendaEvent",
+      "description": "User scheduled events and financial reminders"
+    },
+    "/notas/{notaId}": {
+      "schema": "Note",
+      "description": "User saved notepad notes"
+    },
+    "/sugestoes_melhorias/{suggestionId}": {
+      "schema": "SugestaoMelhoria",
+      "description": "Collection of user custom suggestions and votes"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "High risk action audit logs"
+    },
+    "/configuracoes_sistema/{settingId}": {
+      "schema": "SystemSettings",
+      "description": "Collection of system settings and role permissions"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of user profiles containing owner privilege flag"
+    }
+  }
+}

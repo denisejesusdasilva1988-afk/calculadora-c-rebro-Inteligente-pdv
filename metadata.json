@@ -1,0 +1,11 @@
+{
+  "name": "Calculadora Cérebro Principal PDV",
+  "description": "Calculadora Cérebro Inteligente - Gestão de PDV (Ponto de Vendas) para comércios, moderno e fácil. Lista de fazer suas compras: supermercados, (com encartes atualizados) grátis. Bloco de notas inteligente com cálculo automático, checklist e painel de gestão.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

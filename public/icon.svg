@@ -1,0 +1,122 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Deep Dark Blue Background -->
+  <rect width="512" height="512" rx="112" fill="#0b0f19" />
+  
+  <!-- Central Radial Glow for ambient light -->
+  <circle cx="256" cy="220" r="180" fill="url(#centralGlow)" opacity="0.8" filter="url(#ambientBlur)" />
+
+  <defs>
+    <radialGradient id="centralGlow" cx="256" cy="220" r="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1e293b" stop-opacity="0.6"/>
+      <stop offset="60%" stop-color="#0f172a" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#0b0f19" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ambientBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="30" />
+    </filter>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Stars in the Corners (4-point sparkling stars) -->
+  <g transform="translate(40, 50)" filter="url(#glow)">
+    <path d="M 0,-15 Q 0,0 15,0 Q 0,0 0,15 Q 0,0 -15,0 Q 0,0 0,-15" fill="#fef08a" />
+  </g>
+  <g transform="translate(60, 80)" opacity="0.7">
+    <path d="M 0,-8 Q 0,0 8,0 Q 0,0 0,8 Q 0,0 -8,0 Q 0,0 0,-8" fill="#fef08a" />
+  </g>
+  
+  <g transform="translate(460, 50)" filter="url(#glow)">
+    <path d="M 0,-15 Q 0,0 15,0 Q 0,0 0,15 Q 0,0 -15,0 Q 0,0 0,-15" fill="#fef08a" />
+  </g>
+  <g transform="translate(440, 80)" opacity="0.7">
+    <path d="M 0,-8 Q 0,0 8,0 Q 0,0 0,8 Q 0,0 -8,0 Q 0,0 0,-8" fill="#fef08a" />
+  </g>
+
+  <g transform="translate(45, 410)" opacity="0.8">
+    <path d="M 0,-12 Q 0,0 12,0 Q 0,0 0,12 Q 0,0 -12,0 Q 0,0 0,-12" fill="#fef08a" />
+  </g>
+  <g transform="translate(465, 420)" opacity="0.8">
+    <path d="M 0,-10 Q 0,0 10,0 Q 0,0 0,10 Q 0,0 -10,0 Q 0,0 0,-10" fill="#93c5fd" />
+  </g>
+
+  <!-- Side-Profile Silhouette Head Outline -->
+  <path d="M 180,310 C 140,280 130,190 180,130 C 220,85 290,90 320,130 C 335,150 340,170 338,185 L 358,190 L 342,205 C 344,215 340,225 330,230 L 332,242 C 325,250 315,255 310,255 C 295,255 285,275 285,310" 
+        stroke="#38bdf8" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none" filter="url(#glow)" opacity="0.85" />
+
+  <!-- Brain Circuits inside the head -->
+  <g>
+    <!-- Circuit lines -->
+    <path d="M 210,140 C 230,120 270,120 290,140" stroke="#fde047" stroke-width="3" stroke-linecap="round" fill="none" filter="url(#glow)" />
+    <circle cx="210" cy="140" r="4.5" fill="#ffffff" filter="url(#glow)" />
+    <circle cx="290" cy="140" r="4.5" fill="#fde047" />
+
+    <path d="M 290,140 L 310,165 L 290,190" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" fill="none" filter="url(#glow)" />
+    <circle cx="310" cy="165" r="4" fill="#ffffff" />
+    <circle cx="290" cy="190" r="4" fill="#38bdf8" />
+
+    <path d="M 250,150 C 220,160 210,190 230,210 C 250,230 280,210 280,180" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.8" />
+    <line x1="250" y1="150" x2="280" y2="180" stroke="#fde047" stroke-width="2.5" stroke-dasharray="4 3" />
+    <circle cx="250" cy="150" r="5" fill="#fde047" filter="url(#glow)" />
+    <circle cx="280" cy="180" r="5" fill="#ffffff" filter="url(#glow)" />
+
+    <path d="M 185,190 C 180,220 210,240 235,225" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" fill="none" />
+    <circle cx="185" cy="190" r="4" fill="#38bdf8" />
+    <circle cx="235" cy="225" r="4" fill="#fde047" />
+
+    <path d="M 210,140 L 250,150" stroke="#fde047" stroke-width="2" opacity="0.6" />
+    <path d="M 235,225 L 230,210" stroke="#38bdf8" stroke-width="2" opacity="0.6" />
+    <path d="M 290,190 L 280,180" stroke="#38bdf8" stroke-width="2" opacity="0.6" />
+  </g>
+
+  <!-- Golden Cash Register Icon -->
+  <g transform="translate(0, -10)">
+    <path d="M 205,335 L 307,335 C 310,335 312,337 312,340 L 312,352 C 312,354 310,356 307,356 L 205,356 C 202,356 200,354 200,352 L 200,340 C 200,337 202,335 205,335 Z" 
+          stroke="#fde047" stroke-width="4.5" stroke-linejoin="round" fill="#0b0f19" filter="url(#glow)" />
+    <circle cx="256" cy="346" r="3.5" fill="#fde047" />
+
+    <path d="M 210,305 L 302,305 L 307,335 L 205,335 Z" 
+          stroke="#fde047" stroke-width="4" stroke-linejoin="round" fill="none" filter="url(#glow)" />
+    <line x1="220" y1="313" x2="292" y2="313" stroke="#fde047" stroke-width="2" opacity="0.8" />
+    <line x1="220" y1="321" x2="292" y2="321" stroke="#fde047" stroke-width="2" opacity="0.8" />
+    <line x1="220" y1="329" x2="292" y2="329" stroke="#fde047" stroke-width="2" opacity="0.8" />
+    <line x1="234" y1="305" x2="231" y2="335" stroke="#fde047" stroke-width="2" opacity="0.8" />
+    <line x1="250" y1="305" x2="249" y2="335" stroke="#fde047" stroke-width="2" opacity="0.8" />
+    <line x1="266" y1="305" x2="267" y2="335" stroke="#fde047" stroke-width="2" opacity="0.8" />
+    <line x1="282" y1="305" x2="285" y2="335" stroke="#fde047" stroke-width="2" opacity="0.8" />
+
+    <line x1="278" y1="305" x2="278" y2="280" stroke="#fde047" stroke-width="4" filter="url(#glow)" />
+    <rect x="260" y="265" width="36" height="15" rx="2.5" stroke="#fde047" stroke-width="3.5" fill="#0b0f19" filter="url(#glow)" />
+    <line x1="266" y1="272" x2="290" y2="272" stroke="#fde047" stroke-width="2.5" />
+
+    <path d="M 224,305 L 224,275 L 248,275 L 248,305" stroke="#fde047" stroke-width="3.5" stroke-linejoin="round" fill="#0b0f19" filter="url(#glow)" />
+    <text x="236" y="293" font-family="'Inter', system-ui, sans-serif" font-weight="900" font-size="10" fill="#fde047" text-anchor="middle">R$</text>
+
+    <path d="M 312,345 C 322,345 328,335 328,310" stroke="#fde047" stroke-width="3.5" stroke-linecap="round" fill="none" />
+    <path d="M 324,285 L 334,295 C 337,298 337,302 334,305 L 328,310" stroke="#fde047" stroke-width="3.5" stroke-linecap="round" fill="none" filter="url(#glow)" />
+    <rect x="320" y="275" width="12" height="10" rx="1.5" transform="rotate(30 320 275)" stroke="#fde047" stroke-width="3" fill="#0b0f19" />
+    
+    <g transform="translate(305, 275)">
+      <line x1="0" y1="0" x2="0" y2="15" stroke="#fde047" stroke-width="2.5" />
+      <line x1="5" y1="0" x2="5" y2="15" stroke="#fde047" stroke-width="1.2" />
+      <line x1="9" y1="0" x2="9" y2="15" stroke="#fde047" stroke-width="3.5" />
+      <line x1="15" y1="0" x2="15" y2="15" stroke="#fde047" stroke-width="1.2" />
+      <line x1="20" y1="0" x2="20" y2="15" stroke="#fde047" stroke-width="2.5" />
+    </g>
+  </g>
+
+  <!-- Typography Text -->
+  <g filter="url(#glow)">
+    <text x="256" y="405" font-family="'Inter', 'Space Grotesk', system-ui, sans-serif" font-weight="900" font-size="34" letter-spacing="1" fill="#fde047" text-anchor="middle">PDV INTELIGENTE</text>
+  </g>
+  <g transform="translate(422, 395)" filter="url(#glow)">
+    <path d="M 0,-7 Q 0,0 7,0 Q 0,0 0,7 Q 0,0 -7,0 Q 0,0 0,-7" fill="#ffffff" />
+  </g>
+
+  <text x="256" y="445" font-family="'Inter', system-ui, sans-serif" font-weight="500" font-size="24" fill="#93c5fd" text-anchor="middle">Calculadora &amp; Gestão</text>
+</svg>

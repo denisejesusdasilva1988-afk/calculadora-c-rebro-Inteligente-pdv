@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pt-BR" translate="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>Calculadora Cérebro Principal PDV</title>
+    <meta name="description" content="Sistema Inteligente de Frente de Caixa, Controle de Estoque, Emissão de Cupons e Calculadora PWA Comercial." />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="theme-color" content="#0d1117" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="google" content="notranslate" />
+    <style>
+      html, body {
+        background-color: #0d1117;
+        color: #ffffff;
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      #root {
+        min-height: 100vh;
+      }
+      .app-preloader {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 24px;
+        text-align: center;
+        box-sizing: border-box;
+      }
+      .preloader-spinner {
+        width: 48px;
+        height: 48px;
+        border: 4px solid rgba(56, 189, 248, 0.2);
+        border-top-color: #38bdf8;
+        border-radius: 50%;
+        animation: spin 1s infinite linear;
+        margin-bottom: 20px;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .preloader-title {
+        font-size: 20px;
+        font-weight: 800;
+        color: #38bdf8;
+        margin-bottom: 8px;
+        letter-spacing: 0.5px;
+      }
+      .preloader-subtitle {
+        font-size: 13px;
+        color: #94a3b8;
+        max-width: 320px;
+        line-height: 1.5;
+        margin-bottom: 20px;
+      }
+      .preloader-btn {
+        background: #2563eb;
+        color: #ffffff;
+        border: none;
+        padding: 12px 24px;
+        font-size: 14px;
+        font-weight: 700;
+        border-radius: 12px;
+        cursor: pointer;
+        display: none;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+      }
+    </style>
+  </head>
+  <body translate="no">
+    <div id="root">
+      <div class="app-preloader" id="app-preloader-box">
+        <div class="preloader-spinner"></div>
+        <div class="preloader-title">Calculadora Cérebro PDV 🧠</div>
+        <div class="preloader-subtitle">Carregando o aplicativo...</div>
+        <button type="button" class="preloader-btn" id="preloader-reload-btn" onclick="clearAppCacheAndReload()">
+          🔄 Recarregar e Limpar Memória
+        </button>
+      </div>
+    </div>
+    <script>
+      function clearAppCacheAndReload() {
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              for (var i = 0; i < registrations.length; i++) {
+                registrations[i].unregister();
+              }
+            });
+          }
+          if (typeof caches !== 'undefined') {
+            caches.keys().then(function(names) {
+              for (var j = 0; j < names.length; j++) {
+                caches.delete(names[j]);
+              }
+            });
+          }
+        } catch(e) {}
+        window.location.reload();
+      }
+
+      // Show reload button if loading takes more than 4.5 seconds
+      setTimeout(function() {
+        var btn = document.getElementById('preloader-reload-btn');
+        if (btn) btn.style.display = 'inline-block';
+      }, 4500);
+
+      // Disable Service Worker in AI Studio preview/iframe to prevent caching dev/vite bundles
+      var isPreviewHost = window.location.hostname.includes('ais-dev-') || 
+                          window.location.hostname.includes('ais-pre-') || 
+                          window.location.hostname.includes('run.app') ||
+                          window.location.hostname === 'localhost' || 
+                          window.location.hostname === '127.0.0.1';
+
+      if ('serviceWorker' in navigator) {
+        if (isPreviewHost) {
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            for (var i = 0; i < registrations.length; i++) {
+              registrations[i].unregister();
+            }
+          });
+        } else {
+          window.addEventListener('load', async function() {
+            try {
+              var registration = await navigator.serviceWorker.register('/sw.js');
+              console.log('Service Worker registrado com sucesso:', registration.scope);
+              
+              if ('SyncManager' in window) {
+                try {
+                  await registration.sync.register('database-sync');
+                } catch (syncErr) {}
+              }
+            } catch (error) {
+              console.warn('Aviso no registro do Service Worker:', error);
+            }
+          });
+        }
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
