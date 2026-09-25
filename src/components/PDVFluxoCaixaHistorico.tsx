@@ -292,14 +292,14 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
   return (
     <div className="w-full space-y-6 text-left animate-fadeIn">
       {/* Top Header with Back to PDV button */}
-      <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 border border-blue-500/30 rounded-3xl p-5 shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-indigo-950 border border-emerald-500/30 rounded-3xl p-5 shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
-          <div className="p-3 bg-blue-600/20 text-blue-400 rounded-2xl border border-blue-500/30 shadow-inner">
+          <div className="p-3 bg-emerald-600/20 text-emerald-400 rounded-2xl border border-emerald-500/30 shadow-inner">
             <Calendar className="w-7 h-7" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                 Aba Exclusiva de Caixa
               </span>
               <span className="text-[10px] text-slate-400 font-mono">
@@ -318,7 +318,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
         <button
           type="button"
           onClick={onBackToPDV}
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 cursor-pointer shrink-0"
+          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 cursor-pointer shrink-0"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Voltar ao Balcão de Vendas</span>
@@ -329,7 +329,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
       <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mr-1 flex items-center gap-1">
-            <Filter className="w-3.5 h-3.5 text-blue-400" />
+            <Filter className="w-3.5 h-3.5 text-emerald-400" />
             Período:
           </span>
 
@@ -338,7 +338,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
             onClick={() => setPeriodFilter("hoje")}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
               periodFilter === "hoje"
-                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-400"
+                ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30 border border-emerald-400"
                 : "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
             }`}
           >
@@ -350,7 +350,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
             onClick={() => setPeriodFilter("ontem")}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
               periodFilter === "ontem"
-                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-400"
+                ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30 border border-emerald-400"
                 : "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
             }`}
           >
@@ -362,7 +362,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
             onClick={() => setPeriodFilter("7dias")}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
               periodFilter === "7dias"
-                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-400"
+                ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30 border border-emerald-400"
                 : "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
             }`}
           >
@@ -374,7 +374,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
             onClick={() => setPeriodFilter("mes")}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
               periodFilter === "mes"
-                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 border border-blue-400"
+                ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30 border border-emerald-400"
                 : "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
             }`}
           >
@@ -384,7 +384,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
 
         {/* Datepicker for custom day */}
         <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-white/10">
-          <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
+          <Calendar className="w-4 h-4 text-emerald-400 shrink-0" />
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Escolher Dia:</span>
           <input
             type="date"
@@ -401,9 +401,9 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
       {/* KPI Financial Cards (Azul Marinho e Branco de Alto Destaque) */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* Entradas / Faturamento */}
-        <div className="bg-gradient-to-b from-blue-900/40 to-slate-900 border border-blue-500/30 p-4 rounded-2xl shadow-lg">
+        <div className="bg-gradient-to-b from-emerald-900/40 to-slate-900 border border-emerald-500/30 p-4 rounded-2xl shadow-lg">
           <div className="flex items-center justify-between">
-            <span className="text-[9px] font-black uppercase text-blue-300 tracking-wider">Total Entradas (Vendas)</span>
+            <span className="text-[9px] font-black uppercase text-emerald-300 tracking-wider">Total Entradas (Vendas)</span>
             <div className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg">
               <TrendingUp className="w-4 h-4" />
             </div>
@@ -433,17 +433,17 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
         </div>
 
         {/* Saldo Líquido */}
-        <div className="bg-gradient-to-b from-blue-950 to-slate-900 border-2 border-blue-500/50 p-4 rounded-2xl shadow-xl">
+        <div className="bg-gradient-to-b from-emerald-950 to-slate-900 border-2 border-emerald-500/50 p-4 rounded-2xl shadow-xl">
           <div className="flex items-center justify-between">
-            <span className="text-[9px] font-black uppercase text-blue-200 tracking-wider">Saldo Líquido em Caixa</span>
-            <div className="p-1.5 bg-blue-500/20 text-blue-400 rounded-lg">
+            <span className="text-[9px] font-black uppercase text-emerald-200 tracking-wider">Saldo Líquido em Caixa</span>
+            <div className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div className="text-xl sm:text-2xl font-black text-white mt-2 font-mono">
             {formatCurrency(stats.saldoLiquido)}
           </div>
-          <span className="text-[9.5px] text-blue-300 font-bold block mt-1">
+          <span className="text-[9.5px] text-emerald-300 font-bold block mt-1">
             Entradas (-) Saídas
           </span>
         </div>
@@ -492,7 +492,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
           onClick={() => setActiveView("vendas")}
           className={`flex-1 py-3 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
             activeView === "vendas"
-              ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
+              ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/30"
               : "text-slate-400 hover:text-white hover:bg-white/5"
           }`}
         >
@@ -505,7 +505,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
           onClick={() => setActiveView("produtos")}
           className={`flex-1 py-3 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
             activeView === "produtos"
-              ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
+              ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/30"
               : "text-slate-400 hover:text-white hover:bg-white/5"
           }`}
         >
@@ -529,7 +529,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
 
       {/* VIEW 1: DETAILED TRANSACTIONS LIST */}
       {activeView === "vendas" && (
-        <div className="bg-slate-900 border border-blue-500/20 rounded-3xl p-5 shadow-2xl space-y-4">
+        <div className="bg-slate-900 border border-emerald-500/20 rounded-3xl p-5 shadow-2xl space-y-4">
           {/* Filters Bar */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -571,7 +571,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Buscar item, cliente ou valor..."
-                className="w-full bg-slate-950 border border-white/10 pl-9 pr-3 py-1.5 text-xs text-white rounded-xl outline-none focus:border-blue-500"
+                className="w-full bg-slate-950 border border-white/10 pl-9 pr-3 py-1.5 text-xs text-white rounded-xl outline-none focus:border-emerald-500"
               />
             </div>
           </div>
@@ -579,7 +579,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
           {/* Transactions List */}
           {filteredSalesList.length === 0 ? (
             <div className="text-center py-12 space-y-3">
-              <div className="w-12 h-12 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mx-auto">
                 <Calendar className="w-6 h-6" />
               </div>
               <h3 className="text-sm font-bold text-white uppercase tracking-wider">
@@ -602,13 +602,13 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
                       tx.isDeleted
                         ? "bg-rose-950/10 border-rose-500/10 opacity-50"
                         : isEntrada
-                          ? "bg-slate-950/80 border-blue-500/20 hover:border-blue-500/40"
+                          ? "bg-slate-950/80 border-emerald-500/20 hover:border-emerald-500/40"
                           : "bg-rose-950/20 border-rose-500/20"
                     }`}
                   >
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-mono font-bold text-blue-400 flex items-center gap-1">
+                        <span className="text-[10px] font-mono font-bold text-emerald-400 flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {txDate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                         </span>
@@ -704,7 +704,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
       {activeView === "produtos" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left: Top Selling Products (7/12) */}
-          <div className="lg:col-span-7 bg-slate-900 border border-blue-500/20 rounded-3xl p-5 shadow-2xl space-y-4">
+          <div className="lg:col-span-7 bg-slate-900 border border-emerald-500/20 rounded-3xl p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
@@ -775,7 +775,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
           <div className="lg:col-span-5 bg-slate-900 border border-white/10 rounded-3xl p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-blue-500/20 text-blue-400 rounded-xl">
+                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
                   <Snowflake className="w-5 h-5" />
                 </div>
                 <div>
@@ -847,7 +847,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
               <span className="px-3 py-1 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                 {validityAlerts.urgentCount} Vence em até 7 dias
               </span>
-              <span className="px-3 py-1 rounded-xl text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              <span className="px-3 py-1 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                 {validityAlerts.attentionCount} Vence em até 30 dias
               </span>
             </div>
@@ -878,7 +878,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
                         : isUrgent
                           ? "bg-amber-950/30 border-amber-500/40 shadow-lg shadow-amber-950/20"
                           : isAttention
-                            ? "bg-blue-950/20 border-blue-500/20"
+                            ? "bg-emerald-950/20 border-emerald-500/20"
                             : "bg-slate-950/60 border-white/5"
                     }`}
                   >
@@ -890,7 +890,7 @@ export const PDVFluxoCaixaHistorico: React.FC<PDVFluxoCaixaHistoricoProps> = ({
                             : isUrgent
                               ? "bg-amber-500 text-slate-950 font-black"
                               : isAttention
-                                ? "bg-blue-500/20 text-blue-300"
+                                ? "bg-emerald-500/20 text-emerald-300"
                                 : "bg-emerald-500/20 text-emerald-300"
                         }`}>
                           {isExpired

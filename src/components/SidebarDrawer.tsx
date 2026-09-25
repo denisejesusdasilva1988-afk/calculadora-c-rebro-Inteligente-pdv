@@ -502,7 +502,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
     const predefined: Record<string, { name: string; label: string; icon: any; color: string }> = {
       salao_beleza: { name: "Salão de Beleza", label: "Salão", icon: Scissors, color: "text-pink-400 bg-pink-500/10" },
-      barbearia: { name: "Barbearia", label: "Barbearia", icon: Scissors, color: "text-blue-400 bg-blue-500/10" },
+      barbearia: { name: "Barbearia", label: "Barbearia", icon: Scissors, color: "text-emerald-400 bg-emerald-500/10" },
       manicure: { name: "Manicure & Unhas", label: "Manicure", icon: Sparkles, color: "text-purple-400 bg-purple-500/10" },
       mercadinho: { name: "Mercadinho & Mercearia", label: "Mercadinho", icon: ShoppingCart, color: "text-emerald-400 bg-emerald-500/10" },
       sushi: { name: "Sushi & Culinária Japonesa", label: "Sushi", icon: Fish, color: "text-red-400 bg-red-500/10" },
@@ -518,7 +518,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       padaria: { name: "Padaria & Mercadinho", label: "Padaria", icon: Cookie, color: "text-amber-550 bg-amber-600/10" },
       academia: { name: "Academia & Fitness", label: "Academia", icon: Dumbbell, color: "text-indigo-400 bg-indigo-500/10" },
       lava_jato: { name: "Lava Jato", label: "Lava Jato", icon: Car, color: "text-cyan-400 bg-cyan-500/10" },
-      auto_pecas: { name: "Autopeças & Peças", label: "Autopeças", icon: Wrench, color: "text-blue-400 bg-blue-500/10" },
+      auto_pecas: { name: "Autopeças & Peças", label: "Autopeças", icon: Wrench, color: "text-emerald-400 bg-emerald-500/10" },
       mecanico: { name: "Oficina Mecânica", label: "Mecânico", icon: Wrench, color: "text-sky-400 bg-sky-500/10" },
       comercio_geral: { name: "Loja / Comércio Geral", label: "Comércio", icon: Store, color: "text-emerald-400 bg-emerald-500/10" },
       loja_racao: { name: "Loja de Ração & Pet", label: "Loja de Ração", icon: Dog, color: "text-amber-400 bg-amber-500/10" },
@@ -737,7 +737,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   {/* Company/Enterprise Setup area */}
                   <div className="bg-slate-950/40 p-3 rounded-xl border border-white/10 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[9.5px] font-black uppercase tracking-wider text-blue-200 flex items-center gap-1">
+                      <span className="text-[9.5px] font-black uppercase tracking-wider text-emerald-200 flex items-center gap-1">
                         <Building2 className="w-3 h-3 text-orange-400" />
                         Identificação da Empresa
                       </span>
@@ -808,7 +808,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                             (Sem CNPJ/CPF cadastrado)
                           </p>
                         )}
-                        <p className="text-[10.5px] font-bold text-blue-200/90 truncate max-w-full font-mono mt-0.5">
+                        <p className="text-[10.5px] font-bold text-emerald-200/90 truncate max-w-full font-mono mt-0.5">
                           ✉️ {user?.email || "visitante@cerebro.com"}
                         </p>
                       </div>
@@ -874,7 +874,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
                         {/* Company Identification Fields inside Login */}
                         <div className="bg-slate-900/60 p-2.5 rounded-lg border border-white/5 space-y-2 text-left">
-                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider block">Identificação da Empresa</span>
+                          <span className="text-[8px] font-black uppercase text-emerald-400 tracking-wider block">Identificação da Empresa</span>
                           
                           <div className="space-y-1">
                             <label className="text-[8px] font-bold text-slate-400 uppercase">Nome da Empresa</label>
@@ -953,7 +953,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
                         <button
                           type="submit"
-                          className="w-full bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black uppercase py-2 rounded-lg shadow-md transition-all cursor-pointer flex items-center justify-center gap-1"
+                          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase py-2 rounded-lg shadow-md transition-all cursor-pointer flex items-center justify-center gap-1"
                         >
                           <ShieldCheck className="w-3.5 h-3.5" />
                           <span>Entrar / Logar com PIN</span>
@@ -966,7 +966,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
                 {/* Active Niche Selector Dropdown */}
                 <div className="mt-4 relative z-50">
-                  <span className="text-[9px] font-black uppercase text-blue-200 block mb-1">
+                  <span className="text-[9px] font-black uppercase text-emerald-200 block mb-1">
                     Estabelecimento Operacional Ativo 🏢
                   </span>
                   <button
@@ -1132,12 +1132,12 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     onClick={() => handleNavigate("folders")}
                     className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
                       notepadMode === "folders"
-                        ? "bg-blue-600/30 border border-blue-500/40 text-blue-200 font-extrabold"
+                        ? "bg-emerald-600/30 border border-emerald-500/40 text-emerald-200 font-extrabold"
                         : "hover:bg-white/5 border border-transparent text-slate-300"
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <Layers className="w-4 h-4 text-blue-400 shrink-0" />
+                      <Layers className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span className="text-[11.5px] uppercase font-bold tracking-wide">
                         Calculadora Comum Rápida 🧮
                       </span>
@@ -1259,12 +1259,12 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     onClick={() => handleNavigate("segmentos")}
                     className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer text-left ${
                       notepadMode === "segmentos"
-                        ? "bg-blue-600/20 border border-blue-500/30 text-blue-300 font-extrabold shadow-[0_0_15px_rgba(59,130,246,0.15)]"
+                        ? "bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 font-extrabold shadow-[0_0_15px_rgba(59,130,246,0.15)]"
                         : "hover:bg-white/5 border border-transparent text-slate-300"
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <Store className="w-5 h-5 text-blue-400 shrink-0" />
+                      <Store className="w-5 h-5 text-emerald-400 shrink-0" />
                       <span className="text-[12px] uppercase font-bold tracking-wide">Segmentos</span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
@@ -1283,7 +1283,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                       <ShoppingBag className="w-5 h-5 text-sky-400 shrink-0" />
                       <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
                         Cadastro de produto
-                        <span className="text-[8px] bg-blue-500 text-white font-black px-1.5 py-0.5 rounded">R$ 29,90</span>
+                        <span className="text-[8px] bg-emerald-500 text-white font-black px-1.5 py-0.5 rounded">R$ 29,90</span>
                       </span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
@@ -1353,7 +1353,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                       <Layers className="w-5 h-5 text-teal-400 shrink-0" />
                       <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
                         Consultar estoque
-                        <span className="text-[8px] bg-blue-500 text-white font-black px-1.5 py-0.5 rounded">R$ 29,90</span>
+                        <span className="text-[8px] bg-emerald-500 text-white font-black px-1.5 py-0.5 rounded">R$ 29,90</span>
                       </span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
@@ -1372,7 +1372,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                           ? "bg-purple-600/20 text-purple-300 border border-purple-500/20" 
                           : isGerente 
                             ? "bg-amber-600/20 text-amber-300 border border-amber-500/20" 
-                            : "bg-blue-600/20 text-blue-300 border border-blue-500/20"
+                            : "bg-emerald-600/20 text-emerald-300 border border-emerald-500/20"
                       }`}>
                         {isOwner ? "👑 Dono" : isGerente ? `⭐ ${gestaoName}` : `👤 ${gestaoName}`}
                       </span>

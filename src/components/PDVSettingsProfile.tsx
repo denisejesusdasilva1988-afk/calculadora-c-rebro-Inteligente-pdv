@@ -727,7 +727,7 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
                       ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" 
                       : staff.role === "caixa"
                       ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                      : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                      : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                   }`}>
                     {staff.role === "gerente" ? "👤 Gerente" : staff.role === "caixa" ? "👤 Caixa" : `👤 ${staff.role?.toUpperCase() || "Operador"}`}
                   </span>

@@ -360,7 +360,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({
           key: "allowSuprimento",
           label: "Mexer no Fundo do Caixa (Suprimento)",
           desc: "Permite colocar dinheiro inicial de troco ou reforço físico de notas na gaveta do caixa.",
-          icon: <KeyRound className="w-3.5 h-3.5 text-blue-400" />
+          icon: <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
         },
         {
           key: "allowSangria",
@@ -451,7 +451,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({
     },
     {
       title: "Módulos Auxiliares de Apoio 📑",
-      icon: <Layers className="w-4 h-4 text-blue-400" />,
+      icon: <Layers className="w-4 h-4 text-emerald-400" />,
       items: [
         {
           key: "allowNotes",

@@ -197,11 +197,11 @@ const getFolderStyleAndIcon = (folderName: string) => {
   }
   if (normalized.includes("orçamento") || normalized.includes("orcameto") || normalized.includes("proposta")) {
     return {
-      icon: <Notebook className="w-3.5 h-3.5 shrink-0 text-blue-500" />,
+      icon: <Notebook className="w-3.5 h-3.5 shrink-0 text-emerald-500" />,
       emoji: "📊",
-      colorClass: "text-blue-600 dark:text-blue-400",
-      bgClass: "bg-blue-500/10",
-      borderClass: "border-blue-500/20"
+      colorClass: "text-emerald-600 dark:text-emerald-400",
+      bgClass: "bg-emerald-500/10",
+      borderClass: "border-emerald-500/20"
     };
   }
   if (normalized.includes("caixa") || normalized.includes("fechamento")) {
@@ -270,6 +270,7 @@ interface NotesProps {
   handleUpdateNoteFolder?: (id: string, folderName: string) => void;
   handleUpdateNotePin?: (id: string, newPin: string) => void;
   user?: any;
+  onOpenGaveteiro?: () => void;
 }
 
 export const NotesModule = React.memo(
@@ -286,6 +287,7 @@ export const NotesModule = React.memo(
     handleUpdateNoteFolder,
     handleUpdateNotePin,
     user,
+    onOpenGaveteiro,
   }: NotesProps) => {
     const [localText, setLocalText] = React.useState(freeNotesText);
 
@@ -2138,16 +2140,29 @@ Data: [Inserir Data]`;
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowSavedNotes(!showSavedNotes)}
-            className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10.5px] tracking-wide flex items-center justify-center gap-2 transition-all ${showSavedNotes ? "bg-amber-700 text-white" : "bg-amber-100 text-amber-800 border border-amber-300"}`}
-          >
-            <History className="w-4 h-4" />
-            <span>
-              {showSavedNotes ? "Voltar ao Editor" : "Ver Notas Salvas 📜"}
-            </span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {onOpenGaveteiro && (
+              <button
+                type="button"
+                onClick={onOpenGaveteiro}
+                className="px-4 py-2.5 rounded-xl font-black uppercase text-[10.5px] tracking-wide flex items-center justify-center gap-1.5 transition-all bg-emerald-600 hover:bg-emerald-500 text-white shadow cursor-pointer"
+                title="Abrir Gaveteiro de Pastas Geral com notas, listas de supermercado e talões"
+              >
+                <Folder className="w-4 h-4" />
+                <span>Gaveteiro de Pastas 🗄️</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowSavedNotes(!showSavedNotes)}
+              className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10.5px] tracking-wide flex items-center justify-center gap-2 transition-all ${showSavedNotes ? "bg-amber-700 text-white" : "bg-amber-100 text-amber-800 border border-amber-300"}`}
+            >
+              <History className="w-4 h-4" />
+              <span>
+                {showSavedNotes ? "Voltar ao Editor" : "Ver Notas Salvas 📜"}
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Formato de Impressão Toggle */}
@@ -2505,7 +2520,7 @@ Data: [Inserir Data]`;
                                   className={`px-3 py-1.5 rounded-xl flex items-center justify-center gap-1.5 active:scale-90 transition-all font-black uppercase text-[9px] border cursor-pointer ${
                                     isSpeakingLocal && speakingNoteId === note.id
                                       ? "bg-red-600 border-red-500 text-white animate-pulse"
-                                      : "bg-blue-50 border-blue-200 text-blue-950 hover:bg-blue-100"
+                                      : "bg-emerald-50 border-emerald-200 text-emerald-950 hover:bg-emerald-100"
                                   }`}
                                   title="Ouvir a leitura falada do documento"
                                 >
@@ -2516,7 +2531,7 @@ Data: [Inserir Data]`;
                                     </>
                                   ) : (
                                     <>
-                                      <Volume2 className="w-3.5 h-3.5 text-blue-600" />
+                                      <Volume2 className="w-3.5 h-3.5 text-emerald-600" />
                                       Ouvir
                                     </>
                                   )}
@@ -2929,12 +2944,12 @@ Data: [Inserir Data]`;
                           }}
                           className={`relative w-full h-[190px] rounded-2xl flex transition-all duration-300 text-left overflow-hidden group cursor-pointer border shadow-xl ${
                             activeTemplate === "promissoria"
-                              ? "bg-gradient-to-b from-blue-800 to-blue-950 text-white border-blue-400 ring-4 ring-yellow-400 -translate-y-3 scale-105"
-                              : "bg-gradient-to-b from-blue-900 to-blue-950 text-slate-100 border-blue-900 hover:-translate-y-3 hover:scale-105 hover:shadow-[0_20px_35px_rgba(0,0,0,0.8)]"
+                              ? "bg-gradient-to-b from-emerald-800 to-emerald-950 text-white border-emerald-400 ring-4 ring-yellow-400 -translate-y-3 scale-105"
+                              : "bg-gradient-to-b from-emerald-900 to-emerald-950 text-slate-100 border-emerald-900 hover:-translate-y-3 hover:scale-105 hover:shadow-[0_20px_35px_rgba(0,0,0,0.8)]"
                           }`}
                         >
                           {/* Spine binding with spiral stitches */}
-                          <div className="w-5 bg-gradient-to-r from-neutral-900 to-slate-800 border-r border-blue-500/20 flex flex-col justify-around py-3 items-center">
+                          <div className="w-5 bg-gradient-to-r from-neutral-900 to-slate-800 border-r border-emerald-500/20 flex flex-col justify-around py-3 items-center">
                             {[1, 2, 3, 4, 5].map((i) => (
                               <div
                                 key={i}
@@ -2946,30 +2961,30 @@ Data: [Inserir Data]`;
                           {/* Book Cover Face */}
                           <div className="flex-1 p-3 flex flex-col justify-between relative">
                             {/* Double frame design */}
-                            <div className="absolute inset-2 border border-blue-500/30 rounded-lg pointer-events-none" />
+                            <div className="absolute inset-2 border border-emerald-500/30 rounded-lg pointer-events-none" />
 
                             <div className="pt-1.5">
-                              <div className="text-[6.5px] font-black tracking-widest text-blue-300 uppercase block opacity-70">
+                              <div className="text-[6.5px] font-black tracking-widest text-emerald-300 uppercase block opacity-70">
                                 CAMBIAL
                               </div>
                               <h4 className="text-[11px] font-black uppercase text-yellow-400 leading-tight tracking-wider mt-1">
                                 Nota Promissória
                               </h4>
-                              <div className="h-[1px] bg-gradient-to-r from-blue-500/40 via-blue-500/10 to-transparent my-1" />
+                              <div className="h-[1px] bg-gradient-to-r from-emerald-500/40 via-emerald-500/10 to-transparent my-1" />
                             </div>
 
                             {/* Retro central sticker label */}
-                            <div className="bg-[#fcf8ef] text-slate-900 p-1.5 rounded border border-blue-950/20 text-center shadow-md my-1">
-                              <span className="text-[7px] font-black tracking-wider text-blue-900 uppercase block">
+                            <div className="bg-[#fcf8ef] text-slate-900 p-1.5 rounded border border-emerald-950/20 text-center shadow-md my-1">
+                              <span className="text-[7px] font-black tracking-wider text-emerald-900 uppercase block">
                                 COBRANÇA
                               </span>
-                              <span className="text-[6.5px] font-semibold italic text-blue-800 block leading-tight">
+                              <span className="text-[6.5px] font-semibold italic text-emerald-800 block leading-tight">
                                 Compromisso Seguro
                               </span>
                             </div>
 
                             {/* Bottom spine stamp */}
-                            <div className="flex items-end justify-between text-blue-300 pt-1">
+                            <div className="flex items-end justify-between text-emerald-300 pt-1">
                               <span className="text-[7px] font-bold tracking-widest uppercase">
                                 VOL. 1
                               </span>
@@ -3320,13 +3335,13 @@ Data: [Inserir Data]`;
                         }}
                         className={`relative rounded-2xl p-4 text-left flex flex-col justify-between transition-all duration-300 border-2 select-none h-[155px] cursor-pointer overflow-hidden ${
                           activeTemplate === "promissoria"
-                            ? "bg-gradient-to-br from-blue-900 to-blue-950 text-white border-blue-500 scale-[1.02] shadow-lg shadow-blue-900/20"
-                            : "bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-blue-300 hover:scale-[1.02] shadow-sm"
+                            ? "bg-gradient-to-br from-emerald-900 to-emerald-950 text-white border-emerald-500 scale-[1.02] shadow-lg shadow-emerald-900/20"
+                            : "bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-emerald-300 hover:scale-[1.02] shadow-sm"
                         }`}
                       >
                         <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-slate-200 via-slate-100 to-slate-200 border-b border-slate-300" />
                         {activeTemplate === "promissoria" && (
-                          <div className="absolute top-0 left-0 right-0 h-1.5 bg-blue-400" />
+                          <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-400" />
                         )}
 
                         <div className="pt-2">
@@ -3334,7 +3349,7 @@ Data: [Inserir Data]`;
                             Título de Crédito Cambial
                           </span>
                           <h4
-                            className={`text-xs font-black uppercase leading-tight ${activeTemplate === "promissoria" ? "text-yellow-400" : "text-blue-900"}`}
+                            className={`text-xs font-black uppercase leading-tight ${activeTemplate === "promissoria" ? "text-yellow-400" : "text-emerald-900"}`}
                           >
                             Nota Promissória
                           </h4>
@@ -4779,7 +4794,7 @@ Data: [Inserir Data]`;
                       className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-350 active:scale-95 shadow-md border ${
                         isSpeakingLocal && speakingNoteId === "editor"
                           ? "bg-red-600 text-white animate-pulse border-red-500 shadow-red-500/30 cursor-pointer"
-                          : "bg-blue-50 text-blue-950 hover:bg-blue-100 border-blue-200 shadow-blue-500/10 cursor-pointer"
+                          : "bg-emerald-50 text-emerald-950 hover:bg-emerald-100 border-emerald-200 shadow-emerald-500/10 cursor-pointer"
                       }`}
                       title="Ouvir a leitura falada do texto"
                     >
@@ -4790,7 +4805,7 @@ Data: [Inserir Data]`;
                         </>
                       ) : (
                         <>
-                          <Volume2 className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                          <Volume2 className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
                           <span>🔊 OUVIR O QUE ESTÁ ESCRITO</span>
                         </>
                       )}
@@ -5202,7 +5217,7 @@ Data: [Inserir Data]`;
                     <button
                       type="button"
                       onClick={() => setPenColor("#000080")}
-                      className={`w-5 h-5 rounded-full bg-blue-900 border ${penColor === "#000080" ? "border-white scale-115 ring-2 ring-blue-500" : "border-transparent"}`}
+                      className={`w-5 h-5 rounded-full bg-emerald-900 border ${penColor === "#000080" ? "border-white scale-115 ring-2 ring-emerald-500" : "border-transparent"}`}
                       title="Caneta Azul"
                     />
                     <button

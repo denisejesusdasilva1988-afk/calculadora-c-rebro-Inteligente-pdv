@@ -125,7 +125,7 @@ export const AgendaModule = React.memo(({
       <div className="bg-white rounded-[2.5rem] p-6 shadow-xl shadow-slate-200/50 border border-slate-100">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/30">
+            <div className="p-3 bg-emerald-600 rounded-2xl shadow-lg shadow-emerald-500/30">
               <CalendarIcon className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -165,9 +165,9 @@ export const AgendaModule = React.memo(({
               <button
                 key={idx}
                 onClick={() => setSelectedDate(day)}
-                className={`relative aspect-square flex flex-col items-center justify-center rounded-2xl transition-all border-2 ${isSelected ? "border-blue-600 bg-blue-50/50" : "border-transparent"} ${!isCurrentMonth ? "opacity-20" : "hover:bg-slate-50"}`}
+                className={`relative aspect-square flex flex-col items-center justify-center rounded-2xl transition-all border-2 ${isSelected ? "border-emerald-600 bg-emerald-50/50" : "border-transparent"} ${!isCurrentMonth ? "opacity-20" : "hover:bg-slate-50"}`}
               >
-                <span className={`text-sm font-black ${isSelected ? "text-blue-700" : "text-slate-700"} ${isToday(day) ? "underline decoration-blue-500 decoration-2 underline-offset-4" : ""}`}>
+                <span className={`text-sm font-black ${isSelected ? "text-emerald-700" : "text-slate-700"} ${isToday(day) ? "underline decoration-emerald-500 decoration-2 underline-offset-4" : ""}`}>
                   {format(day, "d")}
                 </span>
                 {evts.length > 0 && (
@@ -180,7 +180,7 @@ export const AgendaModule = React.memo(({
                           e.type === 'payment_received' ? "bg-green-500" : 
                           e.type === 'payment_made' ? "bg-red-500" : 
                           e.type === 'supplier_visit' ? "bg-purple-500" : 
-                          e.type === 'supplier_debt' ? "bg-indigo-500" : "bg-blue-500"
+                          e.type === 'supplier_debt' ? "bg-indigo-500" : "bg-emerald-500"
                         }`} 
                       />
                     ))}
@@ -225,7 +225,7 @@ export const AgendaModule = React.memo(({
                     event.type === 'payment_received' ? "bg-green-50 text-green-500" : 
                     event.type === 'payment_made' ? "bg-red-50 text-red-500" : 
                     event.type === 'supplier_visit' ? "bg-purple-50 text-purple-500" : 
-                    event.type === 'supplier_debt' ? "bg-indigo-50 text-indigo-500" : "bg-blue-50 text-blue-500"
+                    event.type === 'supplier_debt' ? "bg-indigo-50 text-indigo-500" : "bg-emerald-50 text-emerald-500"
                   }`}>
                     {event.type === 'shopping' ? <ShoppingBag className="w-6 h-6" /> : 
                      event.type === 'payment_received' ? <ArrowDownCircle className="w-6 h-6" /> : 
@@ -250,7 +250,7 @@ export const AgendaModule = React.memo(({
                          </span>
                        )}
                        <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
-                         event.status === 'completed' ? "bg-slate-100 text-slate-400" : "bg-blue-50 text-blue-600"
+                         event.status === 'completed' ? "bg-slate-100 text-slate-400" : "bg-emerald-50 text-emerald-600"
                        }`}>
                          {event.status === 'completed' ? "Concluído" : "Pendente"}
                        </span>
@@ -296,7 +296,7 @@ export const AgendaModule = React.memo(({
               className="relative w-full max-w-sm bg-white rounded-[3rem] p-8 shadow-2xl space-y-6"
             >
               <div className="flex items-center gap-3">
-                 <div className="p-3 bg-blue-600 rounded-2xl">
+                 <div className="p-3 bg-emerald-600 rounded-2xl">
                     <Plus className="w-5 h-5 text-white" />
                  </div>
                  <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">Novo Agendamento</h3>
@@ -310,7 +310,7 @@ export const AgendaModule = React.memo(({
                     placeholder="Ex: Ir em Madureira, Compras..."
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-bold text-slate-800 focus:border-blue-500 outline-none transition-all"
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-bold text-slate-800 focus:border-emerald-500 outline-none transition-all"
                   />
                 </div>
 
@@ -324,7 +324,7 @@ export const AgendaModule = React.memo(({
                         const d = new Date(e.target.value);
                         if (!isNaN(d.getTime())) setSelectedDate(d);
                       }}
-                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 font-bold text-slate-800 focus:border-blue-500 outline-none transition-all text-xs"
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 font-bold text-slate-800 focus:border-emerald-500 outline-none transition-all text-xs"
                     />
                   </div>
                   <div className="space-y-2">
@@ -333,7 +333,7 @@ export const AgendaModule = React.memo(({
                       type="time"
                       value={newTime}
                       onChange={(e) => setNewTime(e.target.value)}
-                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 font-bold text-slate-800 focus:border-blue-500 outline-none transition-all text-xs"
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-4 font-bold text-slate-800 focus:border-emerald-500 outline-none transition-all text-xs"
                     />
                   </div>
                 </div>
@@ -345,7 +345,7 @@ export const AgendaModule = React.memo(({
                     placeholder="0.00"
                     value={newAmount}
                     onChange={(e) => setNewAmount(e.target.value)}
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-bold text-slate-800 focus:border-blue-500 outline-none transition-all"
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 font-bold text-slate-800 focus:border-emerald-500 outline-none transition-all"
                   />
                 </div>
 
@@ -363,7 +363,7 @@ export const AgendaModule = React.memo(({
                       <button
                         key={type.id}
                         onClick={() => setNewType(type.id as any)}
-                        className={`flex items-center justify-center gap-2 py-3 rounded-xl border-2 transition-all font-black text-[9px] uppercase tracking-widest ${newType === type.id ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20" : "bg-white border-slate-100 text-slate-400 hover:border-blue-200"}`}
+                        className={`flex items-center justify-center gap-2 py-3 rounded-xl border-2 transition-all font-black text-[9px] uppercase tracking-widest ${newType === type.id ? "bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-500/20" : "bg-white border-slate-100 text-slate-400 hover:border-emerald-200"}`}
                       >
                         {type.icon} {type.label}
                       </button>
@@ -375,7 +375,7 @@ export const AgendaModule = React.memo(({
               <div className="flex flex-col gap-2 pt-2">
                 <button 
                   onClick={handleAddSubmit}
-                  className="w-full bg-blue-600 text-white rounded-[2rem] py-5 font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-600/20 active:scale-95 transition-all"
+                  className="w-full bg-emerald-600 text-white rounded-[2rem] py-5 font-black uppercase text-xs tracking-widest shadow-xl shadow-emerald-600/20 active:scale-95 transition-all"
                 >
                   Confirmar Agendamento
                 </button>

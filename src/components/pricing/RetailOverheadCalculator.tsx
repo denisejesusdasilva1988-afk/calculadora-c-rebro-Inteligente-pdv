@@ -275,18 +275,18 @@ export function RetailOverheadCalculator({
   return (
     <div className="space-y-5 animate-in fade-in duration-200 text-left">
       {/* HEADER CARD */}
-      <div className="bg-gradient-to-r from-blue-950/70 via-slate-900 to-slate-950 border border-blue-500/30 rounded-2xl p-4 sm:p-5 shadow-xl">
+      <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900 to-slate-950 border border-emerald-500/30 rounded-2xl p-4 sm:p-5 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-600/30 shrink-0">
+            <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-lg shadow-emerald-600/30 shrink-0">
               <ShoppingBag className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-[9.5px] font-black uppercase text-blue-400 tracking-wider">
+                <span className="text-[9.5px] font-black uppercase text-emerald-400 tracking-wider">
                   Módulo Comércio, Mercado & Mercearia
                 </span>
-                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 text-[8.5px] font-black uppercase rounded-full border border-blue-500/30">
+                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[8.5px] font-black uppercase rounded-full border border-emerald-500/30">
                   Rateio de Custos Invisíveis
                 </span>
               </div>
@@ -309,7 +309,7 @@ export function RetailOverheadCalculator({
             <button
               type="button"
               onClick={handleApplyToCatalog}
-              className="px-3 py-2 bg-blue-500 hover:bg-blue-400 text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-xl transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow-md shadow-blue-500/20"
+              className="px-3 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-xl transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20"
               title="Salvar produto com os custos calculados no PDV"
             >
               <Check className="w-3.5 h-3.5" />
@@ -335,8 +335,8 @@ export function RetailOverheadCalculator({
                 onClick={() => handleLoadPreset(preset)}
                 className={`px-3 py-1.5 rounded-xl text-[10.5px] font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
                   productName === preset.name
-                    ? "bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-600/25"
-                    : "bg-slate-900/90 hover:bg-blue-950/40 text-slate-300 hover:text-white border-white/10"
+                    ? "bg-emerald-600 text-white border-emerald-400 shadow-md shadow-emerald-600/25"
+                    : "bg-slate-900/90 hover:bg-emerald-950/40 text-slate-300 hover:text-white border-white/10"
                 }`}
               >
                 <span>
@@ -359,8 +359,8 @@ export function RetailOverheadCalculator({
 
       {/* INPUTS GRID */}
       <div className="bg-slate-900 border border-white/10 rounded-2xl p-4 sm:p-5 space-y-4">
-        <h4 className="text-xs font-black uppercase text-blue-400 flex items-center gap-1.5 border-b border-white/5 pb-2">
-          <Layers className="w-4 h-4 text-blue-400" />
+        <h4 className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5 border-b border-white/5 pb-2">
+          <Layers className="w-4 h-4 text-emerald-400" />
           1. Custos de Compra & Custos Invisíveis Diretos (Por Unidade)
         </h4>
 
@@ -374,7 +374,7 @@ export function RetailOverheadCalculator({
               type="text"
               value={productName}
               onChange={(e) => setProductName(e.target.value)}
-              className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-blue-400"
+              className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-emerald-400"
             />
           </div>
 
@@ -411,7 +411,7 @@ export function RetailOverheadCalculator({
                 min="0"
                 value={freightGasCost}
                 onChange={(e) => setFreightGasCost(parseFloat(e.target.value) || 0)}
-                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-amber-300 font-mono font-bold outline-none focus:border-blue-400"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-amber-300 font-mono font-bold outline-none focus:border-emerald-400"
               />
             </div>
           </div>
@@ -430,7 +430,7 @@ export function RetailOverheadCalculator({
                 min="0"
                 value={bagCost}
                 onChange={(e) => setBagCost(parseFloat(e.target.value) || 0)}
-                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-cyan-300 font-mono font-bold outline-none focus:border-blue-400"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-cyan-300 font-mono font-bold outline-none focus:border-emerald-400"
               />
             </div>
           </div>
@@ -457,7 +457,7 @@ export function RetailOverheadCalculator({
                 min="0"
                 value={paperRollCost}
                 onChange={(e) => setPaperRollCost(parseFloat(e.target.value) || 0)}
-                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-blue-400"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-emerald-400"
               />
             </div>
           </div>
@@ -475,7 +475,7 @@ export function RetailOverheadCalculator({
                 min="0"
                 value={cardFeePct}
                 onChange={(e) => setCardFeePct(parseFloat(e.target.value) || 0)}
-                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-purple-300 font-mono font-bold outline-none focus:border-blue-400"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-purple-300 font-mono font-bold outline-none focus:border-emerald-400"
               />
               <span className="absolute right-3 top-2 text-xs text-slate-500 font-bold">%</span>
             </div>
@@ -494,7 +494,7 @@ export function RetailOverheadCalculator({
                 min="0"
                 value={storeFixedCostPct}
                 onChange={(e) => setStoreFixedCostPct(parseFloat(e.target.value) || 0)}
-                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-indigo-300 font-mono font-bold outline-none focus:border-blue-400"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-indigo-300 font-mono font-bold outline-none focus:border-emerald-400"
               />
               <span className="absolute right-3 top-2 text-xs text-slate-500 font-bold">%</span>
             </div>
@@ -512,7 +512,7 @@ export function RetailOverheadCalculator({
                 min="0"
                 value={taxPct}
                 onChange={(e) => setTaxPct(parseFloat(e.target.value) || 0)}
-                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-blue-400"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-emerald-400"
               />
               <span className="absolute right-3 top-2 text-xs text-slate-500 font-bold">%</span>
             </div>
@@ -530,7 +530,7 @@ export function RetailOverheadCalculator({
                 min="0"
                 value={wasteSpoilagePct}
                 onChange={(e) => setWasteSpoilagePct(parseFloat(e.target.value) || 0)}
-                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-blue-400"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-emerald-400"
               />
               <span className="absolute right-3 top-2 text-xs text-slate-500 font-bold">%</span>
             </div>
@@ -607,7 +607,7 @@ export function RetailOverheadCalculator({
           <div className="space-y-1.5 p-3.5 bg-slate-950 rounded-xl border border-white/5">
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-slate-300">Vendas Diárias Estimadas:</span>
-              <strong className="text-blue-300 font-mono text-sm">{simulatedDailyVolume} un/dia</strong>
+              <strong className="text-emerald-300 font-mono text-sm">{simulatedDailyVolume} un/dia</strong>
             </div>
             <input
               type="range"
@@ -616,7 +616,7 @@ export function RetailOverheadCalculator({
               step="5"
               value={simulatedDailyVolume}
               onChange={(e) => setSimulatedDailyVolume(parseInt(e.target.value, 10) || 30)}
-              className="w-full accent-blue-500 cursor-pointer"
+              className="w-full accent-emerald-500 cursor-pointer"
             />
             <div className="flex justify-between items-center text-[9px] text-slate-400 pt-1">
               <span>Lucro Mensal neste produto:</span>

@@ -33,6 +33,7 @@ import {
   Calculator,
   Calendar,
   Folder,
+  Archive,
   Eraser,
   Percent,
   Settings,
@@ -137,6 +138,7 @@ import { BalcaoComandosModule } from "./components/BalcaoComandosModule";
 import { SidebarDrawer } from "./components/SidebarDrawer";
 import { PINUnlockScreen } from "./components/PINUnlockScreen";
 import { InspirationalQuotesBar } from "./components/InspirationalQuotesBar";
+import { GaveteiroPastasModule } from "./components/GaveteiroPastasModule";
 import { SubscriptionPlansModal } from "./components/SubscriptionPlansModal";
 import {
   getCurrentSubscriptionTier,
@@ -162,6 +164,7 @@ import {
   Timestamp,
   getDoc,
   setDoc,
+  updateDoc,
   getDocFromServer,
   persistentLocalCache,
   persistentMultipleTabManager,
@@ -346,6 +349,8 @@ export const getSectionLabel = (mode: string, subTab: string | null): string => 
       return "📊 Calculadora & Orçamento Financeiro";
     case "folders":
       return "🧮 Calculadora Normal & Histórico";
+    case "pastas":
+      return "🗄️ Gaveteiro de Pastas & Arquivo Geral";
     case "notes":
       return "📝 Bloco de Notas (Anotações)";
     case "pricing":
@@ -727,7 +732,7 @@ const predefinedNichesApp: {
   activeColor: string;
 }[] = [
   { id: "salao_beleza", name: "Salão de Beleza", label: "Salão", icon: Sparkles, color: "text-purple-400 border-purple-500/10 bg-slate-900/60", activeColor: "bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-500/15" },
-  { id: "barbearia", name: "Barbearia", label: "Barbearia", icon: Scissors, color: "text-blue-400 border-blue-500/10 bg-slate-900/60", activeColor: "bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/15" },
+  { id: "barbearia", name: "Barbearia", label: "Barbearia", icon: Scissors, color: "text-emerald-400 border-emerald-500/10 bg-slate-900/60", activeColor: "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/15" },
   { id: "manicure", name: "Manicure & Unhas", label: "Manicure", icon: Sparkles, color: "text-fuchsia-400 border-fuchsia-500/10 bg-slate-900/60", activeColor: "bg-fuchsia-600 border-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/15" },
   { id: "mercadinho", name: "Mercadinho & Mercearia", label: "Mercadinho", icon: ShoppingCart, color: "text-emerald-400 border-emerald-500/10 bg-slate-900/60", activeColor: "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/15" },
   { id: "sushi", name: "Sushi & Culinária Japonesa", label: "Sushi", icon: Fish, color: "text-orange-400 border-orange-500/10 bg-slate-900/60", activeColor: "bg-orange-600 border-orange-500 text-white shadow-lg shadow-orange-500/15" },
@@ -1346,6 +1351,7 @@ export default function App() {
     | "pricing"
     | "contabilidade"
     | "balcao"
+    | "pastas"
   >(() => {
     try { return (localStorage.getItem("notepad_mode") as any) || "pdv"; } catch { return "pdv"; }
   });
@@ -2507,6 +2513,20 @@ export default function App() {
   );
   const [showLegal, setShowLegal] = useState<"terms" | "privacy" | null>(null);
   const [currentFolder, setCurrentFolder] = useState<string>("Geral");
+  const [createdFolders, setCreatedFolders] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("notepad_created_folders");
+      return saved ? JSON.parse(saved) : ["Geral", "Mercado", "Casa", "Trabalho", "Clientes", "Recibos"];
+    } catch {
+      return ["Geral", "Mercado", "Casa", "Trabalho", "Clientes", "Recibos"];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("notepad_created_folders", JSON.stringify(createdFolders));
+    } catch {}
+  }, [createdFolders]);
   const [showFolderInput, setShowFolderInput] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [isCloudLoaded, setIsCloudLoaded] = useState(false);
@@ -6636,7 +6656,7 @@ export default function App() {
             <div className="flex flex-col items-center text-center mt-2">
               <div className="w-16 h-16 bg-gradient-to-tr from-emerald-500 to-teal-400 p-4 rounded-3xl text-slate-950 shrink-0 flex items-center justify-center shadow-lg shadow-emerald-500/20 mb-5 relative">
                 <RefreshCw className="w-8 h-8 animate-spin" style={{ animationDuration: '6s' }} />
-                <span className="absolute -top-1 -right-1 bg-blue-500 text-white font-black text-[8px] py-1 px-1.5 rounded-full border border-slate-950 animate-pulse">NOVO</span>
+                <span className="absolute -top-1 -right-1 bg-emerald-500 text-white font-black text-[8px] py-1 px-1.5 rounded-full border border-slate-950 animate-pulse">NOVO</span>
               </div>
               
               <h3 className="text-base font-black uppercase text-white tracking-wider flex items-center justify-center gap-2 leading-none">
@@ -6679,42 +6699,6 @@ export default function App() {
         </div>
       )}
 
-      {/* 🌐 BANNER PRINCIPAL DE DOWNLOAD DO PWA PARA NETLIFY */}
-      <div className="w-full bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 border-b border-blue-500/25 py-3 px-4 text-center z-50">
-        <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-center md:text-left">
-          <div className="flex items-start gap-2 text-left">
-            <span className="text-sm shrink-0 mt-0.5">🌐</span>
-            <div>
-              <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest leading-none">
-                Área de Deploy Netlify PWA
-              </p>
-              <p className="text-[9px] font-medium text-slate-300 mt-1 leading-relaxed">
-                Baixe o arquivo <strong className="text-white">calculadora_supermercado_netlify.zip</strong> pronto. Se estiver no visualizador do Google, clique no botão para baixar direto ou use o <strong>Link Público Sem Erros</strong> abaixo!
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 self-center md:self-auto w-full md:w-auto justify-center md:justify-end">
-            <button 
-              onClick={handleDownloadNetlifyZip}
-              disabled={isDownloadingZip}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-blue-500/20 flex items-center gap-1.5 cursor-pointer hover:scale-[1.02]"
-              id="top-download-zip-btn"
-            >
-              <Download className={`w-3.5 h-3.5 ${isDownloadingZip ? 'animate-spin' : 'animate-bounce'}`} style={{ animationDuration: isDownloadingZip ? '1s' : '2s' }} /> 
-              {isDownloadingZip ? "Baixando..." : downloadZipStatus === "success" ? "Baixado! 🎉" : "Baixar ZIP do PWA"}
-            </button>
-            <a 
-              href="https://ais-pre-4sonsagxkxulyx22mbkky3-436964211905.us-west2.run.app/calculadora_supermercado_netlify.zip"
-              target="_blank"
-              rel="noopener noreferrer" 
-              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 text-[10px] font-bold uppercase tracking-wider rounded-xl transition-all border border-white/5 cursor-pointer flex items-center gap-1 hover:text-white"
-            >
-              <ExternalLink className="w-3 h-3" /> Link Público (Sem Login) ↗
-            </a>
-          </div>
-        </div>
-      </div>
-
       {/* ⚠️ BANNER DE ALERTA PARA DETECÇÃO DE IFRAME / MODOS COMPRESSOS EM CELULAR */}
       {isIframe && (
         <div className="w-full bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border-b border-amber-500/30 py-3 px-4 text-center z-40">
@@ -6748,7 +6732,7 @@ export default function App() {
       )}
 
       {/* Dynamic Header with Branding */}
-      <header className="w-full bg-slate-950/90 backdrop-blur-md border-b border-white/5 sticky top-0 z-50">
+      <header className="w-full bg-slate-950/90 backdrop-blur-md border-b border-emerald-500/20 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 sm:py-4">
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <button
@@ -6767,7 +6751,7 @@ export default function App() {
                 <span className="text-[11px] font-black uppercase text-white tracking-wider">
                   Calculadora Cérebro
                 </span>
-                <span className="text-[8px] font-bold text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded-full leading-none shrink-0">{runningVersion}</span>
+                <span className="text-[8px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full leading-none shrink-0">{runningVersion}</span>
               </div>
               <button
                 type="button"
@@ -6836,15 +6820,40 @@ export default function App() {
                 handleSetNotepadMode("notes");
               }}
               className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
-                activeTab === "calc" && !(notepadMode === "pdv" && pdvCheckoutOnly)
-                  ? "bg-blue-600 text-white shadow-md shadow-blue-500/15" 
+                activeTab === "calc" && ["notes", "edit", "super", "folders", "pricing", "encartes", "revisão"].includes(notepadMode)
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/15" 
                   : "text-slate-400 hover:text-white hover:bg-white/5"
               }`}
-              title="Bloco de Notas Comum, Lista de Supermercado e Pastas"
+              title="Bloco de Notas Comum, Lista de Supermercado e Ferramentas"
             >
               <Plus className="w-3.5 h-3.5 shrink-0" />
               <span className="text-[10px] font-black uppercase tracking-tight">
                 Bloco & Compras 📝
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (!user) {
+                  setUser({
+                    uid: "guest_visitor",
+                    email: "visitante@cerebrointeligente.com",
+                    displayName: "Visitante Convidado"
+                  } as any);
+                }
+                setActiveTab("calc");
+                handleSetNotepadMode("pastas");
+              }}
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
+                activeTab === "calc" && notepadMode === "pastas"
+                  ? "bg-amber-600 text-white shadow-md shadow-amber-500/20 ring-1 ring-amber-400" 
+                  : "text-amber-400 hover:text-white hover:bg-amber-500/10 border border-amber-500/20"
+              }`}
+              title="Gaveteiro de Pastas: Todas as suas pastas de notas, listas, talões e cálculos salvas e organizadas"
+            >
+              <Archive className="w-3.5 h-3.5 shrink-0" />
+              <span className="text-[10px] font-black uppercase tracking-tight">
+                Pastas 🗄️
               </span>
             </button>
             <button
@@ -6926,7 +6935,7 @@ export default function App() {
       {/* ⚠️ PWA Update & Cache-Buster Banner */}
       {showUpdateTopBanner && (
         <div id="pwa-force-update-banner" className="w-full max-w-xl px-4 mt-4 animate-fadeIn">
-          <div className="bg-gradient-to-r from-blue-950/45 via-indigo-950/40 to-purple-950/45 border border-indigo-550/20 p-3.5 rounded-3xl flex items-center justify-between gap-3 text-left relative shadow-lg shadow-indigo-500/5">
+          <div className="bg-gradient-to-r from-emerald-950/45 via-indigo-950/40 to-purple-950/45 border border-indigo-550/20 p-3.5 rounded-3xl flex items-center justify-between gap-3 text-left relative shadow-lg shadow-indigo-500/5">
             <div className="flex items-center gap-2">
               <div className="p-2 bg-indigo-500/10 rounded-2xl text-indigo-400 shrink-0">
                 <RefreshCw className="w-4 h-4 animate-spin" style={{ animationDuration: '15s' }} />
@@ -7009,10 +7018,10 @@ export default function App() {
               </div>
 
               {/* 2. MULTIPLICAÇÃO */}
-              <div className="bg-slate-950 p-6 rounded-[2rem] border border-blue-500/15 space-y-3">
+              <div className="bg-slate-950 p-6 rounded-[2rem] border border-emerald-500/15 space-y-3">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl">
-                    <Hash className="w-5 h-5 text-blue-500" />
+                  <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl">
+                    <Hash className="w-5 h-5 text-emerald-500" />
                   </div>
                   <h4 className="text-sm font-black text-white uppercase tracking-wider">
                     Quantidade (Multiplicação) ✖️
@@ -7024,14 +7033,14 @@ export default function App() {
 
                 <div className="space-y-4 pt-1">
                   <div className="p-3 bg-slate-900/50 rounded-xl border border-white/5 space-y-1.5">
-                    <span className="block text-[10px] font-black uppercase text-blue-400 tracking-wider">
+                    <span className="block text-[10px] font-black uppercase text-emerald-400 tracking-wider">
                       MÉTODO 1: Linha Multiplicadora (Para Vários Itens)
                     </span>
                     <p className="text-[11px] text-slate-400 font-medium">
                       Se você digitar um número sozinho em uma linha, ele vira a quantidade multiplicadora para <strong className="text-slate-200">todas as linhas que vierem abaixo</strong>, até você digitar outro número sozinho ou pular uma linha (deixar em branco).
                     </p>
                     <div className="bg-slate-950 p-2.5 rounded-lg text-xs font-mono text-slate-400 mt-1 border border-white/5">
-                      <span className="text-blue-400 font-black">3</span> <span className="text-slate-600">(virou o multiplicador)</span>
+                      <span className="text-emerald-400 font-black">3</span> <span className="text-slate-600">(virou o multiplicador)</span>
                       <br />
                       Sabão R$4,00 <span className="text-green-500 font-bold">= R$12,00</span>
                       <br />
@@ -7133,7 +7142,7 @@ export default function App() {
                   setActiveTab("profile");
                 }
               }}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest hover:opacity-95 active:scale-[0.99] transition-all cursor-pointer shadow-lg"
+              className="w-full bg-gradient-to-r from-emerald-600 to-purple-600 text-white font-black py-4 rounded-2xl text-xs uppercase tracking-widest hover:opacity-95 active:scale-[0.99] transition-all cursor-pointer shadow-lg"
             >
               Começar a Usar Agora 🚀
             </button>
@@ -7142,9 +7151,9 @@ export default function App() {
       ) : activeTab === "profile" ? (
         <main className="w-full max-w-xl px-4 py-8 flex flex-col gap-8">
           {/* Clean, Simple Download Card */}
-          <div className="bg-gradient-to-br from-blue-950/20 via-slate-900 to-purple-950/15 border border-white/10 rounded-[2.5rem] p-6 shadow-xl text-center space-y-4">
+          <div className="bg-gradient-to-br from-emerald-950/20 via-slate-900 to-purple-950/15 border border-white/10 rounded-[2.5rem] p-6 shadow-xl text-center space-y-4">
             <div className="flex flex-col items-center gap-2">
-              <div className="p-3.5 bg-gradient-to-tr from-blue-500 to-purple-500 rounded-2xl text-white shadow-lg shrink-0">
+              <div className="p-3.5 bg-gradient-to-tr from-emerald-500 to-purple-500 rounded-2xl text-white shadow-lg shrink-0">
                 <Smartphone className="w-6 h-6 animate-pulse" />
               </div>
               <h3 className="text-white text-base font-black uppercase tracking-wider">
@@ -7159,7 +7168,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={handleInstallApp}
-                className="w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-600 hover:opacity-95 active:scale-[0.99] text-white py-3.5 px-6 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-purple-500/15"
+                className="w-full bg-gradient-to-r from-emerald-500 via-indigo-500 to-purple-600 hover:opacity-95 active:scale-[0.99] text-white py-3.5 px-6 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-purple-500/15"
                 id="install-pwa-login-btn"
               >
                 <Download className="w-4 h-4 animate-bounce" />
@@ -7186,74 +7195,16 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Botão de Download do ZIP do Netlify */}
-              <div className="pt-3 border-t border-white/5 animate-fadeIn">
-                <div className="bg-slate-950/60 p-4 rounded-3xl border border-blue-500/15 hover:border-blue-500/30 transition-all text-center space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-wider text-blue-400">
-                    Hospedagem Netlify 🌐
-                  </p>
-                  <p className="text-[10px] text-slate-300 font-medium leading-relaxed">
-                    Se você quer atualizar o site <strong className="text-white font-bold">calculadoracerebro.com.br</strong> (no Netlify):
-                  </p>
-                  <button
-                    onClick={handleDownloadNetlifyZip}
-                    disabled={isDownloadingZip}
-                    className="w-full inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl transition-all cursor-pointer shadow-md shadow-blue-500/15"
-                    id="download-netlify-zip-btn"
-                  >
-                    <Download className={`w-4 h-4 ${isDownloadingZip ? 'animate-spin' : 'animate-pulse'}`} />
-                    {isDownloadingZip ? "Baixando Arquivo..." : downloadZipStatus === "success" ? "Baixado com Sucesso! 🎉" : "Baixar ZIP da Calculadora Cérebro"}
-                  </button>
-                  <p className="text-[9px] text-slate-400 leading-normal">
-                    Toque acima para baixar o arquivo <code className="text-slate-300 font-mono">.zip</code>. Depois, envie ele na área <strong className="text-slate-200 font-bold">"Production deploys"</strong> no painel do Netlify!
-                  </p>
-                  <div className="mt-2.5 p-2 bg-blue-950/40 border border-blue-500/10 rounded-2xl text-left">
-                    <p className="text-[9px] font-bold text-amber-300 flex items-center gap-1">
-                      ⚠️ Se o botão acima falhar ou der erro 401/404 no Google:
-                    </p>
-                    <p className="text-[8.5px] text-slate-300 mt-1 leading-relaxed font-semibold">
-                      Você pode baixar o arquivo diretamente no painel de arquivos na esquerda do Google AI Studio!
-                    </p>
-                    <ol className="list-decimal list-inside text-[8.5px] text-slate-400 mt-1 leading-relaxed space-y-0.5 ml-1 font-medium">
-                      <li>Abra a pasta <strong className="text-white">public</strong> na barra lateral esquerda.</li>
-                      <li>Clique no arquivo <strong className="text-white">calculadora_supermercado_netlify.zip</strong>.</li>
-                      <li>Clique nos <strong className="text-white">três pontinhos (...)</strong> ao lado dele.</li>
-                      <li>Selecione <strong className="text-emerald-400">Download (Baixar)</strong>!</li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-
-              {/* ⚠️ PWA Update & Clean-up layout right under download buttons! */}
-              <div className="pt-4 border-t border-white/5 text-left space-y-3">
-                <div className="bg-gradient-to-r from-blue-950/45 via-indigo-950/40 to-purple-950/45 border border-indigo-550/20 p-4 rounded-3xl relative shadow-[0_0_20px_rgba(99,102,241,0.05)]">
-                  <div className="flex items-start gap-2.5">
-                    <div className="p-2 bg-indigo-500/10 rounded-2xl text-indigo-400 shrink-0 mt-0.5">
-                      <RefreshCw className="w-4 h-4 animate-spin" style={{ animationDuration: '15s' }} />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase text-white tracking-widest flex items-center gap-1.5 leading-none">
-                        Já Baixou? Como Atualizar 📱⚡️
-                        <span className="text-[8px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded-full">{runningVersion} Ativa</span>
-                      </p>
-                      <p className="text-[9.5px] font-extrabold text-amber-300 leading-normal mt-1.5">
-                        ⚠️ ATENÇÃO: Por ser um aplicativo PWA (instalado direto do navegador), ele NÃO possui um botão de "Atualizar" nas lojas de celular (como Google Play Store ou App Store/Safari).
-                      </p>
-                      <p className="text-[9.5px] font-medium text-slate-355 leading-normal mt-1">
-                        Para carregar a versão mais recente em seu celular sem depender do tempo do navegador, clique no botão de limpeza abaixo:
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <button
-                    type="button"
-                    onClick={handleForcePwaUpdate}
-                    className="w-full mt-3 bg-indigo-600 hover:bg-indigo-550 active:scale-95 text-white py-2.5 px-4 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all cursor-pointer shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    Forçar Atualização do Aplicativo (Limpar Cache)
-                  </button>
-                </div>
+              {/* Atualização e Limpeza de Cache */}
+              <div className="pt-3 border-t border-white/5 text-left">
+                <button
+                  type="button"
+                  onClick={handleForcePwaUpdate}
+                  className="w-full bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white py-3 px-4 rounded-2xl font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer border border-white/10 flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Sincronizar Última Versão ({runningVersion})</span>
+                </button>
               </div>
             </div>
             
@@ -7557,14 +7508,14 @@ export default function App() {
                     {showDangerZone && (
                       <div className="mt-3 space-y-3 pt-3 border-t border-red-950/50 animate-fadeIn text-left">
                         {/* Informativo e Reassegurador de Segurança / LGPD */}
-                        <div className="p-3 bg-blue-950/45 border border-blue-500/20 rounded-xl space-y-2 shadow-inner">
-                          <p className="text-[10px] font-black text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
-                            <Shield className="w-3.5 h-3.5 text-blue-400 shrink-0" /> SEUS DADOS ESTÃO 100% SEGUROS!
+                        <div className="p-3 bg-emerald-950/45 border border-emerald-500/20 rounded-xl space-y-2 shadow-inner">
+                          <p className="text-[10px] font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                            <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> SEUS DADOS ESTÃO 100% SEGUROS!
                           </p>
                           <p className="text-[9.5px] text-slate-200 font-semibold leading-relaxed">
                             Suas anotações, listas e faturamentos estão salvos em servidores altamente seguros e criptografados da <strong>Google (Firebase Cloud)</strong>. Absolutamente nenhuma outra pessoa, visitante ou empresa tem acesso e <strong>não há risco de vazamento de dados</strong>.
                           </p>
-                          <div className="h-px bg-blue-500/10 my-1" />
+                          <div className="h-px bg-emerald-500/10 my-1" />
                           <p className="text-[9.5px] text-slate-300 font-semibold leading-relaxed">
                             <strong className="text-amber-400">Por que esse botão existe?</strong> É um recurso de privacidade obrigatório por lei (LGPD) para dar a você total controle. Se você quer apenas esvaziar seu carrinho atual de compras, basta usar o botão "Limpar" na página principal do app. Use esta opção aqui <strong>apenas</strong> se desejar apagar permanentemente todas as suas informações históricas da conta.
                           </p>
@@ -8081,7 +8032,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={forceRestoreFromCloud}
-                  className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:opacity-95 active:scale-[0.99] text-white py-3.5 px-6 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/20"
+                  className="w-full bg-gradient-to-r from-cyan-500 to-emerald-600 hover:opacity-95 active:scale-[0.99] text-white py-3.5 px-6 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/20"
                 >
                   <RotateCcw className="w-4 h-4" />
                   Restaurar Dados e Configurações Antigas
@@ -8180,14 +8131,14 @@ export default function App() {
 
               {/* Plano 3: PDV PC & Notebook + Mercado Pago */}
               {!pdvPcLicenseActive ? (
-                <div className="bg-blue-500/10 border border-blue-500/20 p-6 rounded-3xl space-y-4">
+                <div className="bg-emerald-500/10 border border-emerald-500/20 p-6 rounded-3xl space-y-4">
                   <div className="flex items-center gap-4">
-                    <Laptop className="w-8 h-8 text-blue-400" />
+                    <Laptop className="w-8 h-8 text-emerald-400" />
                     <div>
                       <h4 className="text-sm font-black text-white uppercase tracking-tight">
                         PDV PC & Notebook
                       </h4>
-                      <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">
+                      <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">
                         R$ 100,00 / mês
                       </p>
                     </div>
@@ -8200,14 +8151,14 @@ export default function App() {
                       setPaywallType("pdv_pc");
                       setShowPaywall(true);
                     }}
-                    className="w-full bg-blue-500 text-slate-950 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-500/20 hover:scale-[1.02] transition-all cursor-pointer"
+                    className="w-full bg-emerald-500 text-slate-950 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:scale-[1.02] transition-all cursor-pointer"
                   >
                     Ativar PDV PC & Notebook
                   </button>
                 </div>
               ) : (
-                <div className="bg-blue-500/10 border border-blue-500/30 p-6 rounded-3xl space-y-2">
-                  <span className="text-xs font-bold text-blue-400 uppercase tracking-widest block">💻 Licença PDV PC Ativa (R$ 100,00/mês)</span>
+                <div className="bg-emerald-500/10 border border-emerald-500/30 p-6 rounded-3xl space-y-2">
+                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest block">💻 Licença PDV PC Ativa (R$ 100,00/mês)</span>
                   <p className="text-xs text-slate-300 font-medium">Frente de Caixa mestre para PC e Notebook configurado com o Mercado Pago Ativado!</p>
                 </div>
               )}
@@ -8228,8 +8179,8 @@ export default function App() {
 
               <div className="bg-slate-800/50 border border-white/5 p-6 rounded-3xl space-y-4">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center">
-                    <Mail className="w-6 h-6 text-blue-400" />
+                  <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center">
+                    <Mail className="w-6 h-6 text-emerald-400" />
                   </div>
                   <div>
                     <h4 className="text-sm font-black text-white uppercase tracking-tight">
@@ -8264,7 +8215,7 @@ export default function App() {
                     </button>
                     <a
                       href="mailto:calculadoracerebrointeligente@gmail.com"
-                      className="p-2 bg-blue-600 text-white rounded-xl hover:bg-blue-500 transition-all flex items-center justify-center"
+                      className="p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 transition-all flex items-center justify-center"
                       title="Enviar e-mail de suporte"
                     >
                       <Share2 className="w-3.5 h-3.5" />
@@ -8517,7 +8468,7 @@ export default function App() {
               </AnimatePresence>
               <div className="max-w-xl mx-auto flex flex-col items-center gap-4">
                 <div className="flex items-center gap-4">
-                  <div className="p-3 bg-blue-500 rounded-2xl shadow-lg shadow-blue-500/20">
+                  <div className="p-3 bg-emerald-500 rounded-2xl shadow-lg shadow-emerald-500/20">
                     <Wallet className="w-8 h-8 text-white" />
                   </div>
                   {user ? (
@@ -8594,7 +8545,7 @@ export default function App() {
               <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-left">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[9px] font-black uppercase text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full tracking-widest">
+                    <span className="text-[9px] font-black uppercase text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full tracking-widest">
                       Painel de Operações 🏢
                     </span>
                     <span className="text-[9px] font-black uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full tracking-widest">
@@ -8683,7 +8634,7 @@ export default function App() {
                 <form onSubmit={handleAppPinLogin} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Left Column: Company Identification & Email */}
                   <div className="space-y-3.5">
-                    <span className="text-[9px] font-black uppercase text-blue-400 tracking-wider block border-b border-white/5 pb-1">🏢 Identificação do Estabelecimento</span>
+                    <span className="text-[9px] font-black uppercase text-emerald-400 tracking-wider block border-b border-white/5 pb-1">🏢 Identificação do Estabelecimento</span>
                     
                     <div className="space-y-1">
                       <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Nome da Empresa</label>
@@ -8765,7 +8716,7 @@ export default function App() {
 
                     <button
                       type="submit"
-                      className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-black uppercase tracking-widest py-3 px-6 rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2 mt-4 md:mt-0"
+                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-widest py-3 px-6 rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2 mt-4 md:mt-0"
                     >
                       <Check className="w-4 h-4" />
                       <span>Autenticar Sessão & Logar com PIN</span>
@@ -8775,87 +8726,6 @@ export default function App() {
               )}
             </div>
           )}
-
-            {/* Clean, Simple Download Card */}
-            {!(notepadMode === "pdv" && pdvCheckoutOnly) && (
-              <div className="bg-gradient-to-br from-blue-950/20 via-slate-900 to-purple-950/15 border border-white/10 rounded-[2.5rem] p-6 shadow-xl text-center space-y-4">
-                <div className="flex flex-col items-center gap-2">
-                  <div className="p-3.5 bg-gradient-to-tr from-blue-500 to-purple-500 rounded-2xl text-white shadow-lg shrink-0">
-                    <Smartphone className="w-6 h-6 animate-pulse" />
-                  </div>
-                  <h3 className="text-white text-base font-black uppercase tracking-wider">
-                    Baixar Aplicativo no Celular 📲
-                  </h3>
-                  <p className="text-xs text-slate-355 leading-relaxed font-semibold max-w-sm mx-auto">
-                    Salve a calculadora na tela do seu celular para abrir num clique e usar no mercado mesmo se estiver sem internet! Grátis e sem anúncios.
-                  </p>
-                </div>
-
-                <div className="space-y-2 mt-2">
-                  <button
-                    type="button"
-                    onClick={handleInstallApp}
-                    className="w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-600 hover:opacity-95 active:scale-[0.99] text-white py-3.5 px-6 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-purple-500/15"
-                    id="install-pwa-calc-btn"
-                  >
-                    <Download className="w-4 h-4 animate-bounce" />
-                    {deferredPrompt ? "Preparamos Tudo: Baixar App" : "Clique aqui para Baixar / Instalar"}
-                  </button>
-
-                  <div className="flex gap-2 justify-center pt-1 animate-fadeIn">
-                    <button
-                      type="button"
-                      onClick={() => setShowInstallGuide(true)}
-                      className="text-[10px] text-slate-400 hover:text-white font-black uppercase tracking-wider underline decoration-dotted underline-offset-4 cursor-pointer"
-                      id="toggle-manual-calc-btn"
-                    >
-                      Ver Passo a Passo Manual ⚙
-                    </button>
-                    <span className="text-slate-600">|</span>
-                    <button
-                      type="button"
-                      onClick={shareApp}
-                      className="text-[10px] text-emerald-400 hover:text-emerald-300 font-black uppercase tracking-wider underline decoration-dotted underline-offset-4 cursor-pointer flex items-center gap-1"
-                      id="share-app-calc-btn"
-                    >
-                      <Share2 className="w-3 h-3" /> Recomendar para Amigos
-                    </button>
-                  </div>
-                </div>
-
-                {/* ⚠️ PWA Update & Clean-up layout right under download buttons! */}
-                <div className="pt-4 border-t border-white/5 text-left space-y-3">
-                  <div className="bg-gradient-to-r from-blue-950/45 via-indigo-950/40 to-purple-950/45 border border-indigo-550/20 p-4 rounded-3xl relative shadow-[0_0_20px_rgba(99,102,241,0.05)]">
-                    <div className="flex items-start gap-2.5">
-                      <div className="p-2 bg-indigo-500/10 rounded-2xl text-indigo-400 shrink-0 mt-0.5">
-                        <RefreshCw className="w-4 h-4 animate-spin" style={{ animationDuration: '15s' }} />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase text-white tracking-widest flex items-center gap-1.5 leading-none">
-                          Já Baixou? Como Atualizar 📱⚡️
-                          <span className="text-[8px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded-full">{runningVersion} Ativa</span>
-                        </p>
-                        <p className="text-[9.5px] font-extrabold text-amber-300 leading-normal mt-1.5">
-                          ⚠️ ATENÇÃO: Por ser um aplicativo PWA (instalado direto do navegador), ele NÃO possui um botão de "Atualizar" nas lojas de celular (como Google Play Store ou App Store/Safari).
-                        </p>
-                        <p className="text-[9.5px] font-medium text-slate-355 leading-normal mt-1">
-                          Para carregar a versão mais recente em seu celular sem depender do tempo do navegador, clique no botão de limpeza abaixo:
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <button
-                      type="button"
-                      onClick={handleForcePwaUpdate}
-                      className="w-full mt-3 bg-indigo-600 hover:bg-indigo-550 active:scale-95 text-white py-2.5 px-4 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all cursor-pointer shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      Forçar Atualização do Aplicativo (Limpar Cache)
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Meus Dados Pessoais e Histórico de Contas Vinculadas */}
             {user && !(notepadMode === "pdv" && pdvCheckoutOnly) && (
@@ -8900,7 +8770,7 @@ export default function App() {
                 {/* Minhas Contas / Saved lists right on the start page */}
                 <div className="pt-2 text-left">
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                    <CreditCard className="w-3.5 h-3.5 text-blue-400" />
+                    <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
                     Histórico de Contas / Compras Ativas
                   </h4>
                   {history.length === 0 ? (
@@ -8934,7 +8804,7 @@ export default function App() {
                       {history.length > 3 && (
                         <button
                           onClick={() => setActiveTab("profile")}
-                          className="text-[9px] font-black text-blue-400 uppercase hover:underline tracking-widest block text-center w-full mt-2"
+                          className="text-[9px] font-black text-emerald-400 uppercase hover:underline tracking-widest block text-center w-full mt-2"
                         >
                           Ver todas as {history.length} contas salvas
                         </button>
@@ -8972,9 +8842,9 @@ export default function App() {
                   <div className="flex flex-col gap-2.5 mt-4 border-t border-white/5 pt-4">
                     {/* Grade Planejada Breakdown */}
                     {excelTotal > 0 && (
-                      <div className="text-left bg-blue-500/10 border border-blue-500/20 p-2.5 rounded-xl flex flex-col">
+                      <div className="text-left bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl flex flex-col">
                         <div className="flex justify-between items-center gap-1.5">
-                          <span className="text-[10.5px] font-black text-blue-300 uppercase tracking-wider flex items-center gap-1">
+                          <span className="text-[10.5px] font-black text-emerald-300 uppercase tracking-wider flex items-center gap-1">
                             📊 Grade Planejada: {formatCurrency(excelTotal)}
                           </span>
                           <button
@@ -9250,7 +9120,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => handleSetNotepadMode("notes")}
-                    className="text-[10px] font-black uppercase tracking-wider text-blue-300 hover:text-white bg-blue-500/15 hover:bg-blue-500/25 px-3 py-1.5 rounded-xl border border-blue-500/30 transition-all cursor-pointer flex items-center gap-1"
+                    className="text-[10px] font-black uppercase tracking-wider text-emerald-300 hover:text-white bg-emerald-500/15 hover:bg-emerald-500/25 px-3 py-1.5 rounded-xl border border-emerald-500/30 transition-all cursor-pointer flex items-center gap-1"
                     title="Ir para o Bloco de Notas e Utilidades"
                   >
                     <span>📝 Utilidades & Bloco</span>
@@ -9288,9 +9158,9 @@ export default function App() {
 
               {/* ROW 1: PLANEJAR */}
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar px-2 items-stretch">
-                <div className="flex-shrink-0 flex items-center justify-center gap-2 px-4 shadow-sm bg-gradient-to-r from-blue-700/20 to-blue-500/5 border border-blue-500/20 rounded-l-2xl min-w-[120px]">
-                  <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                  <span className="text-[10px] sm:text-[11px] font-black uppercase text-blue-400 tracking-wider">
+                <div className="flex-shrink-0 flex items-center justify-center gap-2 px-4 shadow-sm bg-gradient-to-r from-emerald-700/20 to-emerald-500/5 border border-emerald-500/20 rounded-l-2xl min-w-[120px]">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[10px] sm:text-[11px] font-black uppercase text-emerald-400 tracking-wider">
                     1. Planejar
                   </span>
                 </div>
@@ -9298,11 +9168,11 @@ export default function App() {
                   onClick={() => handleSetNotepadMode("edit")}
                   className={`flex-1 min-w-[100px] flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-t-2xl font-black text-[10.5px] sm:text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer ${
                     notepadMode === "edit"
-                      ? "bg-white text-blue-600 shadow-[0_-8px_20px_-4px_rgba(59,130,246,0.25)] border-2 border-b-0 border-blue-500 scale-[1.03] z-50 transform origin-bottom"
+                      ? "bg-white text-emerald-600 shadow-[0_-8px_20px_-4px_rgba(59,130,246,0.25)] border-2 border-b-0 border-emerald-500 scale-[1.03] z-50 transform origin-bottom"
                       : "bg-slate-900/60 hover:bg-slate-900/90 border border-white/5 border-b-0 text-slate-400 hover:text-white"
                   }`}
                 >
-                  <TableIcon className={`w-4 h-4 transition-transform ${notepadMode === "edit" ? "text-blue-500 scale-110" : "text-slate-400"}`} />
+                  <TableIcon className={`w-4 h-4 transition-transform ${notepadMode === "edit" ? "text-emerald-500 scale-110" : "text-slate-400"}`} />
                   <span className="flex items-center gap-1">
                     Calculadora
                     <span className="text-[7.5px] bg-amber-500/20 text-amber-300 font-black px-1 rounded border border-amber-500/30">R$ 14,90</span>
@@ -9326,13 +9196,28 @@ export default function App() {
                   onClick={() => handleSetNotepadMode("notes")}
                   className={`flex-1 min-w-[110px] flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-t-2xl font-black text-[10.5px] sm:text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer ${
                     notepadMode === "notes"
-                      ? "bg-white text-blue-600 shadow-[0_-8px_20px_-4px_rgba(59,130,246,0.25)] border-2 border-b-0 border-blue-500 scale-[1.03] z-50 transform origin-bottom"
+                      ? "bg-white text-emerald-600 shadow-[0_-8px_20px_-4px_rgba(59,130,246,0.25)] border-2 border-b-0 border-emerald-500 scale-[1.03] z-50 transform origin-bottom"
                       : "bg-slate-900/60 hover:bg-slate-900/90 border border-white/5 border-b-0 text-slate-400 hover:text-white"
                   }`}
                 >
-                  <Pencil className={`w-4 h-4 transition-transform ${notepadMode === "notes" ? "text-blue-500 scale-110 rotate-3" : "text-slate-400"}`} />
+                  <Pencil className={`w-4 h-4 transition-transform ${notepadMode === "notes" ? "text-emerald-500 scale-110 rotate-3" : "text-slate-400"}`} />
                   <span className="flex items-center gap-1">
                     Bloco de Notas
+                    <span className="text-[7.5px] bg-emerald-500/20 text-emerald-400 font-black px-1 rounded border border-emerald-500/30">GRÁTIS</span>
+                  </span>
+                </button>
+                <button
+                  onClick={() => handleSetNotepadMode("pastas")}
+                  className={`flex-1 min-w-[115px] flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-t-2xl font-black text-[10.5px] sm:text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer ${
+                    notepadMode === "pastas"
+                      ? "bg-white text-amber-600 shadow-[0_-8px_20px_-4px_rgba(245,158,11,0.25)] border-2 border-b-0 border-amber-500 scale-[1.03] z-50 transform origin-bottom"
+                      : "bg-slate-900/60 hover:bg-slate-900/90 border border-white/5 border-b-0 text-slate-400 hover:text-white"
+                  }`}
+                  title="Gaveteiro de Pastas: Salvar, organizar e acessar todas as listas e notas salvas"
+                >
+                  <Archive className={`w-4 h-4 transition-transform ${notepadMode === "pastas" ? "text-amber-500 scale-110" : "text-slate-400"}`} />
+                  <span className="flex items-center gap-1">
+                    Pastas 🗄️
                     <span className="text-[7.5px] bg-emerald-500/20 text-emerald-400 font-black px-1 rounded border border-emerald-500/30">GRÁTIS</span>
                   </span>
                 </button>
@@ -9991,7 +9876,7 @@ export default function App() {
                         animate={{ opacity: 1, scale: 1, x: 0 }}
                         exit={{ opacity: 0, scale: 0.8, x: 20 }}
                         onClick={() => addSuggested(suggestedItem)}
-                        className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-xl text-[9px] font-black uppercase shadow-lg shadow-purple-500/20 hover:scale-105 active:scale-95 transition-all group"
+                        className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-purple-500 to-emerald-500 text-white rounded-xl text-[9px] font-black uppercase shadow-lg shadow-purple-500/20 hover:scale-105 active:scale-95 transition-all group"
                       >
                         <Sparkles className="w-3 h-3 animate-pulse" />
                         <span>Esqueceu {suggestedItem.name}?</span>
@@ -10099,7 +9984,7 @@ export default function App() {
                           },
                         });
                       }}
-                      className="px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 border-2 text-blue-700 border-blue-300 hover:bg-blue-300"
+                      className="px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 border-2 text-emerald-700 border-emerald-300 hover:bg-emerald-300"
                     >
                       <RotateCcw className="w-4 h-4" />
                       Redefinir
@@ -10119,9 +10004,9 @@ export default function App() {
                       exit={{ opacity: 0, y: 10 }}
                       className="absolute inset-x-6 bottom-32 z-50 pointer-events-none"
                     >
-                      <div className="bg-slate-900 border-2 border-blue-500/50 shadow-[0_0_50px_rgba(59,130,246,0.3)] p-8 rounded-[2.5rem] relative overflow-hidden">
+                      <div className="bg-slate-900 border-2 border-emerald-500/50 shadow-[0_0_50px_rgba(59,130,246,0.3)] p-8 rounded-[2.5rem] relative overflow-hidden">
                         {/* Animated Background Pulse */}
-                        <div className="absolute inset-0 bg-blue-500/5 animate-pulse" />
+                        <div className="absolute inset-0 bg-emerald-500/5 animate-pulse" />
 
                         <div className="flex items-center justify-between mb-4 relative z-10">
                           <div className="flex items-center gap-3">
@@ -10129,7 +10014,7 @@ export default function App() {
                               <motion.div
                                 animate={{ height: [8, 16, 8] }}
                                 transition={{ repeat: Infinity, duration: 0.5 }}
-                                className="w-1 bg-blue-500 rounded-full"
+                                className="w-1 bg-emerald-500 rounded-full"
                               />
                               <motion.div
                                 animate={{ height: [12, 24, 12] }}
@@ -10138,7 +10023,7 @@ export default function App() {
                                   duration: 0.5,
                                   delay: 0.1,
                                 }}
-                                className="w-1 bg-blue-500 rounded-full"
+                                className="w-1 bg-emerald-500 rounded-full"
                               />
                               <motion.div
                                 animate={{ height: [8, 16, 8] }}
@@ -10147,10 +10032,10 @@ export default function App() {
                                   duration: 0.5,
                                   delay: 0.2,
                                 }}
-                                className="w-1 bg-blue-500 rounded-full"
+                                className="w-1 bg-emerald-500 rounded-full"
                               />
                             </div>
-                            <span className="text-xs font-black uppercase tracking-[0.2em] text-blue-400">
+                            <span className="text-xs font-black uppercase tracking-[0.2em] text-emerald-400">
                               Processando Voz
                             </span>
                           </div>
@@ -10270,6 +10155,7 @@ export default function App() {
                       handleUpdateNoteFolder={handleUpdateNoteFolder}
                       handleUpdateNotePin={handleUpdateNotePin}
                       user={user}
+                      onOpenGaveteiro={() => handleSetNotepadMode("pastas")}
                     />
                   ) : notepadMode === "brecho" ? (
                     <BrechoSalesModule
@@ -10324,7 +10210,7 @@ export default function App() {
                       {/* Title block */}
                       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-white/5 pb-5 mb-2">
                         <div className="space-y-1">
-                          <span className="px-2.5 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full text-[9px] font-black uppercase tracking-wider inline-flex items-center gap-1">
+                          <span className="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-[9px] font-black uppercase tracking-wider inline-flex items-center gap-1">
                             <Store className="w-3.5 h-3.5" />
                             Gestão de Múltiplos Comércios
                           </span>
@@ -10340,7 +10226,7 @@ export default function App() {
                       {/* Add Custom Niche Card / Establishment */}
                       <div className="bg-slate-950 p-4.5 rounded-2xl border border-white/[0.06] space-y-3.5">
                         <div className="flex items-center justify-between">
-                          <h4 className="text-xs font-black text-blue-400 uppercase tracking-widest flex items-center gap-1.5">
+                          <h4 className="text-xs font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1.5">
                             <Plus className="w-4 h-4" />
                             Cadastrar Novo Estabelecimento / Segmento Próprio
                           </h4>
@@ -10353,7 +10239,7 @@ export default function App() {
                               value={newNicheName}
                               onChange={(e) => setNewNicheName(e.target.value)}
                               placeholder="Ex: Mercadinho Central, Barbearia do João"
-                              className="w-full bg-slate-900 border border-white/10 hover:border-white/20 focus:border-blue-500 rounded-xl py-2 px-3.5 text-white outline-none font-medium text-xs transition-all"
+                              className="w-full bg-slate-900 border border-white/10 hover:border-white/20 focus:border-emerald-500 rounded-xl py-2 px-3.5 text-white outline-none font-medium text-xs transition-all"
                             />
                           </div>
                           <div className="md:col-span-4 space-y-1.5">
@@ -10364,13 +10250,13 @@ export default function App() {
                               maxLength={15}
                               onChange={(e) => setNewNicheLabel(e.target.value)}
                               placeholder="Ex: Mercadinho, Barbearia"
-                              className="w-full bg-slate-900 border border-white/10 hover:border-white/20 focus:border-blue-500 rounded-xl py-2 px-3.5 text-white outline-none font-medium text-xs transition-all"
+                              className="w-full bg-slate-900 border border-white/10 hover:border-white/20 focus:border-emerald-500 rounded-xl py-2 px-3.5 text-white outline-none font-medium text-xs transition-all"
                             />
                           </div>
                           <div className="md:col-span-3">
                             <button
                               type="submit"
-                              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black text-[11px] uppercase tracking-wider py-2.5 px-4 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
+                              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] uppercase tracking-wider py-2.5 px-4 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
                             >
                               <Plus className="w-4 h-4" />
                               Cadastrar Comércio
@@ -10521,7 +10407,7 @@ export default function App() {
                             setNotepadMode("pdv");
                             setPdvActiveSubTab(null);
                           }}
-                          className="px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg active:scale-95 shrink-0"
+                          className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg active:scale-95 shrink-0"
                         >
                           <ShoppingCart className="w-4 h-4" />
                           Ir para Frente de Caixa (PDV) 🏪
@@ -10783,7 +10669,7 @@ export default function App() {
                                       <button
                                         disabled={isAnalyzing === encarte.id}
                                         onClick={() => analyzeEncarte(encarte.id, encarte.imageUrl)}
-                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase shadow-lg shadow-blue-500/20 active:scale-95 transition-all flex items-center gap-2"
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex items-center gap-2"
                                       >
                                         {isAnalyzing === encarte.id ? (
                                           <>
@@ -10822,7 +10708,7 @@ export default function App() {
                                 shop: "Mundial",
                                 p: "Feijão Preto Comum 1kg",
                                 price: "6,99",
-                                color: "bg-blue-700",
+                                color: "bg-emerald-700",
                                 accent: "Custo Baixo",
                               },
                             ].map((staticEncarte, idx) => (
@@ -11212,7 +11098,7 @@ export default function App() {
                         <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
                           <button
                             onClick={() => setRevisaoTab("excel")}
-                            className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${revisaoTab === "excel" ? "bg-white text-blue-600 shadow-sm border border-slate-200" : "text-slate-400 hover:text-slate-600"}`}
+                            className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${revisaoTab === "excel" ? "bg-white text-emerald-600 shadow-sm border border-slate-200" : "text-slate-400 hover:text-slate-600"}`}
                           >
                             <Calculator className="w-4 h-4" />
                             Pasta Calculadora
@@ -11284,7 +11170,7 @@ export default function App() {
                                   >
                                     <div className="flex justify-between items-start">
                                       <div className="flex flex-col flex-1 truncate">
-                                        <span className="text-[11px] font-black text-blue-100 uppercase truncate pr-2 tracking-wide leading-tight">
+                                        <span className="text-[11px] font-black text-emerald-100 uppercase truncate pr-2 tracking-wide leading-tight">
                                           {data.customName || name}
                                         </span>
                                         <div className="flex items-center gap-1.5 mt-1.5">
@@ -11298,7 +11184,7 @@ export default function App() {
                                         </div>
                                       </div>
                                       <div className="text-right">
-                                        <div className="text-[14px] font-black text-blue-400 mono-display leading-none">
+                                        <div className="text-[14px] font-black text-emerald-400 mono-display leading-none">
                                           {formatCurrency(
                                             data.qty * data.price,
                                           )}
@@ -11360,13 +11246,13 @@ export default function App() {
                                       </div>
 
                                       {/* Price Input Area */}
-                                      <div className="flex-1 flex items-center bg-slate-950/50 rounded-2xl border border-white/5 px-4 py-2.5 transition-all focus-within:border-blue-500/50 focus-within:bg-slate-950/80 ring-1 ring-white/5 shadow-inner group">
+                                      <div className="flex-1 flex items-center bg-slate-950/50 rounded-2xl border border-white/5 px-4 py-2.5 transition-all focus-within:border-emerald-500/50 focus-within:bg-slate-950/80 ring-1 ring-white/5 shadow-inner group">
                                         <div className="flex flex-col flex-1">
                                           <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">
                                             Preço Unitário
                                           </span>
                                           <div className="flex items-center">
-                                            <span className="text-[10px] font-black text-blue-500/50 mr-1.5">
+                                            <span className="text-[10px] font-black text-emerald-500/50 mr-1.5">
                                               R$
                                             </span>
                                             <input
@@ -11433,7 +11319,7 @@ export default function App() {
                                     <span className="truncate pr-4 uppercase">
                                       {r.name} ({r.qty}x)
                                     </span>
-                                    <span className="mono-display text-blue-600 flex-shrink-0">
+                                    <span className="mono-display text-emerald-600 flex-shrink-0">
                                       {formatCurrency(r.qty * r.price)}
                                     </span>
                                   </div>
@@ -11449,7 +11335,7 @@ export default function App() {
                                     <span className="truncate pr-4 uppercase">
                                       {it.lineText} ({it.qty > 1 ? it.qty : 1}x)
                                     </span>
-                                    <span className="mono-display text-blue-600 flex-shrink-0">
+                                    <span className="mono-display text-emerald-600 flex-shrink-0">
                                       {it.total > 0
                                         ? formatCurrency(it.total)
                                         : "---"}
@@ -11545,7 +11431,7 @@ export default function App() {
                             </button>
                             <button
                               onClick={copySummary}
-                              className="flex items-center justify-center gap-2 bg-blue-600 text-white py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg active:scale-95 w-full"
+                              className="flex items-center justify-center gap-2 bg-emerald-600 text-white py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg active:scale-95 w-full"
                             >
                               <Copy className="w-3.5 h-3.5" />
                               Copiar Lista
@@ -11557,7 +11443,7 @@ export default function App() {
                         {revisaoTab === "super" && (
                           <div className="bg-slate-900 p-5 rounded-[2.5rem] shadow-xl border border-slate-800 space-y-4">
                             <div className="flex items-center gap-2 mb-2">
-                              <PlusCircle className="w-4 h-4 text-blue-400" />
+                              <PlusCircle className="w-4 h-4 text-emerald-400" />
                               <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">
                                 Adicionar Item Rápido
                               </span>
@@ -11574,7 +11460,7 @@ export default function App() {
                                   handleAddCustomRevisaoItem()
                                 }
                                 placeholder="NOME DO PRODUTO..."
-                                className="flex-1 bg-slate-800 border border-slate-700 rounded-2xl px-5 py-4 text-[12px] font-black uppercase text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+                                className="flex-1 bg-slate-800 border border-slate-700 rounded-2xl px-5 py-4 text-[12px] font-black uppercase text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all"
                               />
                               <div className="relative w-32">
                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-500">
@@ -11592,12 +11478,12 @@ export default function App() {
                                     handleAddCustomRevisaoItem()
                                   }
                                   placeholder="0,00"
-                                  className="w-full bg-slate-800 border border-slate-700 rounded-2xl pl-10 pr-4 py-4 text-[12px] font-black text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all text-right"
+                                  className="w-full bg-slate-800 border border-slate-700 rounded-2xl pl-10 pr-4 py-4 text-[12px] font-black text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all text-right"
                                 />
                               </div>
                               <button
                                 onClick={handleAddCustomRevisaoItem}
-                                className="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg active:scale-95 transition-all hover:bg-blue-500"
+                                className="w-14 h-14 bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-lg active:scale-95 transition-all hover:bg-emerald-500"
                               >
                                 <Plus className="w-6 h-6" />
                               </button>
@@ -11610,8 +11496,8 @@ export default function App() {
                           parsedItems.filter((it) => it.lineText.trim() !== "")
                             .length > 0 && (
                             <div className="space-y-3">
-                              <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-widest pl-2 flex items-center gap-2">
-                                <div className="w-1 h-3 bg-blue-500 rounded-full" />
+                              <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest pl-2 flex items-center gap-2">
+                                <div className="w-1 h-3 bg-emerald-500 rounded-full" />
                                 Lista Calculadora (Digital)
                               </h4>
                               {parsedItems.map((item, idx) => {
@@ -11640,7 +11526,7 @@ export default function App() {
                                           {item.lineText.trim()}
                                         </p>
                                         <div className="flex items-center gap-2 mt-1">
-                                          <span className="text-[7px] font-black bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-md uppercase">
+                                          <span className="text-[7px] font-black bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded-md uppercase">
                                             Calculadora
                                           </span>
                                           {item.qty > 1 && (
@@ -11654,7 +11540,7 @@ export default function App() {
                                     <div className="flex items-center gap-4 relative z-10">
                                       <div className="text-right">
                                         <p
-                                          className={`text-base font-black mono-display ${isChecked ? "text-slate-400" : "text-blue-600"}`}
+                                          className={`text-base font-black mono-display ${isChecked ? "text-slate-400" : "text-emerald-600"}`}
                                         >
                                           {item.total > 0
                                             ? formatCurrency(item.total)
@@ -11675,7 +11561,7 @@ export default function App() {
                                               qty: item.qty || 1,
                                             });
                                           }}
-                                          className="w-10 h-10 rounded-full border-2 border-slate-100 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:border-blue-100 transition-all active:scale-90"
+                                          className="w-10 h-10 rounded-full border-2 border-slate-100 flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:border-emerald-100 transition-all active:scale-90"
                                         >
                                           <Pencil className="w-4 h-4" />
                                         </button>
@@ -11691,13 +11577,13 @@ export default function App() {
                         {revisaoTab === "excel" &&
                           validExcelRows.length > 0 && (
                             <div className="space-y-3">
-                              <h4 className="text-[9px] font-black text-blue-500 uppercase tracking-widest pl-2">
+                              <h4 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest pl-2">
                                 Calculadora Excel
                               </h4>
                               {validExcelRows.map((item) => (
                                 <div
                                   key={item.id}
-                                  className={`group relative overflow-hidden bg-white border-2 rounded-[2.5rem] p-6 flex items-center justify-between transition-all active:scale-[0.98] ${(item as any).checked ? "border-green-100 opacity-60" : "border-slate-100 shadow-xl shadow-slate-100/30 hover:border-blue-200"}`}
+                                  className={`group relative overflow-hidden bg-white border-2 rounded-[2.5rem] p-6 flex items-center justify-between transition-all active:scale-[0.98] ${(item as any).checked ? "border-green-100 opacity-60" : "border-slate-100 shadow-xl shadow-slate-100/30 hover:border-emerald-200"}`}
                                 >
                                   {(item as any).checked && (
                                     <div className="absolute inset-0 bg-green-50/20" />
@@ -11724,7 +11610,7 @@ export default function App() {
                                         {item.name || "Sem nome"}
                                       </p>
                                       <div className="flex items-center gap-2 mt-1 font-sans">
-                                        <span className="text-[8px] font-black bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full uppercase tracking-widest">
+                                        <span className="text-[8px] font-black bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full uppercase tracking-widest">
                                           Calc
                                         </span>
                                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">
@@ -11737,7 +11623,7 @@ export default function App() {
                                   <div className="flex items-center gap-4 relative z-10">
                                     <div className="text-right">
                                       <p
-                                        className={`text-base font-black mono-display ${(item as any).checked ? "text-slate-400" : "text-blue-600"}`}
+                                        className={`text-base font-black mono-display ${(item as any).checked ? "text-slate-400" : "text-emerald-600"}`}
                                       >
                                         {formatCurrency(item.qty * item.price)}
                                       </p>
@@ -11754,7 +11640,7 @@ export default function App() {
                                             qty: item.qty,
                                           });
                                         }}
-                                        className="w-12 h-12 rounded-full border-2 border-slate-100 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:border-blue-100 transition-all active:scale-90"
+                                        className="w-12 h-12 rounded-full border-2 border-slate-100 flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:border-emerald-100 transition-all active:scale-90"
                                       >
                                         <Pencil className="w-5 h-5" />
                                       </button>
@@ -11982,7 +11868,7 @@ export default function App() {
                           <div className="py-24 text-center space-y-6">
                             <div className="w-24 h-24 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto shadow-inner relative">
                               <Search className="w-10 h-10 text-slate-200" />
-                              <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-black animate-bounce shadow-xl">
+                              <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-emerald-600 text-white rounded-full flex items-center justify-center font-black animate-bounce shadow-xl">
                                 !
                               </div>
                             </div>
@@ -12001,7 +11887,7 @@ export default function App() {
                                   revisaoTab === "excel" ? "edit" : "super",
                                 )
                               }
-                              className="px-10 py-5 bg-blue-600 text-white rounded-3xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl shadow-blue-500/40 hover:scale-105 active:scale-95 transition-all w-full max-w-xs"
+                              className="px-10 py-5 bg-emerald-600 text-white rounded-3xl font-black text-[11px] uppercase tracking-[0.2em] shadow-xl shadow-emerald-500/40 hover:scale-105 active:scale-95 transition-all w-full max-w-xs"
                             >
                               Começar Agora
                             </button>
@@ -12034,6 +11920,54 @@ export default function App() {
                       isSpeakingList={isSpeakingList}
                       stopSpeaking={stopSpeaking}
                       handleAddNewCustomItem={handleAddNewCustomItem}
+                    />
+                  ) : notepadMode === "pastas" ? (
+                    <GaveteiroPastasModule
+                      key="pastas"
+                      history={history}
+                      localHistory={localHistory}
+                      deletedLists={deletedLists}
+                      onLoadList={loadList}
+                      onDeleteList={deleteList}
+                      onRestoreList={(item) => {
+                        setDeletedLists((prev) => prev.filter((d) => d.id !== item.id));
+                        setLocalHistory((prev) => [item, ...prev]);
+                        showNotification("Documento restaurado no gaveteiro! 📂", "success");
+                      }}
+                      onUpdateListFolder={(id, newFolder) => {
+                        setLocalHistory((prev) =>
+                          prev.map((item) => (item.id === id ? { ...item, pasta: newFolder } : item))
+                        );
+                        if (user) {
+                          try {
+                            updateDoc(doc(db, "listas", id), { pasta: newFolder });
+                          } catch (e) {
+                            console.error("Erro ao atualizar pasta:", e);
+                          }
+                        }
+                      }}
+                      savedNotes={savedNotes}
+                      onLoadNote={(note) => {
+                        setFreeNotesText(note.text);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      onDeleteNote={(id) => {
+                        setSavedNotes((prev) => prev.filter((n) => n.id !== id));
+                        showNotification("Nota removida do gaveteiro!", "info");
+                      }}
+                      onUpdateNoteFolder={(id, newFolder) => {
+                        setSavedNotes((prev) =>
+                          prev.map((n) => (n.id === id ? { ...n, folder: newFolder } : n))
+                        );
+                      }}
+                      currentFolder={currentFolder}
+                      setCurrentFolder={setCurrentFolder}
+                      createdFolders={createdFolders}
+                      setCreatedFolders={setCreatedFolders}
+                      onNavigateToMode={(mode) => handleSetNotepadMode(mode)}
+                      showNotification={showNotification}
+                      subscriptionTier={subscriptionTier}
+                      onOpenSubscriptionModal={(source, planId) => openSubscriptionModal(source, planId as any)}
                     />
                   ) : notepadMode === "folders" ? (
                     <CalculatorModule
@@ -12281,15 +12215,15 @@ export default function App() {
             {(notepadMode === "notes" || !notepadMode) && (
               <>
                 {/* History Quick Access */}
-            {!user ? (
+            {!user && Object.keys(groupedHistory).length === 0 ? (
               <section className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] text-center">
                   <p className="text-xs font-bold text-slate-500 uppercase mb-4">
-                    Acesse seu Histórico
+                    Acesse seu Histórico & Sincronize na Nuvem
                   </p>
                   <button
                     onClick={handleLogin}
-                    className="w-full bg-white text-slate-950 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest"
+                    className="w-full bg-white text-slate-950 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest cursor-pointer"
                   >
                     Entrar com Google
                   </button>
@@ -12302,7 +12236,7 @@ export default function App() {
                     <div className="flex items-center gap-3">
                       <button
                         onClick={() => setViewState("active")}
-                        className={`text-xs font-black uppercase tracking-widest ${viewState === "active" ? "text-blue-500 underline underline-offset-4" : "text-slate-500"}`}
+                        className={`text-xs font-black uppercase tracking-widest ${viewState === "active" ? "text-emerald-500 underline underline-offset-4" : "text-slate-500"}`}
                       >
                         Suas Pastas
                       </button>
@@ -12324,7 +12258,7 @@ export default function App() {
                     {localHistory.length > 0 && isOnline && user && (
                       <button
                         onClick={syncLocalHistory}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest shadow-lg shadow-blue-900/40 animate-pulse"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest shadow-lg shadow-emerald-900/40 animate-pulse"
                       >
                         <RotateCcw className="w-3 h-3" />
                         Sincronizar ({localHistory.length})
@@ -12354,7 +12288,7 @@ export default function App() {
                           <div key={folderName} className="space-y-3">
                             <div className="px-8 flex items-center justify-between">
                               <div className="flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                 <h4 className="text-[10px] font-black text-white uppercase tracking-widest">
                                   {folderName}
                                 </h4>
@@ -12408,9 +12342,9 @@ export default function App() {
                                     exit={{ opacity: 0, scale: 0.8 }}
                                     onClick={() => loadList(item)}
                                     key={item.id}
-                                    className={`shrink-0 border p-5 rounded-3xl min-w-[220px] text-left hover:border-blue-500 transition-all flex flex-col gap-2 group relative overflow-hidden cursor-pointer ${localHistory.some((l) => l.id === item.id) ? "bg-slate-950 border-amber-500/30" : "bg-slate-900 border-slate-800"}`}
+                                    className={`shrink-0 border p-5 rounded-3xl min-w-[220px] text-left hover:border-emerald-500 transition-all flex flex-col gap-2 group relative overflow-hidden cursor-pointer ${localHistory.some((l) => l.id === item.id) ? "bg-slate-950 border-amber-500/30" : "bg-slate-900 border-slate-800"}`}
                                   >
-                                    <div className="absolute top-0 left-0 w-1 h-full bg-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                                     <div className="flex justify-between items-start">
                                       <p className="text-[9px] font-black text-slate-600 uppercase italic flex items-center gap-1">
                                         {getListDate(
@@ -12424,7 +12358,7 @@ export default function App() {
                                             Local
                                           </span>
                                         ) : (
-                                          <span className="flex items-center gap-1 text-[7px] bg-blue-500/20 text-blue-400 px-1 rounded">
+                                          <span className="flex items-center gap-1 text-[7px] bg-emerald-500/20 text-emerald-400 px-1 rounded">
                                             <Cloud className="w-2 h-2" /> Nuvem
                                           </span>
                                         )}
@@ -12538,7 +12472,7 @@ export default function App() {
                               <div className="flex gap-2">
                                 <button
                                   onClick={() => recoverFromTrash(item)}
-                                  className="p-3 bg-blue-600/10 text-blue-400 rounded-2xl hover:bg-blue-600 hover:text-white transition-all shadow-lg"
+                                  className="p-3 bg-emerald-600/10 text-emerald-400 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all shadow-lg"
                                   title="Recuperar Lista"
                                 >
                                   <RotateCcw className="w-4 h-4 stroke-[3px]" />
@@ -12590,10 +12524,10 @@ export default function App() {
                 </h3>
 
                 {/* Cérebro Inteligente: Dicas */}
-                <div className="bg-blue-500/10 border border-blue-500/20 p-6 rounded-[2rem] space-y-4">
+                <div className="bg-emerald-500/10 border border-emerald-500/20 p-6 rounded-[2rem] space-y-4">
                   <div className="flex items-center gap-2">
-                    <Info className="w-4 h-4 text-blue-400" />
-                    <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
+                    <Info className="w-4 h-4 text-emerald-400" />
+                    <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
                       Cérebro Inteligente: Dicas de Compras
                     </h4>
                   </div>
@@ -12608,7 +12542,7 @@ export default function App() {
                     <li className="pt-2">
                       <button
                         onClick={shareApp}
-                        className="flex items-center gap-2 text-blue-400 hover:text-blue-300 transition-colors"
+                        className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 transition-colors"
                       >
                         <Heart className="w-3 h-3 fill-current" /> Recomendar
                         app para amigos
@@ -12764,10 +12698,10 @@ export default function App() {
                         <motion.div
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
-                          className="bg-slate-950 p-6 rounded-3xl border border-blue-500/30 flex flex-col gap-4"
+                          className="bg-slate-950 p-6 rounded-3xl border border-emerald-500/30 flex flex-col gap-4"
                         >
                           <div>
-                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-3">
+                            <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-3">
                               Escolha a Pasta:
                             </p>
                             <div className="flex flex-wrap gap-2 mb-4">
@@ -12783,7 +12717,7 @@ export default function App() {
                                 <button
                                   key={f}
                                   onClick={() => setCurrentFolder(f)}
-                                  className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all ${currentFolder === f ? "bg-blue-600 text-white shadow-lg" : "bg-slate-800 text-slate-500 hover:bg-slate-700"}`}
+                                  className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all ${currentFolder === f ? "bg-emerald-600 text-white shadow-lg" : "bg-slate-800 text-slate-500 hover:bg-slate-700"}`}
                                 >
                                   {f}
                                 </button>
@@ -12794,7 +12728,7 @@ export default function App() {
                               value={currentFolder}
                               onChange={(e) => setCurrentFolder(e.target.value)}
                               placeholder="Ou digite um nome novo..."
-                              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-white placeholder:text-slate-600 outline-none focus:border-blue-500 transition-all"
+                              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm font-bold text-white placeholder:text-slate-600 outline-none focus:border-emerald-500 transition-all"
                             />
                           </div>
 
@@ -12808,7 +12742,7 @@ export default function App() {
                             <button
                               onClick={saveCurrentList}
                               disabled={isSaving}
-                              className="flex-3 bg-blue-600 text-white py-3 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-blue-900/40 disabled:opacity-50"
+                              className="flex-3 bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-emerald-900/40 disabled:opacity-50"
                             >
                               {isSaving ? "Salvando..." : "Confirmar e Salvar"}
                             </button>
@@ -12842,9 +12776,20 @@ export default function App() {
                             <motion.button
                               whileHover={{ scale: 1.05 }}
                               whileTap={{ scale: 0.95 }}
+                              onClick={() => handleSetNotepadMode("pastas")}
+                              className="flex items-center gap-1.5 bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white px-4 py-4 rounded-2xl font-black uppercase text-[10px] tracking-wider transition-all border border-amber-500/30 cursor-pointer"
+                              title="Abrir Gaveteiro de Pastas Salvas"
+                            >
+                              <Archive className="w-4 h-4" />
+                              <span>Ver Pastas Salvas 🗄️</span>
+                            </motion.button>
+
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
                               onClick={() => setShowFolderInput(true)}
-                              className="p-4 bg-blue-600/20 text-blue-400 rounded-2xl border border-blue-500/30"
-                              title="Salvar Lista"
+                              className="p-4 bg-emerald-600/20 text-emerald-400 rounded-2xl border border-emerald-500/30"
+                              title="Salvar Lista em Pasta"
                             >
                               <Save className="w-5 h-5" />
                             </motion.button>
@@ -12927,7 +12872,7 @@ export default function App() {
                           className="flex items-start gap-3 bg-slate-900/50 p-4 rounded-2xl border border-white/5"
                         >
                           <div
-                            className={`mt-1 w-2.5 h-2.5 rounded-full shrink-0 ${idx === 0 ? "bg-amber-500" : idx === 1 ? "bg-blue-500" : "bg-slate-500"}`}
+                            className={`mt-1 w-2.5 h-2.5 rounded-full shrink-0 ${idx === 0 ? "bg-amber-500" : idx === 1 ? "bg-emerald-500" : "bg-slate-500"}`}
                           />
                           <p className="text-sm font-medium text-slate-300">
                             {sug}
@@ -12947,8 +12892,8 @@ export default function App() {
             {/* Financial Thinking Section (Simulator) */}
             {balance > 0 && (
               <section id="thinking-section" className="mt-8 space-y-6">
-                <div className="bg-blue-900/40 border-2 border-blue-500/30 p-8 rounded-[2.5rem] shadow-2xl">
-                  <h2 className="text-xl font-black italic text-blue-400 mb-6 flex items-center gap-3 italic">
+                <div className="bg-emerald-900/40 border-2 border-emerald-500/30 p-8 rounded-[2.5rem] shadow-2xl">
+                  <h2 className="text-xl font-black italic text-emerald-400 mb-6 flex items-center gap-3 italic">
                     <Smartphone className="w-6 h-6" /> Calculadora de
                     Verificação
                   </h2>
@@ -12971,10 +12916,10 @@ export default function App() {
                     {/* Section: Simulação Lateral */}
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
-                        <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
+                        <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
                           Simular Preços Extras
                         </p>
-                        <span className="text-[9px] text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded uppercase font-bold">
+                        <span className="text-[9px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase font-bold">
                           Subtotal: {formatCurrency(futureTotalSpent)}
                         </span>
                       </div>
@@ -12984,14 +12929,14 @@ export default function App() {
                           setFutureItemsText(e.target.value);
                         }}
                         placeholder="Ex: R$12,00 x 2 (item)"
-                        className="w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 text-lg font-bold text-white placeholder:text-slate-700 focus:border-blue-500 outline-none transition-all min-h-[120px] resize-none"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 text-lg font-bold text-white placeholder:text-slate-700 focus:border-emerald-500 outline-none transition-all min-h-[120px] resize-none"
                       />
 
                       <motion.button
                         whileTap={{ scale: 0.95 }}
                         onClick={transferToMainList}
                         disabled={!futureItemsText.trim()}
-                        className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-black uppercase text-[10px] py-4 rounded-2xl transition-all shadow-lg"
+                        className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-black uppercase text-[10px] py-4 rounded-2xl transition-all shadow-lg"
                       >
                         <PlusCircle className="w-4 h-4" /> Adicionar à Lista
                         Principal agora
@@ -13034,7 +12979,7 @@ export default function App() {
             )}
           </main>
           {/* Palavra de Inspiração, Fé e O Poder da Mente */}
-          {!(notepadMode === "pdv" && pdvCheckoutOnly) && <InspirationalQuotesBar />}
+          <InspirationalQuotesBar />
         </>
       )}
 
@@ -13064,7 +13009,7 @@ export default function App() {
                     ? "Termos de Uso"
                     : "Política de Privacidade"}
                 </h2>
-                <div className="w-12 h-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full" />
+                <div className="w-12 h-1 bg-gradient-to-r from-emerald-600 to-purple-600 rounded-full" />
                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
                   Última atualização: 28 de maio de 2026
                 </p>
@@ -13081,7 +13026,7 @@ export default function App() {
                         href="https://calculadoracerebro.com.br"
                         target="_blank"
                         rel="noreferrer"
-                        className="text-blue-400 underline hover:text-blue-300"
+                        className="text-emerald-400 underline hover:text-emerald-300"
                       >
                         calculadoracerebro.com.br
                       </a>
@@ -13161,7 +13106,7 @@ export default function App() {
 
                     <div className="space-y-6">
                       <div className="bg-slate-900/60 p-4 rounded-2xl border border-white/5 space-y-2">
-                        <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest block">
+                        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block">
                           Controlador e Encarregado de Proteção de Dados
                         </span>
                         <p className="text-xs text-slate-300 leading-relaxed">
@@ -13170,14 +13115,14 @@ export default function App() {
                           <strong>Encarregado de Proteção de Dados (DPO):</strong> Denise Jesus da Silva
                           <br />
                           <strong>E-mail de Contato do DPO:</strong>{" "}
-                          <span className="text-blue-400 font-mono">calculadoracerebrointeligente@gmail.com</span>
+                          <span className="text-emerald-400 font-mono">calculadoracerebrointeligente@gmail.com</span>
                           <br />
                           <strong>Domínio Oficial de Privacidade:</strong>{" "}
                           <a
                             href="https://calculadoracerebro.com.br"
                             target="_blank"
                             rel="noreferrer"
-                            className="text-blue-400 underline hover:text-blue-300"
+                            className="text-emerald-400 underline hover:text-emerald-300"
                           >
                             https://calculadoracerebro.com.br
                           </a>
@@ -13240,7 +13185,7 @@ export default function App() {
                             <strong>Autogestão de Exclusão Completa (Dentro do App):</strong> Em conformidade com as diretrizes do Google Play Store, disponibilizamos um recurso direto de autogestão. Acesse a guia de "Conta" / "Opções de Perfil" no menu, insira a confirmação requerida e clique em <strong>"Confirmar Exclusão Definitiva"</strong>. O aplicativo removerá instantaneamente seu cadastro de login unificado, seu perfil, e apagará de forma completa e definitiva todos os seus documentos de notas, agenda, listas e histórico de vendas de nossos bancos de dados de produção do Firebase.
                           </li>
                           <li>
-                            <strong>Suporte via E-mail:</strong> Se preferir ou enfrentar dificuldades, você também pode enviar uma solicitação direta do seu e-mail cadastrado para <span className="text-blue-400 font-mono">calculadoracerebrointeligente@gmail.com</span>. Nosso DPO processará o expurgo integral de seus registros digitais em até 24 horas úteis, com o envio do comprovante correspondente.
+                            <strong>Suporte via E-mail:</strong> Se preferir ou enfrentar dificuldades, você também pode enviar uma solicitação direta do seu e-mail cadastrado para <span className="text-emerald-400 font-mono">calculadoracerebrointeligente@gmail.com</span>. Nosso DPO processará o expurgo integral de seus registros digitais em até 24 horas úteis, com o envio do comprovante correspondente.
                           </li>
                         </ul>
                       </div>
@@ -13288,8 +13233,8 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-[2.5rem] p-8 shadow-2xl space-y-6 text-center"
             >
-              <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto">
-                <Mic className="w-8 h-8 text-blue-500 animate-pulse" />
+              <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto">
+                <Mic className="w-8 h-8 text-emerald-500 animate-pulse" />
               </div>
               <div className="space-y-3">
                 <h3 className="text-xl font-black text-white uppercase tracking-tight">
@@ -13301,14 +13246,14 @@ export default function App() {
 
                 {/* Tradução visual da caixa do Google */}
                 <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 text-left space-y-3 shadow-inner">
-                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-wider block">
+                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider block">
                     ⚠️ TRADUÇÃO DA JANELA DO GOOGLE:
                   </span>
                   <p className="text-[11px] text-slate-300 leading-relaxed">
                     O Google AI Studio exibirá uma caixa cinza <strong className="text-yellow-400">em inglês</strong>. Veja abaixo a tradução exata de cada item para você saber o que clicar:
                   </p>
                   
-                  <div className="border-l-2 border-blue-500 pl-3 space-y-2 text-xs">
+                  <div className="border-l-2 border-emerald-500 pl-3 space-y-2 text-xs">
                     <div>
                       <span className="text-slate-500 block text-[9px] uppercase font-bold">Título:</span>
                       <strong className="text-white font-mono">Microphone access request</strong>
@@ -13334,7 +13279,7 @@ export default function App() {
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-slate-500 uppercase">Botão Direito (CLIQUE AQUI):</span>
-                      <span className="bg-blue-500/20 text-blue-400 px-2.5 py-1.5 rounded border border-blue-500/30 font-mono animate-pulse">
+                      <span className="bg-emerald-500/20 text-emerald-400 px-2.5 py-1.5 rounded border border-emerald-500/30 font-mono animate-pulse">
                         Allow Microphone access (Permitir)
                       </span>
                     </div>
@@ -13356,7 +13301,7 @@ export default function App() {
                       setPendingMicAction(null);
                     }
                   }}
-                  className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg shadow-blue-500/20 transition-all active:scale-[0.98] cursor-pointer"
+                  className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98] cursor-pointer"
                 >
                   Entendi e Quero Ativar o Microfone
                 </button>
@@ -13391,7 +13336,7 @@ export default function App() {
                   : notification.type === "error"
                     ? "bg-red-600 border-red-550 text-white"
                     : notification.type === "syncing"
-                      ? "bg-blue-600 border-blue-500 text-white"
+                      ? "bg-emerald-600 border-emerald-500 text-white"
                       : "bg-slate-900 border-slate-800 text-slate-200"
               }`}
             >
@@ -13436,7 +13381,7 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center bg-blue-500/5"
+            className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center bg-emerald-500/5"
           >
             <motion.div
               initial={{ scale: 0.5, y: 20 }}
@@ -13452,7 +13397,7 @@ export default function App() {
                   }}
                   transition={{ repeat: Infinity, duration: 2 }}
                 >
-                  <Sparkles className="w-20 h-20 text-blue-500 fill-blue-500" />
+                  <Sparkles className="w-20 h-20 text-emerald-500 fill-emerald-500" />
                 </motion.div>
                 <motion.div
                   className="absolute -top-4 -right-4"
@@ -13466,7 +13411,7 @@ export default function App() {
                 <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter mb-2">
                   Item Adicionado!
                 </h2>
-                <p className="text-blue-500 font-black uppercase tracking-widest text-[10px]">
+                <p className="text-emerald-500 font-black uppercase tracking-widest text-[10px]">
                   Boa! Você não esqueceu mais nada.
                 </p>
               </div>
@@ -13489,7 +13434,7 @@ export default function App() {
               exit={{ scale: 0.9, y: 20 }}
               className="bg-white rounded-[3rem] p-8 w-full max-w-sm text-center shadow-2xl space-y-6"
             >
-              <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mx-auto text-blue-600 shadow-inner">
+              <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto text-emerald-600 shadow-inner">
                 <CheckCircle2 className="w-10 h-10" />
               </div>
               <div className="space-y-2">
@@ -13503,7 +13448,7 @@ export default function App() {
               <div className="grid grid-cols-1 gap-3">
                 <button
                   onClick={finalizePurchase}
-                  className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] tracking-widest hover:scale-105 active:scale-95 transition-all shadow-xl shadow-blue-500/20 font-sans"
+                  className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black uppercase text-[11px] tracking-widest hover:scale-105 active:scale-95 transition-all shadow-xl shadow-emerald-500/20 font-sans"
                 >
                   Sim, Finalizar Tudo
                 </button>
@@ -13537,7 +13482,7 @@ export default function App() {
 
             <div className="flex items-center gap-4 mb-8">
               <div
-                className={`w-14 h-14 rounded-2xl ${editingItem.type === "super" ? "bg-[#ff9100]/10 text-[#ff9100]" : "bg-blue-50 text-blue-600"} flex items-center justify-center`}
+                className={`w-14 h-14 rounded-2xl ${editingItem.type === "super" ? "bg-[#ff9100]/10 text-[#ff9100]" : "bg-emerald-50 text-emerald-600"} flex items-center justify-center`}
               >
                 <Pencil className="w-7 h-7" />
               </div>
@@ -13548,7 +13493,7 @@ export default function App() {
                   Editar Item
                 </h3>
                 <p
-                  className={`text-[10px] font-black ${editingItem.type === "super" ? "text-[#ff9100]" : "text-blue-500"} uppercase tracking-widest`}
+                  className={`text-[10px] font-black ${editingItem.type === "super" ? "text-[#ff9100]" : "text-emerald-500"} uppercase tracking-widest`}
                 >
                   {editingItem.type === "digital"
                     ? "Lista Digital"
@@ -13570,7 +13515,7 @@ export default function App() {
                   onChange={(e) =>
                     setEditingItem({ ...editingItem, name: e.target.value })
                   }
-                  className={`w-full ${editingItem.type === "super" ? "bg-[#1a1a20] border-zinc-700 text-white focus:border-[#ff9100]" : "bg-slate-50 border-slate-100 text-slate-900 focus:border-blue-500"} border-2 rounded-2xl p-5 font-bold outline-none transition-all uppercase`}
+                  className={`w-full ${editingItem.type === "super" ? "bg-[#1a1a20] border-zinc-700 text-white focus:border-[#ff9100]" : "bg-slate-50 border-slate-100 text-slate-900 focus:border-emerald-500"} border-2 rounded-2xl p-5 font-bold outline-none transition-all uppercase`}
                 />
               </div>
 
@@ -13596,7 +13541,7 @@ export default function App() {
                           price: e.target.value,
                         })
                       }
-                      className={`w-full ${editingItem.type === "super" ? "bg-[#1a1a20] border-zinc-700 text-white focus:border-[#ff9100]" : "bg-slate-50 border-slate-100 text-slate-900 focus:border-blue-500"} border-2 rounded-2xl p-5 pl-10 font-black outline-none transition-all mono-display`}
+                      className={`w-full ${editingItem.type === "super" ? "bg-[#1a1a20] border-zinc-700 text-white focus:border-[#ff9100]" : "bg-slate-50 border-slate-100 text-slate-900 focus:border-emerald-500"} border-2 rounded-2xl p-5 pl-10 font-black outline-none transition-all mono-display`}
                       placeholder="0,00"
                     />
                   </div>
@@ -13613,7 +13558,7 @@ export default function App() {
                     onChange={(e) =>
                       setEditingItem({ ...editingItem, qty: e.target.value })
                     }
-                    className={`w-full ${editingItem.type === "super" ? "bg-[#1a1a20] border-zinc-700 text-white focus:border-[#ff9100]" : "bg-slate-50 border-slate-100 text-slate-900 focus:border-blue-500"} border-2 rounded-2xl p-5 font-black outline-none transition-all mono-display`}
+                    className={`w-full ${editingItem.type === "super" ? "bg-[#1a1a20] border-zinc-700 text-white focus:border-[#ff9100]" : "bg-slate-50 border-slate-100 text-slate-900 focus:border-emerald-500"} border-2 rounded-2xl p-5 font-black outline-none transition-all mono-display`}
                     placeholder="1"
                   />
                 </div>
@@ -13628,7 +13573,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={handleSaveQuickEdit}
-                  className={`flex-[1.5] py-5 rounded-2xl ${editingItem.type === "super" ? "bg-[#ff9100] text-black shadow-lg shadow-orange-500/20" : "bg-blue-600 text-white shadow-xl shadow-blue-500/20"} font-black uppercase text-[10px] tracking-[0.2em] active:scale-95 transition-all`}
+                  className={`flex-[1.5] py-5 rounded-2xl ${editingItem.type === "super" ? "bg-[#ff9100] text-black shadow-lg shadow-orange-500/20" : "bg-emerald-600 text-white shadow-xl shadow-emerald-500/20"} font-black uppercase text-[10px] tracking-[0.2em] active:scale-95 transition-all`}
                 >
                   Salvar Alterações
                 </button>
@@ -13706,7 +13651,7 @@ export default function App() {
               className="bg-slate-900 border border-slate-800 rounded-[2.5rem] p-8 w-full max-w-sm text-center shadow-2xl space-y-6"
             >
               <div
-                className={`w-16 h-16 rounded-3xl flex items-center justify-center mx-auto shadow-inner ${confirmDialog.isDanger ? "bg-red-500/10 text-red-400" : "bg-blue-500/10 text-blue-400"}`}
+                className={`w-16 h-16 rounded-3xl flex items-center justify-center mx-auto shadow-inner ${confirmDialog.isDanger ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"}`}
               >
                 <AlertCircle className="w-8 h-8" />
               </div>
@@ -13729,7 +13674,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={confirmDialog.onConfirm}
-                  className={`flex-1 py-4 rounded-2xl font-black uppercase text-[11px] tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-xl font-sans ${confirmDialog.isDanger ? "bg-red-600 text-white shadow-red-500/10" : "bg-blue-600 text-white shadow-blue-500/10"}`}
+                  className={`flex-1 py-4 rounded-2xl font-black uppercase text-[11px] tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-xl font-sans ${confirmDialog.isDanger ? "bg-red-600 text-white shadow-red-500/10" : "bg-emerald-600 text-white shadow-emerald-500/10"}`}
                 >
                   {confirmDialog.confirmText}
                 </button>
@@ -13766,7 +13711,7 @@ export default function App() {
               </button>
 
               <div className="space-y-2 text-center pt-2">
-                <div className="w-12 h-12 bg-gradient-to-tr from-blue-500 to-purple-500 rounded-2xl flex items-center justify-center mx-auto shadow-lg text-white">
+                <div className="w-12 h-12 bg-gradient-to-tr from-emerald-500 to-purple-500 rounded-2xl flex items-center justify-center mx-auto shadow-lg text-white">
                   <Smartphone className="w-6 h-6 animate-pulse" />
                 </div>
                 <h3 className="text-xl font-black text-white uppercase tracking-tight">
@@ -13825,7 +13770,7 @@ export default function App() {
                       <div className="text-left">
                         <p className="text-xs text-white font-bold">Inicie pelo Navegador Safari</p>
                         <p className="text-[11px] text-slate-400 leading-normal mt-1">
-                          Certifique-se de estar usando o <strong className="text-white font-bold">Safari</strong>. Toque no botão de <strong>Compartilhar</strong> <Share2 className="inline w-3.5 h-3.5 text-blue-400 mx-0.5" /> na barra de navegação inferior do seu celular.
+                          Certifique-se de estar usando o <strong className="text-white font-bold">Safari</strong>. Toque no botão de <strong>Compartilhar</strong> <Share2 className="inline w-3.5 h-3.5 text-emerald-400 mx-0.5" /> na barra de navegação inferior do seu celular.
                         </p>
                       </div>
                     </div>
@@ -13859,8 +13804,8 @@ export default function App() {
                 {installGuideTab === "android" && (
                   <div className="space-y-3">
                     {deferredPrompt && (
-                      <div className="p-3.5 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-3xl border border-blue-500/25 text-center space-y-2">
-                        <p className="text-xs text-blue-400 font-extrabold uppercase tracking-wider">
+                      <div className="p-3.5 bg-gradient-to-r from-emerald-500/10 to-purple-500/10 rounded-3xl border border-emerald-500/25 text-center space-y-2">
+                        <p className="text-xs text-emerald-400 font-extrabold uppercase tracking-wider">
                           Navegador Compatível!
                         </p>
                         <p className="text-[11px] text-slate-300">
@@ -13872,7 +13817,7 @@ export default function App() {
                             setShowInstallGuide(false);
                             handleInstallApp();
                           }}
-                          className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] uppercase tracking-widest py-2.5 rounded-xl transition-all cursor-pointer shadow-lg shadow-blue-500/10"
+                          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase tracking-widest py-2.5 rounded-xl transition-all cursor-pointer shadow-lg shadow-emerald-500/10"
                         >
                           Instalar Automaticamente
                         </button>

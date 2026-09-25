@@ -72,8 +72,8 @@ export const SUBSCRIPTION_PLANS: TierPlanInfo[] = [
     priceNum: 29.90,
     period: "por mês",
     badge: "ESTOQUE LIBERADO",
-    badgeBg: "bg-blue-500/10 border-blue-500/30 text-blue-600",
-    badgeText: "text-blue-500",
+    badgeBg: "bg-emerald-500/10 border-emerald-500/30 text-emerald-600",
+    badgeText: "text-emerald-500",
     description: "Para comércios que precisam de controle rigoroso de produtos e mercadorias:",
     features: [
       "Tudo incluído no Plano Ferramentas Pro (R$ 14,90)",

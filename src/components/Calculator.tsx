@@ -147,7 +147,7 @@ export const CalculatorModule = React.memo(({
     <div className="bg-slate-900 rounded-[2.5rem] p-6 shadow-2xl mb-8 border border-white/5 overflow-hidden">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-600 rounded-xl">
+          <div className="p-2 bg-emerald-600 rounded-xl">
             <Calculator className="w-5 h-5 text-white" />
           </div>
           <div className="flex flex-col">
@@ -184,10 +184,10 @@ export const CalculatorModule = React.memo(({
             key={btn}
             onClick={() => handleCalcPress(btn === 'DEL' ? 'DEL' : btn)}
             className={'h-12 rounded-2xl font-black text-lg flex items-center justify-center transition-all active:scale-90 shadow-lg ' + (
-              btn === '=' ? 'bg-blue-600 text-white shadow-blue-500/20' : 
+              btn === '=' ? 'bg-emerald-600 text-white shadow-emerald-500/20' : 
               btn === 'DEL' ? 'bg-slate-800 text-red-500 border border-white/5' :
               ['C','±','%'].includes(btn) ? 'bg-slate-800 text-slate-400 border border-white/5' :
-              ['/','x','-','+'].includes(btn) ? 'bg-slate-800 text-blue-400 border border-white/5' : 
+              ['/','x','-','+'].includes(btn) ? 'bg-slate-800 text-emerald-400 border border-white/5' : 
               'bg-white/5 text-white border border-white/10 hover:bg-white/10'
             )}
           >
@@ -220,7 +220,7 @@ export const CalculatorModule = React.memo(({
               }
             }
           }}
-          className="h-14 rounded-2xl font-black text-[9px] uppercase tracking-widest bg-blue-600 text-white active:scale-95 transition-all shadow-lg shadow-blue-500/20 flex flex-col items-center justify-center gap-1"
+          className="h-14 rounded-2xl font-black text-[9px] uppercase tracking-widest bg-emerald-600 text-white active:scale-95 transition-all shadow-lg shadow-emerald-500/20 flex flex-col items-center justify-center gap-1"
         >
           <Calendar className="w-5 h-5" /> Agendar Agenda
         </button>
@@ -231,8 +231,8 @@ export const CalculatorModule = React.memo(({
          <div className="mt-8 pt-8 border-t border-white/5 space-y-4">
             <div className="flex items-center justify-between">
                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-500/20 rounded-xl">
-                     <History className="w-4 h-4 text-blue-400" />
+                  <div className="p-2 bg-emerald-500/20 rounded-xl">
+                     <History className="w-4 h-4 text-emerald-400" />
                   </div>
                   <h4 className="text-xs font-black text-white uppercase tracking-widest">Recentes</h4>
                </div>
@@ -248,7 +248,7 @@ export const CalculatorModule = React.memo(({
                       setIsResult(false);
                       showNotification("Cálculo recuperado!", "info");
                     }}
-                    className="w-full bg-slate-950 p-4 rounded-2xl border border-white/5 flex flex-col items-end gap-1 hover:border-blue-500/30 transition-all group"
+                    className="w-full bg-slate-950 p-4 rounded-2xl border border-white/5 flex flex-col items-end gap-1 hover:border-emerald-500/30 transition-all group"
                   >
                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-tight opacity-60 group-hover:opacity-100 transition-opacity">{h.expr}</span>
                      <span className="text-lg font-black text-white mono-display text-right w-full">= {h.res}</span>
@@ -270,9 +270,20 @@ export const CalculatorModule = React.memo(({
                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Histórico de Listas</p>
             </div>
           </div>
-          <span className="text-[9px] font-black text-slate-500 bg-slate-800/60 border border-white/5 px-2 py-1 rounded-xl">
-            {allSavedLists.length} {allSavedLists.length === 1 ? 'Salva' : 'Salvas'}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setNotepadMode("pastas")}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[9.5px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+              title="Abrir Gaveteiro de Pastas Salvas"
+            >
+              <Folder className="w-3.5 h-3.5" />
+              <span>Abrir Gaveteiro de Pastas 🗄️</span>
+            </button>
+            <span className="text-[9px] font-black text-slate-500 bg-slate-800/60 border border-white/5 px-2 py-1 rounded-xl">
+              {allSavedLists.length} {allSavedLists.length === 1 ? 'Salva' : 'Salvas'}
+            </span>
+          </div>
         </div>
 
         {allSavedLists.length === 0 ? (
@@ -369,7 +380,7 @@ export const CalculatorModule = React.memo(({
                                          setIsResult(false);
                                          showNotification(`Adicionado: R$ ${itemTotalStr}`, "success");
                                        }}
-                                       className="bg-blue-600/20 hover:bg-blue-600 hover:text-white border border-blue-500/30 px-2 py-0.5 rounded-lg text-blue-400 font-bold tracking-tight transition-all active:scale-95"
+                                       className="bg-emerald-600/20 hover:bg-emerald-600 hover:text-white border border-emerald-500/30 px-2 py-0.5 rounded-lg text-emerald-400 font-bold tracking-tight transition-all active:scale-95"
                                        title="Clique para somar valor"
                                      >
                                        + R$ {itemTotalStr}
@@ -387,7 +398,7 @@ export const CalculatorModule = React.memo(({
                              <button
                                type="button"
                                onClick={() => handleLoadFullSum(listItems)}
-                               className="w-full bg-blue-600 hover:bg-blue-500 active:scale-95 text-white py-2 px-3 rounded-xl transition-all text-[9.5px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 cursor-pointer shadow"
+                               className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white py-2 px-3 rounded-xl transition-all text-[9.5px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 cursor-pointer shadow"
                              >
                                <span>Jogar Soma de Cada Item (Fórmula) ➕</span>
                              </button>

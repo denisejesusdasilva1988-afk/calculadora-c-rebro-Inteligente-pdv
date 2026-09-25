@@ -4,7 +4,7 @@ import { Sparkles, Heart, Quote, RefreshCw } from "lucide-react";
 interface InspirationalQuote {
   quote: string;
   author: string;
-  tag: "Fé & Palavra" | "Poder da Mente" | "Sabedoria & Filosofia" | "Prosperidade & Sucesso";
+  tag: "Fé & Palavra" | "Poder da Mente" | "Sabedoria & Filosofia" | "Prosperidade & Sucesso" | "Ânimo & Coragem";
 }
 
 const INSPIRATIONAL_QUOTES: InspirationalQuote[] = [
@@ -14,14 +14,14 @@ const INSPIRATIONAL_QUOTES: InspirationalQuote[] = [
     tag: "Fé & Palavra"
   },
   {
-    quote: "Tudo o que a mente humana pode conceber e acreditar, ela pode conquistar. Cultive pensamentos de vitória.",
-    author: "Napoleon Hill (O Poder da Mente)",
-    tag: "Poder da Mente"
+    quote: "Dias de movimento calmo no balcão não definem o seu valor; são momentos de preparar o coração, organizar a casa e semear com amor para a colheita que vem amanhã.",
+    author: "Força no Comércio & Sabedoria",
+    tag: "Ânimo & Coragem"
   },
   {
-    quote: "O trabalho digno e honesto engrandece a alma. Faça o que precisa ser feito com amor e excelência todos os dias.",
-    author: "Sabedoria Milenar",
-    tag: "Prosperidade & Sucesso"
+    quote: "Tudo o que a mente humana pode conceber e acreditar, ela pode conquistar. Cultive pensamentos de vitória mesmo nos dias difíceis.",
+    author: "Napoleon Hill (O Poder da Mente)",
+    tag: "Poder da Mente"
   },
   {
     quote: "Seja forte e corajoso! Não se apavore nem desanime, pois o Senhor, o seu Deus, estará com você por onde você andar.",
@@ -29,44 +29,74 @@ const INSPIRATIONAL_QUOTES: InspirationalQuote[] = [
     tag: "Fé & Palavra"
   },
   {
-    quote: "A mente que se abre a uma nova ideia jamais voltará ao seu tamanho original. Acredite na sua capacidade de crescer.",
-    author: "Albert Einstein",
-    tag: "Poder da Mente"
-  },
-  {
-    quote: "A bênção do Senhor enriquece, e não acrescenta dores. Trabalhe com retidão e o fruto virá.",
-    author: "Provérbios 10:22",
-    tag: "Fé & Palavra"
-  },
-  {
-    quote: "Você tem poder sobre sua mente, não sobre os acontecimentos externos. Perceba isso e você encontrará grande força.",
-    author: "Marco Aurélio",
+    quote: "Não é porque as coisas são difíceis que não temos coragem; é porque não temos coragem que elas são difíceis. Levante a cabeça e siga em frente!",
+    author: "Sêneca (Filósofo Estoico)",
     tag: "Sabedoria & Filosofia"
   },
   {
-    quote: "Tudo posso naquele que me fortalece. Nenhuma batalha é grande demais para quem persevera com fé.",
+    quote: "Aqueles que esperam no Senhor renovam as suas forças. Voam alto como águias; correm e não ficam exaustos, andam e não se cansam.",
+    author: "Isaías 40:31",
+    tag: "Fé & Palavra"
+  },
+  {
+    quote: "A persistência é o caminho do êxito. Cada cliente atendido com carinho, paciência e atenção é uma semente de prosperidade plantada.",
+    author: "Mente Vencedora",
+    tag: "Prosperidade & Sucesso"
+  },
+  {
+    quote: "Você tem poder sobre sua mente, não sobre os acontecimentos externos. Mantenha a serenidade interior e nenhuma tempestade apagará a sua luz.",
+    author: "Marco Aurélio (Meditações)",
+    tag: "Sabedoria & Filosofia"
+  },
+  {
+    quote: "Tudo posso naquele que me fortalece. Nenhuma batalha é grande demais para quem persevera com fé e trabalho honesto.",
     author: "Filipenses 4:13",
     tag: "Fé & Palavra"
   },
   {
-    quote: "A persistência é o caminho do êxito. Cada cliente atendido com carinho é uma semente de prosperidade plantada.",
-    author: "O Poder da Mente",
-    tag: "Prosperidade & Sucesso"
+    quote: "Quem observa apenas o vento nunca semeará, e o que olha para as nuvens nunca colherá. Faça a sua parte com fé hoje, independente do tempo!",
+    author: "Eclesiastes 11:4",
+    tag: "Fé & Palavra"
   },
   {
-    quote: "O coração em paz dá vida ao corpo, e a mente focada no bem atrai a abundância e afasta o medo.",
+    quote: "Somos o que fazemos repetidamente. A excelência, a honestidade e a vitória diária não são um ato isolado, mas sim um hábito construído a cada manhã.",
+    author: "Aristóteles",
+    tag: "Sabedoria & Filosofia"
+  },
+  {
+    quote: "O coração em paz dá vida ao corpo, e a mente focada no bem atrai a abundância e afasta todo medo ou desânimo.",
     author: "Provérbios 14:30",
     tag: "Fé & Palavra"
   },
   {
-    quote: "Não espere o momento perfeito. Comece com o que você tem, onde você está, e faça o seu melhor.",
-    author: "Arthur Ashe",
+    quote: "Confia no Senhor de todo o teu coração e não te estribes no teu próprio entendimento. Reconhece-o em teus passos e Ele endireitará os teus caminhos.",
+    author: "Provérbios 3:5-6",
+    tag: "Fé & Palavra"
+  },
+  {
+    quote: "O rio atinge os seus objetivos porque aprendeu a contornar pedras e obstáculos. Jamais desanime diante da calmaria temporária de um dia.",
+    author: "Reflexão Filosófica",
+    tag: "Sabedoria & Filosofia"
+  },
+  {
+    quote: "A bênção do Senhor é que enriquece, e Ele não acrescenta dores com ela. Trabalhe com retidão, atenda com verdade e o fruto virá.",
+    author: "Provérbios 10:22",
+    tag: "Fé & Palavra"
+  },
+  {
+    quote: "Não espere o momento perfeito para ser grato e feliz. Comece com o que você tem nas mãos agora, onde você está, e dê o seu melhor.",
+    author: "O Poder da Gratidão",
     tag: "Poder da Mente"
   },
   {
-    quote: "O segredo do progresso é começar com fé, manter o foco na meta e agradecer por cada vitória diária.",
-    author: "Fé & Razão",
-    tag: "Prosperidade & Sucesso"
+    quote: "Que a graça e a luz do Senhor estejam sobre nós; confirma e abençoa a obra de nossas mãos todos os dias!",
+    author: "Salmos 90:17",
+    tag: "Fé & Palavra"
+  },
+  {
+    quote: "A paciência e a fé sustentam o comerciante prudente. Dias nublados também passam e o sol da prosperidade volta a brilhar.",
+    author: "Sabedoria Prática",
+    tag: "Ânimo & Coragem"
   }
 ];
 
@@ -103,7 +133,8 @@ export function InspirationalQuotesBar() {
     "Fé & Palavra": "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
     "Poder da Mente": "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
     "Sabedoria & Filosofia": "bg-purple-500/15 text-purple-300 border-purple-500/30",
-    "Prosperidade & Sucesso": "bg-amber-500/15 text-amber-300 border-amber-500/30"
+    "Prosperidade & Sucesso": "bg-amber-500/15 text-amber-300 border-amber-500/30",
+    "Ânimo & Coragem": "bg-rose-500/15 text-rose-300 border-rose-500/30"
   };
 
   return (

@@ -504,7 +504,7 @@ Responda em português do Brasil com cabeçalhos bonitos e curtos em markdown. N
       {/* HEADER BAR */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-5">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center text-slate-950 shadow-lg shadow-cyan-500/20">
+          <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-emerald-600 rounded-2xl flex items-center justify-center text-slate-950 shadow-lg shadow-cyan-500/20">
             <BookOpen className="w-6 h-6 font-bold" />
           </div>
           <div>

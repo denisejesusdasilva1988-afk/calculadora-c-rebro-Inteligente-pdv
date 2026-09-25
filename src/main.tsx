@@ -80,7 +80,7 @@ class GlobalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
           textAlign: 'center'
         }}>
           <div style={{ fontSize: '56px', marginBottom: '16px' }}>🧠</div>
-          <h1 style={{ fontSize: '24px', fontWeight: 'bold', color: '#38bdf8', marginBottom: '12px' }}>
+          <h1 style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981', marginBottom: '12px' }}>
             Calculadora Cérebro PDV
           </h1>
           <p style={{ color: '#94a3b8', fontSize: '15px', maxWidth: '420px', lineHeight: '1.6', marginBottom: '28px' }}>
@@ -91,15 +91,15 @@ class GlobalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
             <button
               onClick={this.handleReload}
               style={{
-                backgroundColor: '#38bdf8',
-                color: '#0f172a',
+                backgroundColor: '#10b981',
+                color: '#022c22',
                 border: 'none',
                 padding: '14px 20px',
                 fontSize: '15px',
                 fontWeight: 'bold',
                 borderRadius: '12px',
                 cursor: 'pointer',
-                boxShadow: '0 4px 14px rgba(56, 189, 248, 0.25)',
+                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.25)',
                 transition: 'all 0.2s'
               }}
             >

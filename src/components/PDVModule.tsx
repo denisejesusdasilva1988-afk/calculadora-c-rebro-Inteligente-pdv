@@ -114,6 +114,7 @@ import { PDVSettingsProfile } from "./PDVSettingsProfile";
 import { PDVSettingsSupport } from "./PDVSettingsSupport";
 import { PDVHelpAssistant } from "./PDVHelpAssistant";
 import { PDVFluxoCaixaHistorico } from "./PDVFluxoCaixaHistorico";
+import { InspirationalQuotesBar } from "./InspirationalQuotesBar";
 import { OperationType, FirestoreErrorInfo } from "../types";
 
 // Self-contained lightweight debounce function
@@ -6267,7 +6268,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   }[] = [
     { id: "salao_beleza", name: "Salão de Beleza", label: "Salão", icon: Sparkles, color: "text-purple-400 border-purple-500/10 bg-slate-900/60", activeColor: "bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-500/15" },
     { id: "cabeleireiro", name: "Cabeleireiro & Cabelos", label: "Cabeleireiro", icon: Scissors, color: "text-violet-400 border-violet-500/10 bg-slate-900/60", activeColor: "bg-violet-600 border-violet-500 text-white shadow-lg shadow-violet-500/15" },
-    { id: "barbearia", name: "Barbearia", label: "Barbearia", icon: Scissors, color: "text-blue-400 border-blue-500/10 bg-slate-900/60", activeColor: "bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/15" },
+    { id: "barbearia", name: "Barbearia", label: "Barbearia", icon: Scissors, color: "text-emerald-400 border-emerald-500/10 bg-slate-900/60", activeColor: "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/15" },
     { id: "manicure", name: "Manicure & Unhas", label: "Manicure", icon: Sparkles, color: "text-fuchsia-400 border-fuchsia-500/10 bg-slate-900/60", activeColor: "bg-fuchsia-600 border-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/15" },
     { id: "mercadinho", name: "Mercadinho & Mercearia", label: "Mercadinho", icon: ShoppingCart, color: "text-emerald-400 border-emerald-500/10 bg-slate-900/60", activeColor: "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/15" },
     { id: "sushi", name: "Sushi & Culinária Japonesa", label: "Sushi", icon: Fish, color: "text-orange-400 border-orange-500/10 bg-slate-900/60", activeColor: "bg-orange-600 border-orange-500 text-white shadow-lg shadow-orange-500/15" },
@@ -7003,12 +7004,12 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
           <div className="flex items-center gap-3">
             <div className={`p-3 rounded-2xl border ${
               !isUnlocked
-                ? "bg-blue-950/30 text-blue-400 border-blue-500/10"
+                ? "bg-emerald-950/30 text-emerald-400 border-emerald-500/10"
                 : isOwner
                   ? "bg-purple-950/40 text-purple-400 border-purple-500/20"
                   : isGerente
                     ? "bg-amber-950/40 text-amber-400 border-amber-500/20"
-                    : "bg-blue-950/40 text-blue-400 border-blue-500/20"
+                    : "bg-emerald-950/40 text-emerald-400 border-emerald-500/20"
             }`}>
               {!isUnlocked ? <Eye className="w-5 h-5 animate-pulse" /> : isOwner ? <Sliders className="w-5 h-5 animate-pulse" /> : isGerente ? <ShieldCheck className="w-5 h-5" /> : <Users className="w-5 h-5" />}
             </div>
@@ -7018,12 +7019,12 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 {isUnlocked ? gestaoUserStaffName : "Modo Consulta (Sem PIN)"}
                 <span className={`px-2 py-0.5 rounded-md text-[7.5px] font-black uppercase tracking-wider ${
                   !isUnlocked
-                    ? "bg-blue-500/15 text-blue-300 border border-blue-500/20"
+                    ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/20"
                     : isOwner
                       ? "bg-purple-600 text-white shadow-md shadow-purple-500/10"
                       : isGerente
                         ? "bg-amber-600 text-slate-950 font-bold"
-                        : "bg-blue-600 text-white font-bold"
+                        : "bg-emerald-600 text-white font-bold"
                 }`}>
                   {!isUnlocked ? "Consulta / Leitura 📊" : isOwner ? "Proprietário 👑" : isGerente ? "Gerente ⭐" : "Funcionário 👤"}
                 </span>
@@ -8015,7 +8016,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                   ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                                   : staff.role === "vendedor"
                                   ? "bg-sky-500/10 text-sky-400 border-sky-500/20"
-                                  : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                  : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                               }`}>
                                 {staff.role === "gerente" ? "GERENTE" : staff.role === "caixa" ? "CAIXA" : staff.role === "vendedor" ? "VENDEDOR" : "FUNCIONÁRIO"}
                               </span>
@@ -8943,7 +8944,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               {[
                 { label: "Dinheiro Físico", key: "dinheiro", val: byMethod.dinheiro, color: "bg-emerald-500" },
                 { label: "Pix Instantâneo", key: "pix", val: byMethod.pix, color: "bg-teal-500" },
-                { label: "Cartão de Débito", key: "cartao_debito", val: byMethod.cartao_debito, color: "bg-blue-500" },
+                { label: "Cartão de Débito", key: "cartao_debito", val: byMethod.cartao_debito, color: "bg-emerald-500" },
                 { label: "Cartão de Crédito", key: "cartao_credito", val: byMethod.cartao_credito, color: "bg-indigo-500" },
                 { label: "Fiado (A receber)", key: "fiado", val: byMethod.fiado, color: "bg-purple-500" },
               ].map((item) => {
@@ -9794,6 +9795,9 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
         )}
       </div>
 
+      {/* Palavra de Inspiração, Fé e O Poder da Mente no Frente de Caixa */}
+      <InspirationalQuotesBar />
+
       {/* NEW: CAIXA EXPLICATIVO / AJUDA RÁPIDA DE COMO FUNCIONA O PDV */}
       {showPdvInstructions && !onlyCheckout && (opMode === "venda" || opMode === "manual") && (
         <div className="bg-gradient-to-r from-emerald-950/60 to-slate-900 border-2 border-emerald-500/40 rounded-3xl p-5 sm:p-6 mb-5 text-left space-y-4 animate-in fade-in duration-250 relative">
@@ -10621,7 +10625,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                                 : staff.role === "vendedor"
                                 ? "bg-sky-500/10 text-sky-400 border-sky-500/20"
-                                : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                             }`}>
                               {staff.role === "gerente" ? "GERENTE" : staff.role === "caixa" ? "CAIXA" : staff.role === "vendedor" ? "VENDEDOR" : "FUNCIONÁRIO"}
                             </span>
@@ -12380,7 +12384,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                     {/* Débito */}
                     <div className="bg-slate-950 p-3 rounded-xl border border-white/5 space-y-1.5">
-                      <div className="flex items-center gap-1 text-[10px] font-black text-blue-400 uppercase font-sans">
+                      <div className="flex items-center gap-1 text-[10px] font-black text-emerald-400 uppercase font-sans">
                         <span>💳 Débito</span>
                       </div>
                       <p className="text-[8px] text-slate-500 leading-none font-bold">Taxa maquininha (%)</p>
@@ -12694,7 +12698,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                 <button
                                   type="button"
                                   onClick={handleMpOAuthConnect}
-                                  className="px-4 py-2.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer font-sans shadow-md"
+                                  className="px-4 py-2.5 bg-gradient-to-r from-sky-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer font-sans shadow-md"
                                 >
                                   <Zap className="w-3.5 h-3.5 text-slate-950 animate-pulse" />
                                   🔌 Conectar via OAuth Rápido
@@ -13172,7 +13176,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                 type="button"
                                 onClick={handleCreateWizardTestOrder}
                                 disabled={isCreatingWizardTestOrder}
-                                className="px-4 py-2 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 disabled:opacity-40 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer font-sans shadow-md"
+                                className="px-4 py-2 bg-gradient-to-r from-sky-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500 disabled:opacity-40 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer font-sans shadow-md"
                               >
                                 {isCreatingWizardTestOrder ? (
                                   <>
@@ -13508,7 +13512,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       <button
                         type="button"
                         onClick={handleMpOAuthConnect}
-                        className="px-4 py-2 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer font-sans shadow-md"
+                        className="px-4 py-2 bg-gradient-to-r from-sky-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer font-sans shadow-md"
                       >
                         <Zap className="w-3.5 h-3.5 text-slate-950 animate-pulse" />
                         🔌 Conectar Mercado Pago via OAuth
@@ -13624,7 +13628,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     </div>
 
                     <div className="bg-slate-900/40 p-3 rounded-lg border border-white/[0.03] space-y-1">
-                      <div className="flex items-center gap-1.5 text-[10.5px] font-black text-blue-400 uppercase font-sans">
+                      <div className="flex items-center gap-1.5 text-[10.5px] font-black text-emerald-400 uppercase font-sans">
                         <CreditCard className="w-3.5 h-3.5" />
                         <span>2. Maquininha Point (Link)</span>
                       </div>
@@ -18003,7 +18007,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               {/* Header */}
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse" />
+                  <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="text-[11.5px] font-black uppercase text-sky-400 font-sans tracking-wider flex items-center gap-1.5">
                     <CreditCard className="w-4 h-4 text-sky-400" />
                     Cobrança Point Mercado Pago
@@ -18865,7 +18869,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         <button
                           type="button"
                           onClick={() => handleStartRecovery("email")}
-                          className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                          className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
                         >
                           <span>✉️ Enviar via E-mail</span>
                         </button>

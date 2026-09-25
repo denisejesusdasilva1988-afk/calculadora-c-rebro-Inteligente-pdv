@@ -486,7 +486,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                               staff.role === "gerente" 
                                 ? "bg-purple-500/10 text-purple-400 border border-purple-500/20"
                                 : staff.role === "caixa"
-                                  ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                                   : staff.role === "vendedor"
                                     ? "bg-teal-500/10 text-teal-400 border border-teal-500/20"
                                     : "bg-slate-500/10 text-slate-400 border border-slate-500/20"

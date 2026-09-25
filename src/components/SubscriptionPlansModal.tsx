@@ -166,7 +166,7 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
                         ? plan.id === "pdv_total"
                           ? "bg-purple-950/40 border-purple-500 shadow-xl shadow-purple-500/10 scale-[1.02]"
                           : plan.id === "estoque_gestao"
-                          ? "bg-blue-950/40 border-blue-500 shadow-xl shadow-blue-500/10 scale-[1.02]"
+                          ? "bg-emerald-950/40 border-emerald-500 shadow-xl shadow-emerald-500/10 scale-[1.02]"
                           : plan.id === "pro_tools"
                           ? "bg-amber-950/40 border-amber-500 shadow-xl shadow-amber-500/10 scale-[1.02]"
                           : "bg-emerald-950/40 border-emerald-500 shadow-xl shadow-emerald-500/10 scale-[1.02]"
@@ -225,7 +225,7 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
                           ? plan.id === "pdv_total"
                             ? "bg-purple-500 text-white shadow-lg shadow-purple-500/25"
                             : plan.id === "estoque_gestao"
-                            ? "bg-blue-500 text-white shadow-lg shadow-blue-500/25"
+                            ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/25"
                             : plan.id === "pro_tools"
                             ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25"
                             : "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25"
@@ -279,7 +279,7 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
                         currentPlan.id === "pdv_total"
                           ? "bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 text-white shadow-purple-500/25"
                           : currentPlan.id === "estoque_gestao"
-                          ? "bg-blue-500 hover:bg-blue-400 text-white shadow-blue-500/25"
+                          ? "bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/25"
                           : "bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/25"
                       }`}
                     >

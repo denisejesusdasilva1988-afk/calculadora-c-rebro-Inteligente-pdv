@@ -478,13 +478,13 @@ export const MarketCatalogModule = React.memo(({
         </div>
 
         {/* Audio Assistant Card */}
-        <div className="bg-gradient-to-br from-blue-500/10 via-blue-500/5 to-white text-blue-950 p-6 rounded-[2.5rem] shadow-lg border-2 border-blue-200 flex flex-col justify-between gap-4">
+        <div className="bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-white text-emerald-950 p-6 rounded-[2.5rem] shadow-lg border-2 border-emerald-200 flex flex-col justify-between gap-4">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <div className="p-2.5 bg-blue-500/15 text-blue-700 rounded-xl">
-                <Volume2 className="w-5 h-5 text-blue-600" />
+              <div className="p-2.5 bg-emerald-500/15 text-emerald-700 rounded-xl">
+                <Volume2 className="w-5 h-5 text-emerald-600" />
               </div>
-              <h4 className="font-black uppercase tracking-wider text-xs text-blue-700">Assistente de Voz (Ditado)</h4>
+              <h4 className="font-black uppercase tracking-wider text-xs text-emerald-700">Assistente de Voz (Ditado)</h4>
             </div>
             <p className="text-xs text-slate-700 font-semibold leading-relaxed">
               Deixe o aplicativo ditar os itens do carrinho enquanto você caminha pelo supermercado. Útil para verificar preços e itens sem segurar o celular!
@@ -504,7 +504,7 @@ export const MarketCatalogModule = React.memo(({
               <button 
                 type="button"
                 onClick={handleReadEntireListAloud}
-                className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all shadow-lg flex items-center justify-center gap-2"
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all shadow-lg flex items-center justify-center gap-2"
               >
                 <Volume2 className="w-4 h-4" />
                 Ditar Todo Carrinho

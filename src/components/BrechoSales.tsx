@@ -2401,7 +2401,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
         doc.setTextColor(244, 63, 94); // rose-500 pending
         doc.text(formatCurrency(pending), 160, y + 23);
       } else if (pending < 0) {
-        doc.setTextColor(59, 130, 246); // blue credit
+        doc.setTextColor(16, 185, 129); // blue credit
         doc.text(formatCurrency(Math.abs(pending)) + " (Crédito)", 160, y + 23);
       } else {
         doc.setTextColor(16, 185, 129); // green paid
@@ -2773,20 +2773,20 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
           </div>
 
           {/* Pagar: Fornecedores / Desapegos */}
-          <div className="flex-1 bg-slate-900/50 border border-blue-500/10 rounded-2xl p-3 space-y-2">
-            <span className="text-[9px] font-black uppercase tracking-wider text-blue-400 block border-b border-white/5 pb-1">
+          <div className="flex-1 bg-slate-900/50 border border-emerald-500/10 rounded-2xl p-3 space-y-2">
+            <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 block border-b border-white/5 pb-1">
               💳 MINHAS DESPESAS / DÍVIDAS (EU DEVO PAGAR)
             </span>
             <div className="grid grid-cols-3 gap-2">
-              <div className="bg-slate-950/80 border border-blue-500/5 rounded-xl p-2 flex flex-col items-center justify-center text-center">
-                <span className="text-[8px] font-black uppercase text-blue-400/80 tracking-wider">Total de Gastos</span>
-                <span className="text-xs font-black text-blue-300 mt-1 font-mono">{formatCurrency(globalSummary.supplierCost)}</span>
+              <div className="bg-slate-950/80 border border-emerald-500/5 rounded-xl p-2 flex flex-col items-center justify-center text-center">
+                <span className="text-[8px] font-black uppercase text-emerald-400/80 tracking-wider">Total de Gastos</span>
+                <span className="text-xs font-black text-emerald-300 mt-1 font-mono">{formatCurrency(globalSummary.supplierCost)}</span>
               </div>
-              <div className="bg-slate-950/80 border border-blue-500/5 rounded-xl p-2 flex flex-col items-center justify-center text-center">
+              <div className="bg-slate-950/80 border border-emerald-500/5 rounded-xl p-2 flex flex-col items-center justify-center text-center">
                 <span className="text-[8px] font-black uppercase text-teal-400/80 tracking-wider">Já Paguei</span>
                 <span className="text-xs font-black text-teal-300 mt-1 font-mono">{formatCurrency(globalSummary.supplierPaid)}</span>
               </div>
-              <div className="bg-slate-950/80 border border-blue-500/5 rounded-xl p-2 flex flex-col items-center justify-center text-center">
+              <div className="bg-slate-950/80 border border-emerald-500/5 rounded-xl p-2 flex flex-col items-center justify-center text-center">
                 <span className="text-[8px] font-black uppercase text-amber-400/80 tracking-wider">Eu Devo Pagar</span>
                 <span className="text-xs font-black text-amber-300 mt-1 font-mono">{formatCurrency(globalSummary.supplierPending)}</span>
               </div>
@@ -2865,7 +2865,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                   { id: "sacolao", name: "Hortifruti", desc: "Pesagem/Frutas", icon: Carrot, bg: "text-orange-400 border-orange-500/25 bg-orange-500/5", activeBg: "bg-orange-600 border-orange-500 text-white shadow-lg shadow-orange-500/20" },
                   { id: "acougue", name: "Açougue", desc: "Carnes/Cortes", icon: Beef, bg: "text-red-400 border-red-500/25 bg-red-500/5", activeBg: "bg-red-600 border-red-500 text-white shadow-lg shadow-red-500/20" },
                   { id: "salao_beleza", name: "Salão", desc: "Cabelo/Cortes", icon: Sparkles, bg: "text-purple-400 border-purple-500/25 bg-purple-500/5", activeBg: "bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-500/20" },
-                  { id: "barbearia", name: "Barbearia", desc: "Estilo & Barba", icon: Scissors, bg: "text-blue-400 border-blue-500/25 bg-blue-500/5", activeBg: "bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20" },
+                  { id: "barbearia", name: "Barbearia", desc: "Estilo & Barba", icon: Scissors, bg: "text-emerald-400 border-emerald-500/25 bg-emerald-500/5", activeBg: "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/20" },
                   { id: "manicure", name: "Manicure", desc: "Unhas/Estética", icon: Sparkles, bg: "text-fuchsia-400 border-fuchsia-500/25 bg-fuchsia-500/5", activeBg: "bg-fuchsia-600 border-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20" },
                   { id: "bar", name: "Bar", desc: "Bebidas/Chopp", icon: Beer, bg: "text-amber-400 border-amber-500/25 bg-amber-500/5", activeBg: "bg-amber-500 border-amber-450 text-slate-950 shadow-lg shadow-amber-500/20" },
                   { id: "pensao", name: "Pensão", desc: "Marmitas/Almoço", icon: Home, bg: "text-yellow-400 border-yellow-500/25 bg-yellow-500/5", activeBg: "bg-yellow-500 border-yellow-455 text-slate-950 shadow-lg shadow-yellow-500/20" },
@@ -2958,8 +2958,8 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
 
                             {/* Total Entradas do Período */}
                             <div className="bg-slate-900/40 border border-white/5 p-3 rounded-xl flex flex-col justify-between">
-                              <span className="text-[8px] text-blue-400 font-black uppercase tracking-widest flex items-center gap-1 flex-row">
-                                <ArrowDown className="w-3 h-3 text-blue-400 shrink-0" /> Entradas Ativas
+                              <span className="text-[8px] text-emerald-400 font-black uppercase tracking-widest flex items-center gap-1 flex-row">
+                                <ArrowDown className="w-3 h-3 text-emerald-400 shrink-0" /> Entradas Ativas
                               </span>
                               <div className="text-md font-black text-slate-200 font-mono mt-1">
                                 {formatCurrency(commercialStats.totalInflowActivePeriod)}
@@ -3730,7 +3730,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                                 <td className="py-2.5 font-mono">{b.readyTime}</td>
                                 <td className="py-2.5 text-center">
                                   {b.status === "preparando" ? (
-                                    <span className="bg-blue-600/10 text-blue-400 border border-blue-500/20 px-2.5 py-0.5 rounded-full text-[8px] uppercase tracking-wider font-black">
+                                    <span className="bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full text-[8px] uppercase tracking-wider font-black">
                                       Prep / No Forno ⏳
                                     </span>
                                   ) : b.status === "quente" ? (
@@ -4365,12 +4365,12 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="bg-slate-900 border border-blue-500/20 rounded-3xl p-5 md:p-6 space-y-5 shadow-xl"
+                    className="bg-slate-900 border border-emerald-500/20 rounded-3xl p-5 md:p-6 space-y-5 shadow-xl"
                   >
                     <div className="flex flex-col md:flex-row gap-4 justify-between md:items-center border-b border-white/5 pb-4">
                       <div>
-                        <h4 className="text-xs font-black uppercase text-blue-400 tracking-widest flex items-center gap-1.5">
-                          <Scissors className="w-4 h-4 text-blue-500" />
+                        <h4 className="text-xs font-black uppercase text-emerald-400 tracking-widest flex items-center gap-1.5">
+                          <Scissors className="w-4 h-4 text-emerald-500" />
                           Terminal da Barbearia & Fila de Espera Digital
                         </h4>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
@@ -4399,10 +4399,10 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                               key={serv.name}
                               type="button"
                               onClick={() => injectItemToActiveLedger(serv.name, 1, serv.price)}
-                              className="bg-slate-900 hover:bg-blue-950/20 border border-white/5 hover:border-blue-500/40 text-slate-350 hover:text-white px-2.5 py-2.5 rounded-xl font-bold uppercase tracking-wider text-[8.5px] transition-all text-left flex flex-col justify-between h-14"
+                              className="bg-slate-900 hover:bg-emerald-950/20 border border-white/5 hover:border-emerald-500/40 text-slate-350 hover:text-white px-2.5 py-2.5 rounded-xl font-bold uppercase tracking-wider text-[8.5px] transition-all text-left flex flex-col justify-between h-14"
                             >
                               <span className="line-clamp-1">{serv.name}</span>
-                              <span className="text-blue-400 font-mono font-black mt-1 text-[9px]">{formatCurrency(serv.price)}</span>
+                              <span className="text-emerald-400 font-mono font-black mt-1 text-[9px]">{formatCurrency(serv.price)}</span>
                             </button>
                           ))}
                         </div>
@@ -4419,7 +4419,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                             type="text"
                             value={barbeariaCustomerName}
                             onChange={e => setBarbeariaCustomerName(e.target.value)}
-                            className="bg-slate-900 border border-white/5 text-[10px] font-bold text-white uppercase px-2.5 py-1.5 rounded-xl outline-none flex-1 focus:border-blue-500/50"
+                            className="bg-slate-900 border border-white/5 text-[10px] font-bold text-white uppercase px-2.5 py-1.5 rounded-xl outline-none flex-1 focus:border-emerald-500/50"
                             placeholder="Nome do cliente para a espera..."
                           />
                           <button
@@ -4436,7 +4436,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                               setBarbeariaCustomerName("");
                               showNotification("Cliente inserido na fila de espera! 💈", "success");
                             }}
-                            className="bg-blue-600 hover:bg-blue-500 active:scale-95 text-slate-950 font-black px-3.5 py-1.5 text-[9px] uppercase tracking-wider rounded-xl transition-all"
+                            className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-slate-950 font-black px-3.5 py-1.5 text-[9px] uppercase tracking-wider rounded-xl transition-all"
                           >
                             + Fila
                           </button>
@@ -4455,7 +4455,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                                 className="bg-slate-900 px-3 py-2 border border-white/5 rounded-xl flex items-center justify-between text-[9px]"
                               >
                                 <div className="font-bold flex items-center gap-1.5">
-                                  <span className="w-4 h-4 bg-blue-500/20 text-blue-400 font-black rounded-full flex items-center justify-center text-[8px]">
+                                  <span className="w-4 h-4 bg-emerald-500/20 text-emerald-400 font-black rounded-full flex items-center justify-center text-[8px]">
                                     {idx + 1}
                                   </span>
                                   <span className="uppercase text-slate-100 font-extrabold">{customer.name}</span>
@@ -4469,7 +4469,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                                         setBarbeariaQueue(p => p.filter(x => x.id !== customer.id));
                                       }
                                     }}
-                                    className="bg-blue-500/20 hover:bg-blue-500 text-blue-400 hover:text-slate-950 px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all"
+                                    className="bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-slate-950 px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all"
                                   >
                                     Atender 🧾
                                   </button>
@@ -5138,7 +5138,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                       onClick={() => setNewClientType("supplier")}
                       className={`py-2 px-2 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all flex flex-col items-center justify-center text-center ${
                         newClientType === "supplier"
-                          ? "bg-blue-600 text-white shadow-md shadow-blue-500/10"
+                          ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/10"
                           : "text-slate-400 hover:text-white"
                       }`}
                     >
@@ -5810,7 +5810,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                     activeCustomerSums.pending === 0 && activeCustomerSums.total > 0
                       ? "border-emerald-500/30 ring-1 ring-emerald-500/20"
                       : activeCustomerSums.pending < 0
-                      ? "border-blue-500/30 ring-1 ring-blue-500/20"
+                      ? "border-emerald-500/30 ring-1 ring-emerald-500/20"
                       : "border-rose-500/20 ring-1 ring-rose-500/10"
                   }`}>
                     <div className="flex items-center justify-between">
@@ -5831,7 +5831,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                     <div className="flex items-baseline justify-between mt-1.5 min-h-8">
                       {isEditingCardPending ? (
                         <div className="flex items-center gap-1 w-full">
-                          <span className={`text-xs font-black font-mono ${activeCustomerSums.pending < 0 ? "text-blue-400" : "text-rose-400"}`}>R$</span>
+                          <span className={`text-xs font-black font-mono ${activeCustomerSums.pending < 0 ? "text-emerald-400" : "text-rose-400"}`}>R$</span>
                           <input
                             type="text"
                             autoFocus
@@ -5850,7 +5850,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                               }
                             }}
                             className={`w-full bg-slate-950 border rounded px-2 py-0.5 text-xs outline-none font-mono font-black placeholder:text-slate-700 ${
-                              activeCustomerSums.pending < 0 ? "border-blue-500/50 text-blue-400" : "border-rose-500/50 text-rose-400"
+                              activeCustomerSums.pending < 0 ? "border-emerald-500/50 text-emerald-400" : "border-rose-500/50 text-rose-400"
                             }`}
                           />
                         </div>
@@ -5866,7 +5866,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                         ) : activeCustomerSums.pending < 0 ? (
                           <span 
                             onClick={startEditingPending}
-                            className="text-xl font-black text-blue-400 font-mono cursor-pointer hover:text-blue-300 select-none pb-0.5 border-b border-dashed border-blue-500/20 hover:border-blue-400 transition-all"
+                            className="text-xl font-black text-emerald-400 font-mono cursor-pointer hover:text-emerald-300 select-none pb-0.5 border-b border-dashed border-emerald-500/20 hover:border-emerald-400 transition-all"
                             title="Clique para ajustar o crédito"
                           >
                             {formatCurrency(Math.abs(activeCustomerSums.pending))}
@@ -5988,10 +5988,10 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                       {/* Header */}
                       <div className="flex items-center justify-between border-b border-white/5 pb-2">
                         <span className="text-xs font-black uppercase text-slate-300 flex items-center gap-1.5">
-                          <Calculator className="w-4 h-4 text-blue-500" />
+                          <Calculator className="w-4 h-4 text-emerald-500" />
                           Soma Brechó
                         </span>
-                        <span className="text-[8px] font-black bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded uppercase">
+                        <span className="text-[8px] font-black bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded uppercase">
                           Prática
                         </span>
                       </div>
@@ -6026,11 +6026,11 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                               onClick={() => handleCalcPress(char)}
                               className={`h-9 text-xs font-black rounded-lg flex items-center justify-center transition-all active:scale-90 ${
                                 isEquals 
-                                  ? "bg-blue-600 text-white col-span-2 hover:bg-blue-500" 
+                                  ? "bg-emerald-600 text-white col-span-2 hover:bg-emerald-500" 
                                   : isClearOrDel
                                   ? "bg-slate-800 text-red-400 hover:bg-slate-700"
                                   : isOperator
-                                  ? "bg-slate-800 text-blue-400 hover:bg-slate-700 font-black"
+                                  ? "bg-slate-800 text-emerald-400 hover:bg-slate-700 font-black"
                                   : "bg-slate-950 text-white hover:bg-slate-800 border border-white/5 font-mono"
                               }`}
                             >
@@ -6045,7 +6045,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                         <button
                           type="button"
                           onClick={useCalcValueForPrice}
-                          className="py-2 bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border border-blue-500/20"
+                          className="py-2 bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border border-emerald-500/20"
                         >
                           Lançar no Preço
                         </button>
@@ -6278,7 +6278,7 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                                 activeCustomerSums.pending === 0 
                                   ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" 
                                   : activeCustomerSums.pending < 0
-                                  ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                                   : "bg-amber-500/10 text-amber-500 border border-amber-500/20"
                               }`}>
                                 {formatCurrency(Math.abs(activeCustomerSums.pending))}
@@ -6494,10 +6494,10 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
                 </div>
               </div>
 
-              <div className="bg-slate-950 border border-white/5 p-4 rounded-2xl flex flex-col justify-between hover:border-blue-500/30 transition-all group">
+              <div className="bg-slate-950 border border-white/5 p-4 rounded-2xl flex flex-col justify-between hover:border-emerald-500/30 transition-all group">
                 <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">💸 Gastos & Reposições</span>
-                  <span className="p-1.5 bg-blue-500/10 rounded-lg text-blue-400 group-hover:scale-110 transition-transform">
+                  <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">💸 Gastos & Reposições</span>
+                  <span className="p-1.5 bg-emerald-500/10 rounded-lg text-emerald-400 group-hover:scale-110 transition-transform">
                     <ArrowDown className="w-3.5 h-3.5" />
                   </span>
                 </div>

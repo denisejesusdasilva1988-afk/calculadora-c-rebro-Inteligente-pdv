@@ -441,7 +441,7 @@ export function CadastroProdutosModule({
     } else if (health === "good") {
       return {
         badge: "Preço Saudável e Justo! ✅",
-        color: "bg-blue-500/10 text-blue-400 border-blue-500/30",
+        color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
         message: `Parabéns! Sua margem está na faixa ideal (${margin.toFixed(0)}%) para comércio varejista, protegendo seu lucro e mantendo você competitivo.`
       };
     } else {
@@ -915,7 +915,7 @@ export function CadastroProdutosModule({
                             <span className={`ml-1.5 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
                               product.isService 
                                 ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" 
-                                : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                                : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                             }`}>
                               {product.isService ? "Serviço" : "Produto"}
                             </span>
@@ -928,7 +928,7 @@ export function CadastroProdutosModule({
                           </td>
                           <td className="py-3 px-4 text-right">
                             <span className={`font-mono font-bold text-xs ${
-                              margin < 15 ? "text-red-400" : margin >= 50 ? "text-emerald-400" : "text-blue-400"
+                              margin < 15 ? "text-red-400" : margin >= 50 ? "text-emerald-400" : "text-emerald-400"
                             }`}>
                               {margin > 0 ? `${margin.toFixed(0)}%` : "0%"}
                             </span>
@@ -1393,7 +1393,7 @@ export function CadastroProdutosModule({
                       Margem de Lucro:
                       <Info className="w-3 h-3 text-slate-600" title="Porcentagem de cada venda que se torna lucro direto (Lucro / Venda)" />
                     </span>
-                    <span className={`font-black ${pricingCalculations.margin < 15 ? "text-red-400" : pricingCalculations.margin >= 50 ? "text-emerald-400" : "text-blue-400"}`}>
+                    <span className={`font-black ${pricingCalculations.margin < 15 ? "text-red-400" : pricingCalculations.margin >= 50 ? "text-emerald-400" : "text-emerald-400"}`}>
                       {pricingCalculations.margin.toFixed(1)}%
                     </span>
                   </div>

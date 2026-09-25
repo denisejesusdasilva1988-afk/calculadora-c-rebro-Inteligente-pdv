@@ -440,7 +440,7 @@ export const AdminModule = React.memo(({
               <div className="bg-slate-950/40 p-5 rounded-2xl border border-white/5 space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Usuários Ativos (Mensal)</span>
-                  <Users className="w-4 h-4 text-blue-400" />
+                  <Users className="w-4 h-4 text-emerald-400" />
                 </div>
                 <p className="text-2xl font-black text-white font-mono">1.240</p>
                 <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold">
@@ -510,7 +510,7 @@ export const AdminModule = React.memo(({
                     className="flex items-center justify-between p-3 bg-slate-900 hover:bg-slate-800 rounded-xl border border-white/5 text-xs font-bold text-slate-200 hover:text-white transition-all cursor-pointer"
                   >
                     <div className="flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-blue-400" />
+                      <Globe className="w-4 h-4 text-emerald-400" />
                       <span>Ver App na Google Play Store</span>
                     </div>
                     <ChevronRight className="w-4 h-4 text-slate-500" />

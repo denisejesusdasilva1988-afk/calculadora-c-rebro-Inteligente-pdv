@@ -757,7 +757,7 @@ export function ClientesFieisModule({
                             comp.status === "pago"
                               ? "text-emerald-400"
                               : comp.status === "fiado_quitado"
-                              ? "text-blue-400"
+                              ? "text-emerald-400"
                               : "text-amber-400"
                           }`}>
                             {comp.status === "pago" ? "Pago" : comp.status === "fiado_quitado" ? "Fiado Pago" : "Fiado Pendente"}
