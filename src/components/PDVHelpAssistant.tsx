@@ -26,7 +26,7 @@ import { ai } from "../App";
 
 export interface PDVHelpItem {
   id: string;
-  category: "comecar" | "produtos" | "vendas" | "caixa" | "seguranca" | "reset";
+  category: "comecar" | "agenda" | "precificacao" | "caixa" | "oficina" | "papelaria" | "produtos" | "vendas" | "seguranca" | "reset";
   title: string;
   shortDesc: string;
   detailedSteps: string[];
@@ -35,6 +35,161 @@ export interface PDVHelpItem {
 }
 
 export const PDV_KNOWLEDGE_BASE: PDVHelpItem[] = [
+  {
+    id: "notificacao-vencimento-vermelho",
+    category: "agenda",
+    title: "Como funciona a notificação em vermelho de vencimento de pagamentos?",
+    shortDesc: "Alertas visuais em vermelho para boletos, faturas de fornecedores e contas vencidas ou vencendo hoje.",
+    detailedSteps: [
+      "1. Sempre que houver um pagamento vencido ou vencendo na data de hoje, o sistema exibe automaticamente um banner vermelho pulsante com o ícone de sino 🚨 'ATENÇÃO: PAGAMENTOS VENCIDOS OU VENCENDO HOJE!'.",
+      "2. O banner mostra em destaque o nome da conta, o fornecedor e o valor em Reais (R$), permitindo ver imediatamente o que está pendente sem ter que procurar.",
+      "3. Cada conta urgente possui o botão 'Enviar Lembrete 📲' (abre o WhatsApp já com a mensagem pronta de cobrança ou aviso de quitação) e o botão 'Copiar Lembrete 📋' para colar onde quiser.",
+      "4. No Gaveteiro de Pastas, a aba 'Contas & Fornec.' e as pastas correspondentes exibem uma bolinha vermelha pulsante e a quantidade de pendências urgentes.",
+      "5. Ao pagar a conta, basta clicar no botão 'Pago ✓' e o alerta vermelho desaparece na mesma hora!"
+    ],
+    tips: "Você pode clicar diretamente em 'Ver Todas as Contas Urgentes' para filtrar a lista e pagar primeiro o que tem juros ou multa.",
+    keywords: ["vencimento", "vermelho", "alerta", "notificacao", "boleto", "fornecedor", "pagar conta", "hoje", "atrasado", "urgente", "lembrete"]
+  },
+  {
+    id: "anotar-compromissos-agenda",
+    category: "agenda",
+    title: "Como anotar faturas de fornecedores e contas na Agenda?",
+    shortDesc: "Cadastre contas a pagar, boletos de fornecedores ou valores a receber com data, valor e código de barras/PIX.",
+    detailedSteps: [
+      "1. Acesse a aba 'Agenda & Vencimentos 📅' (ou clique no botão verde '+ Conta / Fatura' no Gaveteiro de Pastas).",
+      "2. Clique no botão '+ Anotar Pagamento / Conta 📝'.",
+      "3. Use os atalhos rápidos com 1 toque (ex: 'Fatura Fornecedor', 'Boleto Distribuidora', 'Luz Comercial', 'Aluguel do Ponto') ou digite o título da conta.",
+      "4. Informe o Fornecedor / Empresa (ex: Ambev, CEASA, Dono do Imóvel, Enel).",
+      "5. Digite o Valor em R$ e a Data de Vencimento.",
+      "6. Escolha a Pasta Organizadora (ex: 'Fornecedores', 'Boletos', 'Contas Fixas', 'Pagamentos' ou crie uma pasta nova com seu próprio nome).",
+      "7. Opcional: Cole o Código de Barras do boleto ou a Chave PIX para não ter que procurar na hora de pagar.",
+      "8. Clique em 'Salvar na Agenda 💾'. Pronto! O sistema monitora a data e avisa quando chegar o dia."
+    ],
+    tips: "Você pode filtrar suas contas por: Todas, A Pagar, Vencidas, Pagas ou A Receber.",
+    keywords: ["anotar", "agenda", "fornecedor", "fatura", "conta", "boleto", "cadastrar conta", "salvar", "pix", "codigo de barras"]
+  },
+  {
+    id: "gaveteiro-pastas-pagamentos",
+    category: "agenda",
+    title: "Como organizar contas e boletos no Gaveteiro de Pastas?",
+    shortDesc: "Separe faturas por pastas personalizadas, busque por fornecedor e controle comprovantes.",
+    detailedSteps: [
+      "1. Vá na aba 'Pastas & Arquivos 🗂️' (Gaveteiro Digital).",
+      "2. Clique na aba 'Contas & Fornec. 💳' para ver suas pastas financeiras.",
+      "3. As pastas padrão já vêm configuradas: 'Fornecedores', 'Boletos', 'Contas Fixas', 'Pagamentos' e 'Geral'.",
+      "4. Para criar uma nova pasta: Clique no botão '+ Nova Pasta' no topo, digite o nome (ex: 'Reforma', 'Mercadorias Bebidas') e salve.",
+      "5. Cada pasta mostra a quantidade de contas guardadas e o valor total somado em tempo real.",
+      "6. Use o campo de busca para encontrar qualquer fornecedor pelo nome em segundos."
+    ],
+    tips: "Ao clicar em qualquer pasta, o sistema filtra apenas os boletos e notas correspondentes àquele assunto.",
+    keywords: ["gaveteiro", "pastas", "organizar", "pasta fornecedor", "pasta boletos", "contas fixas", "arquivos", "separar"]
+  },
+  {
+    id: "calculadora-precificacao-markup",
+    category: "precificacao",
+    title: "Como funciona a Calculadora de Precificação Comercial (Markup Inteligente)?",
+    shortDesc: "Entenda por que a soma simples quebra o comércio e como usar a fórmula correta do markup.",
+    detailedSteps: [
+      "• O ERRO MAIS COMUM (Soma Simples): Se você compra um produto por R$ 10,00 e quer 30% de lucro, você acha que vender a R$ 13,00 dá 30%. Isso é FALSO! Pois se houver 15% de taxas de cartão e impostos sobre os R$ 13,00 (R$ 1,95), sobram apenas R$ 1,05 de lucro (menos de 8% real!).",
+      "• A FÓRMULA CORRETA (Margem de Contribuição): O preço correto é calculado pelo divisor: Custo ÷ (1 - (Taxas% + Lucro%)).",
+      "• Exemplo Prático: Custo R$ 10,00 + 15% de taxas + 35% de lucro = Preço de Venda Ideal R$ 20,00! Assim você paga todas as taxas e ainda coloca exatamente 35% limpos no bolso!",
+      "• Custos Invisíveis que a Calculadora calcula: Frete rateado, sacola plástica, bobina da impressora, taxa da maquininha e perdas de validade.",
+      "• Onde encontrar: Acesse a Calculadora de Precificação pelo Menu Lateral (Aba 7 > Calculadora de Precificação) ou pelo atalho rápido no topo."
+    ],
+    tips: "Use os presets prontos de produtos comuns (Arroz, Feijão, Óleo, Leite) para ver os custos invisíveis calculados na prática.",
+    keywords: ["precificacao", "precipitacao", "markup", "margem", "lucro", "calcular preco", "custo", "taxa cartao", "preco de venda", "formula"]
+  },
+  {
+    id: "contagem-cedulas-moedas-caixa",
+    category: "caixa",
+    title: "Como funciona a Contagem de Cédulas e Moedas na Abertura e Fechamento do Caixa?",
+    shortDesc: "Preencha as caixinhas com a quantidade de notas de R$ 2, 5, 10, 20, 50, 100, 200 e moedas.",
+    detailedSteps: [
+      "1. Ao abrir o caixa ou no Controle de Caixa, clique na opção '2. Conferência de Cédulas (Blindagem) 🛡️' ou no botão 'Contador de Cédulas & Moedas 💵🪙'.",
+      "2. Você verá caixinhas individuais para cada cédula em circulação:",
+      "   - Cédulas: R$ 2,00 | R$ 5,00 | R$ 10,00 | R$ 20,00 | R$ 50,00 | R$ 100,00 | R$ 200,00.",
+      "   - Moedas: R$ 0,05 | R$ 0,10 | R$ 0,25 | R$ 0,50 | R$ 1,00.",
+      "3. Basta tocar na caixinha e digitar quantas notas você tem (ex: tem 5 notas de 20? Digite 5 e o sistema calcula R$ 100,00 automaticamente).",
+      "4. Você também pode usar os botões (+) e (-) para aumentar ou diminuir sem precisar do teclado.",
+      "5. O Total Físico da Gaveta é calculado em tempo real em tamanho grande verde.",
+      "6. Clique em 'Confirmar e Abrir Caixa' para registrar a contagem oficial. Isso gera um comprovante para imprimir ou enviar no WhatsApp do dono, protegendo o funcionário contra quebras indevidas!"
+    ],
+    tips: "Ao tocar no campo, o número anterior é selecionado automaticamente para você digitar o novo valor sem ter que apagar o zero!",
+    keywords: ["cedulas", "notas", "moedas", "contagem", "abertura de caixa", "nota de 2", "nota de 5", "nota de 10", "nota de 20", "nota de 50", "nota de 100", "contar dinheiro", "gaveta"]
+  },
+  {
+    id: "tempo-servico-oficina-mecanica",
+    category: "oficina",
+    title: "Como calcular o Tempo de Serviço de Oficina Mecânica e Obras (Tempo é Dinheiro)?",
+    shortDesc: "Descubra o valor mínimo de mão de obra para cobrir ajudantes, marmita, dias parados e custo fixo.",
+    detailedSteps: [
+      "1. Acesse pelo botão 'Oficina & Bar: Tempo é R$ ⏱️🍻' (ou no Menu Lateral em 'Oficina & Mão de Obra').",
+      "2. Digite o Serviço Realizado (ex: 'Retífica de Motor', 'Troca de Embreagem', 'Pintura de Fachada').",
+      "3. Informe o Valor Cobrado do Cliente (R$).",
+      "4. Preencha os campos da obra / conserto:",
+      "   - Quantos Dias Levou o serviço;",
+      "   - Quantos Ajudantes trabalharam;",
+      "   - Valor da Diária de cada ajudante;",
+      "   - Custo com Marmita / Almoço por dia;",
+      "   - Custo Fixo da Oficina por dia (aluguel do galpão, luz, ferramentas, compressor rateado);",
+      "   - Lucro Limpo que o mestre/dono merece tirar por dia.",
+      "5. O sistema faz o diagnóstico na hora: avisa se você teve LUCRO REAL ou se tomou PREJUÍZO DISFARÇADO (quando o valor cobrado não paga nem os ajudantes e o tempo da oficina ocupada)!",
+      "6. A tela indica exatamente qual seria o 'Valor Mínimo Justo a Cobrar' para ter lucro garantido."
+    ],
+    tips: "Nunca cobre apenas pelo valor da peça: o tempo que o carro ou equipamento fica ocupando o elevador da oficina tem custo diário de aluguel e energia!",
+    keywords: ["oficina", "mecanico", "tempo de servico", "tempo e dinheiro", "obra", "ajudante", "marmita", "diaria", "mao de obra", "conserto", "custo dia"]
+  },
+  {
+    id: "taloes-papelaria-recibos",
+    category: "papelaria",
+    title: "Como usar os Talões e Modelos Oficiais de Papelaria (Promissória, Recibos e Orçamentos)?",
+    shortDesc: "Emita notas promissórias jurídicas, recibos comerciais, recibos de aluguel e orçamentos timbrados.",
+    detailedSteps: [
+      "1. Acesse o módulo 'Talões & Papelaria 🧾' (ou no Menu Lateral em 'Talões de Papelaria & Recibos').",
+      "2. Escolha o modelo comercial no Bazar de Papelaria:",
+      "   - 📘 Nota Promissória Jurídica (com enquadramento no Código Civil ou Lei Uniforme de Genebra, valor por extenso automático e cláusula executiva);",
+      "   - 📗 Recibo de Aluguel Oficial (com referência do mês, quitação de caução e endereço do imóvel);",
+      "   - 📕 Recibo Comercial Geral (quitação de pagamentos, serviços ou compras);",
+      "   - 📙 Orçamento Comercial (descrição detalhada de peças e mão de obra).",
+      "3. Preencha os dados do Credor, Devedor, Valor e Vencimento.",
+      "4. Assinatura: O cliente pode assinar direto na tela com o dedo ou caneta touch!",
+      "5. Use a barra de pontuação rápida [. , - R$] para facilitar a escrita no celular.",
+      "6. Clique em 'Imprimir Comprovante' para impressora térmica ou 'Gerar PDF / WhatsApp' para enviar ao cliente na hora."
+    ],
+    tips: "O valor por extenso é preenchido de forma 100% automática conforme você digita o valor em reais.",
+    keywords: ["taloes", "papelaria", "recibo", "promissoria", "nota promissoria", "aluguel", "orcamento", "assinatura", "imprimir", "modelo"]
+  },
+  {
+    id: "bar-doses-cachaca-chorinho",
+    category: "precificacao",
+    title: "Como precificar Doses de Cachaça 51 com 'Chorinho' e Baldes de Cerveja no Bar?",
+    shortDesc: "Calcule a rentabilidade de garrafas de 960ml/1L com perda de chorinho e combos.",
+    detailedSteps: [
+      "1. Acesse a aba 'Bar, Doses de 51 & Baldes' dentro do módulo de Contabilidade & Bar.",
+      "2. Informe o Custo da Garrafa (ex: R$ 15,00 a garrafa de 960ml de Cachaça 51 ou Velho Barreiro).",
+      "3. Escolha o tamanho do copinho da dose (padrão 50 ml) e o 'Chorinho' que o garçom costuma servir a mais (ex: 5 ml).",
+      "4. O sistema calcula quantas doses reais a garrafa rende (descontando o chorinho do cliente!).",
+      "5. Digite o preço cobrado por dose (ex: R$ 3,00) e veja o Faturamento Total por Garrafa e o Lucro Bruto Percentual (frequentemente acima de 200%).",
+      "6. Simulador de Balde de Cerveja: Calcule se vale a pena vender 'Compre 5 leve 6' ou combos promocionais com gelo."
+    ],
+    tips: "O 'chorinho' parece pouco, mas em 10 garrafas equivale a quase uma garrafa inteira de lucro jogada fora se não for precificada!",
+    keywords: ["bar", "dose", "cachaca", "51", "chorinho", "balde", "cerveja", "copo", "garrafa", "rendimento"]
+  },
+  {
+    id: "acougue-rendimento-carnes",
+    category: "precificacao",
+    title: "Como funciona a Calculadora de Desossa de Açougue e Rendimento de Carnes?",
+    shortDesc: "Rateio de custos em carnes com osso, aparas de gordura, carne moída e quebra de peso.",
+    detailedSteps: [
+      "1. Ao comprar uma peça inteira com osso (ex: Traseiro ou Dianteiro bovino), o quilo custa um valor mais baixo, mas nem todo o peso é vendido como carne de primeira.",
+      "2. Pese a peça bruta que chegou do frigorífico (ex: 50 kg).",
+      "3. Pese o que virou cortes nobres (Picanha, Alcatra, Contrafilé), o que virou carne moída/segunda, e o que sobrou de osso e sebo (aparas).",
+      "4. O módulo de Açougue divide os custos proporcionalmente: ele eleva o custo dos cortes nobres para que o osso descartado não gere prejuízo na ponta final!",
+      "5. Assim você sabe exatamente qual o preço mínimo de cada corte na vitrine para fechar o lote no positivo."
+    ],
+    tips: "Descontar a perda hídrica (sangue e umidade) é fundamental para não errar a margem do açougue.",
+    keywords: ["acougue", "carne", "desossa", "rendimento", "aparas", "osso", "frigorifico", "corte nobre", "quebra"]
+  },
   {
     id: "zerar-dados-teste",
     category: "reset",
@@ -336,18 +491,27 @@ export const PDVHelpAssistant: React.FC<PDVHelpAssistantProps> = ({
           }
         ],
         config: {
-          systemInstruction: `Você é o Assistente Virtual Oficial e Especialista no PDV (Frente de Caixa) do aplicativo.
-Seu objetivo é ajudar comerciantes, lojistas, caixas e proprietários de pequenos e médios negócios a tirarem todas as dúvidas sobre o sistema.
-Fale em português do Brasil com tom simples, claro, empático, acolhedor e direto ao ponto (sem termos técnicos complicados de programação).
+          systemInstruction: `Você é o Assistente Virtual Oficial e Especialista em todo o ecossistema do aplicativo Cérebro Inteligente (PDV, Caixa, Agenda de Pagamentos, Precificação Comercial, Gaveteiro de Pastas, Oficina e Tributos).
+Seu objetivo é ajudar comerciantes, donos de mercadinhos, oficinas mecânicas, bares, açougues, caixas e empreendedores a tirarem TODAS as dúvidas sobre o sistema.
+Fale em português do Brasil com tom simples, claro, empático, acolhedor e direto ao ponto (sem termos técnicos difíceis).
 
-BASE DE CONHECIMENTO DO PDV:
+CONHECIMENTO COMPLETO DO SISTEMA:
+1. AGENDA & VENCIMENTOS: Alerta vermelho pulsante 🚨 avisa hoje/atrasado para faturas de fornecedores e contas. Botões 'Enviar Lembrete WhatsApp 📲' e 'Copiar Lembrete 📋'. Abas de filtro: Todas, A Pagar, Vencidas, Pagas, A Receber.
+2. GAVETEIRO DE PASTAS: Pastas para Fornecedores, Boletos, Contas Fixas, Pagamentos e pastas personalizadas (+ Nova Pasta). Contagem e valores somados em tempo real.
+3. PRECIFICAÇÃO COMERCIAL (MARKUP INTELIGENTE): Explique que a soma simples Custo + 30% causa prejuízo por causa das taxas de cartão (débito/crédito), imposto, frete, sacola e perdas de validade. A fórmula correta usa a Margem de Contribuição: Custo ÷ (1 - Deduções).
+4. CONFERÊNCIA DE CÉDULAS & MOEDAS: Caixinhas dedicadas para cédulas de R$ 2, 5, 10, 20, 50, 100 e 200, além de moedas de R$ 0,05 a 1,00. Protege funcionários contra quebra de caixa indevida gerando termo de abertura com assinaturas.
+5. OFICINA MECÂNICA & OBRAS (TEMPO É DINHEIRO): Cálculo de mão de obra justa considerando dias gastos, número de ajudantes, diária de ajudantes, marmita, custos fixos do galpão/dia (aluguel, compressor, luz) e margem do mestre.
+6. TALÕES DE PAPELARIA: Nota Promissória jurídica, Recibo de Aluguel, Recibo Comercial e Orçamento. Assinatura na tela, pontuação rápida e impressão térmica.
+7. BAR & DOSES DE CACHAÇA: Garrafa de 960ml/1L com cálculo da perda do 'chorinho' (5ml por dose) e baldes de cerveja.
+8. AÇOUGUE: Rendimento de carnes, desossa, osso descartado e aparas de sebo.
+9. SEGURANÇA & ZONA DE PERIGO: PIN mestre do proprietário (4 a 6 dígitos). Zerar dados de teste limpa o caixa sem apagar o Bloco de Notas ou outros dados.
+
+BASE DE MANUAIS:
 ${knowledgeContext}
 
-REGRAS IMPORTANTES:
-1. Sempre oriente exatamente onde a pessoa deve clicar no aplicativo (ex: 'Proprietário & Permissões', 'Zona de Perigo', 'Estoque', 'Catálogo & Carrinho').
-2. Se a dúvida for sobre zerar o caixa ou dados de teste, reforce que isso é feito no Painel do Proprietário > Zona de Perigo com PIN mestre, e que o Bloco de Notas e outras notas estão seguras.
-3. Se a dúvida for sobre leitor de código de barras, explique que aceita pistola USB, câmera do celular (F8) ou digitação manual.
-4. Mantenha as respostas objetivas, divididas em tópicos ou passos numerados para facilitar a leitura no balcão de vendas.`,
+REGRAS:
+- Sempre aponte onde clicar no sistema (ex: 'Agenda & Vencimentos', 'Contador de Cédulas', 'Oficina & Bar: Tempo é R$', 'Gaveteiro de Pastas', 'Proprietário & Permissões').
+- Estruture a resposta com passos numerados ou tópicos claros para leitura rápida no balcão.`,
           temperature: 0.3
         }
       });
@@ -470,11 +634,15 @@ REGRAS IMPORTANTES:
               <div className="flex flex-wrap gap-1.5 text-[10px] font-black uppercase tracking-wider">
                 {[
                   { id: "todos", label: "Todos os Tópicos" },
-                  { id: "reset", label: "Zerar Testes & Caixa ⚠️" },
-                  { id: "produtos", label: "Cadastrar & Retirar Itens 📦" },
+                  { id: "agenda", label: "Agenda & Vencimentos 📅🚨" },
+                  { id: "precificacao", label: "Precificação & Markup 💰" },
+                  { id: "caixa", label: "Cédulas & Caixa 💵" },
+                  { id: "oficina", label: "Oficina & Obra ⏱️" },
+                  { id: "papelaria", label: "Talões & Recibos 🧾" },
+                  { id: "reset", label: "Zerar Testes ⚠️" },
+                  { id: "produtos", label: "Produtos 📦" },
                   { id: "vendas", label: "Vendas & Leitor 🛒" },
-                  { id: "caixa", label: "Fluxo & Sangria 💵" },
-                  { id: "seguranca", label: "PIN & Permissões 🔑" }
+                  { id: "seguranca", label: "PIN & Dono 🔑" }
                 ].map(cat => (
                   <button
                     key={cat.id}
@@ -660,10 +828,16 @@ REGRAS IMPORTANTES:
             {/* Quick suggested chips */}
             <div className="px-4 py-2 border-t border-white/5 bg-slate-950/60 overflow-x-auto flex gap-2 no-scrollbar">
               {[
-                "Como zerar os testes e o caixa?",
-                "Como funciona o leitor de código de barras?",
-                "Como cadastrar um produto novo?",
-                "O que fazer na Zona de Perigo?"
+                "🚨 Como funciona o aviso vermelho de vencimento?",
+                "📅 Como anotar contas e fornecedores na Agenda?",
+                "💰 Como funciona o Markup na Precificação?",
+                "💵 Como contar cédulas e moedas no Caixa?",
+                "⏱️ Como calcular o tempo de serviço da oficina?",
+                "🧾 Como usar os talões de papelaria e recibos?",
+                "⚠️ Como zerar os testes e o caixa?",
+                "🍻 Como calcular doses de cachaça com chorinho?",
+                "🛒 Como funciona o leitor de código de barras?",
+                "📦 Como cadastrar um produto novo?"
               ].map((chip, idx) => (
                 <button
                   key={idx}

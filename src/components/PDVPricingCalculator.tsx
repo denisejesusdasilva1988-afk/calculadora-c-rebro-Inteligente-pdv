@@ -170,9 +170,11 @@ export function PDVPricingCalculator({
           </p>
           <input
             type="text"
+            inputMode="decimal"
             value={calcCostPrice}
+            onFocus={(e) => e.target.select()}
             onChange={(e) => setCalcCostPrice(e.target.value)}
-            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
+            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none focus:border-purple-400"
           />
         </div>
 
@@ -184,12 +186,12 @@ export function PDVPricingCalculator({
             Taxas de cartão, sacolas, impostos, frete
           </p>
           <input
-            type="number"
-            min="0"
-            max="90"
+            type="text"
+            inputMode="decimal"
             value={calcExpensesPct}
+            onFocus={(e) => e.target.select()}
             onChange={(e) => setCalcExpensesPct(e.target.value)}
-            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
+            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none focus:border-purple-400"
           />
         </div>
 
@@ -201,12 +203,12 @@ export function PDVPricingCalculator({
             O lucro líquido que deseja no seu bolso
           </p>
           <input
-            type="number"
-            min="1"
-            max="90"
+            type="text"
+            inputMode="decimal"
             value={calcProfitPct}
+            onFocus={(e) => e.target.select()}
             onChange={(e) => setCalcProfitPct(e.target.value)}
-            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
+            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none focus:border-purple-400"
           />
         </div>
       </div>
@@ -424,9 +426,11 @@ export function PDVPricingCalculator({
               </label>
               <input
                 type="text"
+                inputMode="decimal"
                 value={calcCentLossPerTx}
+                onFocus={(e) => e.target.select()}
                 onChange={(e) => setCalcCentLossPerTx(e.target.value)}
-                className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-purple-300 outline-none font-bold"
+                className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-purple-300 outline-none font-bold focus:border-purple-400"
                 placeholder="0,10"
               />
               <span className="text-[7.5px] text-slate-500 block">(Se faltar R$ 0,10 de troco)</span>
@@ -439,8 +443,9 @@ export function PDVPricingCalculator({
               <input
                 type="number"
                 value={calcDailyTxVolume}
+                onFocus={(e) => e.target.select()}
                 onChange={(e) => setCalcDailyTxVolume(e.target.value)}
-                className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-purple-300 outline-none font-bold"
+                className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-purple-300 outline-none font-bold focus:border-purple-400"
                 placeholder="50"
               />
               <span className="text-[7.5px] text-slate-500 block">(Média de clientes diários)</span>
@@ -453,8 +458,9 @@ export function PDVPricingCalculator({
               <input
                 type="number"
                 value={calcWorkingDays}
+                onFocus={(e) => e.target.select()}
                 onChange={(e) => setCalcWorkingDays(e.target.value)}
-                className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-purple-300 outline-none font-bold"
+                className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-purple-300 outline-none font-bold focus:border-purple-400"
                 placeholder="300"
               />
               <span className="text-[7.5px] text-slate-500 block">(Dias de caixa aberto no ano)</span>

@@ -182,14 +182,28 @@ export function PricingCalculator() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-200 uppercase block">💰 Custo de Compra (R$):</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-200 uppercase block">💰 Custo de Compra (R$):</label>
+              {costPrice && (
+                <button
+                  type="button"
+                  onClick={() => setCostPrice("")}
+                  className="text-[10px] text-slate-500 hover:text-amber-400 font-bold px-1"
+                >
+                  ✕ Limpar
+                </button>
+              )}
+            </div>
             <span className="text-[11px] text-slate-400 block leading-tight">Valor bruto pago ao fornecedor ou matéria-prima</span>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">R$</span>
               <input
                 type="text"
+                inputMode="decimal"
                 value={costPrice}
+                onFocus={(e) => e.target.select()}
                 onChange={(e) => setCostPrice(e.target.value)}
+                placeholder="0,00"
                 className="w-full bg-slate-900 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-base font-mono font-bold text-white outline-none focus:border-amber-400 transition-all"
               />
             </div>
@@ -207,11 +221,12 @@ export function PricingCalculator() {
                 <span className="text-[10px] text-slate-400 block leading-tight">Cartão, imposto, comissão, frete</span>
                 <div className="relative">
                   <input
-                    type="number"
-                    min="0"
-                    max="90"
+                    type="text"
+                    inputMode="decimal"
                     value={expensesPct}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => setExpensesPct(e.target.value)}
+                    placeholder="0"
                     className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-base font-mono font-bold text-white outline-none focus:border-amber-400 transition-all"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">%</span>
@@ -223,11 +238,12 @@ export function PricingCalculator() {
                 <span className="text-[10px] text-slate-400 block leading-tight">Lucro real que sobra limpo no bolso</span>
                 <div className="relative">
                   <input
-                    type="number"
-                    min="1"
-                    max="90"
+                    type="text"
+                    inputMode="decimal"
                     value={profitPct}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => setProfitPct(e.target.value)}
+                    placeholder="0"
                     className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-base font-mono font-bold text-white outline-none focus:border-amber-400 transition-all"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">%</span>
@@ -251,11 +267,12 @@ export function PricingCalculator() {
                 <span className="text-[10px] text-slate-400 block leading-tight">Imposto, taxa de cartão ou comissão</span>
                 <div className="relative">
                   <input
-                    type="number"
-                    min="0"
-                    max="90"
+                    type="text"
+                    inputMode="decimal"
                     value={validateExpensesPct}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => setValidateExpensesPct(e.target.value)}
+                    placeholder="0"
                     className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-base font-mono font-bold text-white outline-none focus:border-amber-400 transition-all"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">%</span>
@@ -269,8 +286,11 @@ export function PricingCalculator() {
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">R$</span>
                   <input
                     type="text"
+                    inputMode="decimal"
                     value={validateFixedExpenses}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => setValidateFixedExpenses(e.target.value)}
+                    placeholder="0,00"
                     className="w-full bg-slate-900 border border-white/10 rounded-xl pl-9 pr-4 py-3 text-base font-mono font-bold text-white outline-none focus:border-amber-400 transition-all"
                   />
                 </div>
@@ -279,14 +299,28 @@ export function PricingCalculator() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-amber-400 uppercase block">🎯 PREÇO QUE QUER VENDER (R$):</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-amber-400 uppercase block">🎯 PREÇO QUE QUER VENDER (R$):</label>
+                  {validateSellingPrice && (
+                    <button
+                      type="button"
+                      onClick={() => setValidateSellingPrice("")}
+                      className="text-[10px] text-slate-500 hover:text-amber-400 font-bold px-1"
+                    >
+                      ✕ Limpar
+                    </button>
+                  )}
+                </div>
                 <span className="text-[11px] text-slate-300 block leading-tight">O valor que você planeja cobrar do cliente final</span>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-400 font-extrabold text-base">R$</span>
                   <input
                     type="text"
+                    inputMode="decimal"
                     value={validateSellingPrice}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => setValidateSellingPrice(e.target.value)}
+                    placeholder="0,00"
                     className="w-full bg-slate-900 border-2 border-amber-400/50 rounded-xl pl-10 pr-4 py-3 text-base font-mono font-extrabold text-amber-300 outline-none focus:border-amber-400 transition-all shadow-[0_0_15px_rgba(245,158,11,0.05)]"
                   />
                 </div>
@@ -297,11 +331,12 @@ export function PricingCalculator() {
                 <span className="text-[11px] text-slate-300 block leading-tight">Para calcular a sugestão de venda ideal</span>
                 <div className="relative">
                   <input
-                    type="number"
-                    min="1"
-                    max="90"
+                    type="text"
+                    inputMode="decimal"
                     value={validateDesiredProfitPct}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => setValidateDesiredProfitPct(e.target.value)}
+                    placeholder="0"
                     className="w-full bg-slate-900 border-2 border-emerald-550/30 rounded-xl px-4 py-3 text-base font-mono font-bold text-emerald-300 outline-none focus:border-emerald-500 transition-all"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-400 font-bold text-sm">%</span>

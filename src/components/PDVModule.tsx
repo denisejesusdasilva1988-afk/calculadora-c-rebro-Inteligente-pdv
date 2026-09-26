@@ -115,6 +115,7 @@ import { PDVSettingsSupport } from "./PDVSettingsSupport";
 import { PDVHelpAssistant } from "./PDVHelpAssistant";
 import { PDVFluxoCaixaHistorico } from "./PDVFluxoCaixaHistorico";
 import { InspirationalQuotesBar } from "./InspirationalQuotesBar";
+import { PDVAberturaCaixa } from "./PDVAberturaCaixa";
 import { OperationType, FirestoreErrorInfo } from "../types";
 
 // Self-contained lightweight debounce function
@@ -1528,6 +1529,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   }, []);
 
   // --- Closing Cashier / Reconciliation States ---
+  const [isOpeningCashierModalOpen, setIsOpeningCashierModalOpen] = useState(false);
   const [isClosingCashierModalOpen, setIsClosingCashierModalOpen] = useState(false);
   const [physicalCashInput, setPhysicalCashInput] = useState("");
   const [nextDayFloatInput, setNextDayFloatInput] = useState("");
@@ -4963,7 +4965,16 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   };
 
   // --- Open Cashier and start a new shift ---
-  const handleOpenCashier = (openingFloat: number) => {
+  const handleOpenCashier = (
+    openingFloat: number,
+    details?: {
+      operatorName?: string;
+      shift?: string;
+      mode?: "express" | "conferencia";
+      billCounts?: Record<string, number>;
+      notes?: string;
+    }
+  ) => {
     setIsCashRegisterOpen(true);
     setInitialCash(openingFloat);
     setTempInitialCash(openingFloat.toString());
@@ -4973,7 +4984,8 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     saveToLocalStorage(transactions, openingFloat, customProducts, selectedNiche, productOverrides, customNiches, productStockData, ownerPin, securityActive, true);
     pushToCloud(transactions, openingFloat, customProducts, productOverrides, customNiches, productStockData, ownerPin, securityActive, reconciliationLogs, true);
 
-    showNotification(`Caixa aberto com sucesso! Fundo de troco inicial definido para R$ ${openingFloat.toFixed(2).replace(".", ",")}. Boas vendas! 🌅📈`, "success");
+    const opName = details?.operatorName ? ` por ${details.operatorName}` : "";
+    showNotification(`Caixa aberto com sucesso${opName}! Fundo inicial: R$ ${openingFloat.toFixed(2).replace(".", ",")}. Boas vendas! 🌅📈`, "success");
   };
 
   // --- Calculated Stats ---
@@ -10911,39 +10923,34 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 </button>
                 <button
                   type="button"
+                  onClick={() => setIsOpeningCashierModalOpen(true)}
+                  className="px-4 py-4 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 font-bold text-xs sm:text-sm uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                  title="Consultar termo de abertura, reimprimir comprovante ou reenviar WhatsApp"
+                >
+                  <FileText className="w-4 h-4 text-emerald-400" />
+                  Termo de Abertura 📋
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     const el = document.getElementById("pdv-audit-and-ledger");
                     if (el) el.scrollIntoView({ behavior: 'smooth' });
                   }}
-                  className="px-6 py-4 bg-slate-950 border border-white/15 hover:border-white/25 text-slate-200 hover:text-white font-bold text-xs sm:text-sm uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                  className="px-5 py-4 bg-slate-950 border border-white/15 hover:border-white/25 text-slate-200 hover:text-white font-bold text-xs sm:text-sm uppercase tracking-wider rounded-xl transition-all cursor-pointer"
                 >
                   Ver Histórico 📁
                 </button>
               </>
             ) : (
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
-                <div className="relative min-w-[140px]">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-400 font-mono font-black text-xs">R$</span>
-                  <input
-                    type="text"
-                    id="input-quick-opening-float"
-                    value={openingFloatInput}
-                    onChange={(e) => setOpeningFloatInput(e.target.value)}
-                    className="w-full bg-slate-950 border border-amber-500/30 hover:border-amber-400/50 focus:border-amber-400 pl-8 pr-3 py-3 rounded-xl outline-none text-amber-400 font-mono font-black text-xs transition-all placeholder-slate-600 shadow-inner"
-                    placeholder="100,00"
-                  />
-                </div>
                 <button
                   type="button"
                   id="btn-main-open-shift"
-                  onClick={() => {
-                    const val = parsePortugueseNumber(openingFloatInput) || 0;
-                    handleOpenCashier(val);
-                  }}
-                  className="px-6 py-4 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs sm:text-sm uppercase tracking-wider rounded-xl transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-400/35"
+                  onClick={() => setIsOpeningCashierModalOpen(true)}
+                  className="px-6 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm uppercase tracking-wider rounded-xl transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-950/40"
                 >
-                  <Unlock className="w-4 h-4 text-slate-950" />
-                  Abrir Novo Caixa 🌅
+                  <Unlock className="w-4 h-4 text-white" />
+                  Abrir Novo Caixa & Fundo 🌅
                 </button>
               </div>
             )}
@@ -15456,60 +15463,16 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mb-5 items-start">
         
         {!isCashRegisterOpen && (opMode === "venda" || opMode === "manual") ? (
-          <div className="lg:col-span-12 w-full flex justify-center py-6">
-            <div className="max-w-md w-full bg-slate-900 border border-emerald-500/20 rounded-3xl p-8 shadow-2xl text-center space-y-6 animate-in fade-in slide-in-from-bottom-5 duration-300">
-              <div className="w-16 h-16 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center mx-auto border border-emerald-500/20 shadow-lg shadow-emerald-500/5">
-                <Unlock className="w-8 h-8" />
-              </div>
-              
-              <div className="space-y-2">
-                <h3 className="text-lg font-black uppercase text-white tracking-wider">Abertura de Caixa Diária</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  O caixa está fechado no momento. Defina o valor inicial do fundo de caixa (fundo de troco) para iniciar os trabalhos de hoje e registrar vendas.
-                </p>
-              </div>
-
-              <div className="space-y-4 pt-2">
-                <div className="text-left">
-                  <label className="text-[9px] font-black text-slate-400 block uppercase tracking-wider mb-1.5">
-                    Valor do Fundo de Caixa Inicial (R$)
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-400 font-mono font-black text-xs">R$</span>
-                    <input
-                      type="text"
-                      id="input-opening-float"
-                      value={openingFloatInput}
-                      onChange={(e) => setOpeningFloatInput(e.target.value)}
-                      className="w-full bg-slate-950 border border-white/10 hover:border-emerald-500/30 focus:border-emerald-500/50 pl-10 pr-4 py-3 rounded-2xl outline-none text-emerald-400 font-mono font-black text-sm tracking-wide transition-all shadow-inner"
-                      placeholder="100,00"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          const val = parsePortugueseNumber(openingFloatInput) || 0;
-                          handleOpenCashier(val);
-                        }
-                      }}
-                    />
-                  </div>
-                  <p className="text-[9px] text-slate-500 mt-1.5 leading-normal">
-                    Insira o valor em cédulas e moedas físicas disponível na gaveta para dar troco aos clientes.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  id="btn-confirm-open-cashier"
-                  onClick={() => {
-                    const val = parsePortugueseNumber(openingFloatInput) || 0;
-                    handleOpenCashier(val);
-                  }}
-                  className="w-full py-3.5 bg-emerald-550 hover:bg-emerald-500 text-slate-950 font-black text-[11px] uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-500/10 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <Unlock className="w-4 h-4 text-slate-950" />
-                  Abrir Caixa e Começar Turno 🌅
-                </button>
-              </div>
-            </div>
+          <div className="lg:col-span-12 w-full flex justify-center py-2 sm:py-6">
+            <PDVAberturaCaixa
+              onConfirmOpen={(val, details) => handleOpenCashier(val, details)}
+              formatCurrency={formatCurrency}
+              showNotification={showNotification}
+              storeName={storeName || "PDV Supermercado"}
+              staffList={staffPins}
+              initialValue={initialCash || 100}
+              isAlreadyOpen={false}
+            />
           </div>
         ) : opMode === "cadastro_produtos" ? (
           <div className="lg:col-span-12 w-full text-left">
@@ -18688,6 +18651,29 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   Salvar e Proteger Caixa 🔒
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 4.9 OPENING CASHIER MODAL (TERMO / CONFERÊNCIA / HISTÓRICO) */}
+      <AnimatePresence>
+        {isOpeningCashierModalOpen && (
+          <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 text-white overflow-y-auto">
+            <div className="w-full max-w-4xl my-auto">
+              <PDVAberturaCaixa
+                onConfirmOpen={(val, details) => {
+                  handleOpenCashier(val, details);
+                  setIsOpeningCashierModalOpen(false);
+                }}
+                formatCurrency={formatCurrency}
+                showNotification={showNotification}
+                storeName={storeName || "PDV Supermercado"}
+                staffList={staffPins}
+                initialValue={initialCash || 100}
+                isAlreadyOpen={isCashRegisterOpen}
+                onClose={() => setIsOpeningCashierModalOpen(false)}
+              />
             </div>
           </div>
         )}

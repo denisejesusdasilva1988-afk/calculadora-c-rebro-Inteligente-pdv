@@ -60,6 +60,11 @@ export interface AgendaEvent {
   type: 'shopping' | 'payment_received' | 'payment_made' | 'general' | 'supplier_visit' | 'supplier_debt';
   status: 'pending' | 'completed';
   createdAt: any;
+  supplierName?: string;
+  barcodePix?: string;
+  folder?: string;
+  phone?: string;
+  priority?: 'normal' | 'urgent';
 }
 
 export interface CartItem {

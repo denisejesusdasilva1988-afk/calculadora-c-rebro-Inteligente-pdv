@@ -714,7 +714,9 @@ export const NotesModule = React.memo(
         return prev;
       }
 
-      return prev + (prev.endsWith("\n") || prev === "" ? "" : "\n") + processedText;
+      // Append with a space instead of forcing a premature newline on every chunk
+      const separator = prev === "" || prev.endsWith("\n") ? "" : prev.endsWith(" ") ? "" : " ";
+      return prev + separator + processedText;
     };
 
     const startListeningLocal = async (lang: string, isAutoRestart = false) => {
@@ -3540,7 +3542,7 @@ Data: [Inserir Data]`;
                 )}
               </div>
               {/* Dynamic form assistant to fill fields easily */}
-              {false && (
+              {activeTemplate !== "none" && (
                 <div className="bg-white/80 border-2 border-amber-200/60 rounded-3xl p-4 sm:p-5 space-y-4">
                   <div className="flex items-center justify-between border-b border-amber-100 pb-2">
                     <span className="text-[10px] font-black text-amber-900 tracking-wider uppercase flex items-center gap-1.5">
@@ -4934,6 +4936,105 @@ Data: [Inserir Data]`;
                       </button>
                     </div>
                   </div>
+                </div>
+
+                {/* TACTILE PUNCTUATION & POLISHING TOOLBAR */}
+                <div className="flex flex-wrap items-center gap-1.5 p-2 bg-slate-900/90 border border-amber-500/20 rounded-2xl mb-2">
+                  <span className="text-[9.5px] font-black uppercase text-amber-400 tracking-wider px-1">
+                    Pontuação Rápida:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = (localText ? localText.trimEnd() : "") + ". ";
+                      setLocalText(updated);
+                      debouncedSetFreeNotesText(updated);
+                    }}
+                    className="px-3 py-1 bg-slate-800 hover:bg-amber-600 hover:text-white text-slate-200 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95"
+                  >
+                    . Ponto
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = (localText ? localText.trimEnd() : "") + ", ";
+                      setLocalText(updated);
+                      debouncedSetFreeNotesText(updated);
+                    }}
+                    className="px-3 py-1 bg-slate-800 hover:bg-amber-600 hover:text-white text-slate-200 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95"
+                  >
+                    , Vírgula
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = (localText ? localText.trimEnd() : "") + " - ";
+                      setLocalText(updated);
+                      debouncedSetFreeNotesText(updated);
+                    }}
+                    className="px-3 py-1 bg-slate-800 hover:bg-amber-600 hover:text-white text-slate-200 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95"
+                  >
+                    - Traço
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = (localText ? localText.trimEnd() : "") + " R$ ";
+                      setLocalText(updated);
+                      debouncedSetFreeNotesText(updated);
+                    }}
+                    className="px-3 py-1 bg-emerald-950/80 border border-emerald-500/30 hover:bg-emerald-600 hover:text-white text-emerald-300 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95"
+                  >
+                    R$ Reais
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = (localText ? localText : "") + "\n";
+                      setLocalText(updated);
+                      debouncedSetFreeNotesText(updated);
+                    }}
+                    className="px-3 py-1 bg-slate-800 hover:bg-amber-600 hover:text-white text-slate-200 rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95"
+                  >
+                    ↵ Nova Linha
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm("Deseja apagar todo o texto digitado?")) {
+                        setLocalText("");
+                        debouncedSetFreeNotesText("");
+                      }
+                    }}
+                    className="px-2.5 py-1 bg-red-950/50 border border-red-500/30 hover:bg-red-600 text-red-300 hover:text-white rounded-xl text-xs font-black transition-all cursor-pointer shadow-sm active:scale-95 ml-auto"
+                    title="Limpar texto"
+                  >
+                    ✕ Limpar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!localText.trim() || isRefiningSpeechLocal}
+                    onClick={async () => {
+                      if (!localText.trim() || isRefiningSpeechLocal) return;
+                      setIsRefiningSpeechLocal(true);
+                      try {
+                        const refined = await refineSpeechText(localText, micLangLocal);
+                        if (refined && refined.trim()) {
+                          setLocalText(refined.trim());
+                          debouncedSetFreeNotesText(refined.trim());
+                        }
+                      } catch (e) {
+                        console.error("Erro ao polir texto:", e);
+                      } finally {
+                        setIsRefiningSpeechLocal(false);
+                      }
+                    }}
+                    className="px-3.5 py-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                    title="Polir pontuação, concordância e remover repetições usando a IA"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{isRefiningSpeechLocal ? "Polindo..." : "Polir Texto IA ✨"}</span>
+                  </button>
                 </div>
 
                 <div className="relative">

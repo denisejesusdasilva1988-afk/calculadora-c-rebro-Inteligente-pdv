@@ -29,16 +29,24 @@ interface ContabilidadeTributosProps {
   formatCurrency?: (val: number) => string;
   monthlyRevenueDefault?: number;
   showNotification?: (msg: string, type?: any) => void;
+  initialTab?: "tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa";
 }
 
 export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> = ({
   onBack,
   formatCurrency = (v) => `R$ ${v.toFixed(2).replace(".", ",")}`,
   monthlyRevenueDefault = 0,
-  showNotification = () => {}
+  showNotification = () => {},
+  initialTab = "tributos"
 }) => {
   // Sub-abas do módulo
-  const [activeTab, setActiveTab] = useState<"tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa">("tributos");
+  const [activeTab, setActiveTab] = useState<"tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa">(initialTab);
+
+  React.useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // ==========================================
   // ESTADO 1: TRIBUTOS FEDERAIS & SIMPLES NACIONAL / MEI

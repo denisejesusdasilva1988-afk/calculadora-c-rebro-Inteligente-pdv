@@ -7150,69 +7150,48 @@ export default function App() {
         </main>
       ) : activeTab === "profile" ? (
         <main className="w-full max-w-xl px-4 py-8 flex flex-col gap-8">
-          {/* Clean, Simple Download Card */}
+          {/* Informações de Acesso Web & Play Store */}
           <div className="bg-gradient-to-br from-emerald-950/20 via-slate-900 to-purple-950/15 border border-white/10 rounded-[2.5rem] p-6 shadow-xl text-center space-y-4">
             <div className="flex flex-col items-center gap-2">
-              <div className="p-3.5 bg-gradient-to-tr from-emerald-500 to-purple-500 rounded-2xl text-white shadow-lg shrink-0">
-                <Smartphone className="w-6 h-6 animate-pulse" />
+              <div className="p-3.5 bg-gradient-to-tr from-emerald-500 to-emerald-700 rounded-2xl text-white shadow-lg shrink-0">
+                <Smartphone className="w-6 h-6" />
               </div>
               <h3 className="text-white text-base font-black uppercase tracking-wider">
-                Baixar Aplicativo no Celular 📲
+                Acesso Web & Google Play Store 📲
               </h3>
-              <p className="text-xs text-slate-355 leading-relaxed font-semibold max-w-sm mx-auto">
-                Salve a calculadora na tela do seu celular para abrir num clique e usar no mercado mesmo se estiver sem internet! Grátis e sem anúncios.
+              <p className="text-xs text-slate-300 leading-relaxed font-semibold max-w-sm mx-auto">
+                Você está utilizando a versão Web oficial em nuvem pelo navegador (Google Chrome). O aplicativo definitivo para celulares será disponibilizado diretamente na <strong className="text-white">Google Play Store</strong> com instalação oficial e segura.
               </p>
             </div>
 
             <div className="space-y-2 mt-2">
-              <button
-                type="button"
-                onClick={handleInstallApp}
-                className="w-full bg-gradient-to-r from-emerald-500 via-indigo-500 to-purple-600 hover:opacity-95 active:scale-[0.99] text-white py-3.5 px-6 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-purple-500/15"
-                id="install-pwa-login-btn"
-              >
-                <Download className="w-4 h-4 animate-bounce" />
-                {deferredPrompt ? "Preparamos Tudo: Baixar App" : "Clique aqui para Baixar / Instalar"}
-              </button>
+              <div className="flex items-center justify-center gap-2 p-3 bg-slate-950/60 rounded-2xl border border-white/5 text-[11px] text-emerald-400 font-bold">
+                <span>🌐 Acesso direto pelo navegador ativo: calculadoracerebro.br</span>
+              </div>
 
-              <div className="flex gap-2 justify-center pt-1 animate-fadeIn">
-                <button
-                  type="button"
-                  onClick={() => setShowInstallGuide(true)}
-                  className="text-[10px] text-slate-400 hover:text-white font-black uppercase tracking-wider underline decoration-dotted underline-offset-4 cursor-pointer"
-                  id="toggle-manual-login-btn"
-                >
-                  Ver Passo a Passo Manual ⚙
-                </button>
-                <span className="text-slate-600">|</span>
+              <div className="flex gap-2 justify-center pt-1">
                 <button
                   type="button"
                   onClick={shareApp}
                   className="text-[10px] text-emerald-400 hover:text-emerald-300 font-black uppercase tracking-wider underline decoration-dotted underline-offset-4 cursor-pointer flex items-center gap-1"
                   id="share-app-login-btn"
                 >
-                  <Share2 className="w-3 h-3" /> Recomendar para Amigos
+                  <Share2 className="w-3 h-3" /> Compartilhar Sistema
                 </button>
               </div>
 
               {/* Atualização e Limpeza de Cache */}
-              <div className="pt-3 border-t border-white/5 text-left">
+              <div className="pt-2 border-t border-white/5 text-left">
                 <button
                   type="button"
                   onClick={handleForcePwaUpdate}
-                  className="w-full bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white py-3 px-4 rounded-2xl font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer border border-white/10 flex items-center justify-center gap-2"
+                  className="w-full bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white py-2.5 px-4 rounded-2xl font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer border border-white/10 flex items-center justify-center gap-2"
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Sincronizar Última Versão ({runningVersion})</span>
+                  <span>Sincronizar Atualização do Sistema ({runningVersion})</span>
                 </button>
               </div>
             </div>
-            
-            {isAppInstalled && (
-              <span className="block text-center text-[10px] text-emerald-400 font-bold bg-emerald-500/5 py-1.5 rounded-xl">
-                ✓ Você já está rodando a versão instalada!
-              </span>
-            )}
           </div>
 
           {/* User Profile / Login Panel */}
@@ -9927,9 +9906,9 @@ export default function App() {
                                   setFreeNotesText(
                                     (prev) =>
                                       prev +
-                                      (prev.endsWith("\n") || prev === ""
+                                      (prev === "" || prev.endsWith("\n") || prev.endsWith(" ")
                                         ? ""
-                                        : "\n") +
+                                        : " ") +
                                       text,
                                   );
                                 })
@@ -10139,6 +10118,7 @@ export default function App() {
                       formatCurrency={formatCurrency}
                       prefilledAmount={prefilledAgendaAmount}
                       clearPrefill={() => setPrefilledAgendaAmount(null)}
+                      createdFolders={createdFolders}
                     />
                   ) : notepadMode === "receipts" ? (
                     <NotesModule
@@ -11960,6 +11940,9 @@ export default function App() {
                           prev.map((n) => (n.id === id ? { ...n, folder: newFolder } : n))
                         );
                       }}
+                      agendaEvents={agendaEvents}
+                      onUpdateEvent={updateAgendaEvent}
+                      onDeleteEvent={deleteAgendaEvent}
                       currentFolder={currentFolder}
                       setCurrentFolder={setCurrentFolder}
                       createdFolders={createdFolders}
