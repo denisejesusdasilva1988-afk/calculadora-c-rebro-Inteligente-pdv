@@ -21,7 +21,13 @@ import {
   RefreshCw,
   Sparkles,
   DollarSign,
-  Camera
+  Camera,
+  FlipHorizontal,
+  Upload,
+  Image as ImageIcon,
+  Check,
+  Zap,
+  Flashlight
 } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 
@@ -32,6 +38,7 @@ export interface CustomProduct {
   niche: string;
   category?: string;
   barcode?: string;
+  quickCode?: string; // Código simples de até 4 dígitos (ex: "0102", "1213")
   size?: string;
   color?: string;
   additionalBarcodes?: string[];
@@ -227,6 +234,168 @@ export function CadastroProdutosModule({
 
   // Edit States
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+
+  // Photo Camera States for product photo capture
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState<"environment" | "user">("environment");
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [capturedPhotoPreview, setCapturedPhotoPreview] = useState<string | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const activeStreamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Helper: compress image from Image or Video to lightweight JPEG base64 (max 500x500)
+  const compressImageSource = (
+    imageSource: HTMLImageElement | HTMLVideoElement,
+    maxWidth = 500,
+    maxHeight = 500,
+    quality = 0.82
+  ): string => {
+    try {
+      const canvas = document.createElement("canvas");
+      let width = imageSource instanceof HTMLVideoElement ? imageSource.videoWidth : imageSource.width;
+      let height = imageSource instanceof HTMLVideoElement ? imageSource.videoHeight : imageSource.height;
+
+      if (!width || !height) return "";
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(imageSource, 0, 0, width, height);
+        return canvas.toDataURL("image/jpeg", quality);
+      }
+    } catch (err) {
+      console.error("Erro ao comprimir foto:", err);
+    }
+    return "";
+  };
+
+  // Start live camera stream
+  const startCameraStream = async (facing: "environment" | "user" = cameraFacingMode) => {
+    setCameraLoading(true);
+    setCapturedPhotoPreview(null);
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach(track => track.stop());
+      activeStreamRef.current = null;
+    }
+
+    try {
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: facing,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      activeStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(console.error);
+      }
+    } catch (err) {
+      console.error("Erro ao acessar câmera ao vivo:", err);
+      // Fallback without exact constraints
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        activeStreamRef.current = fallbackStream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = fallbackStream;
+          videoRef.current.play().catch(console.error);
+        }
+      } catch (err2) {
+        console.error("Falha ao abrir qualquer câmera:", err2);
+        showNotification("Não foi possível acessar a câmera ao vivo. Use a opção 'Tirar Foto pelo Celular / Galeria'.", "error");
+        setIsCameraModalOpen(false);
+      }
+    } finally {
+      setCameraLoading(false);
+    }
+  };
+
+  // Stop camera stream cleanly
+  const stopCameraStream = () => {
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach(track => track.stop());
+      activeStreamRef.current = null;
+    }
+    setIsCameraModalOpen(false);
+    setCapturedPhotoPreview(null);
+  };
+
+  // Toggle front/back camera
+  const handleToggleCameraFacing = () => {
+    const nextFacing = cameraFacingMode === "environment" ? "user" : "environment";
+    setCameraFacingMode(nextFacing);
+    startCameraStream(nextFacing);
+  };
+
+  // Capture photo snapshot from live video element
+  const handleTakeSnapshot = () => {
+    if (!videoRef.current) return;
+    const compressed = compressImageSource(videoRef.current, 500, 500, 0.85);
+    if (compressed) {
+      setCapturedPhotoPreview(compressed);
+    } else {
+      showNotification("Erro ao capturar foto. Tente novamente.", "error");
+    }
+  };
+
+  // Confirm and set captured photo
+  const handleConfirmSnapshot = () => {
+    if (capturedPhotoPreview) {
+      setProdImageUrl(capturedPhotoPreview);
+      showNotification("Foto do produto vinculada ao cadastro! 📸✅", "success");
+      stopCameraStream();
+    }
+  };
+
+  // Retake photo
+  const handleRetakeSnapshot = () => {
+    setCapturedPhotoPreview(null);
+  };
+
+  // Process file upload or native phone camera file
+  const handleProcessPhotoFile = (file: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const compressed = compressImageSource(img, 500, 500, 0.82);
+        if (compressed) {
+          setProdImageUrl(compressed);
+          showNotification("Foto do produto carregada e otimizada! 📸✅", "success");
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Cleanup active camera on unmount
+  useEffect(() => {
+    return () => {
+      if (activeStreamRef.current) {
+        activeStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   // Barcode scanner states for product registration
   const [showScanner, setShowScanner] = useState(false);
@@ -890,11 +1059,13 @@ export function CadastroProdutosModule({
 
                       return (
                         <tr key={product.id} className="hover:bg-white/[0.02] transition-colors group">
-                          <td className="py-3 px-4 text-center text-lg">
-                            {DEFAULT_EMOJIS.includes(product.imageUrl || "") ? (
-                              <span>{product.imageUrl}</span>
+                          <td className="py-3 px-4 text-center">
+                            {product.imageUrl && (product.imageUrl.startsWith("data:image") || product.imageUrl.startsWith("http")) ? (
+                              <div className="w-10 h-10 rounded-xl overflow-hidden border border-white/10 mx-auto shadow-sm bg-slate-900 shrink-0">
+                                <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                              </div>
                             ) : (
-                              <span>🛍️</span>
+                              <span className="text-xl">{product.imageUrl || "🛍️"}</span>
                             )}
                           </td>
                           <td className="py-3 px-4">
@@ -1309,28 +1480,164 @@ export function CadastroProdutosModule({
                 </div>
               </div>
 
-              {/* Emoji avatar selector */}
-              <div className="pt-2 border-t border-white/5 space-y-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                  Selecione um Ícone / Emoji Representativo
-                </label>
-                <div className="flex flex-wrap gap-2 p-3 bg-slate-900 border border-white/10 rounded-xl max-h-24 overflow-y-auto">
-                  {DEFAULT_EMOJIS.map(emoji => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      onClick={() => {
-                        setSelectedEmoji(emoji);
-                        setProdImageUrl(emoji);
-                      }}
-                      className={`w-8 h-8 text-lg rounded-lg flex items-center justify-center cursor-pointer transition-all ${
-                        selectedEmoji === emoji ? "bg-sky-600 scale-110 shadow-md shadow-sky-500/20" : "hover:bg-white/5"
-                      }`}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
+              {/* Photo & Image Capture Section */}
+              <div className="pt-3 border-t border-white/10 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-black text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-emerald-400" />
+                    Foto Real do Produto ou Imagem de Venda 📸
+                  </label>
+                  {prodImageUrl && (prodImageUrl.startsWith("data:image") || prodImageUrl.startsWith("http")) && (
+                    <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Check className="w-3 h-3" /> Foto Ativa Vinculada
+                    </span>
+                  )}
                 </div>
+
+                {/* Photo Preview and Action Buttons */}
+                <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
+                  {/* Thumbnail / Avatar Preview */}
+                  <div className="relative group shrink-0">
+                    {prodImageUrl && (prodImageUrl.startsWith("data:image") || prodImageUrl.startsWith("http")) ? (
+                      <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-emerald-500/50 shadow-lg bg-slate-950 relative">
+                        <img
+                          src={prodImageUrl}
+                          alt="Foto do Produto"
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProdImageUrl("");
+                            setSelectedEmoji("🛍️");
+                            showNotification("Foto removida. O produto usará o ícone padrão.", "info");
+                          }}
+                          className="absolute inset-0 bg-slate-950/75 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 text-rose-400 font-bold text-[9px] uppercase cursor-pointer"
+                          title="Remover Foto"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Remover</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-24 h-24 rounded-2xl border-2 border-dashed border-white/15 bg-slate-950 flex flex-col items-center justify-center text-slate-500 group-hover:border-emerald-500/40 transition-colors">
+                        {selectedEmoji ? (
+                          <span className="text-4xl">{selectedEmoji}</span>
+                        ) : (
+                          <>
+                            <Camera className="w-8 h-8 text-slate-600 mb-1" />
+                            <span className="text-[8px] font-bold uppercase text-slate-500">Sem Foto</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex-1 w-full space-y-2 text-left">
+                    <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
+                      Tire uma foto nítida do produto usando a câmera do aparelho ou anexe direto da galeria. A foto aparecerá nos cards da comanda do PDV e no catálogo de estoque!
+                    </p>
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {/* Button 1: Live Camera Viewfinder */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCameraModalOpen(true);
+                          startCameraStream();
+                        }}
+                        className="px-3.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-[10.5px] font-black uppercase tracking-wider shadow-md shadow-emerald-500/20 flex items-center gap-2 cursor-pointer transition-all active:scale-95"
+                      >
+                        <Camera className="w-4 h-4" />
+                        <span>Tirar Foto com a Câmera 📸</span>
+                      </button>
+
+                      {/* Button 2: Native Phone Camera / Gallery input */}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        ref={fileInputRef}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleProcessPhotoFile(file);
+                          e.target.value = "";
+                        }}
+                        className="hidden"
+                        id="reg-prod-camera-input"
+                      />
+                      <label
+                        htmlFor="reg-prod-camera-input"
+                        className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-white/10 hover:border-sky-400/40 rounded-xl text-[10.5px] font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all active:scale-95 shadow-sm"
+                      >
+                        <Upload className="w-4 h-4 text-sky-400" />
+                        <span>Câmera do Celular / Galeria 📱</span>
+                      </label>
+
+                      {/* Button 3: Toggle Emoji Picker */}
+                      <button
+                        type="button"
+                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        className="px-3 py-2.5 bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-white/5 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all"
+                      >
+                        <Tag className="w-3.5 h-3.5" />
+                        <span>{showEmojiPicker ? "Ocultar Emojis" : "Escolher Emoji 🏷️"}</span>
+                      </button>
+
+                      {/* Button 4: Clear photo (if photo exists) */}
+                      {prodImageUrl && (prodImageUrl.startsWith("data:image") || prodImageUrl.startsWith("http")) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProdImageUrl("");
+                            setSelectedEmoji("🛍️");
+                            showNotification("Foto removida.", "info");
+                          }}
+                          className="px-3 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-all"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Limpar Foto</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Optional Collapsible Emoji avatar selector */}
+                {showEmojiPicker && (
+                  <div className="p-3 bg-slate-900 border border-white/10 rounded-2xl space-y-2 animate-fadeIn">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Ou selecione um ícone temático:</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowEmojiPicker(false)}
+                        className="text-[9px] text-slate-500 hover:text-white uppercase font-bold"
+                      >
+                        Fechar ✕
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto pr-1">
+                      {DEFAULT_EMOJIS.map(emoji => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => {
+                            setSelectedEmoji(emoji);
+                            setProdImageUrl(emoji);
+                          }}
+                          className={`w-8 h-8 text-lg rounded-lg flex items-center justify-center cursor-pointer transition-all ${
+                            selectedEmoji === emoji && !prodImageUrl.startsWith("data:image")
+                              ? "bg-sky-600 scale-110 shadow-md shadow-sky-500/20"
+                              : "hover:bg-white/5"
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Submit Buttons */}
@@ -1579,6 +1886,122 @@ export function CadastroProdutosModule({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* LIVE CAMERA PHOTO CAPTURE MODAL */}
+      {isCameraModalOpen && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-3 sm:p-4 bg-slate-950/90 backdrop-blur-md animate-fadeIn">
+          <div className="bg-slate-900 border-2 border-emerald-500/50 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col text-left">
+            {/* Modal Header */}
+            <div className="p-4 bg-slate-950 border-b border-white/10 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                  <Camera className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                    Fotografar Produto 📸
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-sans">
+                    Enquadre o produto e clique no botão para capturar
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Flip camera button */}
+                <button
+                  type="button"
+                  onClick={handleToggleCameraFacing}
+                  className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+                  title="Alternar Câmera Frontal / Traseira"
+                >
+                  <FlipHorizontal className="w-4 h-4 text-emerald-400" />
+                  <span className="hidden sm:inline">Virar Câmera</span>
+                </button>
+                {/* Close button */}
+                <button
+                  type="button"
+                  onClick={stopCameraStream}
+                  className="p-2 bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 rounded-xl transition-colors cursor-pointer"
+                  title="Fechar Câmera"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Viewfinder / Preview Body */}
+            <div className="p-4 space-y-4">
+              <div className="relative w-full aspect-square max-h-[380px] bg-black rounded-2xl overflow-hidden border border-white/10 flex items-center justify-center shadow-inner">
+                {cameraLoading && (
+                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 gap-2">
+                    <RefreshCw className="w-7 h-7 text-emerald-400 animate-spin" />
+                    <span className="text-xs font-bold text-slate-300 uppercase">Iniciando câmera...</span>
+                  </div>
+                )}
+
+                {!capturedPhotoPreview ? (
+                  <>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Viewfinder crosshair overlay */}
+                    <div className="absolute inset-6 border-2 border-white/30 rounded-2xl pointer-events-none flex items-center justify-center">
+                      <div className="w-12 h-12 border border-emerald-400/60 rounded-full" />
+                    </div>
+                  </>
+                ) : (
+                  <img
+                    src={capturedPhotoPreview}
+                    alt="Foto Capturada"
+                    className="w-full h-full object-cover animate-fadeIn"
+                  />
+                )}
+              </div>
+
+              {/* Shutter / Confirmation Controls */}
+              {!capturedPhotoPreview ? (
+                <div className="flex flex-col items-center justify-center py-2">
+                  <button
+                    type="button"
+                    onClick={handleTakeSnapshot}
+                    className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-400 border-4 border-white shadow-2xl flex items-center justify-center transition-transform active:scale-90 cursor-pointer shadow-emerald-500/30"
+                    title="Tirar Foto"
+                  >
+                    <Camera className="w-8 h-8 text-slate-950" />
+                  </button>
+                  <span className="text-[11px] font-black text-slate-300 uppercase tracking-wider mt-2 font-mono">
+                    Toque no botão para fotografar 📸
+                  </span>
+                </div>
+              ) : (
+                <div className="flex gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleRetakeSnapshot}
+                    className="flex-1 py-3 bg-slate-800 hover:bg-slate-750 text-slate-200 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>Tirar Outra 🔄</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmSnapshot}
+                    className="flex-1 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Usar esta Foto ✅</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

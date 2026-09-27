@@ -30,11 +30,11 @@ export interface BakeryIngredient {
 export interface BakeryItemPreset {
   id: string;
   name: string;
-  type: "pao" | "cafe" | "confeitaria" | "salgado";
+  type: "pao" | "cafe" | "confeitaria" | "salgado" | "suco";
   category: string;
   batchYield: number; // ex: 800 pães ou 111 cafés
   batchYieldUnit: string; // ex: "pãezinhos (50g)" ou "xícaras de café"
-  bakingLossPct: number; // Quebra no forno (evaporação da água) ex: 14%
+  bakingLossPct: number; // Quebra no forno/fritura (evaporação da água) ex: 14%
   ovenGasEnergyCost: number; // Gás/elétrico do forno por fornada
   packagingCostTotal: number; // Sacos de papel kraft ou copos
   targetMarginPct: number;
@@ -300,6 +300,144 @@ export const BAKERY_PRESETS: BakeryItemPreset[] = [
         usedUnit: "g"
       }
     ]
+  },
+  {
+    id: "coxinha_frango",
+    name: "Coxinhas de Frango com Catupiry (Cento / 100 unidades)",
+    type: "salgado",
+    category: "Salgados & Frituras",
+    batchYield: 100,
+    batchYieldUnit: "coxinhas de 30g",
+    bakingLossPct: 5,
+    ovenGasEnergyCost: 14.00, // Gás de cozinha para cozimento da massa e fritura
+    packagingCostTotal: 10.00, // Caixa para salgados de festa ou papel acoplado
+    targetMarginPct: 65,
+    currentSellPrice: 1.80, // R$ 1,80 a unidade (ou R$ 180,00 o cento)
+    ingredients: [
+      {
+        id: "ing_cxf1",
+        name: "Peito de Frango Desfiado Temperado",
+        packageQty: 1,
+        packageUnit: "kg",
+        packageCost: 23.50,
+        usedQty: 800,
+        usedUnit: "g"
+      },
+      {
+        id: "ing_cxf2",
+        name: "Farinha de Trigo Especial",
+        packageQty: 1,
+        packageUnit: "kg",
+        packageCost: 5.50,
+        usedQty: 1000,
+        usedUnit: "g"
+      },
+      {
+        id: "ing_cxf3",
+        name: "Requeijão Cremoso / Catupiry Original",
+        packageQty: 400,
+        packageUnit: "g",
+        packageCost: 14.00,
+        usedQty: 300,
+        usedUnit: "g"
+      },
+      {
+        id: "ing_cxf4",
+        name: "Caldo de Galinha Concentrado",
+        packageQty: 57,
+        packageUnit: "g",
+        packageCost: 2.80,
+        usedQty: 57,
+        usedUnit: "g"
+      },
+      {
+        id: "ing_cxf5",
+        name: "Margarina Culinária 80% Lipídios",
+        packageQty: 500,
+        packageUnit: "g",
+        packageCost: 7.20,
+        usedQty: 150,
+        usedUnit: "g"
+      },
+      {
+        id: "ing_cxf6",
+        name: "Farinha de Rosca Especial para Empanar",
+        packageQty: 500,
+        packageUnit: "g",
+        packageCost: 5.90,
+        usedQty: 350,
+        usedUnit: "g"
+      },
+      {
+        id: "ing_cxf7",
+        name: "Óleo de Soja para Fritura (Absorção)",
+        packageQty: 900,
+        packageUnit: "ml",
+        packageCost: 6.80,
+        usedQty: 400,
+        usedUnit: "ml"
+      },
+      {
+        id: "ing_cxf8",
+        name: "Temperos (Alho, Cebola, Cheiro Verde, Colorau)",
+        packageQty: 200,
+        packageUnit: "g",
+        packageCost: 5.00,
+        usedQty: 100,
+        usedUnit: "g"
+      }
+    ]
+  },
+  {
+    id: "suco_natural_polpa",
+    name: "Suco Natural de Fruta / Polpa (Lote 10 Copos 400ml / 4 Litros)",
+    type: "suco",
+    category: "Sucos & Bebidas Naturais",
+    batchYield: 10,
+    batchYieldUnit: "copos de 400ml com tampa e canudo",
+    bakingLossPct: 0,
+    ovenGasEnergyCost: 3.50, // Energia elétrica do liquidificador e freezer
+    packagingCostTotal: 7.50, // 10 copos descartáveis 400ml + tampas + canudos
+    targetMarginPct: 70,
+    currentSellPrice: 8.00, // Preço de venda praticado por copo
+    ingredients: [
+      {
+        id: "ing_suc1",
+        name: "Polpa de Fruta Congelada ou Fruta Fresca (Morango, Maracujá, Acerola)",
+        packageQty: 1,
+        packageUnit: "kg",
+        packageCost: 22.00,
+        usedQty: 1000,
+        usedUnit: "g"
+      },
+      {
+        id: "ing_suc2",
+        name: "Água Mineral Filtrada Gelada",
+        packageQty: 20,
+        packageUnit: "L",
+        packageCost: 12.00,
+        usedQty: 3,
+        usedUnit: "L"
+      },
+      {
+        id: "ing_suc3",
+        name: "Açúcar Cristal ou Xarope Adoçante",
+        packageQty: 1,
+        packageUnit: "kg",
+        packageCost: 4.80,
+        usedQty: 350,
+        usedUnit: "g"
+      },
+      {
+        id: "ing_suc4",
+        name: "Gelo Filtrado em Cubos",
+        packageQty: 5,
+        packageUnit: "kg",
+        packageCost: 8.00,
+        usedQty: 1000,
+        usedUnit: "g"
+      }
+    ]
   }
 ];
 
@@ -534,6 +672,10 @@ export function BakeryPricingCalculator({
                     ? "☕"
                     : preset.type === "confeitaria"
                     ? "🎂"
+                    : preset.type === "salgado"
+                    ? "🍗"
+                    : preset.type === "suco"
+                    ? "🥤"
                     : "🥐"}
                 </span>
                 <span>{preset.name}</span>

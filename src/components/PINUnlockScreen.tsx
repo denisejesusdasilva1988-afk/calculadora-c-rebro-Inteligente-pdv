@@ -66,19 +66,24 @@ export const PINUnlockScreen: React.FC<PINUnlockScreenProps> = ({
     const cleanStoredCpf = cleanCpf(storeCnpjCpf || "");
     const cleanStoredRg = cleanCpf(storeOwnerRg || "");
 
-    if (!cleanStoredCpf || !cleanStoredRg) {
-      showNotification("Não há CPF ou RG cadastrados nos seus dados do proprietário! Vá nas configurações de perfil do PDV para cadastrar seu CPF/RG primeiro. 🛡️", "error");
-      return;
+    // Se houver CPF cadastrado, valida com o CPF digitado
+    if (cleanStoredCpf) {
+      if (!cpfValidation) {
+        showNotification("Por favor, digite o CPF do Proprietário para validar sua identidade! 🛡️", "error");
+        return;
+      }
+      if (cleanCpf(cpfValidation) !== cleanStoredCpf) {
+        showNotification("O CPF digitado não confere com o CPF cadastrado do Proprietário! ❌", "error");
+        return;
+      }
     }
 
-    if (cleanCpf(cpfValidation) !== cleanStoredCpf) {
-      showNotification("O CPF digitado não confere com o CPF do Proprietário! ❌", "error");
-      return;
-    }
-
-    if (cleanCpf(rgValidation) !== cleanStoredRg) {
-      showNotification("O RG digitado não confere com o RG do Proprietário! ❌", "error");
-      return;
+    // Se houver RG cadastrado, valida o RG se preenchido
+    if (cleanStoredRg && rgValidation) {
+      if (cleanCpf(rgValidation) !== cleanStoredRg) {
+        showNotification("O RG digitado não confere com o RG do Proprietário! ❌", "error");
+        return;
+      }
     }
 
     if (!newPinFromReset) {
@@ -99,7 +104,7 @@ export const PINUnlockScreen: React.FC<PINUnlockScreenProps> = ({
     setIsResetting(true);
     setTimeout(() => {
       onResetPinSuccess(newPinFromReset);
-      showNotification("PIN redefinido e reconfigurado com sucesso pelo CPF/RG do Proprietário! 🎉🛡️", "success");
+      showNotification("PIN redefinido e reconfigurado com sucesso! Acesso liberado sem bloqueios. 🎉🛡️", "success");
       setIsResetting(false);
       setIsForgotPasswordMode(false);
       setPinInput("");

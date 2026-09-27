@@ -91,6 +91,7 @@ import {
   Circle,
   Delete,
   Lock,
+  Unlock,
   Key,
   Eye,
   EyeOff,
@@ -521,7 +522,14 @@ interface ParsedItem {
 }
 
 export const resolveFirebaseEmail = (input: string): string => {
-  return input.trim().toLowerCase();
+  if (!input) return "";
+  const trimmed = input.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  // Se o usuário digitou CPF (11 dígitos) ou CNPJ (14 dígitos) sem o @
+  if (!trimmed.includes("@") && (digits.length === 11 || digits.length === 14)) {
+    return `doc_${digits}@sistema.app`;
+  }
+  return trimmed.toLowerCase();
 };
 
 export const getPublicShareUrl = (): string => {
@@ -1377,6 +1385,9 @@ export default function App() {
   const [pdvActiveSubTab, setPdvActiveSubTab] = useState<string | null>(null);
   const [selectedNiche, setSelectedNiche] = useState<string>(() => {
     try { return localStorage.getItem("pdv_selected_segment") || "comercio_geral"; } catch { return "comercio_geral"; }
+  });
+  const [isNicheLocked, setIsNicheLocked] = useState<boolean>(() => {
+    try { return localStorage.getItem("pdv_niche_locked") === "true"; } catch { return false; }
   });
   const [storeName, setStoreName] = useState<string>(() => {
     try { return localStorage.getItem("pdv_store_name") || ""; } catch { return ""; }
@@ -2290,7 +2301,7 @@ export default function App() {
     });
   };
 
-  const showNotification = (
+  const showNotification = useCallback((
     message: string,
     type: "success" | "error" | "info" | "syncing" | "warning" = "info",
   ) => {
@@ -2299,7 +2310,31 @@ export default function App() {
     if (mappedType !== "syncing") {
       setTimeout(() => setNotification(null), 4000);
     }
-  };
+  }, []);
+
+  const toggleNicheLock = useCallback(() => {
+    setIsNicheLocked(prev => {
+      const next = !prev;
+      localStorage.setItem("pdv_niche_locked", next ? "true" : "false");
+      const currentNicheName = getNicheLabel(selectedNiche, customNiches);
+      if (next) {
+        showNotification(`Segmento fixado em "${currentNicheName}"! O nicho não mudará por acidente. 🔒`, "success");
+      } else {
+        showNotification(`Trava de segmento liberada. Você pode escolher outro ramo agora. 🔓`, "info");
+      }
+      return next;
+    });
+  }, [selectedNiche, customNiches, showNotification]);
+
+  const handleSafeSetSelectedNiche = useCallback((newNiche: string) => {
+    if (isNicheLocked && newNiche !== selectedNiche) {
+      const currentNicheName = getNicheLabel(selectedNiche, customNiches);
+      showNotification(`🔒 O segmento está fixado em "${currentNicheName}"! Desative a trava de segmento no topo da tela para trocar de ramo.`, "error");
+      return;
+    }
+    setSelectedNiche(newNiche);
+    localStorage.setItem("pdv_selected_segment", newNiche);
+  }, [isNicheLocked, selectedNiche, customNiches, showNotification]);
 
   const handleAddCustomNiche = (e: React.FormEvent) => {
     e.preventDefault();
@@ -7619,15 +7654,15 @@ export default function App() {
                   >
                     <div className="space-y-1.5 focus-within:text-purple-400 transition-colors">
                       <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                        E-mail
+                        E-mail ou CPF
                       </label>
                       <input
-                        type="email"
+                        type="text"
                         autoCapitalize="none"
-                        autoComplete="email"
+                        autoComplete="username"
                         value={authEmail}
                         onChange={(e) => setAuthEmail(e.target.value)}
-                        placeholder="nome@exemplo.com"
+                        placeholder="seu-email@exemplo.com ou CPF (apenas números)"
                         required
                         className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs px-4 py-3 rounded-2xl focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 font-medium"
                       />
@@ -7689,15 +7724,15 @@ export default function App() {
                   >
                     <div className="space-y-1.5 focus-within:text-purple-400 transition-colors border-none">
                       <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                        E-mail
+                        E-mail ou CPF
                       </label>
                       <input
-                        type="email"
+                        type="text"
                         autoCapitalize="none"
-                        autoComplete="email"
+                        autoComplete="username"
                         value={authEmail}
                         onChange={(e) => setAuthEmail(e.target.value)}
-                        placeholder="Ex: seu-email@exemplo.com"
+                        placeholder="Ex: seu-email@exemplo.com ou CPF"
                         required
                         className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs px-4 py-3 rounded-2xl focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 font-medium"
                       />
@@ -10167,7 +10202,9 @@ export default function App() {
                       activeSubTab={pdvActiveSubTab}
                       onSubTabChange={setPdvActiveSubTab}
                       selectedNiche={selectedNiche}
-                      setSelectedNiche={setSelectedNiche}
+                      setSelectedNiche={handleSafeSetSelectedNiche}
+                      isNicheLocked={isNicheLocked}
+                      onToggleNicheLock={toggleNicheLock}
                       customNiches={customNiches}
                       setCustomNiches={setCustomNiches}
                       storeName={storeName}
@@ -10245,6 +10282,45 @@ export default function App() {
                         </form>
                       </div>
 
+                      {/* Segment Lock & Status Banner */}
+                      <div className="bg-slate-950/80 border border-amber-500/30 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2.5 rounded-xl ${isNicheLocked ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-slate-800 text-slate-400"}`}>
+                            {isNicheLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Segmento Atual:</span>
+                              <span className="text-xs font-black uppercase text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                {getNicheLabel(selectedNiche, customNiches)}
+                              </span>
+                              {isNicheLocked && (
+                                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
+                                  <Check className="w-3 h-3" /> Fixado com Segurança
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10.5px] text-slate-400 font-medium mt-0.5">
+                              {isNicheLocked
+                                ? "O segmento está travado! Nenhum clique acidental alterará o ramo do seu comércio."
+                                : "Trava desativada: ao clicar em outro segmento abaixo, o ramo do seu negócio será alterado."}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={toggleNicheLock}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-md shrink-0 ${
+                            isNicheLocked
+                              ? "bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-amber-500/20"
+                              : "bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30"
+                          }`}
+                        >
+                          {isNicheLocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                          <span>{isNicheLocked ? "Destravar Segmento 🔓" : "Fixar Meu Segmento 🔒"}</span>
+                        </button>
+                      </div>
+
                       {/* Grand Grid displaying PREDEFINED + CUSTOM Niches */}
                       <div className="space-y-3.5">
                         <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block px-1">
@@ -10261,9 +10337,12 @@ export default function App() {
                               <div
                                 key={niche.id}
                                 onClick={() => {
-                                  setSelectedNiche(niche.id);
-                                  localStorage.setItem("pdv_selected_segment", niche.id);
-                                  showNotification(`Nicho alterado para ${niche.name}! 🚀`, "success");
+                                  if (isNicheLocked && niche.id !== selectedNiche) {
+                                    handleSafeSetSelectedNiche(niche.id);
+                                  } else {
+                                    handleSafeSetSelectedNiche(niche.id);
+                                    showNotification(`Nicho alterado para ${niche.name}! 🚀`, "success");
+                                  }
                                 }}
                                 className={`p-4 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between h-32 relative overflow-hidden group select-none active:scale-[0.98] ${
                                   isSelected
@@ -10314,9 +10393,12 @@ export default function App() {
                               <div
                                 key={niche.id}
                                 onClick={() => {
-                                  setSelectedNiche(niche.id);
-                                  localStorage.setItem("pdv_selected_segment", niche.id);
-                                  showNotification(`Nicho customizado alterado para ${niche.name}! 🚀`, "success");
+                                  if (isNicheLocked && niche.id !== selectedNiche) {
+                                    handleSafeSetSelectedNiche(niche.id);
+                                  } else {
+                                    handleSafeSetSelectedNiche(niche.id);
+                                    showNotification(`Nicho customizado alterado para ${niche.name}! 🚀`, "success");
+                                  }
                                 }}
                                 className={`p-4 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between h-32 relative overflow-hidden group select-none active:scale-[0.98] ${
                                   isSelected
@@ -13927,7 +14009,9 @@ export default function App() {
             onForceRestore={forceRestoreFromCloud}
             showNotification={showNotification}
             selectedNiche={selectedNiche}
-            setSelectedNiche={setSelectedNiche}
+            setSelectedNiche={handleSafeSetSelectedNiche}
+            isNicheLocked={isNicheLocked}
+            onToggleNicheLock={toggleNicheLock}
             customNiches={customNiches}
             storeName={storeName}
             storeCnpjCpf={storeCnpjCpf}

@@ -66,24 +66,26 @@ export const SUBSCRIPTION_PLANS: TierPlanInfo[] = [
   },
   {
     id: "estoque_gestao",
-    name: "Gestão & Estoque",
-    tagline: "Controle de estoque completo",
+    name: "Gestão, Estoque & Caixa",
+    tagline: "Controle de estoque e Frente de Caixa liberados",
     price: "R$ 29,90",
     priceNum: 29.90,
     period: "por mês",
-    badge: "ESTOQUE LIBERADO",
+    badge: "CAIXA & ESTOQUE LIBERADOS",
     badgeBg: "bg-emerald-500/10 border-emerald-500/30 text-emerald-600",
     badgeText: "text-emerald-500",
-    description: "Para comércios que precisam de controle rigoroso de produtos e mercadorias:",
+    description: "Para comércios que precisam vender no caixa e controlar rigorosamente suas mercadorias:",
     features: [
       "Tudo incluído no Plano Ferramentas Pro (R$ 14,90)",
+      "Frente de Caixa (PDV) completa para registrar vendas e emitir cupons",
       "Controle de Estoque Completo Liberado",
-      "Cadastro e edição de produtos no estoque",
+      "Recebimentos em Dinheiro, Pix, Cartão e Fiado",
+      "Cadastro e edição de produtos e preços no balcão",
       "Alertas de estoque mínimo e risco de falta",
-      "Histórico de entradas, saídas e reposições",
-      "Exportação de balanço e inventário físico"
+      "Histórico de vendas, sangria e suprimento de caixa",
+      "(Sem assistência IA Gemini, exclusiva do plano de R$ 39,90)"
     ],
-    ctaLabel: "Assinar Gestão & Estoque (R$ 29,90)"
+    ctaLabel: "Assinar Caixa & Estoque (R$ 29,90)"
   },
   {
     id: "pdv_total",
@@ -92,7 +94,7 @@ export const SUBSCRIPTION_PLANS: TierPlanInfo[] = [
     price: "R$ 39,90",
     priceNum: 39.90,
     period: "por mês",
-    badge: "DIREITO A TUDO 👑",
+    badge: "DIREITO A TUDO + IA 👑",
     badgeBg: "bg-purple-500/10 border-purple-500/30 text-purple-600",
     badgeText: "text-purple-500",
     popular: true,
@@ -111,7 +113,7 @@ export const SUBSCRIPTION_PLANS: TierPlanInfo[] = [
       "Recebimentos por Pix Dinâmico e Cartão com Mercado Pago",
       "Envio de cupom fiscal/comprovante instantâneo no WhatsApp"
     ],
-    ctaLabel: "Liberar Tudo (R$ 39,90/mês)"
+    ctaLabel: "Liberar Tudo com IA (R$ 39,90/mês)"
   }
 ];
 
@@ -151,11 +153,8 @@ export function getCurrentSubscriptionTier(): SubscriptionTier {
 export function saveSubscriptionTier(tier: SubscriptionTier): void {
   try {
     localStorage.setItem("app_subscription_tier", tier);
-    if (tier === "pdv_total") {
+    if (tier === "pdv_total" || tier === "estoque_gestao") {
       localStorage.setItem("pdv_license_active", "true");
-      localStorage.setItem("is_premium", "true");
-    } else if (tier === "estoque_gestao") {
-      localStorage.setItem("pdv_license_active", "false"); // estoque is unlocked separately
       localStorage.setItem("is_premium", "true");
     } else if (tier === "pro_tools") {
       localStorage.setItem("is_premium", "true");
@@ -193,9 +192,9 @@ export function isFeatureAllowedForTier(feature: FeatureKey, tier: SubscriptionT
     return tier === "estoque_gestao" || tier === "pdv_total";
   }
 
-  // 4. PDV Total & IA Gemini (R$ 39,90)
+  // 4. PDV Caixa (Frente de Caixa) - Liberado para R$ 29,90 e R$ 39,90 (sem IA no R$ 29,90)
   if (feature === "pdv_completo") {
-    return tier === "pdv_total";
+    return tier === "estoque_gestao" || tier === "pdv_total";
   }
 
   return false;

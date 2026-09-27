@@ -88,6 +88,8 @@ interface SidebarDrawerProps {
   pdvLicenseActive?: boolean;
   onOpenPaywall?: (featureName?: string, tier?: any) => void;
   currentTier?: string;
+  isNicheLocked?: boolean;
+  onToggleNicheLock?: () => void;
 }
 
 export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
@@ -113,7 +115,9 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   setStoreCnpjCpf,
   pdvLicenseActive = false,
   onOpenPaywall,
-  currentTier = "free"
+  currentTier = "free",
+  isNicheLocked = false,
+  onToggleNicheLock
 }) => {
   const [isNicheDropdownOpen, setIsNicheDropdownOpen] = useState(false);
   const [isAba7Open, setIsAba7Open] = useState(true);
@@ -966,11 +970,33 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
                 {/* Active Niche Selector Dropdown */}
                 <div className="mt-4 relative z-50">
-                  <span className="text-[9px] font-black uppercase text-emerald-200 block mb-1">
-                    Estabelecimento Operacional Ativo 🏢
-                  </span>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9px] font-black uppercase text-emerald-200 block">
+                      Estabelecimento Ativo 🏢
+                    </span>
+                    {onToggleNicheLock && (
+                      <button
+                        type="button"
+                        onClick={onToggleNicheLock}
+                        className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer ${
+                          isNicheLocked
+                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                            : "bg-white/5 text-slate-400 hover:text-white border border-white/10"
+                        }`}
+                        title={isNicheLocked ? "Segmento travado: clique para destravar" : "Clique para fixar o segmento e evitar trocas acidentais"}
+                      >
+                        {isNicheLocked ? <Lock className="w-2.5 h-2.5 text-amber-400" /> : <Unlock className="w-2.5 h-2.5 text-slate-400" />}
+                        <span>{isNicheLocked ? "Fixado 🔒" : "Fixar 🔓"}</span>
+                      </button>
+                    )}
+                  </div>
                   <button
-                    onClick={() => setIsNicheDropdownOpen(!isNicheDropdownOpen)}
+                    onClick={() => {
+                      if (isNicheLocked) {
+                        showNotification(`🔒 O segmento está fixado como "${activeNicheMeta.name}"! Toque no botão 'Fixado' para destravar antes de alterar o estabelecimento.`, "warning");
+                      }
+                      setIsNicheDropdownOpen(!isNicheDropdownOpen);
+                    }}
                     className="w-full flex items-center justify-between gap-2.5 px-3 py-2.5 bg-slate-950/60 hover:bg-slate-950/80 border border-white/10 rounded-xl transition-all cursor-pointer text-left shadow-inner"
                   >
                     <div className="flex items-center gap-2 truncate">
@@ -980,6 +1006,9 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                       <span className="text-xs font-black uppercase text-white truncate">
                         {activeNicheMeta.name}
                       </span>
+                      {isNicheLocked && (
+                        <Lock className="w-3 h-3 text-amber-400 shrink-0 ml-1" />
+                      )}
                     </div>
                     {isNicheDropdownOpen ? (
                       <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" />
@@ -1004,6 +1033,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                             <button
                               key={n.id}
                               onClick={() => {
+                                if (isNicheLocked && n.id !== selectedNiche) {
+                                  showNotification(`🔒 O segmento está fixado como "${activeNicheMeta.name}"! Toque no botão 'Fixado' para destravar antes de alterar o estabelecimento.`, "warning");
+                                  return;
+                                }
                                 if (setSelectedNiche) {
                                   setSelectedNiche(n.id);
                                   localStorage.setItem("pdv_selected_segment", n.id);

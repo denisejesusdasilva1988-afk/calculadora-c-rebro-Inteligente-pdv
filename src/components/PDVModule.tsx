@@ -509,6 +509,8 @@ interface PDVModuleProps {
   setStoreOwnerRg?: (rg: string) => void;
   refreshSecuritySettings?: () => void;
   onlyCheckout?: boolean;
+  isNicheLocked?: boolean;
+  onToggleNicheLock?: () => void;
 }
 
 // Predefined product catalog by business segment (niche)
@@ -1003,9 +1005,33 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   storeOwnerRg = "",
   setStoreOwnerRg,
   refreshSecuritySettings,
-  onlyCheckout = false
+  onlyCheckout = false,
+  isNicheLocked: propIsNicheLocked,
+  onToggleNicheLock: propOnToggleNicheLock
 }) => {
   // --- Persistent States (with local fallbacks) ---
+  const [localIsNicheLocked, setLocalIsNicheLocked] = useState<boolean>(() => {
+    try { return localStorage.getItem("pdv_niche_locked") === "true"; } catch { return false; }
+  });
+  const isNicheLocked = propIsNicheLocked !== undefined ? propIsNicheLocked : localIsNicheLocked;
+
+  const toggleNicheLock = useCallback(() => {
+    if (propOnToggleNicheLock) {
+      propOnToggleNicheLock();
+    } else {
+      setLocalIsNicheLocked(prev => {
+        const next = !prev;
+        localStorage.setItem("pdv_niche_locked", next ? "true" : "false");
+        showNotification(
+          next
+            ? `Segmento fixado com sucesso! Não mudará por acidente. 🔒`
+            : `Trava de segmento desativada. 🔓`,
+          next ? "success" : "info"
+        );
+        return next;
+      });
+    }
+  }, [propOnToggleNicheLock, showNotification]);
   const [transactions, setTransactions] = useState<PDVTransaction[]>(() => {
     try {
       const saved = localStorage.getItem("pdv_transactions");
@@ -1218,7 +1244,62 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [reportSelectedYear, setReportSelectedYear] = useState<number>(() => new Date().getFullYear());
 
   // --- Cart System States ---
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    try {
+      const saved = localStorage.getItem("pdv_current_cart");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Persistir carrinho automaticamente para não perder vendas
+  useEffect(() => {
+    try {
+      if (cart.length > 0) {
+        localStorage.setItem("pdv_current_cart", JSON.stringify(cart));
+      } else {
+        localStorage.removeItem("pdv_current_cart");
+      }
+    } catch {}
+  }, [cart]);
+
+  // Prevenir que o botão "Voltar" do celular descarte vendas ou saia da tela
+  useEffect(() => {
+    try {
+      window.history.pushState({ inPDV: true }, "");
+    } catch {}
+
+    const handlePopState = () => {
+      try {
+        window.history.pushState({ inPDV: true }, "");
+      } catch {}
+      if (cart.length > 0) {
+        showNotification(`Seu carrinho com ${cart.length} item(ns) está 100% preservado e salvo! 🛒🛡️`, "info");
+      }
+    };
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (cart.length > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [cart.length, showNotification]);
+
+  const [editingCartItem, setEditingCartItem] = useState<CartItem | null>(null);
+  const [editCartQty, setEditCartQty] = useState<string>("1");
+  const [editCartPrice, setEditCartPrice] = useState<string>("0,00");
+  const [receiptFooterMsg, setReceiptFooterMsg] = useState<string>(() => {
+    return localStorage.getItem("pdv_receipt_footer_msg") || "Obrigado pela preferência! Volte sempre! 🛒✨";
+  });
   const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [discountPercentStr, setDiscountPercentStr] = useState<string>("");
   const [discountValue, setDiscountValue] = useState<string>("");
@@ -3829,9 +3910,10 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         <body onload="window.print(); window.close();">
           <div class="text-center">
             <h3 style="margin: 0; font-size: 13px;">${storeName || selectedNiche.toUpperCase().replace("_", " ")}</h3>
-            <p style="margin: 4px 0;">CUPOM DE VENDA</p>
+            <p style="margin: 4px 0; font-weight: bold;">CUPOM DE VENDA / REGISTRO FISCAL</p>
             ${storeCnpjCpf ? `<p style="margin: 2px 0; font-size: 9px; font-weight: bold;">CNPJ/CPF: ${storeCnpjCpf}</p>` : ""}
-            <p style="margin: 2px 0; font-size: 9px;">Data: ${tx.date}</p>
+            <p style="margin: 2px 0; font-size: 9px;">Data da Venda: ${tx.date}</p>
+            <p style="margin: 2px 0; font-size: 9px; font-weight: bold;">IMPRESSÃO: ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR")}</p>
             <p style="margin: 2px 0; font-size: 9px;">ID: ${tx.id}</p>
           </div>
           <div class="border-dashed"></div>
@@ -3867,9 +3949,15 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           </div>
           ` : ""}
           <div class="border-dashed"></div>
-          <div class="text-center" style="font-size: 9px; margin-top: 10px;">
-            <p style="margin: 0;">SISTEMA COMERCIAL PROTEGIDO 🛡️</p>
-            <p style="margin: 4px 0 0 0;">Obrigado pela preferência!</p>
+          <!-- QR Code de Autenticação / Consulta do Cupom Fiscal -->
+          <div style="text-align: center; margin: 10px 0;">
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`CUPOM:${tx.id}|CNPJ:${storeCnpjCpf || 'ISENTO'}|VALOR:R$${tx.amount.toFixed(2)}|DATA:${tx.date}`)}" style="width: 100px; height: 100px; margin: 0 auto; display: block;" alt="QR Code Cupom Fiscal" />
+            <p style="font-size: 8px; margin: 3px 0 0 0; color: #555;">QR CODE DE CONSULTA & AUTENTICAÇÃO DO CUPOM</p>
+          </div>
+          <div class="border-dashed"></div>
+          <div class="text-center" style="font-size: 9px; margin-top: 8px;">
+            <p style="margin: 0; font-weight: bold;">${receiptFooterMsg || "Obrigado pela preferência! Volte sempre! 🛒✨"}</p>
+            <p style="margin: 4px 0 0 0; font-size: 8px; color: #666;">SISTEMA COMERCIAL PROTEGIDO 🛡️</p>
           </div>
           <!-- Comando silencioso para abertura de gaveta em impressoras spooler que suportam ESC/POS (27, 112, 0, 25, 250) -->
           <span style="font-size: 0px; color: transparent; user-select: none;">&#27;&#112;&#0;&#25;&#250;</span>
@@ -4267,6 +4355,41 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         return item;
       }).filter((item): item is CartItem => item !== null);
     });
+  };
+
+  const handleOpenEditCartItem = (item: CartItem) => {
+    setEditingCartItem(item);
+    setEditCartQty(item.quantity.toString().replace(".", ","));
+    setEditCartPrice(item.price.toFixed(2).replace(".", ","));
+  };
+
+  const handleSaveCartItemEdit = () => {
+    if (!editingCartItem) return;
+    const parsedQty = parsePortugueseNumber(editCartQty);
+    const parsedPrice = parsePortugueseNumber(editCartPrice);
+
+    if (parsedQty <= 0) {
+      showNotification("A quantidade deve ser maior que zero (ex: 20 pães ou 0,800 kg)! ⚠️", "error");
+      return;
+    }
+    if (parsedPrice < 0) {
+      showNotification("O preço unitário não pode ser negativo! ⚠️", "error");
+      return;
+    }
+
+    setCart(prev => prev.map(item => {
+      if (item.id === editingCartItem.id) {
+        return {
+          ...item,
+          quantity: parsedQty,
+          price: parsedPrice
+        };
+      }
+      return item;
+    }));
+
+    showNotification(`Item atualizado: ${parsedQty}x por ${formatCurrency(parsedPrice)}! (O preço do cadastro continua protegido) 🛒✨`, "success");
+    setEditingCartItem(null);
   };
 
   const handleRemoveFromCart = (id: string, name: string) => {
@@ -5171,7 +5294,8 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       };
     });
     
-    const customs = customProducts.filter(p => p.niche === selectedNiche).map(p => {
+    // Produtos customizados cadastrados pelo lojista (ficam sempre preservados e visíveis)
+    const customs = customProducts.map(p => {
       const id = p.id;
       const override = productOverrides[id];
       const finalName = override ? override.name : p.name;
@@ -5187,7 +5311,10 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         barcode: p.barcode || "",
         size: p.size,
         color: p.color,
-        additionalBarcodes: p.additionalBarcodes
+        additionalBarcodes: p.additionalBarcodes,
+        validity: p.validity,
+        imageUrl: p.imageUrl,
+        niche: p.niche || selectedNiche
       };
     });
 
@@ -12462,11 +12589,11 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     <span className="text-[11.5px] font-black uppercase text-slate-350 font-sans">📝 Identificação do Comércio (Cupom Fiscal & Sidebar)</span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {/* Store Name Input */}
                     <div className="space-y-1.5 text-left">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block font-sans">
-                        Nome do Comércio no Cupom:
+                        Nome Fantasia no Cupom:
                       </label>
                       <input
                         type="text"
@@ -12500,6 +12627,24 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         }}
                         placeholder="Ex: 12.345.678/0001-90 ou 123.456.789-00"
                         className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                      />
+                    </div>
+
+                    {/* Receipt Footer Message */}
+                    <div className="space-y-1.5 text-left">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block font-sans">
+                        Mensagem de Rodapé do Cupom:
+                      </label>
+                      <input
+                        type="text"
+                        value={receiptFooterMsg}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setReceiptFooterMsg(val);
+                          localStorage.setItem("pdv_receipt_footer_msg", val);
+                        }}
+                        placeholder="Ex: Obrigado pela preferência! Volte sempre!"
+                        className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
                       />
                     </div>
                   </div>
@@ -15282,6 +15427,37 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
       </div>
       )}
 
+      {/* 3.4 ACTIVE BUSINESS SEGMENT & LOCK INDICATOR */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2.5 bg-slate-900/90 border border-white/10 rounded-2xl px-4 py-2.5 max-w-4xl mx-auto w-full shadow-lg text-left">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+            Ramo / Segmento Ativo:
+          </span>
+          <span className="text-xs font-black uppercase text-amber-400 bg-amber-500/10 border border-amber-500/25 px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 font-mono">
+            🏢 {selectedNiche === "comercio_geral" ? "Comércio Geral" : selectedNiche.toUpperCase().replace("_", " ")}
+          </span>
+          {isNicheLocked && (
+            <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Check className="w-3 h-3" /> Fixado
+            </span>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={toggleNicheLock}
+          className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
+            isNicheLocked
+              ? "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40"
+              : "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 hover:text-white"
+          }`}
+          title={isNicheLocked ? "Segmento travado: clique para liberar" : "Clique para fixar o segmento e evitar trocas acidentais"}
+        >
+          {isNicheLocked ? <Lock className="w-3.5 h-3.5 text-amber-400" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
+          <span>{isNicheLocked ? "Segmento Fixado 🔒" : "Fixar Meu Segmento 🔓"}</span>
+        </button>
+      </div>
+
       {/* 3.5 OPERATIONAL MODE SWITCHER */}
       {!onlyCheckout && (
         <div className="mb-5 bg-slate-900 border border-white/10 rounded-2xl p-1.5 flex flex-wrap sm:flex-nowrap gap-1 max-w-3xl mx-auto w-full shadow-xl">
@@ -15608,11 +15784,14 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       costPrice: item.costPrice,
                       category: item.category || "Alimentos",
                       barcode: "",
+                      niche: selectedNiche || "comercio_geral",
                       stock: 99
                     };
                     const updated = [newProd, ...customProducts];
                     setCustomProducts(updated);
                     localStorage.setItem("pdv_custom_products", JSON.stringify(updated));
+                    saveToLocalStorage(transactions, initialCash, updated, selectedNiche, productOverrides, customNiches, productStockData);
+                    pushToCloud(transactions, initialCash, updated, productOverrides, customNiches, productStockData);
                   }
                   showNotification(`"${item.name}" adicionado ao Catálogo de Vendas do PDV! 🛍️✅`, "success");
                 }}
@@ -15805,33 +15984,61 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                           />
                         </div>
                         <div className="col-span-12 sm:col-span-6">
-                          <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Foto do Produto (Opcional)</label>
+                          <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Foto do Produto (Câmera ou Galeria)</label>
                           <div className="flex gap-2 items-center mt-1">
                             {newProdImageUrl ? (
-                              <div className="relative w-8 h-8 rounded-lg overflow-hidden border border-emerald-500/30 shrink-0">
+                              <div className="relative w-9 h-9 rounded-lg overflow-hidden border border-emerald-500/40 shrink-0 shadow-sm">
                                 <img src={newProdImageUrl} referrerPolicy="no-referrer" alt="Preview" className="w-full h-full object-cover" />
                                 <button
                                   type="button"
                                   onClick={() => setNewProdImageUrl("")}
-                                  className="absolute inset-0 bg-black/60 flex items-center justify-center text-rose-500 font-bold text-[8px] uppercase hover:opacity-100 opacity-0 transition-opacity cursor-pointer"
+                                  className="absolute inset-0 bg-black/60 flex items-center justify-center text-rose-400 font-bold text-[8px] uppercase hover:opacity-100 opacity-0 transition-opacity cursor-pointer"
+                                  title="Remover Foto"
                                 >
                                   Apagar
                                 </button>
                               </div>
                             ) : (
-                              <div className="w-8 h-8 bg-slate-900 border border-dashed border-white/10 rounded-lg shrink-0 flex items-center justify-center text-slate-600">
-                                <Camera className="w-4 h-4" />
+                              <div className="w-9 h-9 bg-slate-900 border border-dashed border-white/10 rounded-lg shrink-0 flex items-center justify-center text-slate-500">
+                                <Camera className="w-4 h-4 text-emerald-400" />
                               </div>
                             )}
                             <input
                               type="file"
                               accept="image/*"
+                              capture="environment"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
                                 if (file) {
                                   const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    setNewProdImageUrl(reader.result as string);
+                                  reader.onload = (re) => {
+                                    const img = new Image();
+                                    img.onload = () => {
+                                      try {
+                                        const canvas = document.createElement("canvas");
+                                        let w = img.width;
+                                        let h = img.height;
+                                        const maxSide = 500;
+                                        if (w > h && w > maxSide) {
+                                          h = Math.round((h * maxSide) / w);
+                                          w = maxSide;
+                                        } else if (h > maxSide) {
+                                          w = Math.round((w * maxSide) / h);
+                                          h = maxSide;
+                                        }
+                                        canvas.width = w;
+                                        canvas.height = h;
+                                        const ctx = canvas.getContext("2d");
+                                        if (ctx) {
+                                          ctx.drawImage(img, 0, 0, w, h);
+                                          setNewProdImageUrl(canvas.toDataURL("image/jpeg", 0.82));
+                                          showNotification("Foto do produto capturada e comprimida! 📸✅", "success");
+                                        }
+                                      } catch (err) {
+                                        setNewProdImageUrl(re.target?.result as string);
+                                      }
+                                    };
+                                    img.src = re.target?.result as string;
                                   };
                                   reader.readAsDataURL(file);
                                 }
@@ -15841,9 +16048,10 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                             />
                             <label
                               htmlFor="custom-prod-image-uploader"
-                              className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-850 border border-white/10 text-slate-300 hover:text-white rounded-lg text-[9px] font-bold uppercase transition-all cursor-pointer flex-1 text-center"
+                              className="px-2.5 py-2 bg-slate-900 hover:bg-slate-850 border border-white/10 text-emerald-300 hover:text-white rounded-lg text-[9px] font-bold uppercase transition-all cursor-pointer flex-1 text-center flex items-center justify-center gap-1.5 shadow-sm"
                             >
-                              Carregar Foto 📷
+                              <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Tirar Foto / Galeria 📸</span>
                             </label>
                           </div>
                         </div>
@@ -16178,8 +16386,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                   </div>
                                 )}
 
-                                <div className="flex-1 min-w-0 text-left">
-                                  <span className="text-sm sm:text-base font-black text-white uppercase tracking-tight leading-snug line-clamp-2 pr-7 block text-left">
+                                <div className="flex-1 min-w-0 text-left pr-12">
+                                  <span className="text-xs sm:text-[13.5px] font-black text-white uppercase tracking-tight leading-snug break-words whitespace-normal line-clamp-3 block text-left">
                                     {product.name}
                                     {(product as any).size && (
                                       <span className="ml-1 text-[9px] font-extrabold text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 rounded leading-none inline-block">
@@ -16461,7 +16669,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               </div>
 
               {/* Added items index */}
-              <div className="space-y-1.5 max-h-[160px] overflow-y-auto no-scrollbar mb-4">
+              <div className="space-y-1.5 max-h-[320px] sm:max-h-[380px] overflow-y-auto no-scrollbar mb-4">
                 {cart.length === 0 ? (
                   <div className="py-14 text-center text-slate-400 uppercase text-[12px] font-black flex flex-col items-center justify-center gap-2">
                     <ShoppingCart className="w-8 h-8 text-slate-700" />
@@ -16472,11 +16680,24 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   cart.map((item) => (
                     <div 
                       key={item.id}
-                      className="p-2.5 bg-slate-950 border border-white/10 rounded-xl flex items-center justify-between gap-3 text-xs"
+                      className="p-2.5 bg-slate-950 border border-white/10 hover:border-amber-400/30 rounded-xl flex items-center justify-between gap-3 text-xs transition-colors"
                     >
-                      <div className="min-w-0 flex-1">
-                        <span className="font-black text-slate-100 uppercase text-[13px] leading-tight block truncate">{item.name}</span>
-                        <span className="text-[10.5px] text-slate-300 block uppercase font-mono font-bold mt-0.5">{formatCurrency(item.price)} un.</span>
+                      <div 
+                        className="min-w-0 flex-1 cursor-pointer"
+                        onClick={() => handleOpenEditCartItem(item)}
+                        title="Clique para editar quantidade ou preço"
+                      >
+                        <span className="font-black text-slate-100 uppercase text-xs sm:text-[13px] leading-snug break-words whitespace-normal block hover:text-amber-300 transition-colors">
+                          {item.name}
+                        </span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10.5px] text-slate-300 block uppercase font-mono font-bold">
+                            {formatCurrency(item.price)} un.
+                          </span>
+                          <span className="text-[9px] text-amber-400 font-bold bg-amber-400/10 px-1.5 py-0.2 rounded border border-amber-400/20">
+                            ✏️ Editar
+                          </span>
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -16486,14 +16707,22 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                             type="button"
                             onClick={() => handleUpdateCartQty(item.id, -1)}
                             className="p-1 text-slate-400 hover:text-white hover:bg-white/[0.05]"
+                            title="Diminuir 1"
                           >
                             <Minus className="w-3 h-3" />
                           </button>
-                          <span className="px-2 font-mono text-[12.5px] font-bold text-slate-100">{item.quantity}</span>
+                          <span 
+                            onClick={() => handleOpenEditCartItem(item)}
+                            className="px-2 font-mono text-[12.5px] font-bold text-slate-100 hover:text-amber-400 cursor-pointer underline decoration-dotted" 
+                            title="Clique para digitar a quantidade exata (ex: 20 pães ou 0,800 kg)"
+                          >
+                            {item.quantity}
+                          </span>
                           <button
                             type="button"
                             onClick={() => handleUpdateCartQty(item.id, 1)}
                             className="p-1 text-slate-400 hover:text-white hover:bg-white/[0.05]"
+                            title="Aumentar 1"
                           >
                             <Plus className="w-3 h-3" />
                           </button>
@@ -16504,11 +16733,22 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                           {formatCurrency(item.price * item.quantity)}
                         </span>
 
+                        {/* Direct edit button */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditCartItem(item)}
+                          className="p-1 text-slate-400 hover:text-amber-400 transition-colors"
+                          title="Digitar quantidade exata e alterar preço da comanda"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+
                         {/* trash */}
                         <button
                           type="button"
                           onClick={() => handleRemoveFromCart(item.id, item.name)}
                           className="text-slate-400 hover:text-rose-500 p-1"
+                          title="Remover do carrinho"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -16517,6 +16757,112 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   ))
                 )}
               </div>
+
+              {/* MODAL EDITAR ITEM NO CARRINHO (QUANTIDADE EXATA & PREÇO UNITÁRIO) */}
+              {editingCartItem && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
+                  <div className="bg-slate-900 border-2 border-amber-500/40 rounded-3xl p-5 sm:p-6 w-full max-w-md shadow-2xl text-left space-y-4">
+                    <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                          <Edit2 className="w-3.5 h-3.5" /> Editar Item no Carrinho
+                        </span>
+                        <h3 className="text-base font-black text-white uppercase mt-0.5">
+                          {editingCartItem.name}
+                        </h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditingCartItem(null)}
+                        className="p-1.5 text-slate-400 hover:text-white rounded-xl bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3.5">
+                      {/* Quantidade */}
+                      <div className="space-y-1">
+                        <label className="text-[10.5px] font-bold text-slate-300 uppercase flex items-center justify-between">
+                          <span>Quantidade (ex: 20 pães ou 0,800 kg de carne)</span>
+                          <span className="text-[9.5px] text-amber-400 font-mono">Digite o número exato</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={editCartQty}
+                          onChange={(e) => setEditCartQty(e.target.value)}
+                          placeholder="Ex: 20 ou 0,800"
+                          className="w-full bg-slate-950 border border-white/15 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold outline-none"
+                          autoFocus
+                        />
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {["1", "2", "5", "10", "20", "50", "0,250", "0,500", "0,800", "1,000"].map((q) => (
+                            <button
+                              key={q}
+                              type="button"
+                              onClick={() => setEditCartQty(q)}
+                              className="px-2 py-0.5 bg-slate-800 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 border border-white/5 rounded-lg text-[10px] font-mono font-bold cursor-pointer"
+                            >
+                              {q}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Preço Unitário */}
+                      <div className="space-y-1">
+                        <label className="text-[10.5px] font-bold text-slate-300 uppercase flex items-center justify-between">
+                          <span>Preço Unitário da Venda (R$)</span>
+                          <span className="text-[9.5px] text-emerald-400 font-mono">Ex: 0,50</span>
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold text-sm">R$</span>
+                          <input
+                            type="text"
+                            value={editCartPrice}
+                            onChange={(e) => setEditCartPrice(e.target.value)}
+                            placeholder="0,50"
+                            className="w-full bg-slate-950 border border-white/15 focus:border-emerald-400 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-white font-mono font-bold outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Subtotal preview */}
+                      <div className="p-3 bg-slate-950 rounded-xl border border-white/10 flex items-center justify-between">
+                        <span className="text-xs text-slate-400 font-bold uppercase">Subtotal Deste Item:</span>
+                        <span className="text-base font-black text-emerald-400 font-mono">
+                          {formatCurrency((parsePortugueseNumber(editCartQty) || 0) * (parsePortugueseNumber(editCartPrice) || 0))}
+                        </span>
+                      </div>
+
+                      {/* Informative notice */}
+                      <div className="p-2.5 bg-purple-950/30 border border-purple-500/20 rounded-xl flex items-start gap-2">
+                        <Info className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                        <p className="text-[10px] text-purple-200 leading-relaxed font-sans">
+                          <strong>Proteção de Cadastro:</strong> Esta alteração de preço e quantidade vale <u>apenas para esta venda/comanda atual</u>. O preço mestre cadastrado no produto permanece 100% seguro e inalterado!
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingCartItem(null)}
+                        className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold uppercase cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveCartItemEdit}
+                        className="flex-1 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Check className="w-4 h-4" /> Salvar Item
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* TOTALS & QUICK CHECKOUT AND CHANGE PANEL */}
