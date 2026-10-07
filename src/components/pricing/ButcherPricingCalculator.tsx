@@ -15,6 +15,7 @@ import {
   Layers,
   ChefHat
 } from "lucide-react";
+import { SmartNumericInput } from "./SmartNumericInput";
 
 export interface CarcassCut {
   id: string;
@@ -404,13 +405,15 @@ export function ButcherPricingCalculator({
             <label className="text-[9px] font-bold text-slate-400 uppercase">
               Peso da Carcaça na Balança (kg)
             </label>
-            <input
-              type="number"
-              step="0.5"
-              min="1"
+            <SmartNumericInput
               value={carcassWeight}
-              onChange={(e) => setCarcassWeight(Math.max(0.1, parseFloat(e.target.value) || 0))}
-              className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-red-500"
+              onChange={(val) => setCarcassWeight(val)}
+              suffix="kg"
+              step={0.5}
+              allowDecimals
+              clearable
+              className="py-2 text-xs font-mono"
+              placeholder="0,0"
             />
           </div>
 
@@ -418,34 +421,32 @@ export function ButcherPricingCalculator({
             <label className="text-[9px] font-bold text-slate-400 uppercase">
               Preço Pago por kg na Carcaça (R$)
             </label>
-            <div className="relative">
-              <span className="absolute left-3 top-2 text-xs text-slate-400 font-bold">R$</span>
-              <input
-                type="number"
-                step="0.10"
-                min="0"
-                value={costPerKg}
-                onChange={(e) => setCostPerKg(parseFloat(e.target.value) || 0)}
-                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-red-500"
-              />
-            </div>
+            <SmartNumericInput
+              value={costPerKg}
+              onChange={(val) => setCostPerKg(val)}
+              prefix="R$"
+              step={0.5}
+              allowDecimals
+              clearable
+              className="py-2 text-xs font-mono"
+              placeholder="0,00"
+            />
           </div>
 
           <div className="space-y-1">
             <label className="text-[9px] font-bold text-slate-400 uppercase">
               Câmara Fria, Luz & Sacolas (R$)
             </label>
-            <div className="relative">
-              <span className="absolute left-3 top-2 text-xs text-slate-400 font-bold">R$</span>
-              <input
-                type="number"
-                step="1"
-                min="0"
-                value={overheadCost}
-                onChange={(e) => setOverheadCost(parseFloat(e.target.value) || 0)}
-                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-red-500"
-              />
-            </div>
+            <SmartNumericInput
+              value={overheadCost}
+              onChange={(val) => setOverheadCost(val)}
+              prefix="R$"
+              step={1}
+              allowDecimals
+              clearable
+              className="py-2 text-xs font-mono"
+              placeholder="0,00"
+            />
           </div>
         </div>
 
@@ -574,14 +575,18 @@ export function ButcherPricingCalculator({
                     {/* Weight */}
                     <td className="py-2 px-2 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          value={cut.yieldKg}
-                          onChange={(e) => handleUpdateCut(cut.id, "yieldKg", parseFloat(e.target.value) || 0)}
-                          className="w-16 bg-slate-950 border border-white/10 rounded-lg px-2 py-1 text-xs text-white font-mono text-right outline-none focus:border-red-500"
-                        />
+                        <div className="w-20">
+                          <SmartNumericInput
+                            value={cut.yieldKg}
+                            onChange={(val) => handleUpdateCut(cut.id, "yieldKg", val)}
+                            suffix="kg"
+                            step={0.1}
+                            allowDecimals
+                            clearable
+                            className="py-1 text-xs text-right font-mono"
+                            placeholder="0,0"
+                          />
+                        </div>
                         <span className="text-[9px] text-slate-500 w-8 text-left font-mono">
                           {cutWeightPct.toFixed(0)}%
                         </span>
@@ -591,15 +596,18 @@ export function ButcherPricingCalculator({
                     {/* Sell Price per kg */}
                     <td className="py-2 px-2 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <span className="text-[10px] text-slate-500">R$</span>
-                        <input
-                          type="number"
-                          step="0.5"
-                          min="0"
-                          value={cut.sellPriceKg}
-                          onChange={(e) => handleUpdateCut(cut.id, "sellPriceKg", parseFloat(e.target.value) || 0)}
-                          className="w-20 bg-slate-950 border border-emerald-500/30 rounded-lg px-2 py-1 text-xs text-emerald-400 font-mono font-bold text-right outline-none focus:border-emerald-400"
-                        />
+                        <div className="w-24">
+                          <SmartNumericInput
+                            value={cut.sellPriceKg}
+                            onChange={(val) => handleUpdateCut(cut.id, "sellPriceKg", val)}
+                            prefix="R$"
+                            step={0.5}
+                            allowDecimals
+                            clearable
+                            className="py-1 text-xs text-right font-mono font-bold text-emerald-400 border-emerald-500/30"
+                            placeholder="0,00"
+                          />
+                        </div>
                       </div>
                     </td>
 

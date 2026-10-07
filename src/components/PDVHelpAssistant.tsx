@@ -160,6 +160,22 @@ export const PDV_KNOWLEDGE_BASE: PDVHelpItem[] = [
     keywords: ["taloes", "papelaria", "recibo", "promissoria", "nota promissoria", "aluguel", "orcamento", "assinatura", "imprimir", "modelo"]
   },
   {
+    id: "configurar-impressora-bobina",
+    category: "vendas",
+    title: "Como Configurar a Impressora de Bobina Térmica (58mm e 80mm)?",
+    shortDesc: "Aprenda a configurar largura do papel, guilhotina, margens, Bluetooth e impressão automática.",
+    detailedSteps: [
+      "1. Clique na aba 'Bobinas & Impressoras 🖨️' no menu superior do PDV (ou no botão 'Configurar Impressora Bobina').",
+      "2. Escolha o Tipo de Bobina: 58mm (mini impressoras portáteis) ou 80mm (impressoras de balcão como Bematech, Elgin, Epson).",
+      "3. Configure a Guilhotina / Corte Automático e o Avanço de Papel (linhas em branco para picote perfeito sem cortar o texto).",
+      "4. Ative a 'Impressão Automática ao Concluir Venda' se quiser que o comprovante saia imediatamente ao finalizar o pagamento.",
+      "5. No Computador/Navegador: na janela de impressão do Chrome/Edge, configure 'Margens: Nenhuma' e marque 'Gráficos de segundo plano'.",
+      "6. Clique em 'Imprimir Página de Teste' para conferir o alinhamento e nitidez."
+    ],
+    tips: "Se usar impressora Bluetooth no celular ou tablet, use o botão 'Teste Direto Bluetooth ESC/POS' para parear e imprimir sem precisar de computador!",
+    keywords: ["impressora", "bobina", "termica", "58mm", "80mm", "cupom", "comprovante", "imprimir", "guilhotina", "recibo", "aba impressora", "configurar impressora"]
+  },
+  {
     id: "bar-doses-cachaca-chorinho",
     category: "precificacao",
     title: "Como precificar Doses de Cachaça 51 com 'Chorinho' e Baldes de Cerveja no Bar?",
@@ -483,7 +499,7 @@ export const PDVHelpAssistant: React.FC<PDVHelpAssistantProps> = ({
       ).join("\n\n---\n\n");
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         contents: [
           {
             role: "user",
@@ -768,6 +784,25 @@ REGRAS:
                                   className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-[10px] uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow"
                                 >
                                   <span>Ir para Proprietário & Zerar</span>
+                                  <ArrowRight className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+
+                            {item.id === "configurar-impressora-bobina" && (
+                              <div className="pt-2 flex flex-wrap items-center justify-between gap-3 bg-emerald-950/40 p-3 rounded-xl border border-emerald-500/20">
+                                <span className="text-[11px] text-emerald-300 font-semibold">
+                                  Deseja abrir a aba de configuração de impressoras agora?
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onClose();
+                                    if (onNavigateToTab) onNavigateToTab("impressoras");
+                                  }}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow"
+                                >
+                                  <span>Abrir Aba de Impressoras 🖨️</span>
                                   <ArrowRight className="w-3.5 h-3.5" />
                                 </button>
                               </div>

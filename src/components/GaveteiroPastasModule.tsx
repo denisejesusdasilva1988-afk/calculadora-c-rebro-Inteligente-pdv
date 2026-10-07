@@ -35,7 +35,7 @@ import {
 import { format, isSameDay } from "date-fns";
 import { SavedList, AgendaEvent } from "../types";
 
-export type GaveteiroCategory = "all" | "calc" | "super" | "notes" | "taloes" | "contas" | "trash";
+export type GaveteiroCategory = "all" | "calc" | "calc_excel" | "super" | "notes" | "taloes" | "contas" | "trash";
 
 interface GaveteiroPastasProps {
   key?: string;
@@ -163,6 +163,12 @@ export function GaveteiroPastasModule({
 
   // Count items per category and urgent bills
   const categoryCounts = useMemo(() => {
+    let excelSheetsCount = 0;
+    try {
+      const stored = localStorage.getItem("notepad_excel_saved_sheets");
+      if (stored) excelSheetsCount = JSON.parse(stored).length;
+    } catch (_) {}
+
     const superCount = combinedLists.filter((l) => l.superListData || l.texto_digitado?.includes("[X]") || l.texto_digitado?.toLowerCase().includes("mercado")).length;
     const calcCount = combinedLists.length - superCount;
     const notesCount = savedNotes.filter((n) => !n.text?.includes("RECIBO") && !n.text?.includes("TALÃO")).length;
@@ -176,8 +182,9 @@ export function GaveteiroPastasModule({
     }).length;
 
     return {
-      all: combinedLists.length + savedNotes.length + contasCount,
+      all: combinedLists.length + savedNotes.length + contasCount + excelSheetsCount,
       calc: calcCount,
+      calc_excel: excelSheetsCount,
       super: superCount,
       notes: notesCount,
       taloes: taloesCount,
@@ -378,6 +385,22 @@ export function GaveteiroPastasModule({
             <span>Calculadora</span>
             <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${activeGaveta === "calc" ? "bg-emerald-800 text-emerald-100" : "bg-slate-800 text-slate-400"}`}>
               {categoryCounts.calc}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { setActiveGaveta("calc_excel"); setSelectedFolder("all"); }}
+            className={`p-3 rounded-2xl font-black text-xs uppercase tracking-tight transition-all flex flex-col items-center justify-center gap-1.5 cursor-pointer border ${
+              activeGaveta === "calc_excel"
+                ? "bg-indigo-600 text-white border-indigo-400 shadow-lg shadow-indigo-900/40 scale-[1.02]"
+                : "bg-slate-900/60 hover:bg-slate-800 text-slate-400 border-white/5"
+            }`}
+          >
+            <Layers className="w-4 h-4 text-indigo-400" />
+            <span>Nota Excel 📊</span>
+            <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${activeGaveta === "calc_excel" ? "bg-indigo-800 text-indigo-100" : "bg-slate-800 text-slate-400"}`}>
+              {categoryCounts.calc_excel}
             </span>
           </button>
 

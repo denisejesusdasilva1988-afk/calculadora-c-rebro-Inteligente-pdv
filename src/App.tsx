@@ -37,6 +37,7 @@ import {
   Eraser,
   Percent,
   Settings,
+  Printer,
   ListChecks,
   Smartphone,
   Laptop,
@@ -127,6 +128,7 @@ import { PlannerModule } from "./components/Planner";
 import { PricingCalculator } from "./components/PricingCalculator";
 import { MarketCatalogModule } from "./components/MarketCatalog";
 import { NotesModule } from "./components/Notes";
+import { StandardNotepad } from "./components/StandardNotepad";
 import { refineSpeechText, applyLocalDictionaryCorrections } from "./utils/speechRefiner";
 import { AdminModule } from "./components/Admin";
 import { AgendaModule } from "./components/Agenda";
@@ -141,6 +143,7 @@ import { PINUnlockScreen } from "./components/PINUnlockScreen";
 import { InspirationalQuotesBar } from "./components/InspirationalQuotesBar";
 import { GaveteiroPastasModule } from "./components/GaveteiroPastasModule";
 import { SubscriptionPlansModal } from "./components/SubscriptionPlansModal";
+import { AppShowcaseSlidesModal } from "./components/AppShowcaseSlidesModal";
 import {
   getCurrentSubscriptionTier,
   saveSubscriptionTier,
@@ -1653,10 +1656,12 @@ export default function App() {
     pagesOverride?: string[],
     pinOverride?: string,
     imagesOverride?: string[],
-    imageSizesOverride?: number[]
+    imageSizesOverride?: number[],
+    attachmentsOverride?: any[]
   ) => {
     const contentToValidate = typeof textOverride === "string" ? textOverride : freeNotesText;
-    if (!contentToValidate.trim()) {
+    const hasAttachments = Array.isArray(attachmentsOverride) && attachmentsOverride.length > 0;
+    if (!contentToValidate.trim() && !hasAttachments) {
       showNotification("A nota está vazia!", "error");
       return;
     }
@@ -1670,6 +1675,7 @@ export default function App() {
       pin: pinOverride || "",
       images: imagesOverride || [],
       imageSizes: imageSizesOverride || [],
+      attachments: attachmentsOverride || [],
     };
     setSavedNotes((prev) => [newNote, ...prev]);
     setFreeNotesText("");
@@ -1688,6 +1694,7 @@ export default function App() {
             pin: newNote.pin || "",
             images: newNote.images || [],
             imageSizes: newNote.imageSizes || [],
+            attachments: newNote.attachments || [],
             createdAt: serverTimestamp(),
           });
           await registerSyncTag("sync-notas");
@@ -2602,6 +2609,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"calc" | "profile" | "admin" | "help">(
     "calc",
   );
+  const [showAppSlidesModal, setShowAppSlidesModal] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
 
   useEffect(() => {
@@ -2674,6 +2682,10 @@ export default function App() {
             signatureImg: item.signatureImg || "",
             folder: item.folder || "",
             pages: item.pages || (item.text ? [item.text] : []),
+            pin: item.pin || "",
+            images: item.images || [],
+            imageSizes: item.imageSizes || [],
+            attachments: item.attachments || [],
             createdAt: serverTimestamp(),
           });
         } else if (item.action === "delete") {
@@ -2989,6 +3001,10 @@ export default function App() {
           signatureImg: doc.data().signatureImg || "",
           folder: doc.data().folder || "",
           pages: doc.data().pages || (doc.data().text ? [doc.data().text] : []),
+          pin: doc.data().pin || "",
+          images: doc.data().images || [],
+          imageSizes: doc.data().imageSizes || [],
+          attachments: doc.data().attachments || [],
         }));
         setSavedNotes(docs);
       },
@@ -3124,7 +3140,7 @@ export default function App() {
       }
 
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.8-flash",
         contents: [
           {
             parts: [
@@ -6852,6 +6868,32 @@ export default function App() {
                   } as any);
                 }
                 setActiveTab("calc");
+                handleSetNotepadMode("pdv", false);
+                setPdvActiveSubTab("impressoras");
+              }}
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
+                activeTab === "calc" && notepadMode === "pdv" && pdvActiveSubTab === "impressoras"
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20 ring-1 ring-emerald-400" 
+                  : "text-emerald-400 hover:text-white hover:bg-emerald-500/10 border border-emerald-500/20"
+              }`}
+              title="Aba de Configuração de Impressoras Térmicas e Bobinas (58mm e 80mm)"
+            >
+              <Printer className="w-3.5 h-3.5 shrink-0" />
+              <span className="text-[10px] font-black uppercase tracking-tight">
+                Bobinas & Impressoras 🖨️
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (!user) {
+                  setUser({
+                    uid: "guest_visitor",
+                    email: "visitante@cerebrointeligente.com",
+                    displayName: "Visitante Convidado"
+                  } as any);
+                }
+                setActiveTab("calc");
                 handleSetNotepadMode("notes");
               }}
               className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
@@ -6948,6 +6990,18 @@ export default function App() {
                 Ajuda
               </span>
             </button>
+
+            {/* 👉 Aba com a maozinha e dedinho apontando explicativo do aplicativo */}
+            <button
+              onClick={() => setShowAppSlidesModal(true)}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3.5 rounded-xl transition-all cursor-pointer font-black bg-gradient-to-r from-amber-500/20 via-yellow-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 border border-amber-500/40 shadow-md shadow-amber-500/10 active:scale-95 ring-1 ring-amber-400/40"
+              title="Aba Explicativa: Conheça todos os diferenciais, slides e vídeos do aplicativo!"
+            >
+              <span className="text-base leading-none">👉</span>
+              <span className="text-[10px] font-black uppercase tracking-tight">
+                Guia & Slides 👆
+              </span>
+            </button>
             {user && isAdmin && (
               <button
                 onClick={() => setActiveTab("admin")}
@@ -7006,6 +7060,29 @@ export default function App() {
       )}
       {activeTab === "help" ? (
         <main className="w-full max-w-xl px-4 py-8 flex flex-col gap-8 animate-fadeIn">
+          {/* 🎬 Destaque: Vídeos Explicativos & Slides com Diferenciais */}
+          <div className="bg-gradient-to-r from-amber-500/20 via-yellow-500/20 to-orange-500/20 border-2 border-amber-500/40 p-5 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl shadow-amber-500/10 text-left">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl animate-bounce">👉</span>
+                <h3 className="text-base font-black text-amber-300 uppercase tracking-tight">
+                  Vídeos Explicativos & Slides do Aplicativo 👆
+                </h3>
+              </div>
+              <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                Aprenda a usar o PDV, 2 carrinhos rápidos, Pix Mercado Pago, leitor de código de barras traseiro, calculadora nota excel e cofre do dono!
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAppSlidesModal(true)}
+              className="px-5 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg shadow-amber-500/20 cursor-pointer flex items-center gap-2 whitespace-nowrap"
+            >
+              <span>Assistir Slides & Vídeos 🌟</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
           <div className="bg-slate-900 border border-slate-800 p-8 rounded-[2.5rem] shadow-2xl space-y-8 text-left">
             <div className="flex items-center gap-4 border-b border-white/5 pb-5">
               <div className="p-3 bg-cyan-500 rounded-2xl text-white shadow-lg shadow-cyan-500/20">
@@ -9899,7 +9976,7 @@ export default function App() {
                     )}
                   </AnimatePresence>
 
-                  {notepadMode !== "edit" && notepadMode !== "notes" && (
+                  {notepadMode !== "edit" && (
                     <button
                       onClick={() => setNotepadMode("edit")}
                       className={`flex items-center gap-1.5 px-3 py-2 text-white rounded-xl text-[10px] font-black uppercase shadow-lg transition-all active:scale-95 ${
@@ -9913,7 +9990,7 @@ export default function App() {
                                 ? "bg-emerald-500 shadow-emerald-500/30 hover:bg-emerald-600"
                                 : notepadMode === "brecho"
                                   ? "bg-pink-500 shadow-pink-500/30 hover:bg-pink-600"
-                                  : notepadMode === "receipts"
+                                  : notepadMode === "receipts" || notepadMode === "notes"
                                     ? "bg-amber-600 shadow-amber-600/30 hover:bg-amber-700"
                                     : "bg-indigo-505 shadow-indigo-500/30 hover:bg-indigo-600"
                       }`}
@@ -9923,61 +10000,12 @@ export default function App() {
                     </button>
                   )}
 
-                  {notepadMode === "notes" && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setNotepadMode("edit")}
-                        className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-amber-500/30 hover:bg-amber-600 transition-all active:scale-95"
-                      >
-                        <ArrowLeft className="w-4 h-4" />
-                        Voltar
-                      </button>
-                      <button
-                        onClick={
-                          isListening
-                            ? stopListening
-                            : () =>
-                                startListening(micLang, (text) => {
-                                  setFreeNotesText(
-                                    (prev) =>
-                                      prev +
-                                      (prev === "" || prev.endsWith("\n") || prev.endsWith(" ")
-                                        ? ""
-                                        : " ") +
-                                      text,
-                                  );
-                                })
-                        }
-                        className={`flex items-center justify-center p-2 rounded-xl transition-all shadow-lg active:scale-95 ${isListening ? "bg-red-600 animate-pulse" : "bg-amber-600"}`}
-                      >
-                        {isListening ? (
-                          <MicOff className="w-4 h-4 text-white" />
-                        ) : (
-                          <Mic className="w-4 h-4 text-white" />
-                        )}
-                      </button>
-                    </div>
-                  )}
-                  {notepadMode !== "revisão" && notepadMode !== "super" && (
+                  {notepadMode !== "revisão" && notepadMode !== "super" && notepadMode !== "notes" && notepadMode !== "receipts" && (
                     <button
                       onClick={() => {
-                        if (notepadMode === "notes") {
-                          triggerConfirm({
-                            title: "Apagar Anotações?",
-                            message:
-                              "Deseja apagar todas as suas anotações? Esta ação não pode ser desfeita.",
-                            isDanger: true,
-                            confirmText: "Sim, Limpar",
-                            cancelText: "Voltar",
-                            onConfirm: () => {
-                              setFreeNotesText("");
-                            },
-                          });
-                        } else {
-                          clearList();
-                        }
+                        clearList();
                       }}
-                      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 border-2 ${notepadMode === "notes" ? "text-amber-400 border-amber-800 hover:bg-amber-950/40" : clearConfirm ? "bg-red-500 text-white border-red-500" : "text-slate-400 border-slate-200 hover:border-red-500 hover:text-red-500"}`}
+                      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 border-2 ${clearConfirm ? "bg-red-500 text-white border-red-500" : "text-slate-400 border-slate-200 hover:border-red-500 hover:text-red-500"}`}
                     >
                       <Eraser className="w-4 h-4" />
                       {clearConfirm ? "Confirmar?" : "Limpar"}
@@ -10155,9 +10183,21 @@ export default function App() {
                       clearPrefill={() => setPrefilledAgendaAmount(null)}
                       createdFolders={createdFolders}
                     />
+                  ) : notepadMode === "notes" ? (
+                    <StandardNotepad
+                      key="standard-notepad"
+                      freeNotesText={freeNotesText}
+                      setFreeNotesText={setFreeNotesText}
+                      savedNotes={savedNotes}
+                      handleSaveNote={handleSaveNote}
+                      handleDeleteSavedNote={handleDeleteSavedNote}
+                      handleUpdateNotePin={handleUpdateNotePin}
+                      showNotification={showNotification}
+                      user={user}
+                    />
                   ) : notepadMode === "receipts" ? (
                     <NotesModule
-                      key="notes-module"
+                      key="notes-module-receipts"
                       showSavedNotes={showSavedNotes}
                       setShowSavedNotes={setShowSavedNotes}
                       savedNotes={savedNotes}
@@ -10171,6 +10211,7 @@ export default function App() {
                       handleUpdateNotePin={handleUpdateNotePin}
                       user={user}
                       onOpenGaveteiro={() => handleSetNotepadMode("pastas")}
+                      initialMode="receipts"
                     />
                   ) : notepadMode === "brecho" ? (
                     <BrechoSalesModule
@@ -10545,6 +10586,7 @@ export default function App() {
                       user={user}
                       ai={ai}
                       showNotification={showNotification}
+                      onOpenShowcaseSlides={() => setShowAppSlidesModal(true)}
                     />
                   ) : notepadMode === "encartes" ? (
                     <motion.div
@@ -12277,7 +12319,7 @@ export default function App() {
             </div>
 
             {/* Somente exibe Histórico de Listas de Mercado, Dicas e Resumo da Calculadora Doméstica no modo de anotações da lista de mercado */}
-            {(notepadMode === "notes" || !notepadMode) && (
+            {(notepadMode === "edit" || !notepadMode) && (
               <>
                 {/* History Quick Access */}
             {!user && Object.keys(groupedHistory).length === 0 ? (
@@ -13438,6 +13480,47 @@ export default function App() {
         showNotification={showNotification}
         targetFeatureName={targetPlanFeature}
         initialSelectedTier={initialSelectedTier}
+      />
+
+      {/* 🌟 Guia & Slides com Dedo Apontando e Diferenciais do App */}
+      <AppShowcaseSlidesModal
+        isOpen={showAppSlidesModal}
+        onClose={() => setShowAppSlidesModal(false)}
+        onNavigateToTab={(tab, subtab) => {
+          setShowAppSlidesModal(false);
+          if (tab === "vendas" || tab === "pdv") {
+            setActiveTab("calc");
+            handleSetNotepadMode("pdv", true);
+          } else if (tab === "impressoras") {
+            setActiveTab("calc");
+            handleSetNotepadMode("pdv", false);
+            setPdvActiveSubTab("impressoras");
+          } else if (tab === "pastas") {
+            setActiveTab("calc");
+            handleSetNotepadMode("pastas");
+          } else if (tab === "agenda") {
+            setActiveTab("calc");
+            handleSetNotepadMode("agenda");
+          } else if (tab === "recibos" || tab === "taloes") {
+            setActiveTab("calc");
+            handleSetNotepadMode("receipts");
+          } else if (tab === "notes" || tab === "bloco") {
+            setActiveTab("calc");
+            handleSetNotepadMode("notes");
+          } else if (tab === "edit" || tab === "excel") {
+            setActiveTab("calc");
+            handleSetNotepadMode("edit");
+          } else if (tab === "pricing" || tab === "precificacao") {
+            setActiveTab("calc");
+            handleSetNotepadMode("pricing");
+          } else if (tab === "proprietario") {
+            setActiveTab("calc");
+            handleSetNotepadMode("pdv", false);
+            setPdvActiveSubTab("proprietario");
+          } else if (tab === "help") {
+            setActiveTab("help");
+          }
+        }}
       />
       {/* Celebration Feedback Overlay */}
       <AnimatePresence>

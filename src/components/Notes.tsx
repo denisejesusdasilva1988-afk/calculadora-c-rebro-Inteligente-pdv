@@ -41,6 +41,7 @@ import {
   Coins,
   Briefcase,
   Notebook,
+  Pause,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { jsPDF } from "jspdf";
@@ -271,6 +272,7 @@ interface NotesProps {
   handleUpdateNotePin?: (id: string, newPin: string) => void;
   user?: any;
   onOpenGaveteiro?: () => void;
+  initialMode?: "notes" | "receipts";
 }
 
 export const NotesModule = React.memo(
@@ -288,8 +290,17 @@ export const NotesModule = React.memo(
     handleUpdateNotePin,
     user,
     onOpenGaveteiro,
+    initialMode = "receipts",
   }: NotesProps) => {
-    const [localText, setLocalText] = React.useState(freeNotesText);
+    const [localText, setLocalText] = React.useState<string>(() => {
+      if (!freeNotesText) return "";
+      if (freeNotesText.includes("--- PÁGINA ")) {
+        const pageMarkerRegex = /\n*--- PÁGINA \d+ ---\n*/g;
+        const parsed = freeNotesText.split(pageMarkerRegex).map(p => p.trim()).filter(Boolean);
+        return parsed[0] || "";
+      }
+      return freeNotesText;
+    });
 
     const debouncedSetFreeNotesText = React.useMemo(() => {
       return debounce((val: string) => {
@@ -321,6 +332,15 @@ export const NotesModule = React.memo(
     });
     const [isRefiningSpeechLocal, setIsRefiningSpeechLocal] = React.useState(false);
     const [micJustStoppedLocal, setMicJustStoppedLocal] = React.useState(false);
+    const polishAbortControllerLocalRef = React.useRef<AbortController | null>(null);
+
+    const handlePauseOrCancelPolishLocal = () => {
+      if (polishAbortControllerLocalRef.current) {
+        polishAbortControllerLocalRef.current.abort();
+        polishAbortControllerLocalRef.current = null;
+      }
+      setIsRefiningSpeechLocal(false);
+    };
 
     const micLangRefLocal = React.useRef(micLangLocal);
     const aiCorrectionActiveRefLocal = React.useRef(aiCorrectionActiveLocal);
@@ -360,8 +380,16 @@ export const NotesModule = React.memo(
       string | null
     >(null);
 
-    // Multi-page states
-    const [pages, setPages] = React.useState<string[]>([""]);
+    // Multi-page states initialized synchronously from freeNotesText
+    const [pages, setPages] = React.useState<string[]>(() => {
+      if (!freeNotesText) return [""];
+      if (freeNotesText.includes("--- PÁGINA ")) {
+        const pageMarkerRegex = /\n*--- PÁGINA \d+ ---\n*/g;
+        const parsed = freeNotesText.split(pageMarkerRegex).map(p => p.trim()).filter(Boolean);
+        return parsed.length > 0 ? parsed : [freeNotesText];
+      }
+      return [freeNotesText];
+    });
     const [currentPageIndex, setCurrentPageIndex] = React.useState<number>(0);
     const [savedNotePageIndices, setSavedNotePageIndices] = React.useState<Record<string, number>>({});
 
@@ -395,6 +423,7 @@ export const NotesModule = React.memo(
     const [isSpeakingLocal, setIsSpeakingLocal] = React.useState<boolean>(false);
     const [speakingNoteId, setSpeakingNoteId] = React.useState<string | null>(null);
     const speechUtteranceRef = React.useRef<SpeechSynthesisUtterance | null>(null);
+    const speechKeepAliveTimerRef = React.useRef<any>(null);
 
     const handleSpeakText = (textToSpeak: string, language: string = "pt-BR", noteId: string | null = null) => {
       if (!window.speechSynthesis) {
@@ -404,6 +433,10 @@ export const NotesModule = React.memo(
 
       // If already speaking the same thing, stop it
       if (isSpeakingLocal && (noteId === speakingNoteId)) {
+        if (speechKeepAliveTimerRef.current) {
+          clearInterval(speechKeepAliveTimerRef.current);
+          speechKeepAliveTimerRef.current = null;
+        }
         window.speechSynthesis.cancel();
         setIsSpeakingLocal(false);
         setSpeakingNoteId(null);
@@ -418,8 +451,15 @@ export const NotesModule = React.memo(
         return;
       }
 
-      // Cancel any ongoing speech
+      // Cancel any ongoing speech and unpause synthesis engine
+      if (speechKeepAliveTimerRef.current) {
+        clearInterval(speechKeepAliveTimerRef.current);
+        speechKeepAliveTimerRef.current = null;
+      }
       window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.resume();
+      } catch (e) {}
 
       // Clean text of page markers
       const cleanText = textToSpeak.replace(/\n*--- PÁGINA \d+ ---\n*/g, " ").trim();
@@ -507,19 +547,24 @@ export const NotesModule = React.memo(
       utterance.rate = 0.95; 
       utterance.pitch = 1.0; // Standard human vocal pitch
 
-      utterance.onend = () => {
+      const cleanupSpeaking = () => {
+        if (speechKeepAliveTimerRef.current) {
+          clearInterval(speechKeepAliveTimerRef.current);
+          speechKeepAliveTimerRef.current = null;
+        }
         setIsSpeakingLocal(false);
         setSpeakingNoteId(null);
       };
 
+      utterance.onend = cleanupSpeaking;
       utterance.onerror = (e) => {
         console.warn("Speech synthesis error:", e);
-        setIsSpeakingLocal(false);
-        setSpeakingNoteId(null);
+        cleanupSpeaking();
       };
 
       setIsSpeakingLocal(true);
       setSpeakingNoteId(noteId);
+
       window.speechSynthesis.speak(utterance);
     };
 
@@ -535,6 +580,10 @@ export const NotesModule = React.memo(
         }
       }
       return () => {
+        if (speechKeepAliveTimerRef.current) {
+          clearInterval(speechKeepAliveTimerRef.current);
+          speechKeepAliveTimerRef.current = null;
+        }
         if (window.speechSynthesis) {
           window.speechSynthesis.cancel();
         }
@@ -625,13 +674,13 @@ export const NotesModule = React.memo(
 
     // Keep pages array synchronized when localText or currentPageIndex changes
     React.useEffect(() => {
-      if (pages[currentPageIndex] !== localText) {
-        const updated = [...pages];
+      setPages((prevPages) => {
+        if (prevPages[currentPageIndex] === localText) return prevPages;
+        const updated = [...prevPages];
         updated[currentPageIndex] = localText;
-        setPages(updated);
-        debouncedSetFreeNotesText(getJoinedPagesText(updated));
-      }
-    }, [localText, currentPageIndex, pages, debouncedSetFreeNotesText]);
+        return updated;
+      });
+    }, [localText, currentPageIndex]);
 
     // Handle initial load or load of a saved note
     React.useEffect(() => {
@@ -869,15 +918,16 @@ export const NotesModule = React.memo(
           }
 
           if (finalTranscriptChunk.trim()) {
+            consecutiveAbortsLocal = 0;
             const formattedText = finalTranscriptChunk.trim();
             // Apply local custom dictionary corrections immediately so even raw text has beautiful product names!
             const preCorrected = applyLocalDictionaryCorrections(formattedText);
 
             setLocalText((prev) => {
-              const updated = appendTranscribedTextLocal(prev, preCorrected);
-              setFreeNotesText(updated);
-              return updated;
+              return appendTranscribedTextLocal(prev, preCorrected);
             });
+            const updatedSync = appendTranscribedTextLocal(localTextRef.current, preCorrected);
+            setFreeNotesText(updatedSync);
 
             // Also add this to our unpolished segment accumulator so Gemini can polish it in the background!
             accumulatedSpeechRefLocal.current = accumulatedSpeechRefLocal.current
@@ -888,12 +938,12 @@ export const NotesModule = React.memo(
         };
 
         recognition.onerror = (event: any) => {
-          // Change standard or benign errors to warn/log instead of console.error to satisfy test requirements and avoid false positives
+          // Standard or benign events like temporary silence or aborted pause should not count against retry limits
           if (event.error === "aborted" || event.error === "no-speech") {
-            console.warn("Informação de reconhecimento de voz local (comum):", event.error);
-            consecutiveAbortsLocal++;
+            console.warn("Informação de reconhecimento de voz local (silêncio normal/pausa):", event.error);
           } else {
             console.warn("Aviso no reconhecimento de voz local:", event.error);
+            consecutiveAbortsLocal++;
           }
 
           if (event.error === "not-allowed") {
@@ -950,15 +1000,13 @@ export const NotesModule = React.memo(
         refineSpeechText(segmentToRefine, micLangRefLocal.current)
           .then((refined) => {
             if (refined && refined.trim()) {
-              setLocalText((currentText) => {
-                const index = currentText.lastIndexOf(segmentToRefine);
-                if (index !== -1) {
-                  const updated = currentText.slice(0, index) + refined.trim() + currentText.slice(index + segmentToRefine.length);
-                  setFreeNotesText(updated);
-                  return updated;
-                }
-                return currentText;
-              });
+              const currentText = localTextRef.current;
+              const index = currentText.lastIndexOf(segmentToRefine);
+              if (index !== -1) {
+                const updated = currentText.slice(0, index) + refined.trim() + currentText.slice(index + segmentToRefine.length);
+                setLocalText(updated);
+                setFreeNotesText(updated);
+              }
             }
           })
           .finally(() => {
@@ -1209,10 +1257,6 @@ export const NotesModule = React.memo(
       () => new Date().toISOString().split("T")[0],
     );
     const [orcamentoValor, setOrcamentoValor] = React.useState("250,00");
-
-    React.useEffect(() => {
-      setLocalText(freeNotesText);
-    }, [freeNotesText]);
 
     // Automatically calculate values in words (por extenso)
     React.useEffect(() => {
@@ -1479,8 +1523,13 @@ _________________________________________
 (Assinado eletronicamente na tela ou linha de assinatura física acima)`;
     };
 
-    // Keep text in sync with template SELECTION (only once when activeTemplate changes!)
+    // Keep text in sync with template SELECTION (only when user actively changes activeTemplate, not on mount)
+    const isFirstTemplateMountRef = React.useRef(true);
     React.useEffect(() => {
+      if (isFirstTemplateMountRef.current) {
+        isFirstTemplateMountRef.current = false;
+        return;
+      }
       if (activeTemplate === "promissoria") {
         const txt = `===== NOTA PROMISSÓRIA COMERCIAL =====
 Nº do Título: 001 | Vencimento: [Definir Data]
@@ -2890,10 +2939,10 @@ Data: [Inserir Data]`;
                     <BookOpen className="w-5 h-5 text-amber-700 animate-pulse" />
                     <div>
                       <span className="text-[8px] font-black tracking-widest text-amber-800 uppercase block">
-                        TALÕES & RECIBOS
+                        {initialMode === "notes" ? "BLOCO DE NOTAS LIVRE & TALÕES" : "TALÕES & RECIBOS"}
                       </span>
                       <h3 className="text-xs sm:text-sm font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
-                        🏢 BAZAR DE PAPELARIA PRO (Modelos de Talões & Recibos)
+                        {initialMode === "notes" ? "📝 BLOCO LIVRE DE NOTAS PRO (Modelos & Rascunho Livre)" : "🏢 BAZAR DE PAPELARIA PRO (Modelos de Talões & Recibos)"}
                       </h3>
                     </div>
                   </div>
@@ -4726,16 +4775,22 @@ Data: [Inserir Data]`;
                       <span>Corretor IA: {aiCorrectionActiveLocal ? "ATIVADO" : "DESATIVADO"}</span>
                     </button>
 
-                    {/* Manual polish/correct button */}
+                    {/* Manual polish/correct button with pause/cancel */}
                     <button
                       type="button"
-                      disabled={isRefiningSpeechLocal || !localText.trim()}
+                      disabled={!isRefiningSpeechLocal && !localText.trim()}
                       onClick={async () => {
+                        if (isRefiningSpeechLocal) {
+                          handlePauseOrCancelPolishLocal();
+                          return;
+                        }
                         if (!localText.trim()) return;
+                        const abortController = new AbortController();
+                        polishAbortControllerLocalRef.current = abortController;
                         setIsRefiningSpeechLocal(true);
                         try {
-                          const refined = await refineSpeechText(localText, micLangLocal);
-                          if (refined) {
+                          const refined = await refineSpeechText(localText, micLangLocal, abortController.signal);
+                          if (refined && !abortController.signal.aborted) {
                             setLocalText(refined);
                             setFreeNotesText(refined);
                           }
@@ -4743,14 +4798,20 @@ Data: [Inserir Data]`;
                           console.error(e);
                         } finally {
                           setIsRefiningSpeechLocal(false);
+                          polishAbortControllerLocalRef.current = null;
                         }
                       }}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-xl text-[9px] font-black uppercase tracking-wider shadow-md hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none"
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider shadow-md hover:scale-[1.02] active:scale-95 transition-all cursor-pointer ${
+                        isRefiningSpeechLocal
+                          ? "bg-red-600 hover:bg-red-500 text-white animate-pulse"
+                          : "bg-gradient-to-r from-amber-600 to-amber-700 text-white disabled:opacity-50 disabled:pointer-events-none"
+                      }`}
+                      title={isRefiningSpeechLocal ? "Clique para pausar / cancelar o polimento" : "Polir texto com IA"}
                     >
                       {isRefiningSpeechLocal ? (
                         <>
-                          <span className="w-2.5 h-2.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          <span>Polindo...</span>
+                          <Pause className="w-3 h-3 fill-current" />
+                          <span>Pausar Polir ⏸️</span>
                         </>
                       ) : (
                         <>
@@ -5013,13 +5074,19 @@ Data: [Inserir Data]`;
                   </button>
                   <button
                     type="button"
-                    disabled={!localText.trim() || isRefiningSpeechLocal}
+                    disabled={!isRefiningSpeechLocal && !localText.trim()}
                     onClick={async () => {
-                      if (!localText.trim() || isRefiningSpeechLocal) return;
+                      if (isRefiningSpeechLocal) {
+                        handlePauseOrCancelPolishLocal();
+                        return;
+                      }
+                      if (!localText.trim()) return;
+                      const abortController = new AbortController();
+                      polishAbortControllerLocalRef.current = abortController;
                       setIsRefiningSpeechLocal(true);
                       try {
-                        const refined = await refineSpeechText(localText, micLangLocal);
-                        if (refined && refined.trim()) {
+                        const refined = await refineSpeechText(localText, micLangLocal, abortController.signal);
+                        if (refined && refined.trim() && !abortController.signal.aborted) {
                           setLocalText(refined.trim());
                           debouncedSetFreeNotesText(refined.trim());
                         }
@@ -5027,13 +5094,27 @@ Data: [Inserir Data]`;
                         console.error("Erro ao polir texto:", e);
                       } finally {
                         setIsRefiningSpeechLocal(false);
+                        polishAbortControllerLocalRef.current = null;
                       }
                     }}
-                    className="px-3.5 py-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
-                    title="Polir pontuação, concordância e remover repetições usando a IA"
+                    className={`px-3.5 py-1 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5 active:scale-95 ${
+                      isRefiningSpeechLocal
+                        ? "bg-red-600 hover:bg-red-500 text-white animate-pulse"
+                        : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 disabled:opacity-50"
+                    }`}
+                    title={isRefiningSpeechLocal ? "Clique para pausar / cancelar o polimento" : "Polir pontuação, concordância e remover repetições usando a IA"}
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>{isRefiningSpeechLocal ? "Polindo..." : "Polir Texto IA ✨"}</span>
+                    {isRefiningSpeechLocal ? (
+                      <>
+                        <Pause className="w-3.5 h-3.5 fill-current" />
+                        <span>Pausar Polimento ⏸️</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Polir Texto IA ✨</span>
+                      </>
+                    )}
                   </button>
                 </div>
 

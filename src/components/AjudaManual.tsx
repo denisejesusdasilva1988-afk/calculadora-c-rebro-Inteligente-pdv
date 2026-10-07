@@ -23,7 +23,15 @@ import {
   Calculator,
   AlertCircle,
   Store,
-  MessageSquare
+  MessageSquare,
+  Play,
+  Pause,
+  Video,
+  Layers,
+  QrCode,
+  Camera,
+  Lock,
+  Volume2
 } from "lucide-react";
 import { 
   collection, 
@@ -43,6 +51,7 @@ interface AjudaManualProps {
   user: any;
   ai: any;
   showNotification: (msg: string, type: "success" | "error" | "info") => void;
+  onOpenShowcaseSlides?: () => void;
 }
 
 interface UserSuggestion {
@@ -59,9 +68,13 @@ export const AjudaManual: React.FC<AjudaManualProps> = ({
   db,
   user,
   ai,
-  showNotification
+  showNotification,
+  onOpenShowcaseSlides
 }) => {
-  const [activeTab, setActiveTab] = useState<"tutorial" | "retro" | "sugestoes" | "cerebro">("tutorial");
+  const [activeTab, setActiveTab] = useState<"tutorial" | "videos" | "retro" | "sugestoes" | "cerebro">("videos");
+  const [activeVideoIndex, setActiveVideoIndex] = useState(0);
+  const [activeVideoStep, setActiveVideoStep] = useState(0);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
   // --- TAB 1: Retro Supermarket Simulator State ---
   const [retroPLU, setRetroPLU] = useState("");
@@ -441,7 +454,7 @@ Responda em português do Brasil com cabeçalhos bonitos e curtos em markdown. N
 
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         contents: [
           { parts: [{ text: prompt }] }
         ]
@@ -518,6 +531,14 @@ Responda em português do Brasil com cabeçalhos bonitos e curtos em markdown. N
         {/* TABS SELECTOR */}
         <div className="flex flex-wrap gap-1 bg-slate-900/80 border border-white/5 p-1 rounded-xl">
           <button
+            onClick={() => setActiveTab("videos")}
+            className={`px-3 py-1.5 text-[9.5px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+              activeTab === "videos" ? "bg-amber-500 text-slate-950 shadow font-black" : "text-amber-400 hover:text-white"
+            }`}
+          >
+            <span>👉 Vídeos & Slides 👆</span>
+          </button>
+          <button
             onClick={() => setActiveTab("tutorial")}
             className={`px-3 py-1.5 text-[9.5px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
               activeTab === "tutorial" ? "bg-cyan-500 text-slate-950 shadow font-black" : "text-slate-400 hover:text-white"
@@ -554,6 +575,362 @@ Responda em português do Brasil com cabeçalhos bonitos e curtos em markdown. N
 
       {/* RENDER ACTIVE TAB */}
       <AnimatePresence mode="wait">
+        {/* TAB 0: VÍDEOS EXPLICATIVOS & SIMULAÇÕES INTERATIVAS */}
+        {activeTab === "videos" && (
+          <motion.div
+            key="tab_videos"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6 text-left"
+          >
+            {/* Top Banner to open full slides modal */}
+            <div className="bg-gradient-to-r from-amber-500/20 via-slate-900 to-indigo-950/40 p-4 sm:p-5 rounded-3xl border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">👉</span>
+                  <h4 className="text-sm font-black text-amber-300 uppercase tracking-wide">
+                    Apresentação Completa em Slides com Dedo Apontando 👆
+                  </h4>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
+                  Veja todos os diferenciais do aplicativo em tela cheia com setas, atalhos de teclado e dicas práticas para o seu comércio.
+                </p>
+              </div>
+
+              {onOpenShowcaseSlides && (
+                <button
+                  type="button"
+                  onClick={onOpenShowcaseSlides}
+                  className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-amber-500/20 active:scale-95 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                >
+                  <span>Abrir Slides Completos 🌟</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Video selector cards */}
+            <div className="space-y-4">
+              <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                <Video className="w-4 h-4 text-amber-400" />
+                Selecione o Vídeo Explicativo para Assistir:
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {[
+                  {
+                    title: "1. Vendas no PDV & 2 Carrinhos",
+                    icon: <Layers className="w-4 h-4 text-sky-400" />,
+                    desc: "Fila A e B simultâneas sem travar o atendimento",
+                    steps: [
+                      "Cliente 1 está passando compras no balcão",
+                      "Cliente 1 esqueceu um item e foi buscar na prateleira",
+                      "Operador clica em 'Cliente 2 (Fila B)' com um toque",
+                      "Atende o próximo cliente normalmente",
+                      "Quando o Cliente 1 volta, clica em 'Cliente 1' e conclui a venda!"
+                    ]
+                  },
+                  {
+                    title: "2. Pix & Webhook em 1 Segundo",
+                    icon: <QrCode className="w-4 h-4 text-emerald-400" />,
+                    desc: "QR Code dinâmico e aprovação automática",
+                    steps: [
+                      "Adicione os produtos no carrinho do PDV",
+                      "Selecione 'Pix' na etapa de pagamento",
+                      "O PDV exibe o QR Code dinâmico com valor exato",
+                      "Cliente aponta o celular de qualquer banco",
+                      "Webhook confirma sozinho: toca sino e imprime cupom!"
+                    ]
+                  },
+                  {
+                    title: "3. Cofre do Token do Dono",
+                    icon: <Lock className="w-4 h-4 text-red-400" />,
+                    desc: "Total segurança bancária com CPF e PIN",
+                    steps: [
+                      "O dono cadastra seu CPF e um PIN bancário exclusivo",
+                      "Informa e-mail de recuperação seguro",
+                      "O cofre fica 100% blindado por padrão",
+                      "Operadores do caixa vendem sem ter acesso ao token",
+                      "Para alterar credenciais, apenas o dono com CPF e PIN desbloqueia!"
+                    ]
+                  },
+                  {
+                    title: "4. Cadastro Touch-Screen",
+                    icon: <ShoppingBag className="w-4 h-4 text-amber-400" />,
+                    desc: "Teclado na tela e botões grandes de toque",
+                    steps: [
+                      "Clique no botão '+ Cadastrar Item Touch'",
+                      "Digite o nome do produto no campo ampliado",
+                      "Use o teclado numérico touch na tela para colocar o preço",
+                      "Selecione a categoria com ícones grandes",
+                      "Clique em 'Cadastrar & Lançar no Carrinho' imediatamente!"
+                    ]
+                  },
+                  {
+                    title: "5. Calculadora Nota Excel & Pastas",
+                    icon: <Calculator className="w-4 h-4 text-indigo-400" />,
+                    desc: "Pastas salvas exclusivas para planilhas",
+                    steps: [
+                      "Monte sua planilha com linhas, quantidade e preço",
+                      "Soma e cálculo de saldo em tempo real",
+                      "Clique em 'Salvar em Pasta' na barra superior",
+                      "Escolha ou crie a pasta desejada",
+                      "Acesse 'Pastas Salvas' para ver apenas as planilhas da calculadora!"
+                    ]
+                  },
+                  {
+                    title: "6. Leitor com Câmera Traseira",
+                    icon: <Camera className="w-4 h-4 text-purple-400" />,
+                    desc: "Leitura rápida em 30 FPS com foco contínuo",
+                    steps: [
+                      "Toque em 'Câmera' ou pressione a tecla F8",
+                      "O leitor ativa exclusivamente a câmera traseira do aparelho",
+                      "Posicione o código de barras na mira iluminada",
+                      "Reconhecimento instantâneo de EAN-13, EAN-8 e QR Codes",
+                      "O item vai direto para o carrinho com som de bip!"
+                    ]
+                  },
+                  {
+                    title: "7. Precificação (Margem vs Markup)",
+                    icon: <DollarSign className="w-4 h-4 text-teal-400" />,
+                    desc: "Calculadoras para lucro real sem prejuízo",
+                    steps: [
+                      "Digite o custo pago pelo produto no fornecedor",
+                      "Escolha entre Markup multiplicador ou Margem líquida",
+                      "Adicione impostos e taxa da maquininha de cartão",
+                      "O sistema calcula o preço de venda seguro",
+                      "Atualize o valor diretamente no catálogo de vendas!"
+                    ]
+                  }
+                ].map((v, idx) => (
+                  <button
+                    key={v.title}
+                    type="button"
+                    onClick={() => {
+                      setActiveVideoIndex(idx);
+                      setActiveVideoStep(0);
+                    }}
+                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+                      activeVideoIndex === idx
+                        ? "bg-slate-900 border-amber-500/60 shadow-lg shadow-amber-500/10 scale-102"
+                        : "bg-slate-950/60 hover:bg-slate-900 border-white/5 text-slate-400"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-white/5 rounded-lg shrink-0">
+                        {v.icon}
+                      </div>
+                      <span className="text-xs font-black text-white uppercase tracking-tight">
+                        {v.title}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      {v.desc}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Simulated Animated Video Player */}
+            {(() => {
+              const currentVideo = [
+                {
+                  title: "Vendas no PDV & 2 Carrinhos Simultâneos (Fila Dupla)",
+                  steps: [
+                    "1. Cliente 1 está passando compras no balcão (subtotal R$ 34,90)",
+                    "2. Cliente 1 foi buscar outro item na prateleira",
+                    "3. Operador toca na aba 'Cliente 2 (Fila B)' com um único clique",
+                    "4. Atende o próximo cliente normalmente sem travar o caixa",
+                    "5. Quando o Cliente 1 volta, toca em 'Cliente 1' e conclui a venda!"
+                  ],
+                  badge: "Fila Rápida ⚡",
+                  theme: "sky"
+                },
+                {
+                  title: "Mercado Pago Webhooks & Pix Instantâneo",
+                  steps: [
+                    "1. Operador adiciona itens e seleciona pagamento Pix",
+                    "2. Sistema gera QR Code dinâmico na tela",
+                    "3. Cliente aponta a câmera do banco no celular",
+                    "4. Webhook recebe a confirmação em menos de 1 segundo",
+                    "5. Tela fica verde, toca o sino e o cupom é impresso!"
+                  ],
+                  badge: "Pix Automático 📲",
+                  theme: "emerald"
+                },
+                {
+                  title: "Cofre do Token do Dono Blindado por CPF e PIN",
+                  steps: [
+                    "1. Proprietário cadastra seu CPF e PIN bancário exclusivo",
+                    "2. Define e-mail de recuperação seguro",
+                    "3. O cofre fica 100% blindado por padrão",
+                    "4. Vendas continuam recebendo Pix sem expor a conta",
+                    "5. Somente o dono desbloqueia para ver ou alterar credenciais!"
+                  ],
+                  badge: "Segurança Máxima 🔐",
+                  theme: "red"
+                },
+                {
+                  title: "Cadastrando Itens Touch-Screen na Frente de Caixa",
+                  steps: [
+                    "1. Clique no botão '+ Cadastrar Item Touch'",
+                    "2. Digite o nome do produto no campo ampliado",
+                    "3. Use o teclado numérico touch na tela para colocar o preço",
+                    "4. Selecione a categoria com ícones grandes",
+                    "5. Clique em 'Cadastrar & Lançar no Carrinho' imediatamente!"
+                  ],
+                  badge: "Touch-Screen 🛍️",
+                  theme: "amber"
+                },
+                {
+                  title: "Calculadora Nota Excel & Pastas Salvas Exclusivas",
+                  steps: [
+                    "1. Monte sua planilha com linhas, quantidade e preço",
+                    "2. Soma automática e cálculo de saldo em tempo real",
+                    "3. Clique em 'Salvar em Pasta' na barra superior da calculadora",
+                    "4. Escolha ou crie a pasta desejada",
+                    "5. Abra 'Pastas Salvas' para ver apenas as planilhas da calculadora!"
+                  ],
+                  badge: "Planilha & Pastas 📊",
+                  theme: "indigo"
+                },
+                {
+                  title: "Leitor de Código de Barras com Câmera Traseira HD",
+                  steps: [
+                    "1. Toque em 'Câmera' ou pressione a tecla F8",
+                    "2. O leitor ativa exclusivamente a câmera traseira do aparelho",
+                    "3. Posicione o código de barras na mira iluminada",
+                    "4. Reconhecimento instantâneo de EAN-13, EAN-8 e QR Codes",
+                    "5. O item vai direto para o carrinho com som de bip!"
+                  ],
+                  badge: "Câmera Traseira 📸",
+                  theme: "purple"
+                },
+                {
+                  title: "Precificação Inteligente com os 2 Métodos (Margem vs Markup)",
+                  steps: [
+                    "1. Digite o custo pago pelo produto no fornecedor",
+                    "2. Escolha entre Markup multiplicador ou Margem líquida",
+                    "3. Adicione impostos e taxa da maquininha de cartão",
+                    "4. O sistema calcula o preço de venda seguro",
+                    "5. Atualize o valor diretamente no catálogo de vendas!"
+                  ],
+                  badge: "Lucro Garantido 💰",
+                  theme: "teal"
+                }
+              ][activeVideoIndex] || {
+                title: "Vídeo Demonstrativo",
+                steps: ["Passo 1", "Passo 2", "Passo 3"],
+                badge: "Tutorial 🎬",
+                theme: "amber"
+              };
+
+              return (
+                <div className="bg-slate-950 p-5 rounded-3xl border-2 border-amber-500/40 shadow-2xl space-y-4">
+                  {/* Player Top Bar */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+                      <h4 className="text-xs sm:text-sm font-black text-white uppercase tracking-tight">
+                        {currentVideo.title}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2.5 py-0.5 rounded-full border border-amber-500/30">
+                      {currentVideo.badge}
+                    </span>
+                  </div>
+
+                  {/* Simulated Screen Animation Frame */}
+                  <div className="bg-slate-900 border border-white/10 rounded-2xl p-5 min-h-[170px] flex flex-col justify-between space-y-3">
+                    <div className="flex justify-between items-center text-[10px] font-mono text-slate-400 border-b border-white/5 pb-2">
+                      <span>SIMULADOR INTERATIVO EM VÍDEO</span>
+                      <span className="text-amber-400 font-bold">ETAPA {activeVideoStep + 1} DE {currentVideo.steps.length}</span>
+                    </div>
+
+                    <div className="py-2 text-center space-y-2">
+                      <div className="text-3xl animate-bounce">👉</div>
+                      <p className="text-sm sm:text-base font-black text-white leading-relaxed">
+                        {currentVideo.steps[activeVideoStep]}
+                      </p>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-white/5">
+                      <div
+                        className="bg-amber-400 h-full transition-all duration-300"
+                        style={{ width: `${((activeVideoStep + 1) / currentVideo.steps.length) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Player Controls */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextStep = (activeVideoStep + 1) % currentVideo.steps.length;
+                          setActiveVideoStep(nextStep);
+                          try {
+                            if ('speechSynthesis' in window) {
+                              window.speechSynthesis.cancel();
+                              const utt = new SpeechSynthesisUtterance(currentVideo.steps[nextStep]);
+                              utt.lang = "pt-BR";
+                              utt.rate = 1.05;
+                              window.speechSynthesis.speak(utt);
+                            }
+                          } catch (_) {}
+                        }}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md shadow-amber-500/20 cursor-pointer"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>Próxima Etapa ⏭️</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            if ('speechSynthesis' in window) {
+                              window.speechSynthesis.cancel();
+                              const utt = new SpeechSynthesisUtterance(currentVideo.steps[activeVideoStep]);
+                              utt.lang = "pt-BR";
+                              window.speechSynthesis.speak(utt);
+                            }
+                          } catch (_) {}
+                        }}
+                        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                        title="Ouvir a narração por voz desta etapa"
+                      >
+                        <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Ouvir Narração 🔊</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {currentVideo.steps.map((_, sIdx) => (
+                        <button
+                          key={sIdx}
+                          type="button"
+                          onClick={() => setActiveVideoStep(sIdx)}
+                          className={`w-7 h-7 rounded-lg text-xs font-black transition-all ${
+                            activeVideoStep === sIdx
+                              ? "bg-amber-500 text-slate-950 shadow"
+                              : "bg-slate-900 text-slate-400 hover:text-white"
+                          }`}
+                        >
+                          {sIdx + 1}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </motion.div>
+        )}
         
         {/* TAB 1: MANUAL DO APP */}
         {activeTab === "tutorial" && (

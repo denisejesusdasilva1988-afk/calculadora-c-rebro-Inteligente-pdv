@@ -16,6 +16,7 @@ import {
   Cake,
   Package
 } from "lucide-react";
+import { SmartNumericInput } from "./SmartNumericInput";
 
 export interface BakeryIngredient {
   id: string;
@@ -709,13 +710,13 @@ export function BakeryPricingCalculator({
             <label className="text-[9px] font-bold text-slate-400 uppercase">
               Rendimento da Fornada
             </label>
-            <input
-              type="number"
-              step="1"
-              min="1"
+            <SmartNumericInput
               value={batchYield}
-              onChange={(e) => setBatchYield(Math.max(1, parseInt(e.target.value, 10) || 1))}
-              className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-amber-400"
+              onChange={(val) => setBatchYield(Math.round(val))}
+              allowDecimals={false}
+              clearable
+              className="py-2 text-xs"
+              placeholder="1"
             />
           </div>
 
@@ -726,6 +727,7 @@ export function BakeryPricingCalculator({
             <input
               type="text"
               value={batchYieldUnit}
+              onFocus={(e) => e.target.select()}
               onChange={(e) => setBatchYieldUnit(e.target.value)}
               className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-amber-400"
             />
@@ -735,17 +737,16 @@ export function BakeryPricingCalculator({
             <label className="text-[9px] font-bold text-slate-400 uppercase">
               Gás / Forno / Energia (R$)
             </label>
-            <div className="relative">
-              <span className="absolute left-3 top-2 text-xs text-slate-400 font-bold">R$</span>
-              <input
-                type="number"
-                step="0.5"
-                min="0"
-                value={ovenGasEnergyCost}
-                onChange={(e) => setOvenGasEnergyCost(parseFloat(e.target.value) || 0)}
-                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-amber-400"
-              />
-            </div>
+            <SmartNumericInput
+              value={ovenGasEnergyCost}
+              onChange={(val) => setOvenGasEnergyCost(val)}
+              prefix="R$"
+              step={0.5}
+              allowDecimals
+              clearable
+              className="py-2 text-xs font-mono"
+              placeholder="0,00"
+            />
           </div>
         </div>
 
@@ -854,14 +855,16 @@ export function BakeryPricingCalculator({
                     {/* Package Qty & Unit */}
                     <td className="py-2 px-2">
                       <div className="flex items-center justify-center gap-1">
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0.01"
-                          value={ing.packageQty}
-                          onChange={(e) => handleUpdateIngredient(ing.id, "packageQty", parseFloat(e.target.value) || 1)}
-                          className="w-14 bg-slate-950 border border-white/10 rounded-lg px-1.5 py-1 text-xs text-white font-mono text-center outline-none focus:border-amber-400"
-                        />
+                        <div className="w-16">
+                          <SmartNumericInput
+                            value={ing.packageQty}
+                            onChange={(val) => handleUpdateIngredient(ing.id, "packageQty", val)}
+                            allowDecimals
+                            clearable
+                            className="py-1 text-xs text-center"
+                            placeholder="1"
+                          />
+                        </div>
                         <select
                           value={ing.packageUnit}
                           onChange={(e) => handleUpdateIngredient(ing.id, "packageUnit", e.target.value)}
@@ -879,29 +882,34 @@ export function BakeryPricingCalculator({
                     {/* Package Cost */}
                     <td className="py-2 px-2 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <span className="text-[10px] text-slate-500">R$</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          value={ing.packageCost}
-                          onChange={(e) => handleUpdateIngredient(ing.id, "packageCost", parseFloat(e.target.value) || 0)}
-                          className="w-16 bg-slate-950 border border-white/10 rounded-lg px-1.5 py-1 text-xs text-white font-mono text-center outline-none focus:border-amber-400"
-                        />
+                        <div className="w-20">
+                          <SmartNumericInput
+                            value={ing.packageCost}
+                            onChange={(val) => handleUpdateIngredient(ing.id, "packageCost", val)}
+                            prefix="R$"
+                            step={0.5}
+                            allowDecimals
+                            clearable
+                            className="py-1 text-xs text-center"
+                            placeholder="0,00"
+                          />
+                        </div>
                       </div>
                     </td>
 
                     {/* Used Qty & Unit */}
                     <td className="py-2 px-2">
                       <div className="flex items-center justify-center gap-1">
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          value={ing.usedQty}
-                          onChange={(e) => handleUpdateIngredient(ing.id, "usedQty", parseFloat(e.target.value) || 0)}
-                          className="w-14 bg-slate-950 border border-white/10 rounded-lg px-1.5 py-1 text-xs text-white font-mono text-center outline-none focus:border-amber-400"
-                        />
+                        <div className="w-16">
+                          <SmartNumericInput
+                            value={ing.usedQty}
+                            onChange={(val) => handleUpdateIngredient(ing.id, "usedQty", val)}
+                            allowDecimals
+                            clearable
+                            className="py-1 text-xs text-center"
+                            placeholder="0"
+                          />
+                        </div>
                         <select
                           value={ing.usedUnit}
                           onChange={(e) => handleUpdateIngredient(ing.id, "usedUnit", e.target.value)}
@@ -984,14 +992,15 @@ export function BakeryPricingCalculator({
             </label>
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
-                <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">R$</span>
-                <input
-                  type="number"
-                  step="0.05"
-                  min="0"
+                <SmartNumericInput
                   value={currentSellPrice}
-                  onChange={(e) => setCurrentSellPrice(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-950 border border-emerald-500/40 rounded-xl pl-9 pr-3 py-2 text-sm text-emerald-400 font-mono font-black outline-none focus:border-emerald-400"
+                  onChange={(val) => setCurrentSellPrice(val)}
+                  prefix="R$"
+                  step={0.25}
+                  allowDecimals
+                  clearable
+                  className="py-2 text-sm text-emerald-400 font-black border-emerald-500/40"
+                  placeholder="0,00"
                 />
               </div>
               <button

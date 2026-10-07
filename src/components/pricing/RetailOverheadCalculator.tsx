@@ -17,6 +17,7 @@ import {
   Layers,
   FileText
 } from "lucide-react";
+import { SmartNumericInput } from "./SmartNumericInput";
 
 export interface RetailItemPreset {
   name: string;
@@ -396,91 +397,52 @@ export function RetailOverheadCalculator({
                 </button>
               )}
             </div>
-            <div className="relative">
-              <span className="absolute left-3 top-2 text-xs text-slate-400 font-bold">R$</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={purchasePrice === 0 ? "" : purchasePrice.toString().replace(".", ",")}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => {
-                  const val = e.target.value.replace(",", ".");
-                  setPurchasePrice(val === "" ? 0 : parseFloat(val) || 0);
-                }}
-                placeholder="0,00"
-                className="w-full bg-slate-950 border border-rose-500/30 rounded-xl pl-8 pr-3 py-2 text-xs text-rose-300 font-mono font-bold outline-none focus:border-rose-400"
-              />
-            </div>
+            <SmartNumericInput
+              value={purchasePrice}
+              onChange={(val) => setPurchasePrice(val)}
+              prefix="R$"
+              step={0.5}
+              allowDecimals
+              clearable
+              className="py-2 text-xs text-rose-300 font-bold border-rose-500/30"
+              placeholder="0,00"
+            />
           </div>
 
           {/* Freight / Gas */}
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-[9px] font-bold text-slate-400 uppercase flex items-center gap-1">
-                <Fuel className="w-3 h-3 text-amber-400" />
-                Gasolina & Frete Rateado (R$)
-              </label>
-              {freightGasCost > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setFreightGasCost(0)}
-                  className="text-[9px] text-slate-500 hover:text-amber-400 font-bold px-1"
-                  title="Limpar campo"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            <div className="relative">
-              <span className="absolute left-3 top-2 text-xs text-slate-400 font-bold">R$</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={freightGasCost === 0 ? "" : freightGasCost.toString().replace(".", ",")}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => {
-                  const val = e.target.value.replace(",", ".");
-                  setFreightGasCost(val === "" ? 0 : parseFloat(val) || 0);
-                }}
-                placeholder="0,00"
-                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-amber-300 font-mono font-bold outline-none focus:border-emerald-400"
-              />
-            </div>
+            <label className="text-[9px] font-bold text-slate-400 uppercase flex items-center gap-1">
+              <Fuel className="w-3 h-3 text-amber-400" />
+              Gasolina & Frete Rateado (R$)
+            </label>
+            <SmartNumericInput
+              value={freightGasCost}
+              onChange={(val) => setFreightGasCost(val)}
+              prefix="R$"
+              step={0.1}
+              allowDecimals
+              clearable
+              className="py-2 text-xs text-amber-300 font-bold border-white/10"
+              placeholder="0,00"
+            />
           </div>
 
           {/* Bag Cost */}
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-[9px] font-bold text-slate-400 uppercase flex items-center gap-1">
-                <ShoppingBag className="w-3 h-3 text-cyan-400" />
-                Sacola Plástica / Embalagem (R$)
-              </label>
-              {bagCost > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setBagCost(0)}
-                  className="text-[9px] text-slate-500 hover:text-cyan-400 font-bold px-1"
-                  title="Limpar campo"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            <div className="relative">
-              <span className="absolute left-3 top-2 text-xs text-slate-400 font-bold">R$</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={bagCost === 0 ? "" : bagCost.toString().replace(".", ",")}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => {
-                  const val = e.target.value.replace(",", ".");
-                  setBagCost(val === "" ? 0 : parseFloat(val) || 0);
-                }}
-                placeholder="0,00"
-                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-cyan-300 font-mono font-bold outline-none focus:border-emerald-400"
-              />
-            </div>
+            <label className="text-[9px] font-bold text-slate-400 uppercase flex items-center gap-1">
+              <ShoppingBag className="w-3 h-3 text-cyan-400" />
+              Sacola Plástica / Embalagem (R$)
+            </label>
+            <SmartNumericInput
+              value={bagCost}
+              onChange={(val) => setBagCost(val)}
+              prefix="R$"
+              step={0.05}
+              allowDecimals
+              clearable
+              className="py-2 text-xs text-cyan-300 font-bold border-white/10"
+              placeholder="0,00"
+            />
           </div>
         </div>
 
@@ -493,36 +455,20 @@ export function RetailOverheadCalculator({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {/* Printer Paper Roll */}
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-[8.5px] font-bold text-slate-400 uppercase flex items-center gap-1">
-                <Printer className="w-3 h-3 text-slate-400" />
-                Bobina / Cupom (R$)
-              </label>
-              {paperRollCost > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setPaperRollCost(0)}
-                  className="text-[9px] text-slate-500 hover:text-white font-bold"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            <div className="relative">
-              <span className="absolute left-3 top-2 text-xs text-slate-400 font-bold">R$</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={paperRollCost === 0 ? "" : paperRollCost.toString().replace(".", ",")}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => {
-                  const val = e.target.value.replace(",", ".");
-                  setPaperRollCost(val === "" ? 0 : parseFloat(val) || 0);
-                }}
-                placeholder="0,00"
-                className="w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-emerald-400"
-              />
-            </div>
+            <label className="text-[8.5px] font-bold text-slate-400 uppercase flex items-center gap-1">
+              <Printer className="w-3 h-3 text-slate-400" />
+              Bobina / Cupom (R$)
+            </label>
+            <SmartNumericInput
+              value={paperRollCost}
+              onChange={(val) => setPaperRollCost(val)}
+              prefix="R$"
+              step={0.02}
+              allowDecimals
+              clearable
+              className="py-2 text-xs text-white font-bold border-white/10"
+              placeholder="0,00"
+            />
           </div>
 
           {/* Card Fee */}
@@ -531,21 +477,16 @@ export function RetailOverheadCalculator({
               <CreditCard className="w-3 h-3 text-purple-400" />
               Taxa Maquininha (%)
             </label>
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={cardFeePct === 0 ? "" : cardFeePct.toString().replace(".", ",")}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => {
-                  const val = e.target.value.replace(",", ".");
-                  setCardFeePct(val === "" ? 0 : parseFloat(val) || 0);
-                }}
-                placeholder="0,0"
-                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-purple-300 font-mono font-bold outline-none focus:border-emerald-400"
-              />
-              <span className="absolute right-3 top-2 text-xs text-slate-500 font-bold">%</span>
-            </div>
+            <SmartNumericInput
+              value={cardFeePct}
+              onChange={(val) => setCardFeePct(val)}
+              suffix="%"
+              step={0.5}
+              allowDecimals
+              clearable
+              className="py-2 text-xs text-purple-300 font-bold border-white/10"
+              placeholder="0,0"
+            />
           </div>
 
           {/* Fixed Store Overhead */}
@@ -554,21 +495,16 @@ export function RetailOverheadCalculator({
               <Building2 className="w-3 h-3 text-indigo-400" />
               Aluguel/Luz Loja (%)
             </label>
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={storeFixedCostPct === 0 ? "" : storeFixedCostPct.toString().replace(".", ",")}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => {
-                  const val = e.target.value.replace(",", ".");
-                  setStoreFixedCostPct(val === "" ? 0 : parseFloat(val) || 0);
-                }}
-                placeholder="0,0"
-                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-indigo-300 font-mono font-bold outline-none focus:border-emerald-400"
-              />
-              <span className="absolute right-3 top-2 text-xs text-slate-500 font-bold">%</span>
-            </div>
+            <SmartNumericInput
+              value={storeFixedCostPct}
+              onChange={(val) => setStoreFixedCostPct(val)}
+              suffix="%"
+              step={1}
+              allowDecimals
+              clearable
+              className="py-2 text-xs text-indigo-300 font-bold border-white/10"
+              placeholder="0,0"
+            />
           </div>
 
           {/* Taxes */}
@@ -576,21 +512,16 @@ export function RetailOverheadCalculator({
             <label className="text-[8.5px] font-bold text-slate-400 uppercase">
               Impostos / MEI (%)
             </label>
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={taxPct === 0 ? "" : taxPct.toString().replace(".", ",")}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => {
-                  const val = e.target.value.replace(",", ".");
-                  setTaxPct(val === "" ? 0 : parseFloat(val) || 0);
-                }}
-                placeholder="0,0"
-                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-emerald-400"
-              />
-              <span className="absolute right-3 top-2 text-xs text-slate-500 font-bold">%</span>
-            </div>
+            <SmartNumericInput
+              value={taxPct}
+              onChange={(val) => setTaxPct(val)}
+              suffix="%"
+              step={0.5}
+              allowDecimals
+              clearable
+              className="py-2 text-xs text-white font-bold border-white/10"
+              placeholder="0,0"
+            />
           </div>
 
           {/* Spoilage / Waste */}
@@ -598,21 +529,16 @@ export function RetailOverheadCalculator({
             <label className="text-[8.5px] font-bold text-slate-400 uppercase">
               Perdas & Furtos (%)
             </label>
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={wasteSpoilagePct === 0 ? "" : wasteSpoilagePct.toString().replace(".", ",")}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) => {
-                  const val = e.target.value.replace(",", ".");
-                  setWasteSpoilagePct(val === "" ? 0 : parseFloat(val) || 0);
-                }}
-                placeholder="0,0"
-                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-emerald-400"
-              />
-              <span className="absolute right-3 top-2 text-xs text-slate-500 font-bold">%</span>
-            </div>
+            <SmartNumericInput
+              value={wasteSpoilagePct}
+              onChange={(val) => setWasteSpoilagePct(val)}
+              suffix="%"
+              step={0.5}
+              allowDecimals
+              clearable
+              className="py-2 text-xs text-white font-bold border-white/10"
+              placeholder="0,0"
+            />
           </div>
         </div>
       </div>
@@ -666,18 +592,15 @@ export function RetailOverheadCalculator({
             </div>
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
-                <span className="absolute left-3 top-2 text-xs text-slate-400 font-bold">R$</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={practicePrice === 0 ? "" : practicePrice.toString().replace(".", ",")}
-                  onFocus={(e) => e.target.select()}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(",", ".");
-                    setPracticePrice(val === "" ? 0 : parseFloat(val) || 0);
-                  }}
+                <SmartNumericInput
+                  value={practicePrice}
+                  onChange={(val) => setPracticePrice(val)}
+                  prefix="R$"
+                  step={0.25}
+                  allowDecimals
+                  clearable
+                  className="py-1.5 text-base text-emerald-400 font-black border-emerald-500/40"
                   placeholder="0,00"
-                  className="w-full bg-slate-900 border border-emerald-500/40 rounded-xl pl-8 pr-3 py-1.5 text-base text-emerald-400 font-mono font-black outline-none focus:border-emerald-400"
                 />
               </div>
               <button

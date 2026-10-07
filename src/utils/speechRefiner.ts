@@ -132,11 +132,20 @@ export const applyLocalDictionaryCorrections = (text: string): string => {
 /**
  * Refines spoken/dictated text using the server-side Gemini API, passing the dictionary as context.
  */
-export const refineSpeechText = async (text: string, lang: string): Promise<string> => {
+export const refineSpeechText = async (
+  text: string,
+  lang: string,
+  userSignal?: AbortSignal
+): Promise<string> => {
   if (!text || !text.trim()) return "";
 
   // 1. Apply local immediate dictionary corrections first
   const preCorrectedText = applyLocalDictionaryCorrections(text);
+
+  // If already aborted, exit immediately
+  if (userSignal?.aborted) {
+    return preCorrectedText;
+  }
 
   // System instruction specific to each language, optimized for high speed, beautiful articulation and native fluency
   let systemPrompt = "";
@@ -169,11 +178,29 @@ export const refineSpeechText = async (text: string, lang: string): Promise<stri
       "4. FULLY PRESERVE the core message, main ideas, and meaning intended by the user. Do not summarize, do not invent new information, and do not add personal comments or explanations. Return ONLY the final polished and corrected text, without quotes or footnotes.";
   }
 
+  // Fast timeout controller (8 seconds) to prevent any freezing
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    timeoutController.abort(new Error("Timeout ao refinar com IA"));
+  }, 8000);
+
+  // Link user signal if provided
+  if (userSignal) {
+    if (userSignal.aborted) {
+      clearTimeout(timeoutId);
+      return preCorrectedText;
+    }
+    userSignal.addEventListener("abort", () => {
+      timeoutController.abort(userSignal.reason);
+    });
+  }
+
   try {
     // 2. Call the backend Gemini endpoint, passing the dictionary and our precise systemPrompt
     const response = await fetch("/api/refine-speech", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: timeoutController.signal,
       body: JSON.stringify({ 
         text: preCorrectedText, 
         lang, 
@@ -182,13 +209,20 @@ export const refineSpeechText = async (text: string, lang: string): Promise<stri
       }),
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
       throw new Error(`HTTP error ${response.status}`);
     }
 
     const data = await response.json();
     return data.correctedText || preCorrectedText;
-  } catch (err) {
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (userSignal?.aborted) {
+      console.info("Speech refinement cancelada pelo usuário.");
+      return preCorrectedText;
+    }
     console.error("Error refining speech with Gemini:", err);
     return preCorrectedText; // Fall back to the pre-corrected text on error
   }

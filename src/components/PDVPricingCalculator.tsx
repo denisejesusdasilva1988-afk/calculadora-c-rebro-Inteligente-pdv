@@ -9,8 +9,12 @@ import {
   Sparkles,
   ShoppingBag,
   Coins,
-  DollarSign
+  DollarSign,
+  Scale,
+  ChefHat
 } from "lucide-react";
+import { DigitalScaleFoodPricingCalculator } from "./pricing/DigitalScaleFoodPricingCalculator";
+import { parseFlexibleNumber } from "./pricing/SmartNumericInput";
 
 interface PDVPricingCalculatorProps {
   products: Array<{ id: string; name: string; price: number }>;
@@ -38,6 +42,7 @@ export function PDVPricingCalculator({
   onRegisterProductFromCalc,
   onBackToPDV
 }: PDVPricingCalculatorProps) {
+  const [pricingTab, setPricingTab] = useState<"scale" | "commercial">("scale");
   const [calcSelectedProductId, setCalcSelectedProductId] = useState<string>("");
   const [calcNewProductName, setCalcNewProductName] = useState("");
   const [calcCostPrice, setCalcCostPrice] = useState("10,00");
@@ -53,17 +58,12 @@ export function PDVPricingCalculator({
   const [calcWorkingDays, setCalcWorkingDays] = useState("300");
 
   const parseNum = (valStr: string): number => {
-    if (!valStr) return 0;
-    const cleaned = valStr.toString().trim().replace("R$", "").trim();
-    if (cleaned.includes(",") && cleaned.includes(".")) {
-      return parseFloat(cleaned.replace(/\./g, "").replace(",", ".")) || 0;
-    }
-    return parseFloat(cleaned.replace(",", ".")) || 0;
+    return parseFlexibleNumber(valStr);
   };
 
-  const parsedCost = parseNum(calcCostPrice) || 0;
-  const expensesPct = parseFloat(calcExpensesPct) || 0;
-  const profitPct = parseFloat(calcProfitPct) || 0;
+  const parsedCost = parseNum(calcCostPrice);
+  const expensesPct = parseFlexibleNumber(calcExpensesPct);
+  const profitPct = parseFlexibleNumber(calcProfitPct);
   const totalDeductions = expensesPct + profitPct;
 
   // Formula 1: Simple Additive (INCORRECT - margin is actually much lower)
@@ -106,7 +106,46 @@ export function PDVPricingCalculator({
         )}
       </div>
 
-      {/* Step 1: Optional Product Selector to pre-fill */}
+      {/* TABS DE SELEÇÃO: GASTRONOMIA BALANÇA DIGITAL VS MARKUP COMERCIAL */}
+      <div className="bg-slate-950 p-1.5 rounded-2xl border border-white/5 flex flex-col sm:flex-row gap-2">
+        <button
+          type="button"
+          onClick={() => setPricingTab("scale")}
+          className={`flex-1 py-2.5 px-4 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            pricingTab === "scale"
+              ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-950/40"
+              : "text-slate-400 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <Scale className="w-4 h-4" />
+          <span>1. Balança Digital & Gastronomia (Coxinhas, Pastel, Aipim, Bolos & Sobras)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setPricingTab("commercial")}
+          className={`flex-1 py-2.5 px-4 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            pricingTab === "commercial"
+              ? "bg-gradient-to-r from-amber-600 to-amber-500 text-slate-950 shadow-lg shadow-amber-950/40"
+              : "text-slate-400 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <Percent className="w-4 h-4" />
+          <span>2. Markup de Revenda & Simulador de Centavos</span>
+        </button>
+      </div>
+
+      {pricingTab === "scale" ? (
+        <DigitalScaleFoodPricingCalculator
+          formatCurrency={formatCurrency}
+          onRegisterProductToPDV={(name, category, sellPrice, costPrice, unitStock) => {
+            onRegisterProductFromCalc(name, category, sellPrice, costPrice, unitStock, 5);
+            showNotification(`"${name}" cadastrado com sucesso no estoque do PDV!`, "success");
+          }}
+        />
+      ) : (
+        <>
+          {/* Step 1: Optional Product Selector to pre-fill */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-950 p-3.5 rounded-2xl border border-white/5 text-left">
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase">
@@ -162,9 +201,20 @@ export function PDVPricingCalculator({
       {/* Step 2: Calculator Variables */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
         <div className="space-y-1.5 bg-slate-950/80 p-3.5 rounded-2xl border border-white/5 text-left">
-          <label className="text-[10px] font-black text-purple-400 uppercase">
-            💰 Custo de Compra (R$):
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] font-black text-purple-400 uppercase">
+              💰 Custo de Compra (R$):
+            </label>
+            {calcCostPrice && (
+              <button
+                type="button"
+                onClick={() => setCalcCostPrice("")}
+                className="text-[9px] text-slate-500 hover:text-purple-400 font-bold"
+              >
+                ✕ Limpar
+              </button>
+            )}
+          </div>
           <p className="text-[8.5px] text-slate-500 font-bold leading-none mb-1">
             Preço que você pagou no fornecedor
           </p>
@@ -179,11 +229,22 @@ export function PDVPricingCalculator({
         </div>
 
         <div className="space-y-1.5 bg-slate-950/80 p-3.5 rounded-2xl border border-white/5 text-left">
-          <label className="text-[10px] font-black text-purple-400 uppercase">
-            💳 Despesas e Taxas (%):
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] font-black text-purple-400 uppercase">
+              💳 Despesas e Taxas (%):
+            </label>
+            {calcExpensesPct && (
+              <button
+                type="button"
+                onClick={() => setCalcExpensesPct("")}
+                className="text-[9px] text-slate-500 hover:text-purple-400 font-bold"
+              >
+                ✕ Limpar
+              </button>
+            )}
+          </div>
           <p className="text-[8.5px] text-slate-500 font-bold leading-none mb-1">
-            Taxas de cartão, sacolas, impostos, frete
+            Taxas de cartão, sacolas, frete
           </p>
           <input
             type="text"
@@ -193,14 +254,39 @@ export function PDVPricingCalculator({
             onChange={(e) => setCalcExpensesPct(e.target.value)}
             className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none focus:border-purple-400"
           />
+          <div className="flex gap-1 pt-1">
+            {["0", "5", "10", "15"].map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setCalcExpensesPct(p)}
+                className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                  calcExpensesPct === p ? "bg-purple-500 text-white" : "bg-slate-900 text-slate-400 hover:text-white"
+                }`}
+              >
+                {p}%
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="space-y-1.5 bg-slate-950/80 p-3.5 rounded-2xl border border-white/5 text-left">
-          <label className="text-[10px] font-black text-purple-400 uppercase">
-            📈 Margem Desejada (%):
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] font-black text-purple-400 uppercase">
+              📈 Margem Desejada (%):
+            </label>
+            {calcProfitPct && (
+              <button
+                type="button"
+                onClick={() => setCalcProfitPct("")}
+                className="text-[9px] text-slate-500 hover:text-purple-400 font-bold"
+              >
+                ✕ Limpar
+              </button>
+            )}
+          </div>
           <p className="text-[8.5px] text-slate-500 font-bold leading-none mb-1">
-            O lucro líquido que deseja no seu bolso
+            O lucro líquido que deseja no bolso
           </p>
           <input
             type="text"
@@ -210,6 +296,20 @@ export function PDVPricingCalculator({
             onChange={(e) => setCalcProfitPct(e.target.value)}
             className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none focus:border-purple-400"
           />
+          <div className="flex gap-1 pt-1">
+            {["20", "35", "50", "100"].map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setCalcProfitPct(p)}
+                className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                  calcProfitPct === p ? "bg-purple-500 text-white" : "bg-slate-900 text-slate-400 hover:text-white"
+                }`}
+              >
+                {p}%
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -534,6 +634,8 @@ export function PDVPricingCalculator({
           </p>
         </div>
       </div>
-    </div>
-  );
+    </>
+  )}
+</div>
+);
 }

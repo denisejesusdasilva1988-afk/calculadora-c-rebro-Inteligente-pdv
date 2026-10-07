@@ -78,6 +78,7 @@ import {
   Users,
   Sliders,
   Settings,
+  Repeat,
   UserCheck,
   UserPlus,
   ThumbsUp,
@@ -95,7 +96,8 @@ import {
   Dog,
   Bird,
   Landmark,
-  ArrowLeft
+  ArrowLeft,
+  ArrowRight
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { doc, getDoc, setDoc, serverTimestamp, collection, addDoc, getDocs, query, where, limit, onSnapshot } from "firebase/firestore";
@@ -116,6 +118,18 @@ import { PDVHelpAssistant } from "./PDVHelpAssistant";
 import { PDVFluxoCaixaHistorico } from "./PDVFluxoCaixaHistorico";
 import { InspirationalQuotesBar } from "./InspirationalQuotesBar";
 import { PDVAberturaCaixa } from "./PDVAberturaCaixa";
+import { PDVSalesTransitionStepper } from "./PDVSalesTransitionStepper";
+import { PDVPrinterConfigModal } from "./PDVPrinterConfigModal";
+import { PDVPrinterConfigView } from "./PDVPrinterConfigView";
+import { 
+  PrinterConfig, 
+  loadPrinterConfig, 
+  savePrinterConfig, 
+  buildThermalReceiptHtml, 
+  executeThermalPrint,
+  isBluetoothPrintSupported,
+  printViaBluetoothEscPos 
+} from "../utils/thermalPrinterHelper";
 import { OperationType, FirestoreErrorInfo } from "../types";
 
 // Self-contained lightweight debounce function
@@ -457,7 +471,7 @@ export interface PDVTransaction {
   date: string; // pt-BR date time format
   timestamp: number;
   clientName?: string;
-  items?: { name: string; price: number; quantity: number }[];
+  items?: { name: string; price: number; quantity: number; size?: string; color?: string; unit?: string; quickCode?: string; description?: string; brand?: string }[];
   isDeleted?: boolean;
   deletedAt?: number;
   amountPaid?: number;
@@ -471,19 +485,29 @@ export interface CustomProduct {
   niche: string;
   category?: string;
   barcode?: string;
+  quickCode?: string;
+  unit?: string;
   size?: string;
   color?: string;
+  description?: string;
+  brand?: string;
   additionalBarcodes?: string[];
   validity?: string;
   imageUrl?: string;
 }
 
-interface CartItem {
+export interface CartItem {
   id: string;
   name: string;
   price: number;
   quantity: number;
   productId?: string;
+  unit?: string;
+  size?: string;
+  color?: string;
+  description?: string;
+  brand?: string;
+  quickCode?: string;
 }
 
 interface PDVModuleProps {
@@ -1189,8 +1213,17 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   // "manual" index = Suprimento / Sangria / Despesas direct inputs
   // "estoque" index = Smart Stock Inventory Control & AI Analysis
   const [pricingTab, setPricingTab] = useState<"calculadora" | "ficha">("calculadora");
-  const [opMode, setOpMode] = useState<"venda" | "manual" | "estoque" | "relatorios" | "cadastro_produtos" | "ficha_tecnica" | "clientes" | "proprietario" | "fiado" | "taxas">(() => {
+  const [opMode, setOpMode] = useState<"venda" | "manual" | "estoque" | "relatorios" | "cadastro_produtos" | "ficha_tecnica" | "clientes" | "proprietario" | "fiado" | "taxas" | "impressoras">(() => {
     if (onlyCheckout) return "venda";
+    if (
+      activeSubTab === "impressoras" ||
+      activeSubTab === "impressora" ||
+      activeSubTab === "printer" ||
+      activeSubTab === "bobina" ||
+      activeSubTab === "bobinas"
+    ) {
+      return "impressoras";
+    }
     if (activeSubTab === "fiado") {
       return "fiado";
     }
@@ -1244,8 +1277,120 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [reportSelectedYear, setReportSelectedYear] = useState<number>(() => new Date().getFullYear());
 
   // --- Cart System States ---
+  // --- Cart System States & Dual Cart System (Cliente 1 / Fila A vs Cliente 2 / Fila B) ---
+  const [activeCartSlot, setActiveCartSlot] = useState<1 | 2>(() => {
+    try {
+      const saved = localStorage.getItem("pdv_active_cart_slot");
+      return saved === "2" ? 2 : 1;
+    } catch {
+      return 1;
+    }
+  });
+
+  const [splitPaymentEnabled, setSplitPaymentEnabled] = useState<boolean>(false);
+  const [splitCashAmount, setSplitCashAmount] = useState<string>("");
+  const [splitSecondaryMethod, setSplitSecondaryMethod] = useState<PDVTransaction["paymentMethod"]>("pix");
+  const [splitSecondaryAmount, setSplitSecondaryAmount] = useState<string>("");
+
+  interface CartSlotSnapshot {
+    cart: CartItem[];
+    clientName: string;
+    cartPaymentMethod: PDVTransaction["paymentMethod"];
+    amountPaidByClient: string;
+    discountPercent: number;
+    discountPercentStr: string;
+    discountValue: string;
+    splitPaymentEnabled: boolean;
+    splitCashAmount: string;
+    splitSecondaryMethod: PDVTransaction["paymentMethod"];
+    splitSecondaryAmount: string;
+  }
+
+  const [slot1Data, setSlot1Data] = useState<CartSlotSnapshot>(() => {
+    try {
+      const saved = localStorage.getItem("pdv_cart_slot_1");
+      if (saved) return JSON.parse(saved);
+      const oldCart = localStorage.getItem("pdv_current_cart");
+      return {
+        cart: oldCart ? JSON.parse(oldCart) : [],
+        clientName: "",
+        cartPaymentMethod: "dinheiro",
+        amountPaidByClient: "",
+        discountPercent: 0,
+        discountPercentStr: "",
+        discountValue: "",
+        splitPaymentEnabled: false,
+        splitCashAmount: "",
+        splitSecondaryMethod: "pix",
+        splitSecondaryAmount: ""
+      };
+    } catch {
+      return {
+        cart: [],
+        clientName: "",
+        cartPaymentMethod: "dinheiro",
+        amountPaidByClient: "",
+        discountPercent: 0,
+        discountPercentStr: "",
+        discountValue: "",
+        splitPaymentEnabled: false,
+        splitCashAmount: "",
+        splitSecondaryMethod: "pix",
+        splitSecondaryAmount: ""
+      };
+    }
+  });
+
+  const [slot2Data, setSlot2Data] = useState<CartSlotSnapshot>(() => {
+    try {
+      const saved = localStorage.getItem("pdv_cart_slot_2");
+      if (saved) return JSON.parse(saved);
+      return {
+        cart: [],
+        clientName: "",
+        cartPaymentMethod: "dinheiro",
+        amountPaidByClient: "",
+        discountPercent: 0,
+        discountPercentStr: "",
+        discountValue: "",
+        splitPaymentEnabled: false,
+        splitCashAmount: "",
+        splitSecondaryMethod: "pix",
+        splitSecondaryAmount: ""
+      };
+    } catch {
+      return {
+        cart: [],
+        clientName: "",
+        cartPaymentMethod: "dinheiro",
+        amountPaidByClient: "",
+        discountPercent: 0,
+        discountPercentStr: "",
+        discountValue: "",
+        splitPaymentEnabled: false,
+        splitCashAmount: "",
+        splitSecondaryMethod: "pix",
+        splitSecondaryAmount: ""
+      };
+    }
+  });
+
   const [cart, setCart] = useState<CartItem[]>(() => {
     try {
+      const activeSlot = localStorage.getItem("pdv_active_cart_slot");
+      if (activeSlot === "2") {
+        const saved2 = localStorage.getItem("pdv_cart_slot_2");
+        if (saved2) {
+          const parsed = JSON.parse(saved2);
+          return parsed.cart || [];
+        }
+      } else {
+        const saved1 = localStorage.getItem("pdv_cart_slot_1");
+        if (saved1) {
+          const parsed = JSON.parse(saved1);
+          return parsed.cart || [];
+        }
+      }
       const saved = localStorage.getItem("pdv_current_cart");
       return saved ? JSON.parse(saved) : [];
     } catch {
@@ -1253,16 +1398,135 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     }
   });
 
-  // Persistir carrinho automaticamente para não perder vendas
-  useEffect(() => {
+  const [editingCartItem, setEditingCartItem] = useState<CartItem | null>(null);
+  const [editCartQty, setEditCartQty] = useState<string>("1");
+  const [editCartPrice, setEditCartPrice] = useState<string>("0,00");
+  const [receiptFooterMsg, setReceiptFooterMsg] = useState<string>(() => {
+    return localStorage.getItem("pdv_receipt_footer_msg") || "Obrigado pela preferência! Volte sempre! 🛒✨";
+  });
+  const [discountPercent, setDiscountPercent] = useState<number>(() => {
     try {
-      if (cart.length > 0) {
-        localStorage.setItem("pdv_current_cart", JSON.stringify(cart));
-      } else {
-        localStorage.removeItem("pdv_current_cart");
-      }
+      const activeSlot = localStorage.getItem("pdv_active_cart_slot");
+      const key = activeSlot === "2" ? "pdv_cart_slot_2" : "pdv_cart_slot_1";
+      const s = localStorage.getItem(key);
+      return s ? JSON.parse(s).discountPercent || 0 : 0;
+    } catch { return 0; }
+  });
+  const [discountPercentStr, setDiscountPercentStr] = useState<string>("");
+  const [discountValue, setDiscountValue] = useState<string>("");
+  const [discountsUnlocked, setDiscountsUnlocked] = useState<boolean>(false);
+  const [clientName, setClientName] = useState<string>(() => {
+    try {
+      const activeSlot = localStorage.getItem("pdv_active_cart_slot");
+      const key = activeSlot === "2" ? "pdv_cart_slot_2" : "pdv_cart_slot_1";
+      const s = localStorage.getItem(key);
+      return s ? JSON.parse(s).clientName || "" : "";
+    } catch { return ""; }
+  });
+  const [amountPaidByClient, setAmountPaidByClient] = useState<string>("");
+  const [cartPaymentMethod, setCartPaymentMethod] = useState<PDVTransaction["paymentMethod"]>("dinheiro");
+  const [retroactiveSaleDate, setRetroactiveSaleDate] = useState<string>("");
+
+  // Switch between Cart Slot 1 (Cliente 1 / Fila A) and Cart Slot 2 (Cliente 2 / Fila B)
+  const switchCartSlot = (targetSlot: 1 | 2) => {
+    if (targetSlot === activeCartSlot) return;
+
+    // 1. Pack current active state into leaving slot
+    const currentSnapshot: CartSlotSnapshot = {
+      cart,
+      clientName,
+      cartPaymentMethod,
+      amountPaidByClient,
+      discountPercent,
+      discountPercentStr,
+      discountValue,
+      splitPaymentEnabled,
+      splitCashAmount,
+      splitSecondaryMethod,
+      splitSecondaryAmount
+    };
+
+    if (activeCartSlot === 1) {
+      setSlot1Data(currentSnapshot);
+      try {
+        localStorage.setItem("pdv_cart_slot_1", JSON.stringify(currentSnapshot));
+      } catch {}
+    } else {
+      setSlot2Data(currentSnapshot);
+      try {
+        localStorage.setItem("pdv_cart_slot_2", JSON.stringify(currentSnapshot));
+      } catch {}
+    }
+
+    // 2. Unpack target slot into active states
+    const target = targetSlot === 1 ? slot1Data : slot2Data;
+    setCart(target.cart || []);
+    setClientName(target.clientName || "");
+    setCartPaymentMethod(target.cartPaymentMethod || "dinheiro");
+    setAmountPaidByClient(target.amountPaidByClient || "");
+    setDiscountPercent(target.discountPercent || 0);
+    setDiscountPercentStr(target.discountPercentStr || "");
+    setDiscountValue(target.discountValue || "");
+    setSplitPaymentEnabled(target.splitPaymentEnabled || false);
+    setSplitCashAmount(target.splitCashAmount || "");
+    setSplitSecondaryMethod(target.splitSecondaryMethod || "pix");
+    setSplitSecondaryAmount(target.splitSecondaryAmount || "");
+
+    setActiveCartSlot(targetSlot);
+    try {
+      localStorage.setItem("pdv_active_cart_slot", String(targetSlot));
     } catch {}
-  }, [cart]);
+
+    const count = (target.cart || []).reduce((acc, i) => acc + i.quantity, 0);
+    showNotification(
+      targetSlot === 1 
+        ? `Alternado para Cliente 1 (Fila A) • ${count} produto(s) no carrinho 🛒👤` 
+        : `Alternado para Cliente 2 (Fila B) • ${count} produto(s) no carrinho 🛒👥`,
+      "info"
+    );
+  };
+
+  // Auto-sync current active slot to localStorage and slot memory
+  useEffect(() => {
+    const currentSnapshot: CartSlotSnapshot = {
+      cart,
+      clientName,
+      cartPaymentMethod,
+      amountPaidByClient,
+      discountPercent,
+      discountPercentStr,
+      discountValue,
+      splitPaymentEnabled,
+      splitCashAmount,
+      splitSecondaryMethod,
+      splitSecondaryAmount
+    };
+    if (activeCartSlot === 1) {
+      setSlot1Data(currentSnapshot);
+      try {
+        localStorage.setItem("pdv_cart_slot_1", JSON.stringify(currentSnapshot));
+        localStorage.setItem("pdv_current_cart", JSON.stringify(cart));
+      } catch {}
+    } else {
+      setSlot2Data(currentSnapshot);
+      try {
+        localStorage.setItem("pdv_cart_slot_2", JSON.stringify(currentSnapshot));
+      } catch {}
+    }
+  }, [
+    activeCartSlot,
+    cart,
+    clientName,
+    cartPaymentMethod,
+    amountPaidByClient,
+    discountPercent,
+    discountPercentStr,
+    discountValue,
+    splitPaymentEnabled,
+    splitCashAmount,
+    splitSecondaryMethod,
+    splitSecondaryAmount
+  ]);
 
   // Prevenir que o botão "Voltar" do celular descarte vendas ou saia da tela
   useEffect(() => {
@@ -1293,21 +1557,6 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [cart.length, showNotification]);
-
-  const [editingCartItem, setEditingCartItem] = useState<CartItem | null>(null);
-  const [editCartQty, setEditCartQty] = useState<string>("1");
-  const [editCartPrice, setEditCartPrice] = useState<string>("0,00");
-  const [receiptFooterMsg, setReceiptFooterMsg] = useState<string>(() => {
-    return localStorage.getItem("pdv_receipt_footer_msg") || "Obrigado pela preferência! Volte sempre! 🛒✨";
-  });
-  const [discountPercent, setDiscountPercent] = useState<number>(0);
-  const [discountPercentStr, setDiscountPercentStr] = useState<string>("");
-  const [discountValue, setDiscountValue] = useState<string>("");
-  const [discountsUnlocked, setDiscountsUnlocked] = useState<boolean>(false);
-  const [clientName, setClientName] = useState<string>("");
-  const [amountPaidByClient, setAmountPaidByClient] = useState<string>("");
-  const [cartPaymentMethod, setCartPaymentMethod] = useState<PDVTransaction["paymentMethod"]>("dinheiro");
-  const [retroactiveSaleDate, setRetroactiveSaleDate] = useState<string>("");
 
   // --- Manual Form States ---
   const [manualAmount, setManualAmount] = useState("");
@@ -1645,7 +1894,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     localStorage.setItem("pdv_show_instructions", val ? "true" : "false");
   };
   
-  const [mentorshipTab, setMentorshipTab] = useState<"health" | "fiado" | "pricing" | "taxas" | "discounts" | "inventory" | "segment" | "devolucao" | "equipe">(() => {
+  const [mentorshipTab, setMentorshipTab] = useState<"health" | "fiado" | "pricing" | "taxas" | "discounts" | "inventory" | "segment" | "devolucao" | "equipe" | "printer">(() => {
     if (activeSubTab === "equipe" || activeSubTab === "proprietario" || activeSubTab === "caixa" || activeSubTab === "segment" || activeSubTab === "pricing") {
       return "equipe";
     }
@@ -1655,7 +1904,8 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       activeSubTab === "taxas" || 
       activeSubTab === "discounts" || 
       activeSubTab === "inventory" || 
-      activeSubTab === "devolucao"
+      activeSubTab === "devolucao" ||
+      activeSubTab === "printer"
     ) {
       return activeSubTab as any;
     }
@@ -1695,7 +1945,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   });
   
   // --- Profile, Security, Support & Attachment States ---
-  const [activeConfigTab, setActiveConfigTab] = useState<"rates" | "profile" | "support" | "mercadopago" | "tributos">("rates");
+  const [activeConfigTab, setActiveConfigTab] = useState<"rates" | "profile" | "support" | "mercadopago" | "tributos" | "printer">("rates");
   const [pricingSubTab, setPricingSubTab] = useState<"calculadora" | "ficha">("calculadora");
   const [cpfPasswordInput, setCpfPasswordInput] = useState("");
   const [newPasswordInput, setNewPasswordInput] = useState("");
@@ -1948,6 +2198,14 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         setActiveConfigTab("rates");
         setOpMode("taxas");
       } else if (
+        activeSubTab === "impressoras" || 
+        activeSubTab === "impressora" || 
+        activeSubTab === "printer" || 
+        activeSubTab === "bobina" || 
+        activeSubTab === "bobinas"
+      ) {
+        setOpMode("impressoras");
+      } else if (
         activeSubTab === "health" || 
         activeSubTab === "discounts" || 
         activeSubTab === "inventory" || 
@@ -2084,7 +2342,10 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   // --- Barcode Scanner States ---
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [manualScannerInput, setManualScannerInput] = useState("");
+  const [scannerRetryKey, setScannerRetryKey] = useState(0);
   const [newProdBarcode, setNewProdBarcode] = useState("");
+  const [newProdQuickCode, setNewProdQuickCode] = useState("");
   const [newProdSize, setNewProdSize] = useState("");
   const [newProdColor, setNewProdColor] = useState("");
   const [newProdAdditionalBarcodes, setNewProdAdditionalBarcodes] = useState("");
@@ -2093,13 +2354,60 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [selectedCameraId, setSelectedCameraId] = useState<string>("");
   const html5QrCodeRef = useRef<any>(null);
 
-  // --- Thermal Receipt Printing & Sharing States ---
+  // --- Thermal Receipt Printing & Printer Configuration States ---
+  const [printerConfig, setPrinterConfig] = useState<PrinterConfig>(() => loadPrinterConfig());
+  const [isPrinterConfigModalOpen, setIsPrinterConfigModalOpen] = useState(false);
   const [receiptToShow, setReceiptToShow] = useState<PDVTransaction | null>(null);
-  const [printerType, setPrinterType] = useState<"58mm" | "80mm" | "A4">("58mm");
+  const [lastCompletedTransaction, setLastCompletedTransaction] = useState<PDVTransaction | null>(() => {
+    try {
+      const saved = localStorage.getItem("pdv_last_completed_transaction");
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return null;
+  });
+  const [printerType, setPrinterType] = useState<"58mm" | "80mm" | "A4">(() => {
+    return (localStorage.getItem("pdv_printer_type") as any) || "80mm";
+  });
   const [isSimulatingPrinter, setIsSimulatingPrinter] = useState(false);
   const [printerStep, setPrinterStep] = useState<"scanning" | "connecting" | "sending" | "done">("scanning");
   const [printerProgress, setPrinterProgress] = useState(0);
   const [showReceiptQrCode, setShowReceiptQrCode] = useState(false);
+
+  useEffect(() => {
+    if (!lastCompletedTransaction && transactions.length > 0) {
+      const latest = transactions.find(t => t.type === "entrada" && !t.isDeleted && t.items && t.items.length > 0);
+      if (latest) {
+        setLastCompletedTransaction(latest);
+      }
+    }
+  }, [transactions, lastCompletedTransaction]);
+
+  // --- Transaction Sales Flow Transition Steps (1: Produtos, 2: Quantidades, 3: Pagamento, 4: Finalizar & Cupom) ---
+  const [saleTransactionStep, setSaleTransactionStep] = useState<1 | 2 | 3 | 4>(1);
+  const [salesLayoutMode, setSalesLayoutMode] = useState<"stepper" | "split">("stepper");
+  const [storeCustomCnpjCpf, setStoreCustomCnpjCpf] = useState<string>(() => {
+    return localStorage.getItem("pdv_store_cnpj_cpf") || storeCnpjCpf || "";
+  });
+  const [storeCustomName, setStoreCustomName] = useState<string>(() => {
+    return localStorage.getItem("pdv_store_custom_name") || storeName || "";
+  });
+
+  // Computed items count and total for both cart slots
+  const currentSlot1Cart = activeCartSlot === 1 ? cart : slot1Data.cart;
+  const slot1Count = (currentSlot1Cart || []).reduce((acc, item) => acc + item.quantity, 0);
+  const slot1Total = (currentSlot1Cart || []).reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
+  const currentSlot2Cart = activeCartSlot === 2 ? cart : slot2Data.cart;
+  const slot2Count = (currentSlot2Cart || []).reduce((acc, item) => acc + item.quantity, 0);
+  const slot2Total = (currentSlot2Cart || []).reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
+  // --- Venda Rápida / Cadastro de 4 Dígitos Sem Bloqueio ou Autorização ---
+  const [isQuickRegisterModalOpen, setIsQuickRegisterModalOpen] = useState(false);
+  const [quickRegCode, setQuickRegCode] = useState("");
+  const [quickRegName, setQuickRegName] = useState("");
+  const [quickRegPrice, setQuickRegPrice] = useState("");
+  const [quickRegQty, setQuickRegQty] = useState("1");
+  const [quickRegUnit, setQuickRegUnit] = useState("un");
 
   // --- Gaveta de Dinheiro (Elétrica / Manual Inteligente) ---
   const [cashDrawerAlert, setCashDrawerAlert] = useState<{ open: boolean; change: number; amountPaid?: number } | null>(null);
@@ -2182,10 +2490,164 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [mpPixQrCodeBase64, setMpPixQrCodeBase64] = useState<string>("");
   const [mpPixStatus, setMpPixStatus] = useState<"idle" | "pending" | "approved" | "rejected" | "expired">("idle");
   const [mpPixTimer, setMpPixTimer] = useState<number>(300); // 5 minutes in seconds
+  const [mpPixAmount, setMpPixAmount] = useState<number | null>(null);
   const [showMpTokenInput, setShowMpTokenInput] = useState(false);
   const [showMpClientId, setShowMpClientId] = useState(false);
   const [showMpClientSecret, setShowMpClientSecret] = useState(false);
   const [isProcessingMpPoint, setIsProcessingMpPoint] = useState(false);
+  const [showMpExplainer, setShowMpExplainer] = useState(true);
+  const [mpExplainerTab, setMpExplainerTab] = useState<"titular" | "seguranca" | "celular" | "point" | "config_curta">("titular");
+
+  // --- OWNER TOKEN & MP BANK VAULT SECURITY STATES (TOTAL SEGURANÇA BANCÁRIA DO PROPRIETÁRIO) ---
+  const [tokenVaultConfigured, setTokenVaultConfigured] = useState<boolean>(() => {
+    return localStorage.getItem("pdv_token_vault_configured") === "true";
+  });
+  const [tokenVaultCpf, setTokenVaultCpf] = useState<string>(() => {
+    return localStorage.getItem("pdv_token_vault_cpf") || "";
+  });
+  const [tokenVaultPin, setTokenVaultPin] = useState<string>(() => {
+    return localStorage.getItem("pdv_token_vault_pin") || "";
+  });
+  const [tokenVaultRecoveryEmail, setTokenVaultRecoveryEmail] = useState<string>(() => {
+    return localStorage.getItem("pdv_token_vault_email") || "";
+  });
+  const [isTokenVaultUnlocked, setIsTokenVaultUnlocked] = useState<boolean>(false);
+  const [vaultInputCpf, setVaultInputCpf] = useState("");
+  const [vaultInputPin, setVaultInputPin] = useState("");
+  const [vaultInputConfirmPin, setVaultInputConfirmPin] = useState("");
+  const [vaultInputEmail, setVaultInputEmail] = useState("");
+  const [vaultChangePinMode, setVaultChangePinMode] = useState(false);
+  const [vaultRecoveryMode, setVaultRecoveryMode] = useState(false);
+  const [vaultRecoveryCodeSent, setVaultRecoveryCodeSent] = useState(false);
+  const [vaultRecoveryInputCode, setVaultRecoveryInputCode] = useState("");
+  const [vaultGeneratedRecoveryCode, setVaultGeneratedRecoveryCode] = useState("");
+
+  const formatCpfDisplay = useCallback((val: string) => {
+    const digits = val.replace(/\D/g, "").slice(0, 11);
+    return digits
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+  }, []);
+
+  const handleLockVault = useCallback(() => {
+    setIsTokenVaultUnlocked(false);
+    setVaultInputPin("");
+    setVaultInputCpf("");
+    setVaultChangePinMode(false);
+    setVaultRecoveryMode(false);
+    showNotification("Cofre do Token do Proprietário trancado com segurança máxima! 🔒", "info");
+  }, []);
+
+  const handleUnlockVault = useCallback(() => {
+    const cleanInputCpf = vaultInputCpf.replace(/\D/g, "");
+    const cleanSavedCpf = tokenVaultCpf.replace(/\D/g, "");
+
+    if (!cleanInputCpf || cleanInputCpf.length < 11) {
+      showNotification("Por favor, digite o CPF completo do proprietário (11 dígitos)! ⚠️", "error");
+      return;
+    }
+
+    if (cleanSavedCpf && cleanInputCpf !== cleanSavedCpf) {
+      showNotification("CPF incorreto! Apenas o titular proprietário da conta pode acessar este cofre. 🔒❌", "error");
+      return;
+    }
+
+    if (!vaultInputPin.trim() || vaultInputPin.trim() !== tokenVaultPin.trim()) {
+      showNotification("PIN de Segurança Máxima incorreto! Acesso ao Token negado. 🔒❌", "error");
+      return;
+    }
+
+    setIsTokenVaultUnlocked(true);
+    setVaultInputPin("");
+    showNotification("Cofre Bancário do Proprietário Desbloqueado! 🛡️🔓", "success");
+  }, [vaultInputCpf, tokenVaultCpf, vaultInputPin, tokenVaultPin]);
+
+  const handleConfigureVault = useCallback(() => {
+    const cleanCpf = vaultInputCpf.replace(/\D/g, "");
+    if (!cleanCpf || cleanCpf.length < 11) {
+      showNotification("CPF obrigatório! Digite os 11 dígitos do CPF do proprietário.", "error");
+      return;
+    }
+    if (!vaultInputPin || vaultInputPin.length < 4) {
+      showNotification("O PIN de Segurança Máxima precisa ter no mínimo 4 dígitos!", "error");
+      return;
+    }
+    if (vaultInputPin !== vaultInputConfirmPin) {
+      showNotification("Os PINs digitados não coincidem! Confirme com atenção.", "error");
+      return;
+    }
+    if (!vaultInputEmail || !vaultInputEmail.includes("@") || !vaultInputEmail.includes(".")) {
+      showNotification("E-mail de recuperação obrigatório e válido em caso de esquecimento!", "error");
+      return;
+    }
+
+    localStorage.setItem("pdv_token_vault_configured", "true");
+    localStorage.setItem("pdv_token_vault_cpf", cleanCpf);
+    localStorage.setItem("pdv_token_vault_pin", vaultInputPin.trim());
+    localStorage.setItem("pdv_token_vault_email", vaultInputEmail.trim());
+
+    setTokenVaultConfigured(true);
+    setTokenVaultCpf(cleanCpf);
+    setTokenVaultPin(vaultInputPin.trim());
+    setTokenVaultRecoveryEmail(vaultInputEmail.trim());
+    setIsTokenVaultUnlocked(true);
+
+    setVaultInputPin("");
+    setVaultInputConfirmPin("");
+    showNotification("Cofre Bancário configurado e blindado com sucesso! PIN e CPF salvos. 🛡️✨", "success");
+  }, [vaultInputCpf, vaultInputPin, vaultInputConfirmPin, vaultInputEmail]);
+
+  const handleChangeVaultPin = useCallback(() => {
+    if (!vaultInputPin || vaultInputPin.length < 4) {
+      showNotification("O novo PIN precisa ter no mínimo 4 dígitos!", "error");
+      return;
+    }
+    if (vaultInputPin !== vaultInputConfirmPin) {
+      showNotification("Os novos PINs não coincidem!", "error");
+      return;
+    }
+    localStorage.setItem("pdv_token_vault_pin", vaultInputPin.trim());
+    setTokenVaultPin(vaultInputPin.trim());
+    setVaultChangePinMode(false);
+    setVaultInputPin("");
+    setVaultInputConfirmPin("");
+    showNotification("PIN de Segurança Máxima do Token alterado com sucesso! 🛡️🔑", "success");
+  }, [vaultInputPin, vaultInputConfirmPin]);
+
+  const handleSendRecoveryCode = useCallback(() => {
+    if (!tokenVaultRecoveryEmail) {
+      showNotification("Nenhum e-mail de recuperação cadastrado.", "error");
+      return;
+    }
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    setVaultGeneratedRecoveryCode(code);
+    setVaultRecoveryCodeSent(true);
+    showNotification(`Código de segurança enviado para ${tokenVaultRecoveryEmail}! (Código de segurança: ${code}) 📩`, "info");
+  }, [tokenVaultRecoveryEmail]);
+
+  const handleConfirmRecovery = useCallback(() => {
+    if (!vaultRecoveryInputCode || vaultRecoveryInputCode.trim() !== vaultGeneratedRecoveryCode.trim()) {
+      showNotification("Código de recuperação inválido ou não coincide! ❌", "error");
+      return;
+    }
+    if (!vaultInputPin || vaultInputPin.length < 4) {
+      showNotification("O novo PIN precisa ter no mínimo 4 dígitos!", "error");
+      return;
+    }
+    if (vaultInputPin !== vaultInputConfirmPin) {
+      showNotification("Os novos PINs não coincidem!", "error");
+      return;
+    }
+    localStorage.setItem("pdv_token_vault_pin", vaultInputPin.trim());
+    setTokenVaultPin(vaultInputPin.trim());
+    setIsTokenVaultUnlocked(true);
+    setVaultRecoveryMode(false);
+    setVaultRecoveryCodeSent(false);
+    setVaultInputPin("");
+    setVaultInputConfirmPin("");
+    showNotification("PIN redefinido com sucesso através da recuperação! Cofre Desbloqueado. 🛡️✨", "success");
+  }, [vaultRecoveryInputCode, vaultGeneratedRecoveryCode, vaultInputPin, vaultInputConfirmPin]);
 
   // --- Mercado Pago Store States ---
   const [mpStoreTab, setMpStoreTab] = useState<"list" | "create">("list");
@@ -2347,11 +2809,14 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     };
   }, [isProcessingMpPix, mpPixStatus, mpPixPaymentId, mpAccessToken]);
 
-  const handleStartMpPixCheckout = async () => {
+  const handleStartMpPixCheckout = async (customAmount?: number) => {
     if (cart.length === 0) {
       showNotification("Adicione pelo menos 1 item para fechar a venda!", "error");
       return;
     }
+
+    const targetAmount = (customAmount !== undefined && customAmount > 0) ? customAmount : cartTotal;
+    setMpPixAmount(targetAmount);
 
     setIsProcessingMpPix(true);
     setMpPixStatus("pending");
@@ -2373,7 +2838,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          amount: cartTotal,
+          amount: targetAmount,
           description: desc || "Venda PDV Cérebro Inteligente",
           clientAccessToken: mpAccessToken
         })
@@ -3180,14 +3645,35 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
             cloudDeliveryOrders.length > 0 ||
             Object.keys(cloudClientProfiles).length > 0
           ) {
+            // Safely merge cloud products with locally saved products so newly registered products are never erased!
+            const localSavedProds: CustomProduct[] = (() => {
+              try {
+                const s = localStorage.getItem("pdv_custom_products");
+                return s ? JSON.parse(s) : [];
+              } catch { return []; }
+            })();
+
+            const mergedProdsMap = new Map<string, CustomProduct>();
+            localSavedProds.forEach(p => { if (p && p.id) mergedProdsMap.set(p.id, p); });
+            cloudProds.forEach(p => { if (p && p.id) mergedProdsMap.set(p.id, p); });
+            const finalProds = Array.from(mergedProdsMap.values());
+
+            const localSavedStock = (() => {
+              try {
+                const s = localStorage.getItem("pdv_product_stock_data");
+                return s ? JSON.parse(s) : {};
+              } catch { return {}; }
+            })();
+            const finalStock = { ...localSavedStock, ...cloudStock };
+
             setTransactions(cloudTxs);
             setInitialCash(cloudCash);
             setTempInitialCash(cloudCash.toString().replace(".", ","));
             setOpeningFloatInput(cloudCash.toFixed(2).replace(".", ","));
-            setCustomProducts(cloudProds);
+            setCustomProducts(finalProds);
             setProductOverrides(cloudOverrides);
             setCustomNiches(cloudNiches);
-            setProductStockData(cloudStock);
+            setProductStockData(finalStock);
             setOwnerPin(cloudOwnerPin);
             setSecurityActive(cloudSecurityActive);
             setReconciliationLogs(cloudReconciliations);
@@ -3215,17 +3701,21 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
             saveToLocalStorage(
               cloudTxs, 
               cloudCash, 
-              cloudProds, 
+              finalProds, 
               selectedNiche, 
               cloudOverrides, 
               cloudNiches, 
-              cloudStock, 
+              finalStock, 
               cloudOwnerPin, 
               cloudSecurityActive, 
               cloudIsRegisterOpen,
               migratedStaff,
               cloudPerms
             );
+
+            if (finalProds.length > cloudProds.length) {
+              pushToCloud(cloudTxs, cloudCash, finalProds, cloudOverrides, cloudNiches, finalStock, cloudOwnerPin, cloudSecurityActive, cloudReconciliations, cloudIsRegisterOpen, migratedStaff, cloudPerms);
+            }
           }
         }
       } catch (error) {
@@ -3361,59 +3851,126 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   // --- Barcode Scanner Handler & Mock Database ---
   const handleBarcodeScanned = useCallback((code: string) => {
-    // 1. Search custom products first
-    const matchCustom = customProducts.find(p => p.barcode === code || (p.additionalBarcodes && p.additionalBarcodes.includes(code)));
+    const cleanCode = code.trim();
+    if (!cleanCode) return;
+
+    // 1. Search custom products: barcode, quickCode (up to 4 digits), additionalBarcodes, ID or exact name
+    const matchCustom = customProducts.find(p => {
+      if (p.barcode && (p.barcode.trim() === cleanCode || p.barcode.trim().toLowerCase() === cleanCode.toLowerCase())) return true;
+      if (p.additionalBarcodes && p.additionalBarcodes.some(b => b.trim() === cleanCode || b.trim().toLowerCase() === cleanCode.toLowerCase())) return true;
+      if (p.id && (p.id === cleanCode || p.id.toLowerCase() === cleanCode.toLowerCase())) return true;
+      if (p.name && p.name.trim().toLowerCase() === cleanCode.toLowerCase()) return true;
+      if (p.quickCode) {
+        const qk = p.quickCode.trim();
+        if (qk === cleanCode) return true;
+        if (cleanCode.length <= 4 && qk.padStart(4, "0") === cleanCode.padStart(4, "0")) return true;
+        if (cleanCode.replace(/^0+/, "") === qk.replace(/^0+/, "")) return true;
+      }
+      return false;
+    });
+
     if (matchCustom) {
-      handleAddToCart(matchCustom.name, matchCustom.price, matchCustom.id);
+      handleAddToCart(matchCustom.name, matchCustom.price, matchCustom.id, {
+        size: matchCustom.size,
+        color: matchCustom.color,
+        unit: matchCustom.unit,
+        quickCode: matchCustom.quickCode,
+        description: matchCustom.description,
+        brand: matchCustom.brand
+      });
       showNotification(`Item adicionado: ${matchCustom.name.toUpperCase()} 🛒✅`, "success");
       setIsScannerOpen(false);
       return;
     }
 
-    // 2. Or search active default products for matches or simulation keys
-    const demoCatalogMatches: Record<string, { name: string; price: number }> = {
-      "7891000100101": { name: "Refrigerante Lata", price: 5.50 },
-      "7892000200202": { name: "Cerveja Pilsen Lata", price: 7.90 },
-      "7893000300303": { name: "Água Mineral Sem Gás", price: 3.00 },
+    // 2. Or search active default products / quick codes demo
+    const demoCatalogMatches: Record<string, { name: string; price: number; unit?: string; size?: string; quickCode?: string }> = {
+      "7891000100101": { name: "Refrigerante Lata", price: 5.50, size: "350ml", unit: "un" },
+      "7892000200202": { name: "Cerveja Pilsen Lata", price: 7.90, size: "350ml", unit: "un" },
+      "7893000300303": { name: "Água Mineral Sem Gás", price: 3.00, size: "500ml", unit: "un" },
+      "0101": { name: "Pão Francês Tradicional", price: 1.20, unit: "un", size: "50g", quickCode: "0101" },
+      "0102": { name: "Pão de Queijo Mineiro", price: 2.50, unit: "un", size: "80g", quickCode: "0102" },
+      "1213": { name: "Cigarro Box", price: 12.00, unit: "un", quickCode: "1213" },
     };
 
-    const demoMatch = demoCatalogMatches[code];
+    const demoMatch = demoCatalogMatches[cleanCode] || (cleanCode.length <= 4 ? demoCatalogMatches[cleanCode.padStart(4, "0")] : undefined);
     if (demoMatch) {
-      handleAddToCart(demoMatch.name, demoMatch.price);
+      handleAddToCart(demoMatch.name, demoMatch.price, undefined, {
+        size: demoMatch.size,
+        unit: demoMatch.unit,
+        quickCode: demoMatch.quickCode
+      });
       showNotification(`Item adicionado: ${demoMatch.name.toUpperCase()} 🛒✅`, "success");
       setIsScannerOpen(false);
       return;
     }
 
-    // 3. Not found: show warning and pre-fill custom product register form
-    showNotification(`Código de barras "${code}" não cadastrado!`, "warning");
-    setNewProdBarcode(code);
-    setIsCreatingProduct(true);
+    // 3. Not found: Open Quick Register modal (4-digits / fast sale without authorization lock!)
+    showNotification(`Código "${cleanCode}" não cadastrado! Abrindo Venda Rápida sem travar... ⚡`, "info");
+    setQuickRegCode(cleanCode);
+    setQuickRegName("");
+    setQuickRegPrice("");
+    setQuickRegQty("1");
+    setIsQuickRegisterModalOpen(true);
     setIsScannerOpen(false);
   }, [customProducts]);
 
-  // Barcode Scanner Camera Mount Effect
+  const handleRequestScannerPermissionInPDV = async () => {
+    setScanningError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } }
+      });
+      stream.getTracks().forEach(t => t.stop());
+      const devices = await Html5Qrcode.getCameras();
+      if (devices && devices.length > 0) {
+        // Filter strictly to rear / back cameras
+        const rearCams = devices.filter(d => {
+          const l = (d.label || "").toLowerCase();
+          return !l.includes("front") && !l.includes("user") && !l.includes("selfie") && !l.includes("frontal");
+        });
+        const finalCams = rearCams.length > 0 ? rearCams : devices;
+        setAvailableCameras(finalCams);
+        const rear = finalCams.find(d => {
+          const l = (d.label || "").toLowerCase();
+          return l.includes("back") || l.includes("traseir") || l.includes("rear") || l.includes("environment");
+        }) || finalCams[0];
+        if (rear) setSelectedCameraId(rear.id);
+      }
+      setScannerRetryKey(prev => prev + 1);
+      showNotification("Câmera traseira liberada com sucesso! 📸✅", "success");
+    } catch (err) {
+      console.warn("Permission request error:", err);
+      setScanningError("Acesso à câmera bloqueado. No celular, toque no ícone de cadeado 🔒 na barra do navegador (topo da tela) e selecione 'Permitir'.");
+    }
+  };
+
+  // Barcode Scanner Camera Mount Effect - REAR CAMERA ONLY
   useEffect(() => {
     let isMounted = true;
 
     if (isScannerOpen) {
-      // Query cameras for notebooks/desktop selection support
+      // Query cameras silently and prioritize back/rear camera strictly
       Html5Qrcode.getCameras().then(devices => {
         if (isMounted && devices && devices.length > 0) {
-          setAvailableCameras(devices);
+          const rearOnly = devices.filter(d => {
+            const label = (d.label || "").toLowerCase();
+            return !label.includes("front") && !label.includes("user") && !label.includes("selfie") && !label.includes("frontal");
+          });
+          const safeDevices = rearOnly.length > 0 ? rearOnly : devices;
+          setAvailableCameras(safeDevices);
           if (!selectedCameraId) {
-            // Pick rear camera first! Look for back/traseira/rear/environment
-            const rearCamera = devices.find(d => {
+            const rearCamera = safeDevices.find(d => {
               const label = (d.label || "").toLowerCase();
               return label.includes("back") || label.includes("traseir") || label.includes("rear") || label.includes("environment");
-            });
+            }) || safeDevices[0];
             if (rearCamera) {
               setSelectedCameraId(rearCamera.id);
             }
           }
         }
-      }).catch(err => {
-        console.warn("Failed to retrieve system cameras:", err);
+      }).catch(() => {
+        // Silent catch: camera permission will be prompted upon scanner.start()
       });
     } else {
       setAvailableCameras([]);
@@ -3447,24 +4004,27 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
               Html5QrcodeSupportedFormats.CODABAR,
               Html5QrcodeSupportedFormats.QR_CODE
             ],
+            experimentalFeatures: {
+              useBarCodeDetectorIfSupported: true
+            },
             verbose: false
           });
 
           html5QrCodeRef.current = scanner;
           scannerInstance = scanner;
 
-          // Decide camera start configuration: deviceId or default environment-facing mode
+          // Camera start configuration: strictly rear camera
           const cameraConfig = selectedCameraId 
             ? { deviceId: { exact: selectedCameraId } }
-            : { facingMode: "environment" };
+            : { facingMode: { ideal: "environment" } };
 
           scanner.start(
             cameraConfig,
             {
               fps: 30, // 30 FPS for fast and ultra-smooth reading frames
               qrbox: (width: number, height: number) => {
-                const boxWidth = Math.min(width * 0.9, 290);
-                const boxHeight = Math.min(height * 0.55, 140);
+                const boxWidth = Math.floor(width * 0.94);
+                const boxHeight = Math.floor(height * 0.86);
                 return { width: boxWidth, height: boxHeight };
               },
               aspectRatio: 1.333333
@@ -3487,71 +4047,36 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
             },
             () => {}
           ).catch((err: any) => {
-            console.warn("First scanner start failed, triggering fallback...", err);
+            console.warn("First scanner start with exact device failed, retrying with environment facingMode...", err);
             
-            // If we attempted with selectedCameraId or environment mode and it failed, try the first camera listed
-            if (!selectedCameraId) {
-              Html5Qrcode.getCameras().then(devices => {
-                if (isMounted && devices && devices.length > 0) {
-                  setAvailableCameras(devices);
-                  setSelectedCameraId(devices[0].id);
-                } else {
-                  // Final fallback to generic user camera
-                  scanner.start(
-                    { facingMode: "user" },
-                    {
-                      fps: 30,
-                      qrbox: (width: number, height: number) => {
-                        const boxWidth = Math.min(width * 0.9, 290);
-                        const boxHeight = Math.min(height * 0.55, 140);
-                        return { width: boxWidth, height: boxHeight };
-                      },
-                      aspectRatio: 1.333333
-                    },
-                    (decodedText: string) => {
-                      if (isMounted) handleBarcodeScanned(decodedText);
-                    },
-                    () => {}
-                  ).catch((finalErr: any) => {
-                    console.error("All camera setups failed:", finalErr);
-                    if (isMounted) {
-                      setScanningError("Não foi possível acessar a câmera do dispositivo. Verifique permissões.");
-                    }
-                  });
+            // NEVER switch to front/user camera! Always keep environment/rear
+            if (isMounted) {
+              scanner.start(
+                { facingMode: "environment" },
+                {
+                  fps: 30,
+                  qrbox: (width: number, height: number) => ({
+                    width: Math.floor(width * 0.94),
+                    height: Math.floor(height * 0.86)
+                  }),
+                  aspectRatio: 1.333333
+                },
+                (decodedText: string) => {
+                  if (isMounted) handleBarcodeScanned(decodedText);
+                },
+                () => {}
+              ).catch((finalErr: any) => {
+                console.error("All rear camera setups failed:", finalErr);
+                if (isMounted) {
+                  setScanningError("Acesso à câmera traseira não concedido. No celular, toque no cadeado 🔒 na barra do navegador (topo da tela) para permitir a Câmera.");
                 }
-              }).catch(() => {
-                // If getCameras list rejected, fallback immediately to user-facing mode
-                scanner.start(
-                  { facingMode: "user" },
-                  {
-                    fps: 30,
-                    qrbox: (width: number, height: number) => {
-                      const boxWidth = Math.min(width * 0.9, 290);
-                      const boxHeight = Math.min(height * 0.55, 140);
-                      return { width: boxWidth, height: boxHeight };
-                    },
-                    aspectRatio: 1.333333
-                  },
-                  (decodedText: string) => {
-                    if (isMounted) handleBarcodeScanned(decodedText);
-                  },
-                  () => {}
-                ).catch(() => {
-                  if (isMounted) {
-                    setScanningError("Não foi possível acessar a câmera do dispositivo.");
-                  }
-                });
               });
-            } else {
-              if (isMounted) {
-                setScanningError("Não foi possível carregar a câmera selecionada.");
-              }
             }
           });
         } catch (e) {
           console.error("Scanner failed to initialize:", e);
         }
-      }, 500);
+      }, 250);
 
       return () => {
         isMounted = false;
@@ -3577,7 +4102,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
                 } catch (e) {
                   console.log("Deferred clear error:", e);
                 }
-              }, 800);
+              }, 400);
             }
           } catch (e) {
             console.log("Scanner cleanup error:", e);
@@ -3599,7 +4124,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         }
       }
     }
-  }, [isScannerOpen, selectedCameraId, handleBarcodeScanned]);
+  }, [isScannerOpen, selectedCameraId, scannerRetryKey, handleBarcodeScanned]);
 
   // Ref to hold the latest values for global keydown handler to prevent stale closures and frequent listener re-creation
   const globalKeyDownRefs = useRef({
@@ -3852,7 +4377,13 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     
     if (tx.items && tx.items.length > 0) {
       tx.items.forEach(item => {
-        text += `- ${item.quantity}x ${item.name.toUpperCase()} (${formatCurrency(item.price)}): *${formatCurrency(item.price * item.quantity)}*\n`;
+        const specs = [item.size, item.color, item.description].filter(Boolean).join(" - ");
+        const unitLabel = item.unit ? ` ${item.unit}` : " un";
+        text += `- ${item.quantity}${unitLabel} x ${item.name.toUpperCase()}`;
+        if (specs) {
+          text += ` (${specs})`;
+        }
+        text += ` [${formatCurrency(item.price)}]: *${formatCurrency(item.price * item.quantity)}*\n`;
       });
     } else {
       text += `${tx.description}\n`;
@@ -3872,99 +4403,30 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   };
 
   const handlePrintReceiptWindow = (tx: PDVTransaction) => {
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      showNotification("Por favor, ative as permissões de pop-up para imprimir!", "error");
-      return;
-    }
+    const effectiveConfig: PrinterConfig = {
+      ...printerConfig,
+      printerType,
+      storeName: storeCustomName || storeName || (selectedNiche ? selectedNiche.toUpperCase().replace("_", " ") : "ESTABELECIMENTO COMERCIAL"),
+      storeCnpjCpf: storeCustomCnpjCpf || storeCnpjCpf || "",
+      receiptFooterMsg: receiptFooterMsg || "Obrigado pela preferência! Volte sempre! 🛒✨"
+    };
 
-    const itemsHtml = (tx.items || []).map(item => `
-      <tr>
-        <td style="padding: 4px 0; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name.toUpperCase()} (x${item.quantity})</td>
-        <td style="padding: 4px 0; text-align: right;">${formatCurrency(item.price)}</td>
-        <td style="padding: 4px 0; text-align: right; font-weight: bold;">${formatCurrency(item.price * item.quantity)}</td>
-      </tr>
-    `).join("");
+    const fullHtml = buildThermalReceiptHtml({
+      tx,
+      config: effectiveConfig,
+      isTest: false
+    });
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Cupom - ${tx.id}</title>
-          <style>
-            @page { size: auto; margin: 0; }
-            body {
-              font-family: 'Courier New', Courier, monospace;
-              width: ${printerType === "58mm" ? "58mm" : "80mm"};
-              margin: 0 auto;
-              padding: 10px;
-              font-size: 11px;
-              color: #000;
-              background: #fff;
-            }
-            .text-center { text-align: center; }
-            .border-dashed { border-top: 1px dashed #000; margin: 8px 0; }
-            .table-products { width: 100%; border-collapse: collapse; margin-top: 5px; }
-            .bold { font-weight: bold; }
-          </style>
-        </head>
-        <body onload="window.print(); window.close();">
-          <div class="text-center">
-            <h3 style="margin: 0; font-size: 13px;">${storeName || selectedNiche.toUpperCase().replace("_", " ")}</h3>
-            <p style="margin: 4px 0; font-weight: bold;">CUPOM DE VENDA / REGISTRO FISCAL</p>
-            ${storeCnpjCpf ? `<p style="margin: 2px 0; font-size: 9px; font-weight: bold;">CNPJ/CPF: ${storeCnpjCpf}</p>` : ""}
-            <p style="margin: 2px 0; font-size: 9px;">Data da Venda: ${tx.date}</p>
-            <p style="margin: 2px 0; font-size: 9px; font-weight: bold;">IMPRESSÃO: ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR")}</p>
-            <p style="margin: 2px 0; font-size: 9px;">ID: ${tx.id}</p>
-          </div>
-          <div class="border-dashed"></div>
-          <table class="table-products">
-            <thead>
-              <tr style="border-bottom: 1px dashed #000;">
-                <th style="text-align: left;">ITEM</th>
-                <th style="text-align: right;">V.UN</th>
-                <th style="text-align: right;">TOTAL</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemsHtml || `<tr><td colspan="3">${tx.description}</td></tr>`}
-            </tbody>
-          </table>
-          <div class="border-dashed"></div>
-          <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px;">
-            <span>FORMA PAGTO:</span>
-            <span>${tx.paymentMethod.toUpperCase().replace("_", " ")}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 13px;">
-            <span>TOTAL:</span>
-            <span>${formatCurrency(tx.amount)}</span>
-          </div>
-          ${tx.paymentMethod === "dinheiro" && tx.amountPaid && tx.amountPaid > 0 ? `
-          <div style="display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px; color: #333;">
-            <span>VALOR RECEBIDO:</span>
-            <span>${formatCurrency(tx.amountPaid)}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 12px; color: #000; margin-top: 2px;">
-            <span>TROCO A DEVOLVER:</span>
-            <span>${formatCurrency(tx.changeAmount || 0)}</span>
-          </div>
-          ` : ""}
-          <div class="border-dashed"></div>
-          <!-- QR Code de Autenticação / Consulta do Cupom Fiscal -->
-          <div style="text-align: center; margin: 10px 0;">
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`CUPOM:${tx.id}|CNPJ:${storeCnpjCpf || 'ISENTO'}|VALOR:R$${tx.amount.toFixed(2)}|DATA:${tx.date}`)}" style="width: 100px; height: 100px; margin: 0 auto; display: block;" alt="QR Code Cupom Fiscal" />
-            <p style="font-size: 8px; margin: 3px 0 0 0; color: #555;">QR CODE DE CONSULTA & AUTENTICAÇÃO DO CUPOM</p>
-          </div>
-          <div class="border-dashed"></div>
-          <div class="text-center" style="font-size: 9px; margin-top: 8px;">
-            <p style="margin: 0; font-weight: bold;">${receiptFooterMsg || "Obrigado pela preferência! Volte sempre! 🛒✨"}</p>
-            <p style="margin: 4px 0 0 0; font-size: 8px; color: #666;">SISTEMA COMERCIAL PROTEGIDO 🛡️</p>
-          </div>
-          <!-- Comando silencioso para abertura de gaveta em impressoras spooler que suportam ESC/POS (27, 112, 0, 25, 250) -->
-          <span style="font-size: 0px; color: transparent; user-select: none;">&#27;&#112;&#0;&#25;&#250;</span>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    executeThermalPrint(
+      fullHtml,
+      () => {
+        showNotification("Enviando cupom para a impressora bobina... 🖨️✨", "success");
+      },
+      (err) => {
+        console.warn("Falha ao imprimir:", err);
+        showNotification("Não foi possível acionar a impressora automaticamente. Verifique as permissões de impressão do navegador.", "warning");
+      }
+    );
   };
 
   // --- PIN Lock Modal Handlers ---
@@ -4334,13 +4796,50 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   };
 
   // --- Cart handling ---
-  const handleAddToCart = (name: string, price: number, productId?: string) => {
+  const handleAddToCart = (
+    name: string, 
+    price: number, 
+    productId?: string, 
+    extra?: { size?: string; color?: string; unit?: string; quickCode?: string; description?: string; brand?: string },
+    customQty?: number
+  ) => {
+    const qtyToAdd = customQty && customQty > 0 ? customQty : 1;
+    const prod = customProducts.find(p => (productId && p.id === productId) || p.name.toUpperCase() === name.toUpperCase());
+
+    const finalSize = extra?.size ?? prod?.size;
+    const finalColor = extra?.color ?? prod?.color;
+    const finalUnit = extra?.unit ?? prod?.unit ?? "un";
+    const finalQuickCode = extra?.quickCode ?? prod?.quickCode;
+    const finalDesc = extra?.description ?? prod?.description;
+    const finalBrand = extra?.brand ?? prod?.brand;
+
     setCart(prev => {
       const exists = prev.find(item => item.name === name || (productId && item.productId === productId));
       if (exists) {
-        return prev.map(item => (item.name === name || (productId && item.productId === productId)) ? { ...item, quantity: item.quantity + 1 } : item);
+        return prev.map(item => (item.name === name || (productId && item.productId === productId)) ? { 
+          ...item, 
+          quantity: item.quantity + qtyToAdd,
+          size: item.size || finalSize,
+          color: item.color || finalColor,
+          unit: item.unit || finalUnit,
+          quickCode: item.quickCode || finalQuickCode,
+          description: item.description || finalDesc,
+          brand: item.brand || finalBrand
+        } : item);
       }
-      return [...prev, { id: "cart_" + Date.now() + "_" + Math.floor(Math.random() * 1000), productId, name, price, quantity: 1 }];
+      return [...prev, { 
+        id: "cart_" + Date.now() + "_" + Math.floor(Math.random() * 1000), 
+        productId, 
+        name, 
+        price, 
+        quantity: qtyToAdd,
+        size: finalSize,
+        color: finalColor,
+        unit: finalUnit,
+        quickCode: finalQuickCode,
+        description: finalDesc,
+        brand: finalBrand
+      }];
     });
     showNotification(`+1 "${name.toUpperCase()}" colocado na comanda! 🛒`, "success");
   };
@@ -4390,6 +4889,96 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
     showNotification(`Item atualizado: ${parsedQty}x por ${formatCurrency(parsedPrice)}! (O preço do cadastro continua protegido) 🛒✨`, "success");
     setEditingCartItem(null);
+  };
+
+  // --- Gerador automático de código de 4 dígitos para modal de Venda Rápida ---
+  const handleGenerateModalQuickCode = () => {
+    const existing = new Set(customProducts.map(p => p.quickCode).filter(Boolean));
+    for (let i = 101; i <= 9999; i++) {
+      const cand = i.toString().padStart(4, "0");
+      if (!existing.has(cand)) {
+        setQuickRegCode(cand);
+        showNotification(`Código de 4 dígitos gerado: ${cand} ⚡`, "success");
+        return;
+      }
+    }
+    const fallback = Math.floor(1000 + Math.random() * 9000).toString();
+    setQuickRegCode(fallback);
+  };
+
+  // --- Lançamento e Venda Rápida sem bloqueio ou autorizador (4 dígitos) ---
+  const handleQuickSaleRegister = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!quickRegName.trim()) {
+      showNotification("Por favor, informe ao menos o nome do produto!", "error");
+      return;
+    }
+    const priceParsed = parsePortugueseNumber(quickRegPrice);
+    if (priceParsed <= 0) {
+      showNotification("Informe um preço de venda válido maior que zero!", "error");
+      return;
+    }
+    const qtyParsed = parseFloat(quickRegQty.replace(",", ".")) || 1;
+    let cleanCode = quickRegCode.trim();
+    if (!cleanCode) {
+      const existing = new Set(customProducts.map(p => p.quickCode).filter(Boolean));
+      for (let i = 101; i <= 9999; i++) {
+        const cand = i.toString().padStart(4, "0");
+        if (!existing.has(cand)) {
+          cleanCode = cand;
+          break;
+        }
+      }
+      if (!cleanCode) cleanCode = Math.floor(1000 + Math.random() * 9000).toString();
+    }
+
+    const newProdId = "cp_quick_" + Date.now() + "_" + Math.floor(Math.random() * 100);
+    const newProd: CustomProduct = {
+      id: newProdId,
+      name: quickRegName.trim(),
+      price: priceParsed,
+      niche: selectedNiche,
+      category: "Outros",
+      barcode: cleanCode,
+      quickCode: cleanCode.length <= 4 ? cleanCode : undefined,
+      unit: quickRegUnit || "un",
+      description: "Cadastrado via Venda Rápida no Balcão"
+    };
+
+    const nextProds = [...customProducts, newProd];
+    const nextStock = {
+      ...productStockData,
+      [newProdId]: {
+        costPrice: 0,
+        stockQty: 100,
+        minStockAlert: 5,
+        salesCount: 0
+      }
+    };
+
+    setCustomProducts(nextProds);
+    setProductStockData(nextStock);
+    try {
+      localStorage.setItem("pdv_custom_products", JSON.stringify(nextProds));
+      localStorage.setItem("pdv_product_stock_data", JSON.stringify(nextStock));
+    } catch (err) {
+      console.warn("Erro ao salvar produto rápido no localStorage:", err);
+    }
+    saveToLocalStorage(transactions, initialCash, nextProds, selectedNiche, productOverrides, customNiches, nextStock);
+    pushToCloud(transactions, initialCash, nextProds, productOverrides, customNiches, nextStock);
+
+    // Adiciona direto ao carrinho sem travar a venda
+    handleAddToCart(newProd.name, newProd.price, newProd.id, {
+      unit: newProd.unit,
+      quickCode: newProd.quickCode
+    }, qtyParsed);
+
+    showNotification(`Item "${newProd.name.toUpperCase()}" (#${cleanCode}) registrado e adicionado à venda! ⚡🛍️`, "success");
+    setIsQuickRegisterModalOpen(false);
+    setQuickRegCode("");
+    setQuickRegName("");
+    setQuickRegPrice("");
+    setQuickRegQty("1");
   };
 
   const handleRemoveFromCart = (id: string, name: string) => {
@@ -4488,6 +5077,30 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         showNotification("Para vendas no FIADO / CADERNETA, é OBRIGATÓRIO identificar o nome do cliente! 👤📕", "error");
         return;
       }
+    } else if (splitPaymentEnabled) {
+      const cashPart = parsePortugueseNumber(splitCashAmount || "0") || 0;
+      const secPart = parsePortugueseNumber(splitSecondaryAmount || "0") || 0;
+      if (Math.abs((cashPart + secPart) - cartTotal) > 0.05) {
+        showNotification(`A soma das 2 formas (${formatCurrency(cashPart + secPart)}) deve ser exatamente igual ao total de ${formatCurrency(cartTotal)}!`, "error");
+        return;
+      }
+      if (amountPaidByClient.trim()) {
+        const cashDelivered = parsePortugueseNumber(amountPaidByClient);
+        if (!isNaN(cashDelivered) && cashDelivered < cashPart) {
+          showNotification(`O valor entregue em cédulas (${formatCurrency(cashDelivered)}) é menor que a parte em dinheiro (${formatCurrency(cashPart)})!`, "error");
+          return;
+        }
+      }
+    } else if (cartPaymentMethod === "dinheiro") {
+      if (!amountPaidByClient.trim()) {
+        showNotification("Para pagamentos em DINHEIRO, informe o valor entregue pelo cliente para calcular o troco!", "warning");
+        return;
+      }
+      const numPaid = parsePortugueseNumber(amountPaidByClient);
+      if (isNaN(numPaid) || numPaid < cartTotal) {
+        showNotification(`O valor pago (${formatCurrency(numPaid)}) está abaixo do total de ${formatCurrency(cartTotal)}!`, "error");
+        return;
+      }
     } else {
       if (amountPaidByClient && parsePortugueseNumber(amountPaidByClient) < cartTotal) {
         showNotification(`O valor pago está abaixo do total de ${formatCurrency(cartTotal)}!`, "error");
@@ -4519,6 +5132,12 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       desc += ` | DESC: -${formatCurrency(finalDiscount)}`;
     }
 
+    if (splitPaymentEnabled) {
+      const cashPart = parsePortugueseNumber(splitCashAmount || "0") || 0;
+      const secPart = parsePortugueseNumber(splitSecondaryAmount || "0") || 0;
+      desc += ` | PAGAMENTO DIVIDIDO: ${formatCurrency(cashPart)} em DINHEIRO + ${formatCurrency(secPart)} em ${splitSecondaryMethod.toUpperCase().replace("_", " ")}`;
+    }
+
     const debtAmount = cartTotal - upfrontAmount;
     if (upfrontAmount > 0) {
       desc += ` | PARCIAL FIADO: DEVE ${formatCurrency(debtAmount)} (SINAL PAGO: ${formatCurrency(upfrontAmount)} VIA ${fiadoUpfrontMethod.toUpperCase()})`;
@@ -4529,24 +5148,42 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       ? new Date(retroactiveSaleDate + "T12:00:00").toLocaleString("pt-BR") 
       : new Date().toLocaleString("pt-BR");
 
-    const feeDetails = getTransactionFeeDetails("entrada", debtAmount, cartPaymentMethod);
+    const feeDetails = getTransactionFeeDetails("entrada", debtAmount, splitPaymentEnabled ? splitSecondaryMethod : cartPaymentMethod);
 
     const clientPaidNum = amountPaidByClient ? parsePortugueseNumber(amountPaidByClient) : undefined;
-    const finalChangeNum = clientPaidNum !== undefined && clientPaidNum >= cartTotal ? (clientPaidNum - cartTotal) : undefined;
+    let finalChangeNum: number | undefined = undefined;
+    if (splitPaymentEnabled) {
+      const cashPart = parsePortugueseNumber(splitCashAmount || "0") || 0;
+      if (clientPaidNum !== undefined && clientPaidNum >= cashPart) {
+        finalChangeNum = clientPaidNum - cashPart;
+      }
+    } else if (cartPaymentMethod === "dinheiro") {
+      finalChangeNum = clientPaidNum !== undefined && clientPaidNum >= cartTotal ? (clientPaidNum - cartTotal) : undefined;
+    }
 
     const newTx: PDVTransaction = {
       id: "pdv_tx_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
       type: "entrada",
       amount: debtAmount, // only record the remaining debt as fiado!
       description: desc,
-      paymentMethod: cartPaymentMethod,
+      paymentMethod: splitPaymentEnabled ? "dinheiro" : cartPaymentMethod,
       category: "venda",
       date: saleDateStr,
       timestamp: saleTimestamp,
       clientName: clientName.trim() || undefined,
-      items: cart.map(item => ({ name: item.name, price: item.price, quantity: item.quantity })),
-      amountPaid: cartPaymentMethod === "dinheiro" ? clientPaidNum : undefined,
-      changeAmount: cartPaymentMethod === "dinheiro" ? finalChangeNum : undefined,
+      items: cart.map(item => ({ 
+        name: item.name, 
+        price: item.price, 
+        quantity: item.quantity,
+        size: item.size,
+        color: item.color,
+        unit: item.unit,
+        quickCode: item.quickCode,
+        description: item.description,
+        brand: item.brand
+      })),
+      amountPaid: (cartPaymentMethod === "dinheiro" || splitPaymentEnabled) ? clientPaidNum : undefined,
+      changeAmount: (cartPaymentMethod === "dinheiro" || splitPaymentEnabled) ? finalChangeNum : undefined,
       ...feeDetails
     };
 
@@ -4617,7 +5254,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, updatedStock);
     pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, updatedStock);
 
-    // Reset Cart and form states
+    // Reset Cart and form states for the active cart slot
     setCart([]);
     setDiscountPercent(0);
     setDiscountPercentStr("");
@@ -4627,6 +5264,46 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     setAmountPaidByClient("");
     setFiadoUpfrontAmount("");
     setRetroactiveSaleDate("");
+    setSplitPaymentEnabled(false);
+    setSplitCashAmount("");
+    setSplitSecondaryAmount("");
+
+    if (activeCartSlot === 1) {
+      setSlot1Data({
+        cart: [],
+        clientName: "",
+        cartPaymentMethod: "dinheiro",
+        amountPaidByClient: "",
+        discountPercent: 0,
+        discountPercentStr: "",
+        discountValue: "",
+        splitPaymentEnabled: false,
+        splitCashAmount: "",
+        splitSecondaryMethod: "pix",
+        splitSecondaryAmount: ""
+      });
+      try {
+        localStorage.removeItem("pdv_cart_slot_1");
+        localStorage.removeItem("pdv_current_cart");
+      } catch {}
+    } else {
+      setSlot2Data({
+        cart: [],
+        clientName: "",
+        cartPaymentMethod: "dinheiro",
+        amountPaidByClient: "",
+        discountPercent: 0,
+        discountPercentStr: "",
+        discountValue: "",
+        splitPaymentEnabled: false,
+        splitCashAmount: "",
+        splitSecondaryMethod: "pix",
+        splitSecondaryAmount: ""
+      });
+      try {
+        localStorage.removeItem("pdv_cart_slot_2");
+      } catch {}
+    }
     
     if (cartPaymentMethod === "fiado") {
       if (upfrontAmount > 0) {
@@ -4634,17 +5311,162 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       } else {
         showNotification(`Venda de ${formatCurrency(cartTotal)} realizada com sucesso no FIADO de ${clientName || "Cliente"}! 📕🎯`, "success");
       }
+    } else if (splitPaymentEnabled) {
+      showNotification(`Venda de ${formatCurrency(cartTotal)} concluída com 2 FORMAS DE PAGAMENTO! ⚡🛒`, "success");
     } else {
       showNotification(`Venda de ${formatCurrency(cartTotal)} em ${cartPaymentMethod.toUpperCase().replace("_", " ")} realizada com sucesso! 🛒✅`, "success");
     }
     
-    // Se a venda for em Dinheiro ou houve entrada de dinheiro no fiado, destrava a gaveta de dinheiro!
-    if (cartPaymentMethod === "dinheiro" || (cartPaymentMethod === "fiado" && upfrontAmount > 0 && fiadoUpfrontMethod === "dinheiro")) {
+    // Se a venda for em Dinheiro, dividida com dinheiro ou entrada de fiado, destrava a gaveta de dinheiro!
+    const hasCashInSplit = splitPaymentEnabled && (parsePortugueseNumber(splitCashAmount || "0") || 0) > 0;
+    if (cartPaymentMethod === "dinheiro" || hasCashInSplit || (cartPaymentMethod === "fiado" && upfrontAmount > 0 && fiadoUpfrontMethod === "dinheiro")) {
       const trocoToGiveNow = finalChangeNum !== undefined ? finalChangeNum : 0;
       triggerCashDrawerOpen(trocoToGiveNow, clientPaidNum);
     }
 
+    setLastCompletedTransaction(newTx);
+    try {
+      localStorage.setItem("pdv_last_completed_transaction", JSON.stringify(newTx));
+    } catch (_) {}
     setReceiptToShow(newTx); // Automatically open simulated thermal printer dialog!
+    setSaleTransactionStep(4);
+
+    // Se configurado para imprimir automaticamente ao concluir a venda
+    if (printerConfig.autoPrintOnSale) {
+      setTimeout(() => {
+        handlePrintReceiptWindow(newTx);
+      }, 400);
+    }
+  };
+
+  // --- Reabrir Venda no Carrinho para Corrigir Erros ---
+  const handleCorrectLastSale = (targetTx?: PDVTransaction | null) => {
+    const txToCorrect = targetTx || receiptToShow || lastCompletedTransaction || transactions.find(t => t.type === "entrada" && !t.isDeleted && t.items && t.items.length > 0);
+    if (!txToCorrect || !txToCorrect.items || txToCorrect.items.length === 0) {
+      showNotification("Nenhuma venda recente para corrigir.", "warning");
+      return;
+    }
+
+    requestCustomConfirm(
+      "Corrigir Venda",
+      `Deseja reabrir os itens da venda "${txToCorrect.id}" no carrinho para fazer correções? A venda atual será cancelada do caixa e os itens voltarão ao carrinho para você ajustar quantidades, itens ou forma de pagamento.`,
+      () => {
+        // 1. Mark transaction as voided / deleted
+        const nextTxs = transactions.map(t => {
+          if (t.id === txToCorrect.id) {
+            return { ...t, isDeleted: true, deletedAt: Date.now(), voidReason: "Reaberta para correção" };
+          }
+          return t;
+        });
+
+        // 2. Restock items in inventory
+        let updatedStock = { ...productStockData };
+        txToCorrect.items?.forEach(item => {
+          const match = customProducts.find(p => p.name.toUpperCase() === item.name.toUpperCase());
+          if (match) {
+            const current = updatedStock[match.id] || { stockQty: 0 };
+            updatedStock[match.id] = {
+              ...current,
+              stockQty: (current.stockQty || 0) + item.quantity
+            };
+          }
+        });
+
+        setProductStockData(updatedStock);
+        setTransactions(nextTxs);
+        saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, updatedStock);
+        pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, updatedStock);
+
+        // 3. Restore cart
+        const restoredCart: CartItem[] = (txToCorrect.items || []).map((it, idx) => ({
+          id: it.id || `restored_${idx}_${Date.now()}`,
+          name: it.name,
+          price: it.price,
+          costPrice: it.costPrice || 0,
+          quantity: it.quantity,
+          unit: it.unit || "un",
+          category: it.category || "Geral",
+          quickCode: it.quickCode,
+          barcode: it.barcode,
+          size: it.size,
+          color: it.color,
+          description: it.description
+        }));
+        setCart(restoredCart);
+
+        // 4. Restore payment states
+        if (txToCorrect.clientName) setClientName(txToCorrect.clientName);
+        if (txToCorrect.paymentMethod) setCartPaymentMethod(txToCorrect.paymentMethod as any);
+        if (txToCorrect.amountPaid) setAmountPaidByClient(txToCorrect.amountPaid.toString());
+
+        // 5. Close receipt modal and move to Step 2 (Quantities & Review)
+        setReceiptToShow(null);
+        setSaleTransactionStep(2);
+        logRiskAction("Reabrir Venda", `Venda ID ${txToCorrect.id} reaberta no carrinho para correção`, { txId: txToCorrect.id });
+        showNotification("Venda reaberta no carrinho! Faça as alterações necessárias e conclua novamente. ✏️🛒", "success");
+      }
+    );
+  };
+
+  // --- Cancelar / Estornar Venda Diretamente do Cupom ---
+  const handleCancelSaleFromReceipt = (targetTx?: PDVTransaction | null) => {
+    const txToCancel = targetTx || receiptToShow || lastCompletedTransaction || transactions.find(t => t.type === "entrada" && !t.isDeleted && t.items && t.items.length > 0);
+    if (!txToCancel) {
+      showNotification("Nenhuma venda encontrada para cancelar.", "warning");
+      return;
+    }
+
+    executeSecureAction("Cancelar e Estornar Venda", () => {
+      requestCustomConfirm(
+        "Cancelar / Estornar Venda",
+        `Deseja realmente CANCELAR a venda de ${formatCurrency(txToCancel.amount)} (ID: ${txToCancel.id})? O lançamento será removido do saldo do caixa e os itens voltarão ao estoque.`,
+        () => {
+          const nextTxs = transactions.map(t => {
+            if (t.id === txToCancel.id) {
+              return { ...t, isDeleted: true, deletedAt: Date.now(), voidReason: "Cancelada pelo operador" };
+            }
+            return t;
+          });
+
+          let updatedStock = { ...productStockData };
+          if (txToCancel.items) {
+            txToCancel.items.forEach(item => {
+              const match = customProducts.find(p => p.name.toUpperCase() === item.name.toUpperCase());
+              if (match) {
+                const current = updatedStock[match.id] || { stockQty: 0 };
+                updatedStock[match.id] = {
+                  ...current,
+                  stockQty: (current.stockQty || 0) + item.quantity
+                };
+              }
+            });
+          }
+
+          setProductStockData(updatedStock);
+          setTransactions(nextTxs);
+          saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, updatedStock);
+          pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, updatedStock);
+
+          setReceiptToShow(null);
+          handleClearCart();
+          setSaleTransactionStep(1);
+          logRiskAction("Cancelar Venda", `Venda ID ${txToCancel.id} cancelada e estornada`, { txId: txToCancel.id, amount: txToCancel.amount });
+          showNotification(`Venda de ${formatCurrency(txToCancel.amount)} cancelada e estornada com sucesso! 🛡️`, "info");
+        }
+      );
+    }, "void_sale");
+  };
+
+  // --- Abrir Devolução / Troca de Itens da Venda ---
+  const handleOpenReturnFromReceipt = (targetTx?: PDVTransaction | null) => {
+    const tx = targetTx || receiptToShow || lastCompletedTransaction || transactions.find(t => t.type === "entrada" && !t.isDeleted && t.items && t.items.length > 0);
+    if (!tx) {
+      showNotification("Nenhuma venda encontrada para devolução de itens.", "warning");
+      return;
+    }
+    setReceiptToShow(null);
+    setActiveReturnTransaction(tx);
+    setIsReturnModalOpen(true);
   };
 
   // --- Create Custom Product ---
@@ -5264,8 +6086,8 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     });
   }, [transactions, searchQuery, filterType, filterMethod, filterCategory, showAllHistory]);
 
-  // --- active catalogue items ---
-  const activeProductsList = useMemo(() => {
+  // --- Base catalog items (Optimized: only recomputes when catalog or niche changes, NOT on every keystroke) ---
+  const baseAllProducts = useMemo(() => {
     const defaults = (defaultProductsByNiche[selectedNiche] || []).map((p, idx) => {
       const id = `def_${selectedNiche}_${idx}`;
       const override = productOverrides[id];
@@ -5309,8 +6131,12 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         isOverridden: !!override,
         category,
         barcode: p.barcode || "",
+        quickCode: p.quickCode,
+        unit: p.unit,
         size: p.size,
         color: p.color,
+        description: p.description,
+        brand: p.brand,
         additionalBarcodes: p.additionalBarcodes,
         validity: p.validity,
         imageUrl: p.imageUrl,
@@ -5318,21 +6144,44 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       };
     });
 
-    const allItems = [...defaults, ...customs];
-    let filtered = allItems;
-    if (selectedCategory !== "Todos") {
-      filtered = filtered.filter(p => p.category === selectedCategory);
-    }
+    return { defaults, customs, all: [...customs, ...defaults] };
+  }, [selectedNiche, customProducts, productOverrides]);
+
+  // --- Active catalogue items (Instant filtering & zero lag) ---
+  const activeProductsList = useMemo(() => {
+    const { customs, defaults, all } = baseAllProducts;
     if (catalogSearch.trim()) {
       const query = catalogSearch.toLowerCase().trim();
-      filtered = filtered.filter(p => 
-        p.name.toLowerCase().includes(query) || 
-        (p.barcode && p.barcode.toLowerCase().includes(query)) ||
-        ((p as any).additionalBarcodes && (p as any).additionalBarcodes.some((b: string) => b.toLowerCase().includes(query)))
-      );
+      // Search across ALL products (don't let category filter hide search matches!)
+      const filtered = all.filter(p => {
+        const nameMatch = p.name.toLowerCase().includes(query);
+        const barcodeMatch = p.barcode && p.barcode.toLowerCase().includes(query);
+        const quickMatch = (p as any).quickCode && (
+          (p as any).quickCode.toLowerCase() === query ||
+          (query.length <= 4 && (p as any).quickCode.padStart(4, "0") === query.padStart(4, "0")) ||
+          (p as any).quickCode.replace(/^0+/, "") === query.replace(/^0+/, "")
+        );
+        const addlMatch = (p as any).additionalBarcodes && (p as any).additionalBarcodes.some((b: string) => b.toLowerCase().includes(query));
+        return nameMatch || barcodeMatch || quickMatch || addlMatch;
+      });
+
+      // Sort exact quickCode match and custom products first
+      filtered.sort((a, b) => {
+        const aQuick = (a as any).quickCode && ((a as any).quickCode.padStart(4, "0") === query.padStart(4, "0") || (a as any).quickCode === query);
+        const bQuick = (b as any).quickCode && ((b as any).quickCode.padStart(4, "0") === query.padStart(4, "0") || (b as any).quickCode === query);
+        if (aQuick && !bQuick) return -1;
+        if (!aQuick && bQuick) return 1;
+        if (a.isCustom && !b.isCustom) return -1;
+        if (!a.isCustom && b.isCustom) return 1;
+        return 0;
+      });
+      return filtered;
+    } else if (selectedCategory !== "Todos") {
+      return all.filter(p => p.category === selectedCategory);
+    } else {
+      return all;
     }
-    return filtered;
-  }, [selectedNiche, customProducts, productOverrides, selectedCategory, catalogSearch]);
+  }, [baseAllProducts, selectedCategory, catalogSearch]);
 
   const cartProfitStats = useMemo(() => {
     let totalCost = 0;
@@ -5582,10 +6431,10 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     }, "add_product");
   };
 
-  // Dynamic counter of products per category
+  // Dynamic counter of products per category (Fast single loop over pre-computed base products)
   const categoryCounters = useMemo(() => {
     const counts: Record<string, number> = {
-      Todos: 0,
+      Todos: baseAllProducts.all.length,
       Alimentos: 0,
       Bebidas: 0,
       Limpeza: 0,
@@ -5593,24 +6442,9 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       Outros: 0
     };
 
-    const defaults = (defaultProductsByNiche[selectedNiche] || []).map((p, idx) => {
-      const id = `def_${selectedNiche}_${idx}`;
-      const override = productOverrides[id];
-      const finalName = override ? override.name : p.name;
-      return getDefaultCategoryForProduct(finalName, selectedNiche);
-    });
-
-    const customs = customProducts.filter(p => p.niche === selectedNiche).map(p => {
-      const id = p.id;
-      const override = productOverrides[id];
-      const finalName = override ? override.name : p.name;
-      return p.category || getDefaultCategoryForProduct(finalName, selectedNiche);
-    });
-
-    const allCats = [...defaults, ...customs];
-    counts["Todos"] = allCats.length;
-    allCats.forEach(cat => {
-      if (cat in counts) {
+    baseAllProducts.all.forEach(p => {
+      const cat = p.category || "Outros";
+      if (cat in counts && cat !== "Todos") {
         counts[cat]++;
       } else {
         counts["Outros"]++;
@@ -5618,7 +6452,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     });
 
     return counts;
-  }, [selectedNiche, customProducts, productOverrides]);
+  }, [baseAllProducts]);
 
   // --- Export PDF Report ---
   const handleExportPDF = (shareOnly: boolean = false) => {
@@ -6582,7 +7416,7 @@ Por favor, faça uma mentoria pragmática, clara e de fácil entendimento em por
 Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos elegantes e em formato markdown simplificado.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         contents: [
           { parts: [{ text: prompt }] }
         ]
@@ -11262,6 +12096,14 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 <Sliders className="w-3.5 h-3.5" />
                 <span>Painel do Proprietário 👑🔑</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setMentorshipTab("printer")}
+                className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center gap-1.5 ${mentorshipTab === "printer" ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20" : "text-emerald-400 hover:text-white hover:bg-emerald-500/10 border border-emerald-500/20"}`}
+              >
+                <Printer className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Bobinas & Impressoras 🖨️</span>
+              </button>
             </div>
             )}
 
@@ -12429,7 +13271,34 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     <Landmark className="w-3.5 h-3.5 text-amber-400" />
                     <span>Tributos Federais (DAS / Simples) 🏛️</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveConfigTab("printer")}
+                    className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer ${activeConfigTab === "printer" ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20" : "text-emerald-400 hover:text-white hover:bg-emerald-500/10 border border-emerald-500/20"}`}
+                  >
+                    <Printer className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>Bobinas & Impressoras 🖨️</span>
+                  </button>
                 </div>
+
+                {/* Tab Content: Bobinas & Impressoras Térmicas */}
+                {activeConfigTab === "printer" && (
+                  <PDVPrinterConfigView
+                    config={printerConfig}
+                    onSaveConfig={(newCfg) => {
+                      setPrinterConfig(newCfg);
+                      setPrinterType(newCfg.printerType);
+                      savePrinterConfig(newCfg);
+                      showNotification("Configurações da impressora salvas com sucesso! 🖨️💾", "success");
+                    }}
+                    showNotification={showNotification}
+                    onBackToSales={() => {
+                      setOpMode("venda");
+                      if (onSubTabChange) onSubTabChange(null);
+                    }}
+                    isEmbedded={true}
+                  />
+                )}
 
                 {/* Tab Content: Profile & Security */}
                 {activeConfigTab === "profile" && (
@@ -12446,6 +13315,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     isLoggedIn={isLoggedIn}
                     db={db}
                     refreshSecuritySettings={refreshSecuritySettings}
+                    onOpenPrinterConfig={() => setIsPrinterConfigModalOpen(true)}
                   />
                 )}
 
@@ -12708,6 +13578,42 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         />
                       </button>
                     </div>
+
+                    {/* Atalho de Segurança: Cofre do Token e Conta Bancária do Dono */}
+                    <div className="bg-gradient-to-r from-red-950/70 via-slate-950 to-purple-950/70 p-4 rounded-xl border border-red-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 shrink-0">
+                          <ShieldAlert className="w-5 h-5 text-red-400" />
+                        </div>
+                        <div className="space-y-0.5 text-left">
+                          <div className="flex items-center gap-2">
+                            <h5 className="text-xs font-black text-white uppercase tracking-wider font-sans">
+                              Cofre do Token do Proprietário & Conta Bancária
+                            </h5>
+                            {tokenVaultConfigured ? (
+                              <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider ${isTokenVaultUnlocked ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-red-500/20 text-red-300 border border-red-500/30"}`}>
+                                {isTokenVaultUnlocked ? "Cofre Aberto 🔓" : "Cofre Trancado 🔒"}
+                              </span>
+                            ) : (
+                              <span className="text-[8px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-black uppercase">
+                                Configurar PIN ⚠️
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[9.5px] text-slate-300 font-sans">
+                            Proteção máxima com CPF do titular e PIN exclusivo para impedir acesso ou desvio do Token do Mercado Pago e chave Pix.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveConfigTab("mercadopago")}
+                        className="px-4 py-2 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-black text-[10px] rounded-xl uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5 shrink-0"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        {tokenVaultConfigured ? (isTokenVaultUnlocked ? "Gerenciar Token no Cofre" : "Acessar Cofre do Token 🔒") : "Blindar Token com PIN 🛡️"}
+                      </button>
+                    </div>
                   </div>
                 </div>
                   </div>
@@ -12738,7 +13644,586 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     </div>
                   </div>
 
-                  {mpShowWizard ? (
+                  {/* 💡 GUIA DIDÁTICO INTERATIVO: TITULAR DA CONTA, TOKEN, PIX CELULAR E MAQUININHA */}
+                  <div className="bg-slate-900/80 border border-sky-500/20 rounded-2xl p-3.5 space-y-3 shadow-lg">
+                    <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+                      <div className="flex items-center gap-2 text-left">
+                        <div className="p-1.5 bg-sky-500/10 text-sky-400 rounded-lg">
+                          <Info className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-[11px] font-black text-white uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                            Guia Didático do Mercado Pago & Segurança Financeira
+                          </h4>
+                          <p className="text-[9px] text-slate-400 font-sans">
+                            Respostas diretas sobre titularidade do dinheiro, segurança do token, Pix no celular e maquininha
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowMpExplainer(!showMpExplainer)}
+                        className="px-2.5 py-1 bg-slate-950 hover:bg-slate-800 border border-white/10 rounded-lg text-[9px] font-black text-sky-400 hover:text-white uppercase tracking-wider cursor-pointer transition-all"
+                      >
+                        {showMpExplainer ? "Ocultar Guia" : "Ver Explicação"}
+                      </button>
+                    </div>
+
+                    {showMpExplainer && (
+                      <div className="space-y-3 text-left">
+                        {/* Tab Switcher */}
+                        <div className="flex flex-wrap gap-1 bg-slate-950 p-1 rounded-xl border border-white/5">
+                          <button
+                            type="button"
+                            onClick={() => setMpExplainerTab("titular")}
+                            className={`px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                              mpExplainerTab === "titular"
+                                ? "bg-sky-500 text-slate-950 shadow-md shadow-sky-500/20"
+                                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
+                            }`}
+                          >
+                            <Users className="w-3.5 h-3.5" />
+                            1. De Quem é a Conta e o Token?
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMpExplainerTab("seguranca")}
+                            className={`px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                              mpExplainerTab === "seguranca"
+                                ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20"
+                                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
+                            }`}
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            2. Segurança do Token
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMpExplainerTab("celular")}
+                            className={`px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                              mpExplainerTab === "celular"
+                                ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20"
+                                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
+                            }`}
+                          >
+                            <Smartphone className="w-3.5 h-3.5" />
+                            3. Pagar no Celular & Webhook
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMpExplainerTab("point")}
+                            className={`px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                              mpExplainerTab === "point"
+                                ? "bg-purple-500 text-slate-950 shadow-md shadow-purple-500/20"
+                                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
+                            }`}
+                          >
+                            <CreditCard className="w-3.5 h-3.5" />
+                            4. Maquininha Point de Cartão
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMpExplainerTab("config_curta")}
+                            className={`px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                              mpExplainerTab === "config_curta"
+                                ? "bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20"
+                                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
+                            }`}
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                            5. Configuração Curtinha
+                          </button>
+                        </div>
+
+                        {/* Content for TAB 1: De quem é a conta? Denise vs Wellington/Dono */}
+                        {mpExplainerTab === "titular" && (
+                          <div className="bg-slate-950/70 p-3.5 rounded-xl border border-white/5 space-y-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black text-sky-400 uppercase">
+                                💰 Para onde vai o dinheiro das compras e de quem deve ser o Token?
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[9.5px] font-sans">
+                              <div className="bg-slate-900/60 p-3 rounded-lg border border-sky-500/20 space-y-1.5">
+                                <span className="font-black text-sky-300 uppercase block flex items-center gap-1">
+                                  <Building className="w-3 h-3 text-sky-400" />
+                                  Dono do Estabelecimento (ex: Wellington)
+                                </span>
+                                <p className="text-slate-300 leading-relaxed">
+                                  O <strong>dono do comércio</strong> é quem deve abrir a conta no Mercado Pago (PF ou PJ). O <strong>Access Token</strong> ou a conexão rápida (OAuth) deve ser da conta dele. Assim, <strong>100% do dinheiro das vendas cai direto na conta bancária do Wellington</strong>!
+                                </p>
+                              </div>
+                              <div className="bg-slate-900/60 p-3 rounded-lg border border-amber-500/20 space-y-1.5">
+                                <span className="font-black text-amber-300 uppercase block flex items-center gap-1">
+                                  <User className="w-3 h-3 text-amber-400" />
+                                  Denise Jesus (Programadora & Criadora)
+                                </span>
+                                <p className="text-slate-300 leading-relaxed">
+                                  Você (Denise) é a <strong>engenheira/desenvolvedora</strong> do sistema. A sua conta de e-mail (denisejesusdasilva1988@gmail.com) <strong>NÃO</strong> deve receber o dinheiro das vendas da loja, a não ser que você seja a dona do estabelecimento. A tecnologia é sua, mas o dinheiro das compras pertence à conta do cliente/dono da loja.
+                                </p>
+                              </div>
+                            </div>
+                            <div className="bg-sky-500/10 border border-sky-500/20 p-2.5 rounded-lg text-[9px] text-sky-300 font-sans leading-relaxed">
+                              ✅ <strong>Resumo Prático:</strong> Cada comerciante conecta a conta <strong>DELE</strong> no Mercado Pago. O PDV funciona para qualquer cliente ou dono de loja independente!
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Content for TAB 2: Segurança do Token */}
+                        {mpExplainerTab === "seguranca" && (
+                          <div className="bg-slate-950/70 p-3.5 rounded-xl border border-white/5 space-y-2.5">
+                            <span className="text-xs font-black text-amber-400 uppercase block">
+                              🔐 Como proteger o Token e onde ele fica guardado?
+                            </span>
+                            <div className="space-y-2 text-[9.5px] font-sans text-slate-300 leading-relaxed">
+                              <p>
+                                1. <strong>O que é o Token:</strong> O <em>Access Token</em> (começa com <code className="text-amber-400 font-mono">APP_USR-...</code>) é uma credencial privada que autoriza o PDV a emitir cobranças Pix e consultar pagamentos em nome da conta.
+                              </p>
+                              <p>
+                                2. <strong>Onde ele é guardado:</strong> O sistema salva as credenciais com privacidade diretamente no armazenamento local protegido do navegador do computador do caixa (<code className="text-amber-400 font-mono">localStorage</code> privado) ou via conexão OAuth segura.
+                              </p>
+                              <p>
+                                3. <strong>Regra de Ouro:</strong> Nunca compartilhe o Token em grupos abertos de WhatsApp, comentários de redes sociais ou com clientes. Apenas o operador autorizado e o proprietário devem ter acesso.
+                              </p>
+                            </div>
+                            <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-lg text-[9px] text-emerald-300 font-sans">
+                              🛡️ <strong>Segurança Garantida:</strong> Mesmo se você reiniciar o computador, o token permanece salvo localmente sem ser enviado para terceiros.
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Content for TAB 3: Pagar pelo Celular via Pix, QR Code & Webhook */}
+                        {mpExplainerTab === "celular" && (
+                          <div className="bg-slate-950/70 p-3.5 rounded-xl border border-white/5 space-y-2.5">
+                            <span className="text-xs font-black text-emerald-400 uppercase block">
+                              📱 Como o cliente paga pelo celular usando QR Code e Webhook?
+                            </span>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[9px] font-sans">
+                              <div className="bg-slate-900/60 p-2.5 rounded-lg border border-white/5 space-y-1">
+                                <span className="font-black text-emerald-400 uppercase block">1. No PDV (Balcão)</span>
+                                <p className="text-slate-300 leading-relaxed">
+                                  O operador fecha o carrinho e escolhe <strong>Pix</strong>. O sistema gera na hora o <strong>QR Code Pix Dinâmico</strong> na tela do computador com o valor exato da compra.
+                                </p>
+                              </div>
+                              <div className="bg-slate-900/60 p-2.5 rounded-lg border border-white/5 space-y-1">
+                                <span className="font-black text-sky-400 uppercase block">2. No Celular do Cliente</span>
+                                <p className="text-slate-300 leading-relaxed">
+                                  O cliente abre qualquer aplicativo de banco no celular dele (Nubank, Mercado Pago, Inter, Itaú, BB, Caixa, etc.), aponta a câmera para o QR Code da tela e clica em pagar.
+                                </p>
+                              </div>
+                              <div className="bg-slate-900/60 p-2.5 rounded-lg border border-white/5 space-y-1">
+                                <span className="font-black text-purple-400 uppercase block">3. O Webhook Automático</span>
+                                <p className="text-slate-300 leading-relaxed">
+                                  Em 1 segundo, o Mercado Pago avisa o nosso <strong>Webhook</strong>. O PDV toca o som <strong className="text-emerald-400">"Plim! Pix Recebido!"</strong>, imprime o cupom e conclui a venda sozinho!
+                                </p>
+                              </div>
+                            </div>
+                            <div className="bg-sky-500/10 border border-sky-500/20 p-2.5 rounded-lg text-[9px] text-sky-300 font-sans">
+                              ⚡ <strong>Sem filas:</strong> O operador do caixa não precisa pegar o celular nem pedir comprovante ao cliente: a própria tela do PDV muda para verde automaticamente!
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Content for TAB 4: Maquininha Point (Cartão Débito e Crédito) */}
+                        {mpExplainerTab === "point" && (
+                          <div className="bg-slate-950/70 p-3.5 rounded-xl border border-white/5 space-y-2.5">
+                            <span className="text-xs font-black text-purple-400 uppercase block">
+                              💳 Como funciona a Maquininha de Cartão Point?
+                            </span>
+                            <div className="space-y-2 text-[9.5px] font-sans text-slate-300 leading-relaxed">
+                              <p>
+                                • <strong>Modelos Suportados:</strong> Point Smart, Point Pro 2, Point Air e Point Mini (Bluetooth).
+                              </p>
+                              <p>
+                                • <strong>Cobrança Direta:</strong> Ao selecionar Débito ou Crédito na tela de pagamento, clique em <strong className="text-purple-300">"Cobrar na Point"</strong>.
+                              </p>
+                              <p>
+                                • <strong>No Celular ou Tablet do Caixa:</strong> O link especial abre automaticamente o app do Mercado Pago Point já preenchido com o valor total da compra. O cliente insere/aproxima o cartão físico na maquininha, digita a senha e o pagamento é aprovado!
+                              </p>
+                            </div>
+                            <div className="bg-purple-500/10 border border-purple-500/20 p-2.5 rounded-lg text-[9px] text-purple-300 font-sans">
+                              💡 <strong>Dica:</strong> Se não tiver maquininha Point física no momento, o operador pode cobrar na maquininha avulsa comum e apenas selecionar Débito/Crédito para registrar a venda no caixa!
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Content for TAB 5: Configurações Curtinhas */}
+                        {mpExplainerTab === "config_curta" && (
+                          <div className="bg-slate-950/70 p-3.5 rounded-xl border border-white/5 space-y-2.5">
+                            <span className="text-xs font-black text-teal-400 uppercase block">
+                              ⚡ Configurações Curtinhas (Pronto em 3 Passos Rápidos)
+                            </span>
+                            <div className="space-y-2 text-[9.5px] font-sans text-slate-300 leading-relaxed">
+                              <div className="flex items-start gap-2 bg-slate-900/50 p-2 rounded-lg border border-white/5">
+                                <span className="px-2 py-0.5 bg-teal-500 text-slate-950 font-black rounded text-[9px]">1</span>
+                                <div>
+                                  <strong className="text-white">Conectar Conta:</strong> Clique no botão azul <strong className="text-sky-400">"Conectar via OAuth Rápido"</strong> (o dono faz login na conta dele) OU cole o <em>Access Token</em> dele no campo abaixo.
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-2 bg-slate-900/50 p-2 rounded-lg border border-white/5">
+                                <span className="px-2 py-0.5 bg-teal-500 text-slate-950 font-black rounded text-[9px]">2</span>
+                                <div>
+                                  <strong className="text-white">Nome da Loja:</strong> Confirme o nome da Unidade/Loja (ex: "Mercado do Wellington Centro").
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-2 bg-slate-900/50 p-2 rounded-lg border border-white/5">
+                                <span className="px-2 py-0.5 bg-teal-500 text-slate-950 font-black rounded text-[9px]">3</span>
+                                <div>
+                                  <strong className="text-white">Caixa Ativo:</strong> Deixe selecionado "Caixa 01" e pronto!
+                                </div>
+                              </div>
+                            </div>
+                            <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-lg text-[9px] text-emerald-300 font-sans flex items-center justify-between">
+                              <span>🚀 Nada de códigos difíceis: o sistema cuida de tudo nos bastidores!</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* --- COFRE BANCÁRIO DO PROPRIETÁRIO (PIN, CPF & TOKEN SEGURO) --- */}
+                  {!tokenVaultConfigured ? (
+                    // TELA DE SETUP DO COFRE COM AVISO VERMELHO
+                    <div className="bg-slate-950 p-5 rounded-2xl border-2 border-red-500/50 space-y-4 text-left shadow-2xl">
+                      {/* AVISO EM VERMELHO EXIGIDO PELO USUÁRIO */}
+                      <div className="bg-red-950/90 border-2 border-red-500 rounded-xl p-4 space-y-2.5 shadow-lg shadow-red-950/50">
+                        <div className="flex items-center gap-2 text-red-400">
+                          <ShieldAlert className="w-5 h-5 text-red-500 animate-bounce shrink-0" />
+                          <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-red-100">
+                            🚨 AVISO DE SEGURANÇA MÁXIMA (CONTA BANCÁRIA DO PROPRIETÁRIO) 🚨
+                          </span>
+                        </div>
+                        <div className="bg-red-900/80 p-3 rounded-lg border border-red-500/50">
+                          <p className="text-xs sm:text-sm font-black text-white uppercase tracking-wider leading-relaxed font-sans animate-pulse">
+                            POR FAVOR COLOCAR PIN DE SEGURANÇA MÁXIMA QUE VC NUNCA IRÁ ESQUECER O PIN
+                          </p>
+                        </div>
+                        <p className="text-[10px] sm:text-[10.5px] text-red-200 leading-relaxed font-sans">
+                          Este PIN protegerá o seu <strong>Token de Acesso do Mercado Pago</strong>, a sua <strong>chave Pix</strong> e toda a <strong>movimentação financeira</strong> da sua loja. Ninguém (funcionários, atendentes ou terceiros) poderá visualizar, copiar ou desviar suas credenciais sem o seu <strong>CPF</strong> e o seu <strong>PIN Bancário</strong>.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                        <div className="space-y-1">
+                          <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider block font-sans">
+                            CPF do Proprietário / Titular da Conta (Obrigatório):
+                          </label>
+                          <input
+                            type="text"
+                            value={vaultInputCpf}
+                            onChange={(e) => setVaultInputCpf(formatCpfDisplay(e.target.value))}
+                            placeholder="000.000.000-00"
+                            maxLength={14}
+                            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                          />
+                          <span className="text-[8.5px] text-slate-400 block font-sans">Apenas o titular deste CPF poderá acessar ou desbloquear o cofre.</span>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider block font-sans">
+                            E-mail de Recuperação do Proprietário (Obrigatório):
+                          </label>
+                          <input
+                            type="email"
+                            value={vaultInputEmail}
+                            onChange={(e) => setVaultInputEmail(e.target.value)}
+                            placeholder="ex: wellington@comercio.com.br"
+                            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                          />
+                          <span className="text-[8.5px] text-slate-400 block font-sans">Usado para redefinir o PIN caso você o esqueça.</span>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider block font-sans">
+                            PIN de Segurança Máxima (Mínimo 4 dígitos):
+                          </label>
+                          <input
+                            type="password"
+                            value={vaultInputPin}
+                            onChange={(e) => setVaultInputPin(e.target.value)}
+                            placeholder="Ex: 8492"
+                            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider block font-sans">
+                            Confirmar PIN de Segurança Máxima:
+                          </label>
+                          <input
+                            type="password"
+                            value={vaultInputConfirmPin}
+                            onChange={(e) => setVaultInputConfirmPin(e.target.value)}
+                            placeholder="Repita o mesmo PIN"
+                            className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={handleConfigureVault}
+                          className="px-5 py-2.5 bg-gradient-to-r from-red-600 via-amber-600 to-emerald-600 hover:from-red-500 hover:to-emerald-500 text-slate-950 font-black text-[10.5px] rounded-xl uppercase tracking-wider transition-all shadow-xl flex items-center gap-1.5 cursor-pointer font-sans"
+                        >
+                          <ShieldCheck className="w-4 h-4 text-slate-950" />
+                          🛡️ Criar e Blindar Cofre do Proprietário
+                        </button>
+                      </div>
+                    </div>
+                  ) : !isTokenVaultUnlocked ? (
+                    // TELA DE COFRE TRANCADO
+                    <div className="bg-slate-950 p-5 rounded-2xl border border-red-500/30 space-y-4 text-left shadow-2xl relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 rounded-full blur-2xl pointer-events-none" />
+
+                      <div className="flex items-center gap-3 border-b border-white/5 pb-3">
+                        <div className="p-3 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20">
+                          <Lock className="w-6 h-6 text-red-500" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider font-sans flex items-center gap-2">
+                            <span>Cofre do Token do Proprietário Bloqueado</span>
+                            <span className="text-[9px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full font-mono font-bold">
+                              100% BLINDADO 🔒
+                            </span>
+                          </h4>
+                          <p className="text-[9.5px] text-slate-400 font-sans">
+                            O Pix automático e as cobranças no caixa continuam recebendo normalmente. Para ver as credenciais, alterar o Token ou conectar contas, digite o CPF e o PIN do dono:
+                          </p>
+                        </div>
+                      </div>
+
+                      {!vaultRecoveryMode ? (
+                        <div className="space-y-3.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div className="space-y-1">
+                              <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider block font-sans">
+                                CPF do Titular da Conta:
+                              </label>
+                              <input
+                                type="text"
+                                value={vaultInputCpf}
+                                onChange={(e) => setVaultInputCpf(formatCpfDisplay(e.target.value))}
+                                placeholder="000.000.000-00"
+                                maxLength={14}
+                                className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider block font-sans">
+                                PIN de Segurança Máxima do Cofre:
+                              </label>
+                              <input
+                                type="password"
+                                value={vaultInputPin}
+                                onChange={(e) => setVaultInputPin(e.target.value)}
+                                placeholder="••••"
+                                className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVaultRecoveryMode(true);
+                                setVaultRecoveryCodeSent(false);
+                              }}
+                              className="text-[9.5px] text-sky-400 hover:text-sky-300 font-bold underline font-sans cursor-pointer"
+                            >
+                              Esqueceu o PIN do Cofre? Recuperar via E-mail 📩
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={handleUnlockVault}
+                              className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all shadow-md flex items-center gap-1.5 cursor-pointer font-sans"
+                            >
+                              <Unlock className="w-4 h-4 text-slate-950" />
+                              🔓 Desbloquear Cofre do Proprietário
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        // MODO DE RECUPERAÇÃO VIA E-MAIL
+                        <div className="bg-slate-900/60 p-4 rounded-xl border border-sky-500/20 space-y-3.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-black text-sky-400 uppercase tracking-wider">
+                              📩 Recuperação Segura de PIN via E-mail
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setVaultRecoveryMode(false)}
+                              className="text-[9px] text-slate-400 hover:text-white font-bold uppercase cursor-pointer"
+                            >
+                              Cancelar / Voltar
+                            </button>
+                          </div>
+
+                          <p className="text-[9.5px] text-slate-300 font-sans leading-relaxed">
+                            E-mail de recuperação cadastrado: <strong className="text-white font-mono">{tokenVaultRecoveryEmail ? tokenVaultRecoveryEmail.replace(/(.{2})(.*)(@.*)/, "$1***$3") : "Não cadastrado"}</strong>
+                          </p>
+
+                          {!vaultRecoveryCodeSent ? (
+                            <button
+                              type="button"
+                              onClick={handleSendRecoveryCode}
+                              className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all cursor-pointer font-sans shadow-md"
+                            >
+                              Gerar Código de Recuperação Seguro 📩
+                            </button>
+                          ) : (
+                            <div className="space-y-3">
+                              <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-lg text-[9.5px] text-emerald-300 font-sans">
+                                ✅ Código gerado para o e-mail cadastrado! Digite o código abaixo e defina o seu novo PIN:
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div className="space-y-1">
+                                  <label className="text-[8.5px] font-black text-slate-400 uppercase">Código de 6 dígitos:</label>
+                                  <input
+                                    type="text"
+                                    value={vaultRecoveryInputCode}
+                                    onChange={(e) => setVaultRecoveryInputCode(e.target.value)}
+                                    placeholder="000000"
+                                    className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono font-bold"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[8.5px] font-black text-slate-400 uppercase">Novo PIN:</label>
+                                  <input
+                                    type="password"
+                                    value={vaultInputPin}
+                                    onChange={(e) => setVaultInputPin(e.target.value)}
+                                    placeholder="Novo PIN"
+                                    className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono font-bold"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[8.5px] font-black text-slate-400 uppercase">Confirmar Novo PIN:</label>
+                                  <input
+                                    type="password"
+                                    value={vaultInputConfirmPin}
+                                    onChange={(e) => setVaultInputConfirmPin(e.target.value)}
+                                    placeholder="Repetir PIN"
+                                    className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono font-bold"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="bg-red-950/70 border border-red-500/30 p-2 rounded-lg text-[9px] text-red-200 font-bold uppercase">
+                                ⚠️ AVISO: POR FAVOR COLOCAR PIN DE SEGURANÇA MÁXIMA QUE VC NUNCA IRÁ ESQUECER O PIN!
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={handleConfirmRecovery}
+                                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all cursor-pointer font-sans shadow-md"
+                              >
+                                Redefinir PIN e Desbloquear Cofre 🛡️✨
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    // COFRE DESBLOQUEADO (SESSÃO SEGURA)
+                    <div className="space-y-4">
+                      {/* BARRA DE COFRE ABERTO */}
+                      <div className="bg-gradient-to-r from-emerald-950/80 via-slate-950 to-teal-950/80 p-3.5 rounded-xl border border-emerald-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-left">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20 shrink-0">
+                            <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-black text-emerald-400 uppercase tracking-wider block font-sans">
+                              🔓 COFRE DO PROPRIETÁRIO DESBLOQUEADO (Sessão Segura Ativa)
+                            </span>
+                            <span className="text-[9px] text-slate-300 font-mono font-bold">
+                              Titular: CPF ***.***.{tokenVaultCpf ? tokenVaultCpf.slice(-5, -2) : "000"}-{tokenVaultCpf ? tokenVaultCpf.slice(-2) : "00"} | E-mail: {tokenVaultRecoveryEmail}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setVaultChangePinMode(!vaultChangePinMode)}
+                            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-white/10 text-amber-400 hover:text-amber-300 text-[9px] font-black rounded-lg uppercase tracking-wider cursor-pointer"
+                          >
+                            🔑 Trocar PIN
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleLockVault}
+                            className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white text-[9.5px] font-black rounded-lg uppercase tracking-wider cursor-pointer shadow-md flex items-center gap-1 font-sans"
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                            Trancar Cofre Agora
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* SUBMODAL / CARD DE TROCA DE PIN SE ACIONADO */}
+                      {vaultChangePinMode && (
+                        <div className="bg-slate-950 p-4 rounded-xl border border-amber-500/30 space-y-3 text-left shadow-lg">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-black text-amber-400 uppercase">
+                              🔑 Alterar para PIN de Maior Segurança
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setVaultChangePinMode(false)}
+                              className="text-[9px] text-slate-400 hover:text-white uppercase font-bold cursor-pointer"
+                            >
+                              Fechar
+                            </button>
+                          </div>
+
+                          <div className="bg-red-950/80 border border-red-500/40 p-2.5 rounded-lg text-[9px] text-red-200 font-bold uppercase">
+                            🚨 AVISO: POR FAVOR COLOCAR PIN DE SEGURANÇA MÁXIMA QUE VC NUNCA IRÁ ESQUECER O PIN!
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <label className="text-[8.5px] font-black text-slate-400 uppercase">Novo PIN de Segurança Máxima:</label>
+                              <input
+                                type="password"
+                                value={vaultInputPin}
+                                onChange={(e) => setVaultInputPin(e.target.value)}
+                                placeholder="Novo PIN"
+                                className="w-full bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono font-bold"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[8.5px] font-black text-slate-400 uppercase">Confirmar Novo PIN:</label>
+                              <input
+                                type="password"
+                                value={vaultInputConfirmPin}
+                                onChange={(e) => setVaultInputConfirmPin(e.target.value)}
+                                placeholder="Repita o novo PIN"
+                                className="w-full bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono font-bold"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={handleChangeVaultPin}
+                              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9.5px] rounded-lg uppercase tracking-wider cursor-pointer font-sans shadow-md"
+                            >
+                              Salvar Novo PIN de Segurança 🛡️
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {mpShowWizard ? (
                     // --- SETUP WIZARD VIEW ---
                     <div className="space-y-4">
                       {/* Wizard Header */}
@@ -14262,6 +15747,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   </div>
                 </div>
               )}
+                    </div>
+                  )}
             </div>
                   </div>
                 )}
@@ -15102,6 +16589,26 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   </div>
                 )}
 
+                {mentorshipTab === "printer" && (
+                  <div className="space-y-4 animate-in fade-in duration-150">
+                    <PDVPrinterConfigView
+                      config={printerConfig}
+                      onSaveConfig={(newCfg) => {
+                        setPrinterConfig(newCfg);
+                        setPrinterType(newCfg.printerType);
+                        savePrinterConfig(newCfg);
+                        showNotification("Configurações da impressora salvas com sucesso! 🖨️💾", "success");
+                      }}
+                      showNotification={showNotification}
+                      onBackToSales={() => {
+                        setOpMode("venda");
+                        if (onSubTabChange) onSubTabChange(null);
+                      }}
+                      isEmbedded={true}
+                    />
+                  </div>
+                )}
+
               </div>
             )}
 
@@ -15443,19 +16950,31 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={toggleNicheLock}
-          className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
-            isNicheLocked
-              ? "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40"
-              : "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 hover:text-white"
-          }`}
-          title={isNicheLocked ? "Segmento travado: clique para liberar" : "Clique para fixar o segmento e evitar trocas acidentais"}
-        >
-          {isNicheLocked ? <Lock className="w-3.5 h-3.5 text-amber-400" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
-          <span>{isNicheLocked ? "Segmento Fixado 🔒" : "Fixar Meu Segmento 🔓"}</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsPrinterConfigModalOpen(true)}
+            className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/60 shadow-sm active:scale-95"
+            title="Configurar impressora de bobina térmica (58mm/80mm, guilhotina, margens, avanço e teste)"
+          >
+            <Printer className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Configurar Impressora Bobina 🖨️</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleNicheLock}
+            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
+              isNicheLocked
+                ? "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40"
+                : "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 hover:text-white"
+            }`}
+            title={isNicheLocked ? "Segmento travado: clique para liberar" : "Clique para fixar o segmento e evitar trocas acidentais"}
+          >
+            {isNicheLocked ? <Lock className="w-3.5 h-3.5 text-amber-400" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
+            <span>{isNicheLocked ? "Segmento Fixado 🔒" : "Fixar Meu Segmento 🔓"}</span>
+          </button>
+        </div>
       </div>
 
       {/* 3.5 OPERATIONAL MODE SWITCHER */}
@@ -15588,6 +17107,23 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
           >
             <Crown className="w-4 h-4 text-amber-400" />
             <span>Proprietário & Permissões 👑</span>
+          </button>
+          <button
+            type="button"
+            id="tab-mode-impressoras"
+            onClick={() => {
+              setOpMode("impressoras");
+              if (onSubTabChange) onSubTabChange("impressoras");
+            }}
+            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              opMode === "impressoras"
+                ? "bg-emerald-600 text-white border border-emerald-400 shadow-lg shadow-emerald-500/25"
+                : "text-emerald-400 hover:text-white hover:bg-emerald-500/10 border border-emerald-500/20"
+            }`}
+            title="Aba de Configuração de Impressoras Térmicas e Bobinas (58mm e 80mm)"
+          >
+            <Printer className="w-4 h-4 text-emerald-300" />
+            <span>Bobinas & Impressoras 🖨️</span>
           </button>
           <button
             type="button"
@@ -15876,6 +17412,100 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               />
             </div>
           </div>
+        ) : opMode === "impressoras" ? (
+          <div className="lg:col-span-12 w-full text-left">
+            <PDVPrinterConfigView
+              config={printerConfig}
+              onSaveConfig={(newCfg) => {
+                setPrinterConfig(newCfg);
+                setPrinterType(newCfg.printerType);
+                savePrinterConfig(newCfg);
+                showNotification("Configurações da impressora salvas com sucesso! 🖨️💾", "success");
+              }}
+              showNotification={showNotification}
+              onBackToSales={() => {
+                setOpMode("venda");
+                if (onSubTabChange) onSubTabChange(null);
+              }}
+              isEmbedded={true}
+            />
+          </div>
+        ) : (opMode === "venda" && salesLayoutMode === "stepper") ? (
+          <div className="lg:col-span-12 w-full text-left">
+            <PDVSalesTransitionStepper
+              saleTransactionStep={saleTransactionStep}
+              setSaleTransactionStep={setSaleTransactionStep}
+              salesLayoutMode={salesLayoutMode}
+              setSalesLayoutMode={setSalesLayoutMode}
+              cart={cart}
+              cartTotal={cartTotal}
+              cartSubtotal={cartSubtotal}
+              finalDiscount={finalDiscount}
+              handleAddToCart={handleAddToCart}
+              handleUpdateCartQty={handleUpdateCartQty}
+              handleRemoveFromCart={handleRemoveFromCart}
+              handleClearCart={handleClearCart}
+              handleOpenEditCartItem={handleOpenEditCartItem}
+              activeProductsList={activeProductsList}
+              catalogSearch={catalogSearch}
+              setCatalogSearch={setCatalogSearch}
+              selectedCategory={selectedCategory}
+              setSelectedCategory={setSelectedCategory}
+              categoryCounters={categoryCounters}
+              setIsScannerOpen={setIsScannerOpen}
+              setIsCreatingProduct={setIsCreatingProduct}
+              setIsQuickRegisterModalOpen={setIsQuickRegisterModalOpen}
+              setQuickRegCode={setQuickRegCode}
+              clientName={clientName}
+              setClientName={setClientName}
+              cartPaymentMethod={cartPaymentMethod}
+              setCartPaymentMethod={setCartPaymentMethod}
+              amountPaidByClient={amountPaidByClient}
+              setAmountPaidByClient={setAmountPaidByClient}
+              changeToGive={changeToGive}
+              discountPercent={discountPercent}
+              setDiscountPercent={setDiscountPercent}
+              discountValue={discountValue}
+              setDiscountValue={setDiscountValue}
+              handleCheckout={handleCheckout}
+              receiptToShow={receiptToShow}
+              setReceiptToShow={setReceiptToShow}
+              lastCompletedTransaction={lastCompletedTransaction}
+              printerType={printerType}
+              setPrinterType={setPrinterType}
+              storeCustomName={storeCustomName}
+              setStoreCustomName={setStoreCustomName}
+              storeCustomCnpjCpf={storeCustomCnpjCpf}
+              setStoreCustomCnpjCpf={setStoreCustomCnpjCpf}
+              receiptFooterMsg={receiptFooterMsg}
+              setReceiptFooterMsg={setReceiptFooterMsg}
+              handlePrintReceiptWindow={handlePrintReceiptWindow}
+              generateReceiptText={generateReceiptText}
+              formatCurrency={formatCurrency}
+              showNotification={showNotification}
+              parsePortugueseNumber={parsePortugueseNumber}
+              onOpenPrinterConfig={() => setIsPrinterConfigModalOpen(true)}
+              onCorrectSale={handleCorrectLastSale}
+              onCancelSale={handleCancelSaleFromReceipt}
+              onReturnItems={handleOpenReturnFromReceipt}
+              activeCartSlot={activeCartSlot}
+              onSwitchCartSlot={switchCartSlot}
+              cartSlot1Count={slot1Count}
+              cartSlot1Total={slot1Total}
+              cartSlot2Count={slot2Count}
+              cartSlot2Total={slot2Total}
+              splitPaymentEnabled={splitPaymentEnabled}
+              setSplitPaymentEnabled={setSplitPaymentEnabled}
+              splitCashAmount={splitCashAmount}
+              setSplitCashAmount={setSplitCashAmount}
+              splitSecondaryMethod={splitSecondaryMethod}
+              setSplitSecondaryMethod={setSplitSecondaryMethod}
+              splitSecondaryAmount={splitSecondaryAmount}
+              setSplitSecondaryAmount={setSplitSecondaryAmount}
+              onTriggerCashDrawer={(change, paid) => triggerCashDrawerOpen(change, paid)}
+              onStartMpPixCheckout={handleStartMpPixCheckout}
+            />
+          </div>
         ) : (
           <>
             {/* COLUMN LEFT: CHOOSE OPERATIONAL MODE & RECORD (GRID 5/12) */}
@@ -15901,7 +17531,16 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       <span className="text-[8.5px] font-black uppercase text-emerald-400 tracking-wider">Estações de Produtos</span>
                       <h4 className="text-xs font-black uppercase text-white mt-0.5">Catálogo de Serviços e Itens</h4>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSalesLayoutMode("stepper")}
+                        className="px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 font-black rounded-lg text-[8.5px] uppercase transition-all flex items-center gap-1 cursor-pointer"
+                        title="Ativar modo de transições passo a passo"
+                      >
+                        <span>🪄 Modo Transições (Passo a Passo)</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => setIsScannerOpen(true)}
@@ -15910,6 +17549,19 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       >
                         <Camera className="w-3 h-3" />
                         <span>Escanear</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQuickRegCode("");
+                          setIsQuickRegisterModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-lg text-[8.5px] uppercase transition-all flex items-center gap-1 cursor-pointer shadow-md"
+                        title="Venda Rápida por 4 dígitos sem travar o caixa"
+                      >
+                        <Zap className="w-3 h-3" />
+                        <span>Venda Rápida 4 Dígitos ⚡</span>
                       </button>
 
                       <button
@@ -16187,18 +17839,28 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       onChange={(e) => setCatalogSearch(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
+                          const typed = catalogSearch.trim();
                           if (activeProductsList && activeProductsList.length > 0) {
                             const firstProd = activeProductsList[0];
                             handleAddToCart(firstProd.name, firstProd.price, firstProd.id);
                             setCatalogSearch("");
                             e.preventDefault();
+                          } else if (typed) {
+                            showNotification(`"${typed}" não localizado no catálogo. Abrindo Venda Rápida sem travar... ⚡`, "info");
+                            setQuickRegCode(typed);
+                            setQuickRegName("");
+                            setQuickRegPrice("");
+                            setQuickRegQty("1");
+                            setIsQuickRegisterModalOpen(true);
+                            setCatalogSearch("");
+                            e.preventDefault();
                           } else {
-                            showNotification("Nenhum produto correspondente encontrado para adicionar!", "warning");
+                            showNotification("Digite um nome, código de barras ou 4 dígitos!", "warning");
                           }
                         }
                       }}
                       className="w-full bg-slate-950 border border-white/10 hover:border-white/20 focus:border-emerald-500/40 rounded-xl pl-9 pr-8 py-2 text-xs text-white uppercase font-bold outline-none font-sans"
-                      placeholder="Pesquisar por nome ou código de barras... (Enter para adicionar, F2 foca)"
+                      placeholder="Pesquisar por nome, código de barras ou 4 dígitos... (Enter adiciona, F2 foca)"
                     />
                     {catalogSearch && (
                       <button
@@ -16369,7 +18031,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                           >
                             <button
                               type="button"
-                              onClick={() => handleAddToCart(product.name, product.price, product.id)}
+                              onClick={() => handleAddToCart(product.name, product.price, product.id, product as any)}
                               className="w-full h-full absolute inset-0 z-10 cursor-pointer rounded-2xl"
                               title={isOutOfStock ? "Adicionar ao Carrinho (Atenção: Sem estoque)" : "Adicionar ao Carrinho"}
                             />
@@ -16389,9 +18051,19 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                 <div className="flex-1 min-w-0 text-left pr-12">
                                   <span className="text-xs sm:text-[13.5px] font-black text-white uppercase tracking-tight leading-snug break-words whitespace-normal line-clamp-3 block text-left">
                                     {product.name}
+                                    {(product as any).quickCode && (
+                                      <span className="ml-1 text-[9px] font-black text-amber-300 bg-amber-500/25 border border-amber-500/40 px-1.5 py-0.5 rounded leading-none inline-block" title="Código rápido de atalho">
+                                        ⚡ {(product as any).quickCode}
+                                      </span>
+                                    )}
+                                    {(product as any).unit && (product as any).unit !== "un" && (
+                                      <span className="ml-1 text-[9px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 px-1.5 py-0.5 rounded leading-none inline-block">
+                                        {(product as any).unit}
+                                      </span>
+                                    )}
                                     {(product as any).size && (
                                       <span className="ml-1 text-[9px] font-extrabold text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 rounded leading-none inline-block">
-                                        TAM: {(product as any).size.toUpperCase()}
+                                        {(product as any).size.toUpperCase()}
                                       </span>
                                     )}
                                     {(product as any).color && (
@@ -16646,13 +18318,49 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
           <div className="bg-slate-900 border border-white/10 rounded-2xl p-5 text-left flex flex-col justify-between min-h-[380px]">
             
             <div>
+              {/* Dual Cart Slots Switcher for Split Balcão View */}
+              <div className="flex items-center justify-between gap-2 p-2 mb-3 bg-slate-950/80 border border-white/10 rounded-xl">
+                <span className="text-[10px] font-black uppercase text-purple-400 flex items-center gap-1">
+                  <Users className="w-3.5 h-3.5" />
+                  <span>2 Carrinhos:</span>
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => switchCartSlot(1)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                      activeCartSlot === 1
+                        ? "bg-emerald-500 text-slate-950 shadow-sm"
+                        : "bg-slate-900 text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <User className="w-3 h-3" />
+                    <span>Cliente 1 ({slot1Count})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchCartSlot(2)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                      activeCartSlot === 2
+                        ? "bg-cyan-500 text-slate-950 shadow-sm"
+                        : "bg-slate-900 text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <Users className="w-3 h-3" />
+                    <span>Cliente 2 ({slot2Count})</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-3">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded bg-emerald-500/10 text-emerald-400">
                     <ShoppingCart className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-black uppercase text-white leading-none">Comanda do Cliente Ativo</h4>
+                    <h4 className="text-xs font-black uppercase text-white leading-none">
+                      Comanda do {activeCartSlot === 1 ? "Cliente 1 (Fila A)" : "Cliente 2 (Fila B)"}
+                    </h4>
                     <span className="text-[8.5px] font-mono text-slate-500 uppercase mt-0.5 block">{cart.length} item(ns) selecionado(s)</span>
                   </div>
                 </div>
@@ -16690,9 +18398,19 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         <span className="font-black text-slate-100 uppercase text-xs sm:text-[13px] leading-snug break-words whitespace-normal block hover:text-amber-300 transition-colors">
                           {item.name}
                         </span>
-                        <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                          {item.size && (
+                            <span className="text-[9px] font-extrabold text-indigo-300 bg-indigo-500/20 px-1.5 py-0.2 rounded border border-indigo-500/30">
+                              {item.size}
+                            </span>
+                          )}
+                          {item.unit && item.unit !== "un" && (
+                            <span className="text-[9px] font-bold text-emerald-300 bg-emerald-500/20 px-1.5 py-0.2 rounded border border-emerald-500/30">
+                              {item.unit}
+                            </span>
+                          )}
                           <span className="text-[10.5px] text-slate-300 block uppercase font-mono font-bold">
-                            {formatCurrency(item.price)} un.
+                            {formatCurrency(item.price)} /{item.unit || "un"}
                           </span>
                           <span className="text-[9px] text-amber-400 font-bold bg-amber-400/10 px-1.5 py-0.2 rounded border border-amber-400/20">
                             ✏️ Editar
@@ -16716,7 +18434,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                             className="px-2 font-mono text-[12.5px] font-bold text-slate-100 hover:text-amber-400 cursor-pointer underline decoration-dotted" 
                             title="Clique para digitar a quantidade exata (ex: 20 pães ou 0,800 kg)"
                           >
-                            {item.quantity}
+                            {item.quantity} {item.unit || "un"}
                           </span>
                           <button
                             type="button"
@@ -17952,14 +19670,39 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     Esvaziar
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleCheckout}
-                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10.5px] uppercase tracking-wider rounded-xl transition-all shadow-lg hover:shadow-emerald-500/10 active:scale-95 flex items-center gap-1 cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5 text-slate-950" />
-                    Concluir ({cartPaymentMethod.toUpperCase().replace("_", " ")})
-                  </button>
+                  {salesLayoutMode === "stepper" && saleTransactionStep < 3 ? (
+                    <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (saleTransactionStep === 1) setSaleTransactionStep(2);
+                          else if (saleTransactionStep === 2) setSaleTransactionStep(3);
+                        }}
+                        className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] sm:text-[10.5px] uppercase tracking-wider rounded-xl transition-all shadow-lg hover:shadow-emerald-500/10 active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <span>{saleTransactionStep === 1 ? "Avançar para Passo 2 (Quantidades) ➔" : "Avançar para Passo 3 (Pagamento) ➔"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleCheckout}
+                        title="Concluir imediatamente sem passar pelos passos restantes"
+                        className="px-2.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-[9px] uppercase tracking-wider rounded-xl transition-all border border-white/10 active:scale-95 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Zap className="w-3 h-3 text-amber-400" />
+                        <span>Concluir Direto ({cartPaymentMethod.toUpperCase().replace("_", " ")})</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleCheckout}
+                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10.5px] uppercase tracking-wider rounded-xl transition-all shadow-lg hover:shadow-emerald-500/10 active:scale-95 flex items-center gap-1 cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-slate-950" />
+                      Concluir ({cartPaymentMethod.toUpperCase().replace("_", " ")})
+                    </button>
+                  )}
                 </div>
 
               </div>
@@ -18033,22 +19776,80 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 h-[2px] bg-emerald-400 shadow-[0_0_12px_#10b981] animate-pulse z-20 pointer-events-none" />
                   
                   {scanningError && (
-                    <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-4 text-center space-y-2 z-30">
-                      <AlertCircle className="w-8 h-8 text-rose-500" />
-                      <p className="text-xs font-bold text-white">{scanningError}</p>
-                      <p className="text-[10px] text-slate-400">
-                        Ative as permissões de câmera do seu navegador nas configurações.
+                    <div className="absolute inset-0 bg-slate-950/92 flex flex-col items-center justify-center p-5 text-center space-y-3 z-30">
+                      <AlertCircle className="w-9 h-9 text-amber-400" />
+                      <p className="text-xs font-bold text-white leading-relaxed">{scanningError}</p>
+                      <p className="text-[10px] text-slate-400 leading-normal">
+                        No celular, toque no cadeado 🔒 na barra de endereço (topo do navegador) e autorize a Câmera.
                       </p>
+                      <button
+                        type="button"
+                        onClick={handleRequestScannerPermissionInPDV}
+                        className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-[10.5px] uppercase cursor-pointer transition-all flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        Tentar Liberar Câmera Novamente
+                      </button>
                     </div>
                   )}
+                </div>
+
+                {/* Direct Manual quick code / barcode entry */}
+                <div className="w-full space-y-1.5 pt-2 border-t border-white/5">
+                  <label className="text-[9px] font-black text-amber-400 uppercase tracking-wider block text-left">
+                    ⚡ Digitar Código Rápido (ex: 0102) ou Código de Barras:
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Ex: 0102, 1213 ou 789..."
+                      value={manualScannerInput}
+                      onChange={(e) => setManualScannerInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && manualScannerInput.trim()) {
+                          handleBarcodeScanned(manualScannerInput.trim());
+                          setManualScannerInput("");
+                        }
+                      }}
+                      className="flex-1 bg-slate-950 border border-white/10 focus:border-amber-400 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white placeholder-slate-600 outline-none transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (manualScannerInput.trim()) {
+                          handleBarcodeScanned(manualScannerInput.trim());
+                          setManualScannerInput("");
+                        }
+                      }}
+                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer transition-all active:scale-95 shadow-md shadow-emerald-500/20"
+                    >
+                      Lançar 🛒
+                    </button>
+                  </div>
                 </div>
 
                 {/* Direct/Manual code options for simulation */}
                 <div className="w-full space-y-2 pt-2 border-t border-white/5">
                   <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block text-center">
-                    Simulador Rápido (Clique para Simular Leitura)
+                    Simulador de Códigos Rápidos & Barras (Clique para Testar)
                   </span>
                   <div className="grid grid-cols-3 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleBarcodeScanned("0102")}
+                      className="p-2 bg-slate-950/80 hover:bg-slate-850 rounded-xl text-center border border-amber-500/20 hover:border-amber-400/50 transition-all cursor-pointer"
+                    >
+                      <span className="text-[9px] font-bold text-amber-300 block truncate">Pão de Queijo</span>
+                      <span className="text-[8px] font-mono text-amber-400/90 block">⚡ 0102</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBarcodeScanned("1213")}
+                      className="p-2 bg-slate-950/80 hover:bg-slate-850 rounded-xl text-center border border-amber-500/20 hover:border-amber-400/50 transition-all cursor-pointer"
+                    >
+                      <span className="text-[9px] font-bold text-amber-300 block truncate">Cigarro Box</span>
+                      <span className="text-[8px] font-mono text-amber-400/90 block">⚡ 1213</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleBarcodeScanned("7891000100101")}
@@ -18056,22 +19857,6 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     >
                       <span className="text-[9px] font-bold text-white block truncate">Refri Lata</span>
                       <span className="text-[8px] font-mono text-emerald-400/90 block">7891000100101</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleBarcodeScanned("7892000200202")}
-                      className="p-2 bg-slate-950/80 hover:bg-slate-850 rounded-xl text-center border border-white/5 hover:border-emerald-500/20 transition-all cursor-pointer"
-                    >
-                      <span className="text-[9px] font-bold text-white block truncate">Cerveja Pilsen</span>
-                      <span className="text-[8px] font-mono text-emerald-400/90 block">7892000200202</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleBarcodeScanned("7893000300303")}
-                      className="p-2 bg-slate-950/80 hover:bg-slate-850 rounded-xl text-center border border-white/5 hover:border-emerald-500/20 transition-all cursor-pointer"
-                    >
-                      <span className="text-[9px] font-bold text-white block truncate">Água Mineral</span>
-                      <span className="text-[8px] font-mono text-emerald-400/90 block">7893000300303</span>
                     </button>
                   </div>
                 </div>
@@ -18116,7 +19901,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               <div className="bg-slate-950 p-4 rounded-2xl text-center space-y-1 border border-white/5">
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-sans">VALOR A PAGAR</span>
                 <div className="text-2xl font-black text-sky-400 font-mono">
-                  {formatCurrency(cartTotal)}
+                  {formatCurrency(mpPixAmount || cartTotal)}
                 </div>
                 {mpAccessToken ? (
                   <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-bold uppercase font-sans">
@@ -18298,6 +20083,136 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   </button>
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- MODAL DE VENDA RÁPIDA / CADASTRO 4 DÍGITOS SEM BLOQUEIO --- */}
+      <AnimatePresence>
+        {isQuickRegisterModalOpen && (
+          <div className="fixed inset-0 z-55 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 text-white">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-md w-full overflow-hidden shadow-2xl flex flex-col p-6 space-y-4 text-left"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2.5 rounded-2xl bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black uppercase text-white flex items-center gap-1.5">
+                      Venda Rápida sem Travar ⚡
+                    </h3>
+                    <p className="text-[10px] text-slate-400">Produto novo? Venda na hora por 4 dígitos sem autorizador!</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsQuickRegisterModalOpen(false)}
+                  className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleQuickSaleRegister} className="space-y-3.5">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[9.5px] font-black uppercase text-amber-400 tracking-wider">Código de 4 Dígitos ou Barras</label>
+                    <button
+                      type="button"
+                      onClick={handleGenerateModalQuickCode}
+                      className="text-[9px] font-black text-amber-400 hover:underline uppercase flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sparkles className="w-3 h-3" /> Gerar 4 Dígitos Auto
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={quickRegCode}
+                    onChange={(e) => setQuickRegCode(e.target.value)}
+                    placeholder="Ex: 0104 ou código de barras"
+                    className="w-full mt-1 bg-slate-950 border border-white/10 focus:border-amber-400 px-3.5 py-2.5 rounded-xl text-sm font-mono font-bold text-white outline-none"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[9.5px] font-black uppercase text-slate-300 tracking-wider">Nome do Produto / Item</label>
+                  <input
+                    type="text"
+                    value={quickRegName}
+                    onChange={(e) => setQuickRegName(e.target.value)}
+                    placeholder="Ex: Biscoito Recheado, Suco Novo..."
+                    className="w-full mt-1 bg-slate-950 border border-white/10 focus:border-emerald-400 px-3.5 py-2.5 rounded-xl text-sm font-bold uppercase text-white outline-none"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="col-span-1">
+                    <label className="text-[9.5px] font-black uppercase text-slate-300 tracking-wider">Preço R$</label>
+                    <input
+                      type="text"
+                      value={quickRegPrice}
+                      onChange={(e) => setQuickRegPrice(e.target.value)}
+                      placeholder="0,00"
+                      className="w-full mt-1 bg-slate-950 border border-white/10 focus:border-emerald-400 px-3 py-2.5 rounded-xl text-sm font-mono font-black text-emerald-400 outline-none"
+                      required
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <label className="text-[9.5px] font-black uppercase text-slate-300 tracking-wider">Qtd Vender</label>
+                    <input
+                      type="text"
+                      value={quickRegQty}
+                      onChange={(e) => setQuickRegQty(e.target.value)}
+                      placeholder="1"
+                      className="w-full mt-1 bg-slate-950 border border-white/10 focus:border-emerald-400 px-3 py-2.5 rounded-xl text-sm font-mono font-black text-white outline-none"
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <label className="text-[9.5px] font-black uppercase text-slate-300 tracking-wider">Unidade</label>
+                    <select
+                      value={quickRegUnit}
+                      onChange={(e) => setQuickRegUnit(e.target.value)}
+                      className="w-full mt-1 bg-slate-950 border border-white/10 focus:border-emerald-400 px-2 py-2.5 rounded-xl text-xs font-bold text-white outline-none h-[42px] cursor-pointer"
+                    >
+                      <option value="un">un (Unidade)</option>
+                      <option value="kg">kg (Quilo)</option>
+                      <option value="g">g (Grama)</option>
+                      <option value="pct">pct (Pacote)</option>
+                      <option value="lt">lt (Litro)</option>
+                      <option value="cx">cx (Caixa)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-amber-500/10 border border-amber-500/25 rounded-2xl text-[10px] text-amber-300/90 leading-relaxed">
+                  ⚡ <strong>Sem travar o caixa:</strong> O item é lançado e adicionado imediatamente à comanda. Você pode complementar o cadastro detalhado com calma depois no menu de Produtos!
+                </div>
+
+                <div className="flex gap-2 justify-end pt-2 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setIsQuickRegisterModalOpen(false)}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl uppercase transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl uppercase transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Zap className="w-4 h-4 text-slate-950" />
+                    Vender Agora ⚡
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
@@ -18530,13 +20445,21 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       </thead>
                       <tbody>
                         {receiptToShow.items && receiptToShow.items.length > 0 ? (
-                          receiptToShow.items.map((item, idx) => (
-                            <tr key={idx} className="border-b border-dashed border-slate-100 text-slate-900">
-                              <td className="py-1 max-w-[100px] truncate">{item.quantity}x {item.name.toUpperCase()}</td>
-                              <td className="py-1 text-right">{formatCurrency(item.price)}</td>
-                              <td className="py-1 text-right font-extrabold">{formatCurrency(item.price * item.quantity)}</td>
-                            </tr>
-                          ))
+                          receiptToShow.items.map((item, idx) => {
+                            const specs = [item.size, item.color, item.description].filter(Boolean).join(" • ");
+                            const unitLabel = item.unit || "un";
+                            return (
+                              <tr key={idx} className="border-b border-dashed border-slate-200 text-slate-900">
+                                <td className="py-1 pr-1 text-left">
+                                  <div className="font-bold leading-tight">{item.name.toUpperCase()}</div>
+                                  {specs && <div className="text-[7.5px] text-slate-600 font-semibold">{specs}</div>}
+                                  <div className="text-[7.5px] text-slate-500 font-mono">Qtd: {item.quantity} {unitLabel} x {formatCurrency(item.price)}</div>
+                                </td>
+                                <td className="py-1 text-right font-mono align-top text-[8.5px]">{formatCurrency(item.price)}</td>
+                                <td className="py-1 text-right font-mono font-extrabold align-top text-[8.5px]">{formatCurrency(item.price * item.quantity)}</td>
+                              </tr>
+                            );
+                          })
                         ) : (
                           <tr>
                             <td colSpan={3} className="py-1">{receiptToShow.description}</td>
@@ -18754,6 +20677,49 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     <span>Exibir QR Code (Offline)</span>
                   </button>
 
+                  {/* Ações Especiais do Comprovante: Corrigir / Cancelar / Devolver */}
+                  <div className="col-span-2 bg-slate-950 p-3 rounded-2xl border border-white/10 space-y-2">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+                      <span className="text-[10px] font-black uppercase text-slate-300 tracking-wider flex items-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                        Precisa corrigir ou cancelar esta venda?
+                      </span>
+                      <span className="text-[8.5px] text-slate-500 font-bold uppercase">Ações Rápidas</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleCorrectLastSale(receiptToShow)}
+                        className="p-2.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 font-bold text-[10px] uppercase rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 text-center"
+                        title="Cancela esta venda e reabre os itens no carrinho para corrigir erros ou mudar pagamento"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>Voltar & Corrigir Erros ✏️</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCancelSaleFromReceipt(receiptToShow)}
+                        className="p-2.5 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 text-rose-300 font-bold text-[10px] uppercase rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 text-center"
+                        title="Cancela e estorna totalmente esta venda do caixa e devolve os produtos ao estoque"
+                      >
+                        <X className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                        <span>Cancelar Venda ❌</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenReturnFromReceipt(receiptToShow)}
+                        className="p-2.5 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/35 text-cyan-300 font-bold text-[10px] uppercase rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 text-center"
+                        title="Devolver itens específicos da venda com reposição de estoque"
+                      >
+                        <Repeat className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span>Devolução / Troca 🔄</span>
+                      </button>
+                    </div>
+                  </div>
+
                   {/* Copy to Clipboard */}
                   <button
                     type="button"
@@ -18765,6 +20731,16 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   >
                     <Copy className="w-4 h-4" />
                     <span>Copiar Texto Completo (Bloco de Notas)</span>
+                  </button>
+
+                  {/* Configurar Bobina Térmica */}
+                  <button
+                    type="button"
+                    onClick={() => setIsPrinterConfigModalOpen(true)}
+                    className="col-span-2 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-black p-2.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all text-xs shadow-sm"
+                  >
+                    <Printer className="w-4 h-4 text-emerald-400" />
+                    <span>Configurações da Impressora Bobina (Tamanho, Corte, Margens) ⚙️</span>
                   </button>
                 </div>
 
@@ -19411,8 +21387,26 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
           } else if (tabKey === "venda") {
             setOpMode("venda");
             if (onSubTabChange) onSubTabChange(null);
+          } else if (tabKey === "impressoras" || tabKey === "printer" || tabKey === "bobina") {
+            setOpMode("impressoras");
+            if (onSubTabChange) onSubTabChange("impressoras");
           }
         }}
+      />
+
+      {/* MODAL DE CONFIGURAÇÃO DA IMPRESSORA DE BOBINA TÉRMICA (58mm / 80mm) */}
+      <PDVPrinterConfigModal
+        isOpen={isPrinterConfigModalOpen}
+        onClose={() => setIsPrinterConfigModalOpen(false)}
+        config={printerConfig}
+        onSaveConfig={(newConfig) => {
+          setPrinterConfig(newConfig);
+          setPrinterType(newConfig.printerType);
+          setStoreCustomName(newConfig.storeName);
+          setStoreCustomCnpjCpf(newConfig.storeCnpjCpf);
+          setReceiptFooterMsg(newConfig.receiptFooterMsg);
+        }}
+        showNotification={showNotification}
       />
 
     </div>

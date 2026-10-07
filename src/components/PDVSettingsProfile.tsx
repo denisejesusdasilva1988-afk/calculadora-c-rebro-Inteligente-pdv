@@ -12,7 +12,8 @@ import {
   Eye,
   EyeOff,
   Sliders,
-  ShieldAlert
+  ShieldAlert,
+  Printer
 } from "lucide-react";
 import { getAuth, updatePassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
@@ -30,6 +31,7 @@ interface PDVSettingsProfileProps {
   isLoggedIn: boolean;
   db: any;
   refreshSecuritySettings?: () => void;
+  onOpenPrinterConfig?: () => void;
 }
 
 export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
@@ -44,7 +46,8 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
   userId,
   isLoggedIn,
   db,
-  refreshSecuritySettings
+  refreshSecuritySettings,
+  onOpenPrinterConfig
 }) => {
   // Passwords Form with safety validation (CPF + RG)
   const [cpfPasswordInput, setCpfPasswordInput] = useState("");
@@ -661,6 +664,52 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
           </button>
         </div>
       </form>
+
+      {/* 3.5 Impressora de Bobina Térmica & Automação de Comprovantes */}
+      <div className="bg-slate-950 p-4 rounded-xl border border-emerald-500/20 space-y-3 text-left shadow-lg">
+        <div className="flex items-center justify-between border-b border-white/5 pb-2">
+          <div className="flex items-center gap-2">
+            <Printer className="w-4 h-4 text-emerald-400" />
+            <span className="text-[11.5px] font-black uppercase text-white font-sans">
+              🖨️ Impressora de Bobina Térmica (58mm / 80mm) & Comprovantes
+            </span>
+          </div>
+          <span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1">
+            ESC/POS & Balcão
+          </span>
+        </div>
+
+        <p className="text-[10px] text-slate-400 font-medium font-sans leading-relaxed">
+          Configure a largura da sua bobina (mini 58mm ou padrão balcão 80mm), guilhotina com corte elétrico, avanço de papel para não rasgar na serrilha, dados cadastrais e mensagens do rodapé do cupom fiscal.
+        </p>
+
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+          <div className="flex items-center gap-2 text-[10.5px] text-slate-300">
+            <span className="px-2 py-0.5 rounded bg-slate-900 border border-white/10 font-bold text-emerald-400 font-mono">
+              {localStorage.getItem("pdv_printer_type") || "80mm"}
+            </span>
+            <span className="text-slate-500">•</span>
+            <span className="text-slate-400">
+              Guilhotina: {localStorage.getItem("pdv_printer_auto_cut") !== "false" ? "Ativada ✔️" : "Desativada"}
+            </span>
+            <span className="text-slate-500">•</span>
+            <span className="text-slate-400">
+              Auto-impressão: {localStorage.getItem("pdv_printer_auto_print_on_sale") === "true" ? "Sim ⚡" : "Manual"}
+            </span>
+          </div>
+
+          {onOpenPrinterConfig && (
+            <button
+              type="button"
+              onClick={onOpenPrinterConfig}
+              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all cursor-pointer shadow-md shadow-emerald-500/15 flex items-center gap-1.5 active:scale-95"
+            >
+              <Sliders className="w-3.5 h-3.5 text-slate-950" />
+              <span>Configurar Impressora de Bobina ⚙️</span>
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* 4. Cargos do PDV e PINs dos Colaboradores (Com Olhinho para o Proprietário ver os PINs!) */}
       <div className="bg-slate-950 p-4 rounded-xl border border-white/5 space-y-4 text-left">

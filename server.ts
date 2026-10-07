@@ -16,28 +16,35 @@ async function callGeminiWithFallbackAndRetry(
   temperature: number
 ): Promise<string> {
   const modelsToTry = [
+    "gemini-3.8-flash",
+    "gemini-flash-latest",
+    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
-    "gemini-1.5-flash",
-    "gemini-2.0-flash",
-    "gemini-3.5-flash",
-    "gemini-2.5-pro"
   ];
   let lastError: any = null;
 
   for (const modelName of modelsToTry) {
-    let attempts = 3;
-    let delay = 400; // start with 400ms delay
+    let attempts = 2; // Fast retry
+    let delay = 250; // fast 250ms delay
 
     while (attempts > 0) {
       try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents,
-          config: {
-            systemInstruction,
-            temperature,
-          },
-        });
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout ao aguardar resposta do modelo ${modelName}`)), 7000)
+        );
+
+        const response: any = await Promise.race([
+          ai.models.generateContent({
+            model: modelName,
+            contents,
+            config: {
+              systemInstruction,
+              temperature,
+            },
+          }),
+          timeoutPromise,
+        ]);
+
         if (response && response.text) {
           return response.text;
         }
@@ -48,7 +55,7 @@ async function callGeminiWithFallbackAndRetry(
         attempts--;
         if (attempts > 0) {
           await new Promise((resolve) => setTimeout(resolve, delay));
-          delay *= 2; // exponential backoff
+          delay *= 1.5;
         }
       }
     }
