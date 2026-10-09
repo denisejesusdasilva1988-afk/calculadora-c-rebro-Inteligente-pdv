@@ -267,6 +267,77 @@ async function startServer() {
   // --- Mercado Pago Secure Proxy API ---
   const activeSimulatedPayments = new Map<string, { createdAt: number; status: string }>();
 
+  // Validador em tempo real do Token de Acesso (PJ / PF / CNPJ)
+  app.post("/api/mercado-pago/validate-token", async (req, res) => {
+    try {
+      const { clientAccessToken } = req.body;
+      const token = clientAccessToken?.trim() || process.env.MERCADO_PAGO_ACCESS_TOKEN?.trim() || "";
+
+      if (!token) {
+        return res.status(400).json({
+          valid: false,
+          error: "Nenhum token fornecido. Digite ou cole o seu Access Token do Mercado Pago."
+        });
+      }
+
+      if (isSimulatedToken(token)) {
+        return res.json({
+          valid: true,
+          isSimulation: true,
+          accountType: "Simulado / Demonstração",
+          name: "Modo Simulado PDV Cérebro",
+          email: "simulador@mercadopago.com",
+          docType: "CNPJ",
+          docNumber: "00.000.000/0001-00",
+          message: "Token simulado ativo com sucesso para testes."
+        });
+      }
+
+      // Validação real contra a API oficial do Mercado Pago
+      const mpRes = await fetch("https://api.mercadopago.com/users/me", {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      const mpData = await mpRes.json();
+
+      if (!mpRes.ok) {
+        return res.status(mpRes.status).json({
+          valid: false,
+          error: mpData.message || "Token inválido, expirado ou sem permissão no Mercado Pago.",
+          details: mpData
+        });
+      }
+
+      const docType = mpData.identification?.type || (mpData.company ? "CNPJ" : "CPF");
+      const docNumber = mpData.identification?.number || "";
+      const isPj = docType?.toUpperCase() === "CNPJ" || !!mpData.company;
+      const accountName = mpData.company?.corporate_name || mpData.company?.brand_name || `${mpData.first_name || ""} ${mpData.last_name || ""}`.trim() || mpData.nickname || "Conta Mercado Pago";
+
+      return res.json({
+        valid: true,
+        isSimulation: false,
+        id: mpData.id,
+        nickname: mpData.nickname,
+        email: mpData.email,
+        name: accountName,
+        isPj,
+        accountType: isPj ? "Conta PJ (Pessoa Jurídica / CNPJ)" : "Conta PF (Pessoa Física / CPF)",
+        docType,
+        docNumber,
+        siteId: mpData.site_id,
+        message: "Conexão com a conta do Mercado Pago validada com sucesso! 🟢"
+      });
+    } catch (err: any) {
+      console.error("[Mercado Pago Validate Exception]", err);
+      return res.status(500).json({
+        valid: false,
+        error: err.message || "Erro ao conectar com os servidores do Mercado Pago."
+      });
+    }
+  });
+
   app.post("/api/mercado-pago/create-payment", async (req, res) => {
     try {
       const { amount, description, clientAccessToken } = req.body;
@@ -1251,7 +1322,7 @@ async function startServer() {
       const userId = userData.id;
 
       // 2. Get Stores List
-      const storesResponse = await fetch(`https://api.mercadopago.com/users/${userId}/stores`, {
+      const storesResponse = await fetch(`https://api.mercadopago.com/users/${userId}/stores/search`, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${token}`

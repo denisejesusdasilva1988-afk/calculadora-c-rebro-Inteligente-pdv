@@ -58,6 +58,8 @@
         "pdvCustomProducts": { "type": "array" },
         "pdvProductOverrides": { "type": "object" },
         "pdvCustomNiches": { "type": "array" },
+        "savedNotes": { "type": "array" },
+        "masterPinProfile": { "type": "object" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "lastModifiedAt": { "type": "number", "description": "Local timestamp of last modification in milliseconds" }
       },
@@ -87,6 +89,11 @@
         "userId": { "type": "string" },
         "text": { "type": "string" },
         "date": { "type": "string" },
+        "folder": { "type": "string" },
+        "pages": { "type": "array" },
+        "pin": { "type": "string" },
+        "images": { "type": "array" },
+        "attachments": { "type": "array" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "text", "date"]

@@ -97,7 +97,10 @@ import {
   Bird,
   Landmark,
   ArrowLeft,
-  ArrowRight
+  ArrowRight,
+  HelpCircle,
+  AlertTriangle,
+  Flashlight
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { doc, getDoc, setDoc, serverTimestamp, collection, addDoc, getDocs, query, where, limit, onSnapshot } from "firebase/firestore";
@@ -2342,6 +2345,11 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   // --- Barcode Scanner States ---
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerContinuousMode, setScannerContinuousMode] = useState(true);
+  const [scannerTorchOn, setScannerTorchOn] = useState(false);
+  const [scannerZoom, setScannerZoom] = useState(1);
+  const [lastScannedFeedback, setLastScannedFeedback] = useState<{ name: string; price: number; timestamp: number } | null>(null);
+  const lastScannedCodeRef = useRef<{ code: string; time: number }>({ code: "", time: 0 });
   const [manualScannerInput, setManualScannerInput] = useState("");
   const [scannerRetryKey, setScannerRetryKey] = useState(0);
   const [newProdBarcode, setNewProdBarcode] = useState("");
@@ -2353,6 +2361,36 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [availableCameras, setAvailableCameras] = useState<{ id: string; label: string }[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>("");
   const html5QrCodeRef = useRef<any>(null);
+
+  // Screen font zoom & readability scale in PDV ("Aumentar letras miúdas")
+  const [pdvFontScale, setPdvFontScale] = useState<"normal" | "grande" | "extragrande">(() => {
+    try {
+      const saved = localStorage.getItem("app_font_scale");
+      if (saved === "normal" || saved === "grande" || saved === "extragrande") return saved;
+      return "grande";
+    } catch {
+      return "grande";
+    }
+  });
+
+  const togglePdvFontScale = () => {
+    setPdvFontScale(prev => {
+      const next = prev === "normal" ? "grande" : prev === "grande" ? "extragrande" : "normal";
+      try {
+        document.documentElement.dataset.fontScale = next;
+        localStorage.setItem("app_font_scale", next);
+      } catch (_) {}
+      showNotification(
+        next === "extragrande"
+          ? "Letras no Tamanho Máximo (A++) ativadas! 🔎"
+          : next === "grande"
+          ? "Letras Grandes (A+) ativadas! 🔍"
+          : "Tamanho de letras padrão (A).",
+        "info"
+      );
+      return next;
+    });
+  };
 
   // --- Thermal Receipt Printing & Printer Configuration States ---
   const [printerConfig, setPrinterConfig] = useState<PrinterConfig>(() => loadPrinterConfig());
@@ -2496,7 +2534,20 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [showMpClientSecret, setShowMpClientSecret] = useState(false);
   const [isProcessingMpPoint, setIsProcessingMpPoint] = useState(false);
   const [showMpExplainer, setShowMpExplainer] = useState(true);
-  const [mpExplainerTab, setMpExplainerTab] = useState<"titular" | "seguranca" | "celular" | "point" | "config_curta">("titular");
+  const [mpExplainerTab, setMpExplainerTab] = useState<"titular" | "seguranca" | "celular" | "point" | "config_curta" | "id_externo" | "conta_pj">("id_externo");
+  const [isValidatingMpToken, setIsValidatingMpToken] = useState(false);
+  const [mpTokenValidationResult, setMpTokenValidationResult] = useState<{
+    valid: boolean;
+    isSimulation?: boolean;
+    name?: string;
+    email?: string;
+    accountType?: string;
+    isPj?: boolean;
+    docType?: string;
+    docNumber?: string;
+    error?: string;
+    message?: string;
+  } | null>(null);
 
   // --- OWNER TOKEN & MP BANK VAULT SECURITY STATES (TOTAL SEGURANÇA BANCÁRIA DO PROPRIETÁRIO) ---
   const [tokenVaultConfigured, setTokenVaultConfigured] = useState<boolean>(() => {
@@ -3120,6 +3171,50 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     } catch (err: any) {
       console.error(err);
       showNotification(`Falha ao iniciar OAuth: ${err.message}`, "error");
+    }
+  };
+
+  const handleValidateMpToken = async () => {
+    if (!mpAccessToken.trim()) {
+      showNotification("Por favor, digite ou cole o seu Access Token do Mercado Pago para testar a conexão! 📲", "warning");
+      return;
+    }
+
+    setIsValidatingMpToken(true);
+    setMpTokenValidationResult(null);
+
+    try {
+      const res = await fetch("/api/mercado-pago/validate-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientAccessToken: mpAccessToken.trim() })
+      });
+      const data = await res.json();
+
+      if (res.ok && data.valid) {
+        setMpTokenValidationResult(data);
+        localStorage.setItem("pdv_mp_access_token", mpAccessToken.trim());
+        const extraInfo = data.isSimulation 
+          ? "Modo Simulado ativo para testes!" 
+          : `${data.accountType || "Conta Conectada"} (${data.name || ""})`;
+        showNotification(`Mercado Pago Conectado com Sucesso! 🟢⚡ ${extraInfo}`, "success");
+      } else {
+        const errorMsg = data.error || "Token inválido ou não autorizado no Mercado Pago.";
+        setMpTokenValidationResult({
+          valid: false,
+          error: errorMsg
+        });
+        showNotification(`Atenção: ${errorMsg}`, "error");
+      }
+    } catch (err: any) {
+      const msg = err.message || "Erro de rede ao validar token.";
+      setMpTokenValidationResult({
+        valid: false,
+        error: msg
+      });
+      showNotification(`Erro ao testar Token: ${msg}`, "error");
+    } finally {
+      setIsValidatingMpToken(false);
     }
   };
 
@@ -3849,6 +3944,71 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     showNotification(`Frente de Caixa otimizada para: ${newNiche === "comercio_geral" ? "Comércio Geral" : newNiche.replace("_", " ")}! 🚀`, "success");
   };
 
+  // --- Sound & Torch Helpers for PDV Scanner ---
+  const playPDVScannerBeep = useCallback((freq = 1800, duration = 0.08) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const audioCtx = new AudioCtx();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      }
+    } catch (_) {}
+    try {
+      if (navigator.vibrate) navigator.vibrate([70]);
+    } catch (_) {}
+  }, []);
+
+  const handleTogglePDVScannerTorch = async () => {
+    try {
+      const container = document.getElementById("barcode-scanner-viewport");
+      const video = container?.querySelector("video") as HTMLVideoElement | null;
+      if (video && video.srcObject) {
+        const stream = video.srcObject as MediaStream;
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          const next = !scannerTorchOn;
+          await track.applyConstraints({
+            advanced: [{ torch: next } as any]
+          });
+          setScannerTorchOn(next);
+          showNotification(next ? "Lanterna ligada 🔦" : "Lanterna desligada", "info");
+          return;
+        }
+      }
+      showNotification("Lanterna não suportada nesta câmera.", "warning");
+    } catch (e) {
+      showNotification("Lanterna indisponível neste dispositivo.", "warning");
+    }
+  };
+
+  const handleTogglePDVScannerZoom = async () => {
+    try {
+      const container = document.getElementById("barcode-scanner-viewport");
+      const video = container?.querySelector("video") as HTMLVideoElement | null;
+      if (video && video.srcObject) {
+        const stream = video.srcObject as MediaStream;
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          const nextZoom = scannerZoom === 1 ? 2 : 1;
+          await track.applyConstraints({
+            advanced: [{ zoom: nextZoom } as any]
+          });
+          setScannerZoom(nextZoom);
+          showNotification(`Zoom ${nextZoom}x 🔍`, "info");
+        }
+      }
+    } catch (_) {}
+  };
+
   // --- Barcode Scanner Handler & Mock Database ---
   const handleBarcodeScanned = useCallback((code: string) => {
     const cleanCode = code.trim();
@@ -3856,8 +4016,15 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
     // 1. Search custom products: barcode, quickCode (up to 4 digits), additionalBarcodes, ID or exact name
     const matchCustom = customProducts.find(p => {
-      if (p.barcode && (p.barcode.trim() === cleanCode || p.barcode.trim().toLowerCase() === cleanCode.toLowerCase())) return true;
-      if (p.additionalBarcodes && p.additionalBarcodes.some(b => b.trim() === cleanCode || b.trim().toLowerCase() === cleanCode.toLowerCase())) return true;
+      if (p.barcode) {
+        const b = p.barcode.trim();
+        if (b === cleanCode || b.toLowerCase() === cleanCode.toLowerCase()) return true;
+        if (b.replace(/^0+/, "") === cleanCode.replace(/^0+/, "") && cleanCode.replace(/^0+/, "").length >= 3) return true;
+      }
+      if (p.additionalBarcodes && p.additionalBarcodes.some(b => {
+        const cb = b.trim();
+        return cb === cleanCode || cb.toLowerCase() === cleanCode.toLowerCase() || (cb.replace(/^0+/, "") === cleanCode.replace(/^0+/, "") && cleanCode.replace(/^0+/, "").length >= 3);
+      })) return true;
       if (p.id && (p.id === cleanCode || p.id.toLowerCase() === cleanCode.toLowerCase())) return true;
       if (p.name && p.name.trim().toLowerCase() === cleanCode.toLowerCase()) return true;
       if (p.quickCode) {
@@ -3878,9 +4045,54 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         description: matchCustom.description,
         brand: matchCustom.brand
       });
+      playPDVScannerBeep(1800, 0.08);
+      setLastScannedFeedback({
+        name: matchCustom.name,
+        price: matchCustom.price,
+        timestamp: Date.now()
+      });
       showNotification(`Item adicionado: ${matchCustom.name.toUpperCase()} 🛒✅`, "success");
-      setIsScannerOpen(false);
+      if (!scannerContinuousMode) {
+        setIsScannerOpen(false);
+      }
       return;
+    }
+
+    // 1.5 Special Brazilian retail scale barcode detection (EAN-13 starting with '2')
+    // Format: 2 CCCCC PPPPP D (Where CCCCC is product PLU/quick code, PPPPP is total price in cents)
+    if (cleanCode.length === 13 && cleanCode.startsWith("2")) {
+      const plu = cleanCode.substring(1, 6).replace(/^0+/, "");
+      const valueInCents = parseInt(cleanCode.substring(6, 12), 10);
+      const computedAmount = !isNaN(valueInCents) ? valueInCents / 100 : null;
+
+      const scaleProduct = customProducts.find(p => {
+        const qk = (p.quickCode || "").trim().replace(/^0+/, "");
+        const bc = (p.barcode || "").trim().replace(/^0+/, "");
+        return (qk && qk === plu) || (bc && bc === plu);
+      });
+
+      if (scaleProduct) {
+        const finalPrice = (computedAmount && computedAmount > 0) ? computedAmount : scaleProduct.price;
+        handleAddToCart(scaleProduct.name, finalPrice, scaleProduct.id, {
+          size: scaleProduct.size,
+          color: scaleProduct.color,
+          unit: scaleProduct.unit || "kg",
+          quickCode: scaleProduct.quickCode,
+          description: scaleProduct.description,
+          brand: scaleProduct.brand
+        });
+        playPDVScannerBeep(1800, 0.08);
+        setLastScannedFeedback({
+          name: scaleProduct.name,
+          price: finalPrice,
+          timestamp: Date.now()
+        });
+        showNotification(`Etiqueta de Balança: ${scaleProduct.name.toUpperCase()} (R$ ${finalPrice.toFixed(2).replace(".", ",")}) ⚖️🥩✅`, "success");
+        if (!scannerContinuousMode) {
+          setIsScannerOpen(false);
+        }
+        return;
+      }
     }
 
     // 2. Or search active default products / quick codes demo
@@ -3900,8 +4112,16 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         unit: demoMatch.unit,
         quickCode: demoMatch.quickCode
       });
+      playPDVScannerBeep(1800, 0.08);
+      setLastScannedFeedback({
+        name: demoMatch.name,
+        price: demoMatch.price,
+        timestamp: Date.now()
+      });
       showNotification(`Item adicionado: ${demoMatch.name.toUpperCase()} 🛒✅`, "success");
-      setIsScannerOpen(false);
+      if (!scannerContinuousMode) {
+        setIsScannerOpen(false);
+      }
       return;
     }
 
@@ -3913,7 +4133,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     setQuickRegQty("1");
     setIsQuickRegisterModalOpen(true);
     setIsScannerOpen(false);
-  }, [customProducts]);
+  }, [customProducts, scannerContinuousMode, playPDVScannerBeep]);
 
   const handleRequestScannerPermissionInPDV = async () => {
     setScanningError(null);
@@ -3922,20 +4142,15 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         video: { facingMode: { ideal: "environment" } }
       });
       stream.getTracks().forEach(t => t.stop());
-      const devices = await Html5Qrcode.getCameras();
-      if (devices && devices.length > 0) {
-        // Filter strictly to rear / back cameras
-        const rearCams = devices.filter(d => {
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(d => d.kind === "videoinput");
+        const rearOnly = videoInputs.filter(d => {
           const l = (d.label || "").toLowerCase();
           return !l.includes("front") && !l.includes("user") && !l.includes("selfie") && !l.includes("frontal");
         });
-        const finalCams = rearCams.length > 0 ? rearCams : devices;
-        setAvailableCameras(finalCams);
-        const rear = finalCams.find(d => {
-          const l = (d.label || "").toLowerCase();
-          return l.includes("back") || l.includes("traseir") || l.includes("rear") || l.includes("environment");
-        }) || finalCams[0];
-        if (rear) setSelectedCameraId(rear.id);
+        const finalCams = rearOnly.length > 0 ? rearOnly : videoInputs;
+        setAvailableCameras(finalCams.map(d => ({ id: d.deviceId, label: d.label })));
       }
       setScannerRetryKey(prev => prev + 1);
       showNotification("Câmera traseira liberada com sucesso! 📸✅", "success");
@@ -3945,48 +4160,61 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     }
   };
 
-  // Barcode Scanner Camera Mount Effect - REAR CAMERA ONLY
-  useEffect(() => {
-    let isMounted = true;
-
-    if (isScannerOpen) {
-      // Query cameras silently and prioritize back/rear camera strictly
-      Html5Qrcode.getCameras().then(devices => {
-        if (isMounted && devices && devices.length > 0) {
-          const rearOnly = devices.filter(d => {
-            const label = (d.label || "").toLowerCase();
-            return !label.includes("front") && !label.includes("user") && !label.includes("selfie") && !label.includes("frontal");
-          });
-          const safeDevices = rearOnly.length > 0 ? rearOnly : devices;
-          setAvailableCameras(safeDevices);
-          if (!selectedCameraId) {
-            const rearCamera = safeDevices.find(d => {
-              const label = (d.label || "").toLowerCase();
-              return label.includes("back") || label.includes("traseir") || label.includes("rear") || label.includes("environment");
-            }) || safeDevices[0];
-            if (rearCamera) {
-              setSelectedCameraId(rearCamera.id);
+  // Stop all active MediaStream tracks inside the PDV scanner viewport to release hardware lock
+  const stopPDVScannerMediaTracks = () => {
+    try {
+      const container = document.getElementById("barcode-scanner-viewport");
+      if (container) {
+        const videos = container.querySelectorAll("video");
+        videos.forEach(video => {
+          if (video.srcObject) {
+            const stream = video.srcObject as MediaStream;
+            if (stream && typeof stream.getTracks === "function") {
+              stream.getTracks().forEach(t => {
+                try { t.stop(); } catch (_) {}
+              });
             }
+            video.srcObject = null;
           }
-        }
-      }).catch(() => {
-        // Silent catch: camera permission will be prompted upon scanner.start()
-      });
-    } else {
-      setAvailableCameras([]);
-    }
+        });
+      }
+    } catch (_) {}
+  };
 
-    return () => {
-      isMounted = false;
-    };
-  }, [isScannerOpen]);
+  // Helper: safely stop and clear an Html5Qrcode instance without transition race condition errors
+  const safeStopPDVScanner = async (scanner: any) => {
+    if (!scanner) {
+      stopPDVScannerMediaTracks();
+      return;
+    }
+    try {
+      const state = typeof scanner.getState === "function" ? scanner.getState() : 0;
+      // Html5QrcodeScannerState: 2 = SCANNING, 3 = PAUSED
+      if (state === 2 || state === 3) {
+        await scanner.stop();
+      }
+    } catch (err: any) {
+      console.warn("safeStopPDVScanner stop aviso:", err);
+    } finally {
+      try {
+        scanner.clear();
+      } catch (err: any) {
+        console.warn("safeStopPDVScanner clear aviso:", err);
+      }
+      stopPDVScannerMediaTracks();
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
     let scannerInstance: any = null;
+    let startPromise: Promise<any> | null = null;
 
     if (isScannerOpen) {
       setScanningError(null);
+      // Clean up any lingering hardware tracks before creating a new instance
+      stopPDVScannerMediaTracks();
+
       // Wait for DOM to load fully
       const timer = setTimeout(() => {
         if (!isMounted) return;
@@ -4002,7 +4230,10 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
               Html5QrcodeSupportedFormats.CODE_93,
               Html5QrcodeSupportedFormats.ITF,
               Html5QrcodeSupportedFormats.CODABAR,
-              Html5QrcodeSupportedFormats.QR_CODE
+              Html5QrcodeSupportedFormats.QR_CODE,
+              Html5QrcodeSupportedFormats.DATA_MATRIX,
+              Html5QrcodeSupportedFormats.PDF_417,
+              Html5QrcodeSupportedFormats.AZTEC
             ],
             experimentalFeatures: {
               useBarCodeDetectorIfSupported: true
@@ -4015,64 +4246,73 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
           // Camera start configuration: strictly rear camera
           const cameraConfig = selectedCameraId 
-            ? { deviceId: { exact: selectedCameraId } }
-            : { facingMode: { ideal: "environment" } };
+            ? selectedCameraId 
+            : { facingMode: "environment" };
 
-          scanner.start(
+          startPromise = scanner.start(
             cameraConfig,
             {
               fps: 30, // 30 FPS for fast and ultra-smooth reading frames
-              qrbox: (width: number, height: number) => {
-                const boxWidth = Math.floor(width * 0.94);
-                const boxHeight = Math.floor(height * 0.86);
+              qrbox: (viewWidth: number, viewHeight: number) => {
+                // html5-qrcode strictly requires both width and height to be >= 50px
+                const minDimension = 60;
+                const vw = Math.max(minDimension, viewWidth || 280);
+                const vh = Math.max(minDimension, viewHeight || 200);
+                const boxWidth = Math.max(minDimension, Math.min(Math.floor(vw * 0.92), 400));
+                const boxHeight = Math.max(minDimension, Math.min(Math.floor(vh * 0.82), 260));
                 return { width: boxWidth, height: boxHeight };
               },
               aspectRatio: 1.333333
             },
             (decodedText: string) => {
-              try {
-                const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                const osc = audioCtx.createOscillator();
-                osc.type = "sine";
-                osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
-                osc.connect(audioCtx.destination);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.1);
-              } catch (e) {
-                console.log("No audio beep:", e);
+              const clean = decodedText.trim();
+              const now = Date.now();
+              // Prevent accidental rapid duplicate scans of the exact same code within 1.2s in continuous mode
+              if (lastScannedCodeRef.current.code === clean && now - lastScannedCodeRef.current.time < 1200) {
+                return;
               }
+              lastScannedCodeRef.current = { code: clean, time: now };
               if (isMounted) {
-                handleBarcodeScanned(decodedText);
+                handleBarcodeScanned(clean);
               }
             },
             () => {}
-          ).catch((err: any) => {
-            console.warn("First scanner start with exact device failed, retrying with environment facingMode...", err);
-            
-            // NEVER switch to front/user camera! Always keep environment/rear
-            if (isMounted) {
-              scanner.start(
-                { facingMode: "environment" },
-                {
-                  fps: 30,
-                  qrbox: (width: number, height: number) => ({
-                    width: Math.floor(width * 0.94),
-                    height: Math.floor(height * 0.86)
-                  }),
-                  aspectRatio: 1.333333
-                },
-                (decodedText: string) => {
-                  if (isMounted) handleBarcodeScanned(decodedText);
-                },
-                () => {}
-              ).catch((finalErr: any) => {
-                console.error("All rear camera setups failed:", finalErr);
-                if (isMounted) {
+          );
+
+          startPromise
+            .then(() => {
+              if (!isMounted) {
+                safeStopPDVScanner(scanner);
+                return;
+              }
+              // Safely enumerate devices now that camera is actively streaming
+              if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
+                navigator.mediaDevices.enumerateDevices().then(devices => {
+                  if (!isMounted) return;
+                  const videoInputs = devices.filter(d => d.kind === "videoinput");
+                  const rearOnly = videoInputs.filter(d => {
+                    const label = (d.label || "").toLowerCase();
+                    return !label.includes("front") && !label.includes("user") && !label.includes("selfie") && !label.includes("frontal");
+                  });
+                  const safeDevices = rearOnly.length > 0 ? rearOnly : videoInputs;
+                  setAvailableCameras(safeDevices.map(d => ({ id: d.deviceId, label: d.label })));
+                }).catch(() => {});
+              }
+            })
+            .catch((err: any) => {
+              console.warn("Scanner camera start error:", err);
+              if (isMounted) {
+                const errStr = String(err?.message || err || "");
+                if (errStr.includes("NotReadableError") || errStr.includes("Could not start video source")) {
+                  setScanningError("A câmera está ocupada por outro aplicativo ou processo do aparelho. Feche outros apps com câmera aberta e tente novamente.");
+                } else if (errStr.includes("NotAllowedError") || errStr.includes("Permission denied")) {
                   setScanningError("Acesso à câmera traseira não concedido. No celular, toque no cadeado 🔒 na barra do navegador (topo da tela) para permitir a Câmera.");
+                } else {
+                  setScanningError("Não foi possível acessar a câmera traseira. Verifique as permissões de vídeo do navegador.");
                 }
-              });
-            }
-          });
+              }
+              stopPDVScannerMediaTracks();
+            });
         } catch (e) {
           console.error("Scanner failed to initialize:", e);
         }
@@ -4082,46 +4322,23 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         isMounted = false;
         clearTimeout(timer);
         
-        const scanner = html5QrCodeRef.current || scannerInstance;
-        if (scanner) {
-          html5QrCodeRef.current = null;
-          try {
-            if (scanner.isScanning) {
-              scanner.stop().then(() => {
-                scanner.clear();
-                console.log("Scanner stopped and cleared.");
-              }).catch((e: any) => console.log("Error stopping scanner:", e));
-            } else {
-              setTimeout(() => {
-                try {
-                  if (scanner.isScanning) {
-                    scanner.stop().then(() => scanner.clear()).catch((e: any) => console.log("Deferred stop error:", e));
-                  } else {
-                    scanner.clear();
-                  }
-                } catch (e) {
-                  console.log("Deferred clear error:", e);
-                }
-              }, 400);
-            }
-          } catch (e) {
-            console.log("Scanner cleanup error:", e);
+        const scannerToStop = scannerInstance || html5QrCodeRef.current;
+        html5QrCodeRef.current = null;
+        if (scannerToStop) {
+          if (startPromise) {
+            startPromise.finally(() => {
+              safeStopPDVScanner(scannerToStop);
+            });
+          } else {
+            safeStopPDVScanner(scannerToStop);
           }
         }
       };
     } else {
-      const scanner = html5QrCodeRef.current;
-      if (scanner) {
-        html5QrCodeRef.current = null;
-        try {
-          if (scanner.isScanning) {
-            scanner.stop().then(() => scanner.clear()).catch((e: any) => console.log(e));
-          } else {
-            scanner.clear();
-          }
-        } catch (e) {
-          console.log(e);
-        }
+      const scannerToStop = html5QrCodeRef.current;
+      html5QrCodeRef.current = null;
+      if (scannerToStop) {
+        safeStopPDVScanner(scannerToStop);
       }
     }
   }, [isScannerOpen, selectedCameraId, scannerRetryKey, handleBarcodeScanned]);
@@ -4188,18 +4405,29 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
       // Intercept physical USB/Wireless barcode scanner gun inputs (acts as ultra-fast keyboard typing)
       const now = Date.now();
-      if (e.key >= "0" && e.key <= "9") {
-        if (now - lastKeyTimeRef.current > 50) {
+      const isAlphanumericBarcodeKey = (e.key.length === 1 && /[0-9a-zA-Z\-_.]/.test(e.key));
+
+      if (isAlphanumericBarcodeKey) {
+        if (now - lastKeyTimeRef.current > 90) {
           scannerBufferRef.current = "";
         }
         scannerBufferRef.current += e.key;
         lastKeyTimeRef.current = now;
       } else if (e.key === "Enter") {
-        if (scannerBufferRef.current.length >= 8 && now - lastKeyTimeRef.current < 100) {
+        if (scannerBufferRef.current.length >= 2 && now - lastKeyTimeRef.current < 160) {
           e.preventDefault();
           e.stopPropagation();
-          const code = scannerBufferRef.current;
+          const code = scannerBufferRef.current.trim();
           scannerBufferRef.current = "";
+
+          // Se o operador estava com o cursor dentro de um campo de texto, remover o código de barras digitado nele
+          if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) {
+            const inputEl = activeEl as HTMLInputElement;
+            if (inputEl.value && (inputEl.value.endsWith(code) || inputEl.value === code)) {
+              inputEl.value = inputEl.value === code ? "" : inputEl.value.slice(0, -code.length).trim();
+            }
+          }
+
           currentHandleBarcodeScanned(code);
           return;
         }
@@ -10609,30 +10837,49 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
       {/* 1. TOP TITLE BLOCK */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-white/5 pb-5 mb-5">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isCashRegisterOpen ? (
-              <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+              <span className="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
                 Operador de Caixa Ativo
               </span>
             ) : (
-              <span className="px-2 py-0.5 bg-rose-500/10 text-rose-450 border border-rose-500/20 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
+              <span className="px-2.5 py-1 bg-rose-500/10 text-rose-450 border border-rose-500/20 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                <span className="w-2 h-2 bg-rose-500 rounded-full" />
                 Caixa Fechado
               </span>
             )}
             {isLoggedIn && (
-              <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full text-[9px] font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3 text-indigo-400" />
+              <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full text-xs font-bold flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400" />
                 Nuvem Sincronizada
               </span>
             )}
             {isSyncing && (
-              <span className="px-2 py-0.5 bg-slate-800 text-slate-400 rounded-full text-[9px] font-mono animate-pulse flex items-center gap-1">
-                <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+              <span className="px-2.5 py-1 bg-slate-800 text-slate-400 rounded-full text-xs font-mono animate-pulse flex items-center gap-1.5">
+                <RefreshCw className="w-3 h-3 animate-spin" />
                 Sincronizando...
               </span>
             )}
+
+            {/* Accessibility / Letras Maiores Switcher */}
+            <button
+              type="button"
+              onClick={togglePdvFontScale}
+              className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all shadow-sm active:scale-95 border ${
+                pdvFontScale === "extragrande"
+                  ? "bg-emerald-600 text-white border-emerald-400 shadow-emerald-500/20"
+                  : pdvFontScale === "grande"
+                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30"
+                  : "bg-slate-900 hover:bg-slate-800 text-slate-300 border-white/10"
+              }`}
+              title="Aumentar o tamanho das letras miúdas na tela para facilitar a visão no caixa"
+            >
+              <span className="font-mono font-black text-xs text-emerald-400">
+                {pdvFontScale === "extragrande" ? "A++" : pdvFontScale === "grande" ? "A+" : "A"}
+              </span>
+              <span>{pdvFontScale === "extragrande" ? "Letras Máximas" : pdvFontScale === "grande" ? "Letras Grandes" : "Letras Padrão"}</span>
+            </button>
           </div>
           <h2 className="text-xl font-black text-white mt-1.5 tracking-tight flex items-center gap-2">
             {onlyCheckout ? <ShoppingCart className="w-5 h-5 text-emerald-400" /> : <Store className="w-5 h-5 text-emerald-400" />}
@@ -13733,6 +13980,30 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                             <Zap className="w-3.5 h-3.5" />
                             5. Configuração Curtinha
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setMpExplainerTab("id_externo")}
+                            className={`px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                              mpExplainerTab === "id_externo"
+                                ? "bg-amber-400 text-slate-950 shadow-md shadow-amber-400/20"
+                                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
+                            }`}
+                          >
+                            <HelpCircle className="w-3.5 h-3.5" />
+                            6. O que é ID Externo? (Não é CDI!) 💡
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMpExplainerTab("conta_pj")}
+                            className={`px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                              mpExplainerTab === "conta_pj"
+                                ? "bg-purple-500 text-white shadow-md shadow-purple-500/20"
+                                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
+                            }`}
+                          >
+                            <Building className="w-3.5 h-3.5" />
+                            7. Conta PJ (CNPJ) & Token 🏢
+                          </button>
                         </div>
 
                         {/* Content for TAB 1: De quem é a conta? Denise vs Wellington/Dono */}
@@ -13875,6 +14146,100 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                             </div>
                             <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-lg text-[9px] text-emerald-300 font-sans flex items-center justify-between">
                               <span>🚀 Nada de códigos difíceis: o sistema cuida de tudo nos bastidores!</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Content for TAB 6: O que é ID Externo? (Não é CDI) */}
+                        {mpExplainerTab === "id_externo" && (
+                          <div className="bg-slate-950/70 p-3.5 rounded-xl border border-white/5 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black text-amber-400 uppercase">
+                                💡 O que é ID Externo? (Não confunda com CDI de banco!)
+                              </span>
+                            </div>
+
+                            <div className="bg-amber-500/10 border border-amber-500/30 p-3 rounded-xl space-y-1.5">
+                              <span className="font-black text-amber-300 text-xs uppercase block">
+                                ⚠️ ATENÇÃO: NÃO É CDI DE INVESTIMENTO BANCÁRIO!
+                              </span>
+                              <p className="text-[10px] text-slate-200 leading-relaxed font-sans">
+                                <strong>CDI</strong> é um termo de economia e bancos (Certificado de Depósito Interbancário).<br />
+                                Aqui na integração se chama <strong>ID Externo</strong> (a palavra é <em>ID</em>, que significa <strong>Identidade / Identificador</strong>).
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[9.5px] font-sans">
+                              <div className="bg-slate-900/60 p-3 rounded-lg border border-white/5 space-y-1.5">
+                                <span className="font-black text-sky-300 uppercase block">
+                                  1. Para que serve o ID Externo?
+                                </span>
+                                <p className="text-slate-300 leading-relaxed">
+                                  É apenas um <strong>apelido simples ou código</strong> que identifica o seu caixa ou a sua maquininha dentro do Mercado Pago (exemplo: <code className="text-sky-300 font-bold">caixa_01</code>, <code className="text-sky-300 font-bold">balcao_principal</code>).
+                                </p>
+                              </div>
+                              <div className="bg-slate-900/60 p-3 rounded-lg border border-emerald-500/20 space-y-1.5">
+                                <span className="font-black text-emerald-400 uppercase block">
+                                  2. Preciso preencher obrigatório?
+                                </span>
+                                <p className="text-slate-300 leading-relaxed">
+                                  <strong>NÃO!</strong> Se você não souber o que colocar, basta <strong>deixar em branco</strong>! A Calculadora Cérebro Inteligente cria automaticamente um ID único para você nos bastidores.
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="bg-sky-500/10 border border-sky-500/20 p-2.5 rounded-lg text-[9.5px] text-sky-200 font-sans leading-relaxed">
+                              🎯 <strong>Resumo:</strong> Não se preocupe com o ID Externo! Deixe em branco e o sistema cuida de tudo para a sua loja funcionar redonda!
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Content for TAB 7: Como conectar Conta PJ (CNPJ) e Maquininha */}
+                        {mpExplainerTab === "conta_pj" && (
+                          <div className="bg-slate-950/70 p-3.5 rounded-xl border border-white/5 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black text-purple-400 uppercase">
+                                🏢 Como Conectar Conta PJ (CNPJ) do Mercado Pago com a Calculadora Cérebro
+                              </span>
+                            </div>
+
+                            <div className="bg-purple-950/40 border border-purple-500/30 p-3 rounded-xl space-y-1.5">
+                              <span className="font-black text-purple-200 text-xs uppercase block">
+                                ✅ Sua Conta é Jurídica (PJ) com CNPJ? Funciona Perfeitamente!
+                              </span>
+                              <p className="text-[10px] text-slate-300 leading-relaxed font-sans">
+                                O sistema aceita tanto <strong>Conta PJ (com CNPJ da sua empresa)</strong> quanto <strong>Conta PF (com CPF)</strong>. Ao conectar o seu Token, 100% do dinheiro das vendas cai direto no saldo da sua conta empresarial!
+                              </p>
+                            </div>
+
+                            <div className="space-y-2 text-[9.5px] font-sans text-slate-300">
+                              <div className="bg-slate-900/60 p-2.5 rounded-lg border border-white/5 space-y-1">
+                                <strong className="text-white block font-sans uppercase text-[10px] text-sky-300">
+                                  Passo a Passo para Pegar o Token da Conta PJ:
+                                </strong>
+                                <ol className="list-decimal list-inside space-y-1 text-slate-300 pl-1">
+                                  <li>Faça login no site do Mercado Pago com o e-mail e senha da sua <strong>Conta PJ</strong>.</li>
+                                  <li>Acesse a página de desenvolvedores: <a href="https://developers.mercadopago.com" target="_blank" rel="noopener noreferrer" className="text-sky-400 underline font-bold">developers.mercadopago.com</a></li>
+                                  <li>Vá em <strong>Suas Aplicações</strong> &gt; Clique na sua aplicação (ou crie uma nova com o nome do seu comércio).</li>
+                                  <li>No menu lateral esquerdo, clique em <strong>Credenciais de Produção</strong>.</li>
+                                  <li>Copie o <strong>Access Token</strong> (começa com <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-300 font-mono font-bold">APP_USR-...</code>).</li>
+                                  <li>Cole no campo abaixo e clique no botão <strong>"Testar Conexão com Minha Conta PJ"</strong>!</li>
+                                </ol>
+                              </div>
+
+                              <div className="bg-slate-900/60 p-2.5 rounded-lg border border-white/5 space-y-1">
+                                <strong className="text-white block font-sans uppercase text-[10px] text-emerald-400">
+                                  Como a Maquininha (Point) Funciona com o Aplicativo:
+                                </strong>
+                                <p className="leading-relaxed">
+                                  • <strong>No Pix:</strong> O cliente paga lendo o QR Code direto na tela do seu computador ou celular. A confirmação é 100% automática!<br />
+                                  • <strong>No Cartão (Débito/Crédito):</strong> Ao escolher Débito ou Crédito, você clica em <em>"Cobrar na Point"</em>. No celular ou tablet, o aplicativo abre o app da maquininha Bluetooth já com o valor exato da compra da Calculadora Cérebro, pronto para inserir o cartão!
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-lg text-[9.5px] text-emerald-300 font-sans flex items-center justify-between">
+                              <span>🚀 Você pode usar o botão azul <strong>"Conectar via OAuth Rápido"</strong> para conectar sem precisar copiar código nenhum!</span>
                             </div>
                           </div>
                         )}
@@ -14343,6 +14708,20 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                                 <button
                                   type="button"
+                                  onClick={handleValidateMpToken}
+                                  disabled={isValidatingMpToken}
+                                  className="px-4 py-2.5 bg-sky-500 hover:bg-sky-450 disabled:opacity-50 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer font-sans shadow-md"
+                                >
+                                  {isValidatingMpToken ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <ShieldCheck className="w-3.5 h-3.5 text-slate-950" />
+                                  )}
+                                  Testar Conexão com Minha Conta PJ/PF 🔎
+                                </button>
+
+                                <button
+                                  type="button"
                                   onClick={() => {
                                     localStorage.setItem("pdv_mp_access_token", mpAccessToken.trim());
                                     if (mpAccessToken.trim()) {
@@ -14357,6 +14736,57 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                   Confirmar Token Manual
                                 </button>
                               </div>
+
+                              {mpTokenValidationResult && (
+                                <div className={`p-3 rounded-xl border text-left space-y-2 ${
+                                  mpTokenValidationResult.valid 
+                                    ? "bg-emerald-950/60 border-emerald-500/40 text-emerald-200" 
+                                    : "bg-red-950/60 border-red-500/40 text-red-200"
+                                }`}>
+                                  <div className="flex items-center gap-2">
+                                    {mpTokenValidationResult.valid ? (
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                    ) : (
+                                      <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                                    )}
+                                    <span className="text-[11px] font-black uppercase tracking-wider">
+                                      {mpTokenValidationResult.valid ? "✅ Conexão Validada com Sucesso no Mercado Pago!" : "❌ Falha na Conexão do Token"}
+                                    </span>
+                                  </div>
+
+                                  {mpTokenValidationResult.valid ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[9.5px] font-sans">
+                                      <div className="bg-slate-900/60 p-2 rounded-lg border border-white/5">
+                                        <span className="text-slate-400 uppercase text-[8px] block font-bold">Tipo de Conta:</span>
+                                        <span className="text-white font-bold">{mpTokenValidationResult.accountType || (mpTokenValidationResult.isPj ? "Conta PJ (CNPJ)" : "Conta PF (CPF)")}</span>
+                                      </div>
+                                      <div className="bg-slate-900/60 p-2 rounded-lg border border-white/5">
+                                        <span className="text-slate-400 uppercase text-[8px] block font-bold">Titular / Razão Social:</span>
+                                        <span className="text-white font-bold">{mpTokenValidationResult.name || "Identificado"}</span>
+                                      </div>
+                                      {mpTokenValidationResult.docNumber && (
+                                        <div className="bg-slate-900/60 p-2 rounded-lg border border-white/5">
+                                          <span className="text-slate-400 uppercase text-[8px] block font-bold">Documento ({mpTokenValidationResult.docType || "CNPJ/CPF"}):</span>
+                                          <span className="text-emerald-300 font-mono font-bold">{mpTokenValidationResult.docNumber}</span>
+                                        </div>
+                                      )}
+                                      {mpTokenValidationResult.email && (
+                                        <div className="bg-slate-900/60 p-2 rounded-lg border border-white/5">
+                                          <span className="text-slate-400 uppercase text-[8px] block font-bold">E-mail:</span>
+                                          <span className="text-slate-200 font-mono text-[9px]">{mpTokenValidationResult.email}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-1 text-[9.5px] text-red-200 font-sans">
+                                      <p><strong>Motivo:</strong> {mpTokenValidationResult.error || "Token inválido."}</p>
+                                      <p className="text-[8.5px] text-slate-300">
+                                        💡 <strong>Dica:</strong> Copie o <strong>Access Token de Produção</strong> (começa com <code className="text-amber-300 font-mono">APP_USR-...</code>) gerado em developers.mercadopago.com na sua conta PJ/PF ou clique no botão azul <em>"Conectar via OAuth Rápido"</em> acima!
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
 
                               {mpAccessToken.trim() ? (
                                 <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl flex items-center justify-between gap-4">
@@ -14426,6 +14856,9 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                 <label className="text-[9px] font-black text-slate-400 uppercase block font-sans">
                                   Código ID Externo da Loja (external_id):
                                 </label>
+                                <span className="text-[8px] text-amber-300 block font-normal leading-tight">
+                                  💡 <strong>O que é:</strong> Apelido/código da loja no Mercado Pago (NÃO é taxa CDI de banco). Deixe em branco se quiser gerar automático!
+                                </span>
                                 <input
                                   type="text"
                                   value={wizardStoreExternalId}
@@ -15157,6 +15590,20 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                       <button
                         type="button"
+                        onClick={handleValidateMpToken}
+                        disabled={isValidatingMpToken}
+                        className="px-4 py-2 bg-sky-500 hover:bg-sky-450 disabled:opacity-50 text-slate-950 font-black text-[10px] rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer font-sans shadow-md"
+                      >
+                        {isValidatingMpToken ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ShieldCheck className="w-3.5 h-3.5 text-slate-950" />
+                        )}
+                        Testar Conexão com Minha Conta PJ/PF 🔎
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => {
                           localStorage.setItem("pdv_mp_access_token", mpAccessToken.trim());
                           localStorage.setItem("pdv_mp_client_id", mpClientId.trim());
@@ -15180,6 +15627,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                             setMpAccessToken("");
                             setMpClientId("");
                             setMpClientSecret("");
+                            setMpTokenValidationResult(null);
                             localStorage.removeItem("pdv_mp_access_token");
                             localStorage.removeItem("pdv_mp_client_id");
                             localStorage.removeItem("pdv_mp_client_secret");
@@ -15191,6 +15639,57 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         </button>
                       )}
                     </div>
+
+                    {mpTokenValidationResult && (
+                      <div className={`p-3.5 rounded-xl border text-left space-y-2 ${
+                        mpTokenValidationResult.valid 
+                          ? "bg-emerald-950/60 border-emerald-500/40 text-emerald-200" 
+                          : "bg-red-950/60 border-red-500/40 text-red-200"
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          {mpTokenValidationResult.valid ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                          )}
+                          <span className="text-[11px] font-black uppercase tracking-wider">
+                            {mpTokenValidationResult.valid ? "✅ Conexão Validada com Sucesso no Mercado Pago!" : "❌ Falha na Conexão do Token"}
+                          </span>
+                        </div>
+
+                        {mpTokenValidationResult.valid ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[9.5px] font-sans">
+                            <div className="bg-slate-900/60 p-2 rounded-lg border border-white/5">
+                              <span className="text-slate-400 uppercase text-[8px] block font-bold">Tipo de Conta:</span>
+                              <span className="text-white font-bold">{mpTokenValidationResult.accountType || (mpTokenValidationResult.isPj ? "Conta PJ (CNPJ)" : "Conta PF (CPF)")}</span>
+                            </div>
+                            <div className="bg-slate-900/60 p-2 rounded-lg border border-white/5">
+                              <span className="text-slate-400 uppercase text-[8px] block font-bold">Titular / Razão Social:</span>
+                              <span className="text-white font-bold">{mpTokenValidationResult.name || "Identificado"}</span>
+                            </div>
+                            {mpTokenValidationResult.docNumber && (
+                              <div className="bg-slate-900/60 p-2 rounded-lg border border-white/5">
+                                <span className="text-slate-400 uppercase text-[8px] block font-bold">Documento ({mpTokenValidationResult.docType || "CNPJ/CPF"}):</span>
+                                <span className="text-emerald-300 font-mono font-bold">{mpTokenValidationResult.docNumber}</span>
+                              </div>
+                            )}
+                            {mpTokenValidationResult.email && (
+                              <div className="bg-slate-900/60 p-2 rounded-lg border border-white/5">
+                                <span className="text-slate-400 uppercase text-[8px] block font-bold">E-mail Vinculado:</span>
+                                <span className="text-slate-200 font-mono text-[9px]">{mpTokenValidationResult.email}</span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-1 text-[9.5px] text-red-200 font-sans">
+                            <p><strong>Motivo:</strong> {mpTokenValidationResult.error || "Token inválido."}</p>
+                            <p className="text-[8.5px] text-slate-300">
+                              💡 <strong>Dica:</strong> Copie o <strong>Access Token de Produção</strong> (começa com <code className="text-amber-300 font-mono">APP_USR-...</code>) gerado em <a href="https://developers.mercadopago.com" target="_blank" rel="noopener noreferrer" className="underline text-sky-400 font-bold">developers.mercadopago.com</a> na sua conta PJ ou use o botão <em>"Conectar Mercado Pago via OAuth"</em> acima!
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Active Operator Caixa Selector */}
@@ -15237,6 +15736,9 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block font-sans">
                           ID Externo Ativo do Caixa (external_pos_id):
                         </label>
+                        <span className="text-[8px] text-amber-300 block font-normal">
+                          💡 <strong>O que é:</strong> Apelido do caixa no Mercado Pago (Não é taxa CDI). Pode deixar o padrão (ex: Caixa 01) ou alterar à vontade!
+                        </span>
                         <input
                           type="text"
                           value={selectedMpPosId}
@@ -17840,22 +18342,34 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           const typed = catalogSearch.trim();
+                          if (!typed) {
+                            showNotification("Digite um nome, código de barras ou 4 dígitos!", "warning");
+                            return;
+                          }
+                          e.preventDefault();
+                          // 1. Prioritize exact barcode, quick code or Brazilian scale barcode
+                          const exactMatch = customProducts.find(p => 
+                            p.barcode?.trim() === typed ||
+                            p.quickCode?.trim() === typed ||
+                            p.additionalBarcodes?.some(b => b.trim() === typed) ||
+                            p.id === typed
+                          );
+                          if (exactMatch || (typed.length === 13 && typed.startsWith("2")) || (/^\d{3,}$/.test(typed) && !activeProductsList.some(p => p.name.toLowerCase().includes(typed.toLowerCase())))) {
+                            handleBarcodeScanned(typed);
+                            setCatalogSearch("");
+                            return;
+                          }
+                          // 2. If searched by product name and there are filtered results
                           if (activeProductsList && activeProductsList.length > 0) {
                             const firstProd = activeProductsList[0];
                             handleAddToCart(firstProd.name, firstProd.price, firstProd.id);
+                            playPDVScannerBeep(1800, 0.08);
+                            showNotification(`Item adicionado: ${firstProd.name.toUpperCase()} 🛒✅`, "success");
                             setCatalogSearch("");
-                            e.preventDefault();
-                          } else if (typed) {
-                            showNotification(`"${typed}" não localizado no catálogo. Abrindo Venda Rápida sem travar... ⚡`, "info");
-                            setQuickRegCode(typed);
-                            setQuickRegName("");
-                            setQuickRegPrice("");
-                            setQuickRegQty("1");
-                            setIsQuickRegisterModalOpen(true);
-                            setCatalogSearch("");
-                            e.preventDefault();
                           } else {
-                            showNotification("Digite um nome, código de barras ou 4 dígitos!", "warning");
+                            // 3. Not found: pass to barcode scanner handler (which offers quick register)
+                            handleBarcodeScanned(typed);
+                            setCatalogSearch("");
                           }
                         }
                       }}
@@ -19726,34 +20240,85 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               <div className="p-4 border-b border-white/5 flex items-center justify-between bg-slate-950/55">
                 <div className="flex items-center gap-1.5 text-emerald-400">
                   <ScanLine className="w-4 h-4 animate-pulse" />
-                  <span className="text-[10px] font-black uppercase tracking-wider">Leitor de Código de Barras</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider">Leitor Inteligente de Barras & QR</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsScannerOpen(false)}
-                  className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setScannerContinuousMode(!scannerContinuousMode)}
+                    className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer ${
+                      scannerContinuousMode
+                        ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20"
+                        : "bg-slate-800 text-slate-400 hover:text-white"
+                    }`}
+                    title="Alternar entre bipar vários produtos sem fechar a câmera ou fechar após 1 item"
+                  >
+                    <span>{scannerContinuousMode ? "⚡ Bipar Vários (ON)" : "Fechar ao Bipar"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsScannerOpen(false)}
+                    className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               {/* Camera Viewport Container */}
-              <div className="p-6 flex flex-col items-center space-y-4">
-                <p className="text-[10.5px] text-slate-400 text-center leading-relaxed">
-                  Aponte a câmera do celular ou computador para o código de barras do produto. O escaneamento é instantâneo!
-                </p>
+              <div className="p-5 flex flex-col items-center space-y-3.5">
+                {/* Controls Bar for Torch and Zoom */}
+                <div className="w-full flex items-center justify-between">
+                  <p className="text-[10px] text-slate-400 text-left leading-tight">
+                    {scannerContinuousMode 
+                      ? "⚡ Modo Contínuo: Bipe quantos itens quiser sem fechar a câmera!"
+                      : "Aponte para o código de barras ou QR Code do produto."}
+                  </p>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleTogglePDVScannerTorch}
+                      className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer ${
+                        scannerTorchOn
+                          ? "bg-amber-400 text-slate-950 shadow-md shadow-amber-400/20"
+                          : "bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700"
+                      }`}
+                      title="Ligar ou desligar lanterna"
+                    >
+                      <Flashlight className="w-3 h-3" />
+                      <span>{scannerTorchOn ? "Ligada" : "Lanterna"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleTogglePDVScannerZoom}
+                      className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-0.5 cursor-pointer ${
+                        scannerZoom > 1
+                          ? "bg-emerald-400 text-slate-950"
+                          : "bg-slate-800 text-slate-300 hover:text-white"
+                      }`}
+                      title="Alternar Zoom"
+                    >
+                      <span>🔍 {scannerZoom}x</span>
+                    </button>
+                  </div>
+                </div>
 
                 {availableCameras.length > 0 && (
-                  <div className="w-full space-y-1 text-left bg-slate-950 p-2.5 rounded-xl border border-white/5">
-                    <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
-                      <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                  <div className="w-full space-y-1 text-left bg-slate-950 p-2 rounded-xl border border-white/5">
+                    <label className="text-[8.5px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                      <Camera className="w-3 h-3 text-emerald-400" />
                       Câmera Selecionada ({availableCameras.length} detectadas)
                     </label>
                     <select
                       value={selectedCameraId}
                       onChange={(e) => setSelectedCameraId(e.target.value)}
-                      className="w-full bg-slate-900 border border-white/10 text-[10.5px] py-1.5 px-2 rounded-lg font-bold text-slate-200 outline-none cursor-pointer hover:border-emerald-500/30 transition-all"
+                      className="w-full bg-slate-900 border border-white/10 text-[10px] py-1 px-2 rounded-lg font-bold text-slate-200 outline-none cursor-pointer hover:border-emerald-500/30 transition-all"
                     >
+                      <option value="">Câmera Traseira Padrão (Recomendada)</option>
                       {availableCameras.map((cam, idx) => (
                         <option key={cam.id} value={cam.id}>
                           {cam.label || `Dispositivo de Vídeo ${idx + 1}`}
@@ -19763,9 +20328,17 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   </div>
                 )}
 
-                <div className="relative w-full max-w-[440px] aspect-[4/3] bg-slate-950 rounded-2xl overflow-hidden border-2 border-emerald-500/40 shadow-2xl shadow-emerald-950/40 flex items-center justify-center">
+                <div className="relative w-full max-w-[440px] min-h-[220px] aspect-[4/3] bg-slate-950 rounded-2xl overflow-hidden border-2 border-emerald-500/40 shadow-2xl shadow-emerald-950/40 flex items-center justify-center">
                   <div id="barcode-scanner-viewport" className="absolute inset-0 w-full h-full" />
                   
+                  {/* Floating Positive Scan Toast Notification */}
+                  {lastScannedFeedback && (Date.now() - lastScannedFeedback.timestamp < 3500) && (
+                    <div className="absolute top-3 inset-x-4 bg-emerald-500 text-slate-950 px-3 py-1.5 rounded-xl text-center shadow-2xl z-30 font-black text-xs animate-bounce flex items-center justify-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span className="truncate">+1 {lastScannedFeedback.name.toUpperCase()} (R$ {lastScannedFeedback.price.toFixed(2).replace(".", ",")})</span>
+                    </div>
+                  )}
+
                   {/* Four Corner Reticle Targets for Barcode */}
                   <div className="absolute top-4 left-4 w-7 h-7 border-t-2 border-l-2 border-emerald-400 pointer-events-none z-20" />
                   <div className="absolute top-4 right-4 w-7 h-7 border-t-2 border-r-2 border-emerald-400 pointer-events-none z-20" />
@@ -19793,6 +20366,30 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     </div>
                   )}
                 </div>
+
+                {/* Mini Live Cart Summary when scanning continuously */}
+                {cart.length > 0 && (
+                  <div className="w-full bg-emerald-500/10 border border-emerald-500/30 p-2.5 rounded-2xl flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-xl bg-emerald-500 text-slate-950 font-black flex items-center justify-center text-xs shadow">
+                        {cart.reduce((sum, item) => sum + item.qty, 0)}
+                      </div>
+                      <div className="text-left">
+                        <span className="text-[8.5px] font-black uppercase text-emerald-400 block">Itens no Carrinho</span>
+                        <span className="text-xs font-black text-white font-mono">
+                          R$ {cartTotal.toFixed(2).replace(".", ",")}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsScannerOpen(false)}
+                      className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9.5px] uppercase rounded-xl cursor-pointer transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1"
+                    >
+                      <span>Finalizar / Ver Carrinho 🛒</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Direct Manual quick code / barcode entry */}
                 <div className="w-full space-y-1.5 pt-2 border-t border-white/5">

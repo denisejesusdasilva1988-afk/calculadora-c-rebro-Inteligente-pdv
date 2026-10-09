@@ -35,9 +35,41 @@ import {
   Unlock,
   Layers,
   Wallet,
-  Save
+  Save,
+  Tag
 } from "lucide-react";
 import { PDVTransaction, CartItem } from "./PDVModule";
+
+export const CLOTHING_SIZES_LETTER = ["PP", "P", "M", "G", "GG", "XG", "EXG", "G1", "G2", "G3", "ÚNICO"];
+export const CLOTHING_SIZES_NUMBER = ["34", "36", "38", "40", "42", "44", "46", "48", "50", "52", "54"];
+export const CLOTHING_SIZES_KIDS = ["RN", "1", "2", "3", "4", "6", "8", "10", "12", "14", "16"];
+export const FOOTWEAR_SIZES = ["33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45"];
+export const QUICK_COLOR_OPTIONS = [
+  { name: "Branco", icon: "⚪" },
+  { name: "Preto", icon: "⚫" },
+  { name: "Azul", icon: "🔵" },
+  { name: "Vermelho", icon: "🔴" },
+  { name: "Verde", icon: "🟢" },
+  { name: "Amarelo", icon: "🟡" },
+  { name: "Rosa", icon: "🌸" },
+  { name: "Bege / Nude", icon: "🟤" },
+  { name: "Cinza", icon: "🔘" },
+  { name: "Estampado", icon: "🎨" }
+];
+export const TOUCH_CATEGORIES = [
+  { id: "Roupas", name: "Roupas", fullLabel: "Roupas & Moda", icon: "👕", isApparel: true },
+  { id: "Calçados", name: "Calçados", fullLabel: "Calçados & Tênis", icon: "👟", isFootwear: true },
+  { id: "Alimentos", name: "Alimentos", fullLabel: "Alimentos & Mercearia", icon: "🍞" },
+  { id: "Bebidas", name: "Bebidas", fullLabel: "Bebidas & Geladas", icon: "🥤" },
+  { id: "Limpeza", name: "Limpeza", fullLabel: "Limpeza & Lar", icon: "🧼" },
+  { id: "Beleza", name: "Beleza", fullLabel: "Beleza & Cosméticos", icon: "💄" },
+  { id: "Acessórios", name: "Acessórios", fullLabel: "Acessórios & Bolsas", icon: "🕶️" },
+  { id: "Eletrônicos", name: "Eletrônicos", fullLabel: "Eletrônicos & Acess.", icon: "📱" },
+  { id: "Casa", name: "Casa & Cama", fullLabel: "Casa, Cama & Banho", icon: "🏠" },
+  { id: "Pet", name: "Pet Shop", fullLabel: "Pet Shop & Rações", icon: "🐶" },
+  { id: "Serviços", name: "Serviços", fullLabel: "Serviços & Reparos", icon: "🛠️" },
+  { id: "Outros", name: "Outros", fullLabel: "Outros / Diversos", icon: "📦" }
+];
 
 interface PDVSalesTransitionStepperProps {
   saleTransactionStep: 1 | 2 | 3 | 4;
@@ -195,12 +227,20 @@ export function PDVSalesTransitionStepper({
   const [isTouchRegisterOpen, setIsTouchRegisterOpen] = useState(false);
   const [touchProdName, setTouchProdName] = useState("");
   const [touchProdPrice, setTouchProdPrice] = useState("");
-  const [touchProdCategory, setTouchProdCategory] = useState("Alimentos");
+  const [touchProdCostPrice, setTouchProdCostPrice] = useState("");
+  const [touchProdCategory, setTouchProdCategory] = useState("Roupas");
+  const [touchCustomCategory, setTouchCustomCategory] = useState("");
   const [touchProdUnit, setTouchProdUnit] = useState("UN");
+  const [touchProdSize, setTouchProdSize] = useState("");
+  const [touchProdColor, setTouchProdColor] = useState("");
+  const [touchProdStock, setTouchProdStock] = useState("");
+  const [touchAppendSizeToName, setTouchAppendSizeToName] = useState(true);
+  const [touchSizeType, setTouchSizeType] = useState<"letras" | "numeros" | "infantil" | "calcados">("letras");
+  const [showSizePicker, setShowSizePicker] = useState(true);
   const [touchProdQuickCode, setTouchProdQuickCode] = useState("");
   const [touchProdBarcode, setTouchProdBarcode] = useState("");
   const [showTouchNumpad, setShowTouchNumpad] = useState(true);
-  const [touchNumpadTarget, setTouchNumpadTarget] = useState<"price" | "quickCode">("price");
+  const [touchNumpadTarget, setTouchNumpadTarget] = useState<"price" | "costPrice" | "quickCode">("price");
 
   const handleTouchNumpadPress = (key: string) => {
     if (touchNumpadTarget === "price") {
@@ -214,6 +254,18 @@ export function PDVSalesTransitionStepper({
         }
       } else {
         setTouchProdPrice(prev => `${prev}${key}`);
+      }
+    } else if (touchNumpadTarget === "costPrice") {
+      if (key === "CLEAR") {
+        setTouchProdCostPrice("");
+      } else if (key === "BACKSPACE") {
+        setTouchProdCostPrice(prev => prev.slice(0, -1));
+      } else if (key === "," || key === ".") {
+        if (!touchProdCostPrice.includes(",") && !touchProdCostPrice.includes(".")) {
+          setTouchProdCostPrice(prev => prev ? `${prev},` : "0,");
+        }
+      } else {
+        setTouchProdCostPrice(prev => `${prev}${key}`);
       }
     } else {
       if (key === "CLEAR") {
@@ -241,13 +293,35 @@ export function PDVSalesTransitionStepper({
       return;
     }
 
+    const cleanCostStr = touchProdCostPrice.replace("R$", "").replace(/\s/g, "").replace(".", "").replace(",", ".");
+    const costVal = parseFloat(cleanCostStr) || 0;
+
+    let finalName = trimmedName;
+    if (touchAppendSizeToName) {
+      const details: string[] = [];
+      if (touchProdSize.trim()) details.push(`Tam: ${touchProdSize.trim()}`);
+      if (touchProdColor.trim()) details.push(touchProdColor.trim());
+      if (details.length > 0 && !finalName.toLowerCase().includes(touchProdSize.toLowerCase())) {
+        finalName = `${trimmedName} [${details.join(" • ")}]`;
+      }
+    }
+
+    const finalCategory = (touchProdCategory === "Outros" && touchCustomCategory.trim()) 
+      ? touchCustomCategory.trim() 
+      : touchProdCategory;
+
+    const initialStockNum = touchProdStock ? parseInt(touchProdStock) : 0;
     const newProdId = `cp_touch_${Date.now()}`;
     const newProduct = {
       id: newProdId,
-      name: trimmedName,
+      name: finalName,
       price: priceVal,
-      category: touchProdCategory,
+      costPrice: costVal > 0 ? costVal : undefined,
+      category: finalCategory,
       unit: touchProdUnit,
+      size: touchProdSize.trim() || undefined,
+      color: touchProdColor.trim() || undefined,
+      stock: initialStockNum,
       quickCode: touchProdQuickCode.trim() || undefined,
       barcode: touchProdBarcode.trim() || undefined
     };
@@ -257,27 +331,41 @@ export function PDVSalesTransitionStepper({
       const existing = JSON.parse(existingStr);
       const updated = [newProduct, ...existing];
       localStorage.setItem("pdv_custom_products", JSON.stringify(updated));
+
+      if (initialStockNum > 0) {
+        const stockStr = localStorage.getItem("pdv_product_stock") || "{}";
+        const stockObj = JSON.parse(stockStr);
+        stockObj[newProdId] = initialStockNum;
+        localStorage.setItem("pdv_product_stock", JSON.stringify(stockObj));
+      }
       window.dispatchEvent(new Event("storage"));
     } catch (e) {
       console.warn("Storage sync:", e);
     }
 
     if (andAddToCart) {
-      handleAddToCart(trimmedName, priceVal, newProdId, {
+      handleAddToCart(finalName, priceVal, newProdId, {
         unit: touchProdUnit,
         quickCode: touchProdQuickCode.trim(),
-        barcode: touchProdBarcode.trim()
+        barcode: touchProdBarcode.trim(),
+        size: touchProdSize.trim() || undefined,
+        color: touchProdColor.trim() || undefined
       });
-      showNotification(`"${trimmedName}" cadastrado e adicionado ao carrinho! 🛒⚡`, "success");
+      showNotification(`"${finalName}" cadastrado e lançado no carrinho! 🛒⚡`, "success");
     } else {
-      showNotification(`"${trimmedName}" salvo no catálogo com sucesso! 🛍️✅`, "success");
+      showNotification(`"${finalName}" salvo no catálogo com sucesso! 🛍️✅`, "success");
     }
 
     // Reset & close
     setTouchProdName("");
     setTouchProdPrice("");
+    setTouchProdCostPrice("");
+    setTouchProdSize("");
+    setTouchProdColor("");
+    setTouchProdStock("");
     setTouchProdQuickCode("");
     setTouchProdBarcode("");
+    setTouchCustomCategory("");
     setIsTouchRegisterOpen(false);
   };
 
@@ -580,7 +668,14 @@ export function PDVSalesTransitionStepper({
 
             {/* Category Filter Pills */}
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 border-b border-white/5">
-              {["Todos", "Alimentos", "Bebidas", "Limpeza", "Serviços", "Outros"].map((cat) => {
+              {(() => {
+                const baseCats = ["Todos", "Roupas", "Calçados", "Alimentos", "Bebidas", "Limpeza", "Beleza", "Serviços", "Outros"];
+                const dynamic = new Set(baseCats);
+                Object.keys(categoryCounters || {}).forEach(c => {
+                  if (c && c !== "Todos") dynamic.add(c);
+                });
+                return Array.from(dynamic);
+              })().map((cat) => {
                 const isActive = selectedCategory === cat;
                 const count = categoryCounters[cat] || 0;
                 return (
@@ -2129,37 +2224,211 @@ export function PDVSalesTransitionStepper({
 
             {/* Field: Category Selector */}
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
-                Categoria do Produto
-              </label>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-                {[
-                  { name: "Alimentos", icon: "🍞" },
-                  { name: "Bebidas", icon: "🥤" },
-                  { name: "Limpeza", icon: "🧼" },
-                  { name: "Serviços", icon: "🛠️" },
-                  { name: "Roupas", icon: "👕" },
-                  { name: "Outros", icon: "📦" }
-                ].map((cat) => (
-                  <button
-                    key={cat.name}
-                    type="button"
-                    onClick={() => setTouchProdCategory(cat.name)}
-                    className={`min-h-[42px] px-2 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer border ${
-                      touchProdCategory === cat.name
-                        ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20 scale-102"
-                        : "bg-slate-950 text-slate-400 border-white/5 hover:border-white/20 hover:text-white"
-                    }`}
-                  >
-                    <span className="text-base leading-none">{cat.icon}</span>
-                    <span className="truncate w-full text-center">{cat.name}</span>
-                  </button>
-                ))}
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                  Categoria do Produto
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowSizePicker(prev => !prev)}
+                  className={`text-[9.5px] font-black uppercase flex items-center gap-1 px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                    showSizePicker || touchProdCategory === "Roupas" || touchProdCategory === "Calçados"
+                      ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
+                      : "bg-white/5 text-slate-400 border-white/5 hover:text-white"
+                  }`}
+                >
+                  <Tag className="w-3 h-3" />
+                  <span>{showSizePicker ? "Ocultar Tamanhos" : "+ Tamanhos de Roupas"}</span>
+                </button>
               </div>
+
+              {/* Grid of Categories (No truncation, beautiful icons and clear layout) */}
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5">
+                {TOUCH_CATEGORIES.map((cat) => {
+                  const isSelected = touchProdCategory === cat.name;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => {
+                        setTouchProdCategory(cat.name);
+                        if (cat.isClothing) {
+                          setShowSizePicker(true);
+                          setTouchSizeType("letras");
+                        } else if (cat.isFootwear) {
+                          setShowSizePicker(true);
+                          setTouchSizeType("calcados");
+                        }
+                      }}
+                      className={`min-h-[48px] p-1.5 rounded-xl text-[9.5px] font-black uppercase transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer border ${
+                        isSelected
+                          ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/20 font-black scale-102"
+                          : "bg-slate-950 text-slate-300 border-white/5 hover:border-white/20 hover:text-white hover:bg-slate-800"
+                      }`}
+                    >
+                      <span className="text-lg leading-none">{cat.icon}</span>
+                      <span className="w-full text-center leading-tight break-words line-clamp-2 px-0.5">{cat.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Custom category input if Outros is chosen */}
+              {touchProdCategory === "Outros" && (
+                <div className="pt-1">
+                  <input
+                    type="text"
+                    value={touchCustomCategory}
+                    onChange={(e) => setTouchCustomCategory(e.target.value)}
+                    placeholder="Digite o nome da sua Categoria Personalizada..."
+                    className="w-full bg-slate-950 border border-emerald-500/30 focus:border-emerald-400 rounded-xl px-3 py-2 text-xs font-bold text-white placeholder-slate-500 outline-none"
+                  />
+                </div>
+              )}
             </div>
 
-            {/* Field: Unit Selector & Codes */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Field: Clothing & Footwear Sizes & Colors (Tamanhos de Roupas) */}
+            {(showSizePicker || touchProdCategory === "Roupas" || touchProdCategory === "Calçados") && (
+              <div className="p-3 bg-gradient-to-br from-indigo-950/40 via-slate-950 to-slate-950 border-2 border-indigo-500/30 rounded-2xl space-y-3 shadow-lg">
+                <div className="flex items-center justify-between border-b border-indigo-500/20 pb-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-base">👕</span>
+                    <span className="text-[10.5px] font-black uppercase text-indigo-300 tracking-wider">
+                      Grade de Tamanhos de Roupas
+                    </span>
+                    {touchProdSize && (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-400 text-slate-950 shadow-sm">
+                        Tam: {touchProdSize}
+                      </span>
+                    )}
+                    {touchProdColor && (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-pink-400 text-slate-950 shadow-sm">
+                        Cor: {touchProdColor}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Size Categories Subtabs */}
+                  <div className="flex items-center gap-0.5 bg-slate-900 p-0.5 rounded-lg border border-white/10 text-[9px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setTouchSizeType("letras")}
+                      className={`px-2 py-0.5 rounded transition-all ${touchSizeType === "letras" ? "bg-indigo-600 text-white font-black" : "text-slate-400 hover:text-white"}`}
+                    >
+                      P/M/G
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTouchSizeType("numeros")}
+                      className={`px-2 py-0.5 rounded transition-all ${touchSizeType === "numeros" ? "bg-indigo-600 text-white font-black" : "text-slate-400 hover:text-white"}`}
+                    >
+                      34-54
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTouchSizeType("infantil")}
+                      className={`px-2 py-0.5 rounded transition-all ${touchSizeType === "infantil" ? "bg-indigo-600 text-white font-black" : "text-slate-400 hover:text-white"}`}
+                    >
+                      Infantil
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTouchSizeType("calcados")}
+                      className={`px-2 py-0.5 rounded transition-all ${touchSizeType === "calcados" ? "bg-indigo-600 text-white font-black" : "text-slate-400 hover:text-white"}`}
+                    >
+                      Calçados
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Size Chips */}
+                <div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(touchSizeType === "letras" 
+                      ? CLOTHING_SIZES_LETTER 
+                      : touchSizeType === "numeros" 
+                      ? CLOTHING_SIZES_NUMBER 
+                      : touchSizeType === "infantil"
+                      ? CLOTHING_SIZES_KIDS
+                      : FOOTWEAR_SIZES
+                    ).map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setTouchProdSize(prev => prev === sz ? "" : sz)}
+                        className={`min-w-[40px] h-8 px-2 rounded-xl font-black text-xs uppercase transition-all cursor-pointer border ${
+                          touchProdSize === sz
+                            ? "bg-emerald-400 text-slate-950 border-emerald-300 font-black shadow-md shadow-emerald-400/30 scale-105"
+                            : "bg-slate-900 text-slate-200 border-white/10 hover:border-indigo-400/40 hover:bg-slate-800"
+                        }`}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Custom Size Free Input */}
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Outro Tamanho:</span>
+                    <input
+                      type="text"
+                      value={touchProdSize}
+                      onChange={(e) => setTouchProdSize(e.target.value.toUpperCase())}
+                      placeholder="Ex: G1, SOB MEDIDA, 42/44..."
+                      className="w-full bg-slate-950 border border-white/10 focus:border-indigo-400 rounded-lg px-2.5 py-1 text-xs font-mono font-bold text-white placeholder-slate-600 outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Cores Rápidas de Roupas */}
+                <div className="pt-2 border-t border-indigo-500/20 space-y-1.5">
+                  <div className="flex items-center justify-between text-[9px] font-black uppercase text-slate-400 tracking-wider">
+                    <span>Cor da Peça (Opcional)</span>
+                    {touchProdColor && (
+                      <button
+                        type="button"
+                        onClick={() => setTouchProdColor("")}
+                        className="text-rose-400 hover:underline"
+                      >
+                        Remover Cor
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {QUICK_COLOR_OPTIONS.map((c) => (
+                      <button
+                        key={c.name}
+                        type="button"
+                        onClick={() => setTouchProdColor(prev => prev === c.name ? "" : c.name)}
+                        className={`h-7 px-2 rounded-lg text-[9.5px] font-bold transition-all flex items-center gap-1 cursor-pointer border ${
+                          touchProdColor === c.name
+                            ? "bg-pink-500 text-white border-pink-400 font-black shadow-md shadow-pink-500/30 scale-105"
+                            : "bg-slate-900 text-slate-300 border-white/10 hover:bg-slate-800"
+                        }`}
+                      >
+                        <span>{c.icon}</span>
+                        <span>{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Checkbox: Adicionar ao Nome do Item */}
+                <label className="flex items-center gap-2 cursor-pointer pt-1 text-[10px] text-slate-300 font-medium select-none">
+                  <input
+                    type="checkbox"
+                    checked={touchAppendSizeToName}
+                    onChange={(e) => setTouchAppendSizeToName(e.target.checked)}
+                    className="w-4 h-4 rounded text-emerald-500 accent-emerald-500 cursor-pointer"
+                  />
+                  <span>Adicionar tamanho e cor ao nome do item no carrinho e cupom fiscal</span>
+                </label>
+              </div>
+            )}
+
+            {/* Field: Unit Selector & Codes & Stock */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              {/* Unidade */}
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">
                   Unidade
@@ -2182,10 +2451,41 @@ export function PDVSalesTransitionStepper({
                 </div>
               </div>
 
+              {/* Estoque Inicial */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">
-                    Código 4 Dígitos (Opcional)
+                  <label className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">
+                    Estoque Inicial
+                  </label>
+                  <span className="text-[8px] text-slate-500">Unidades</span>
+                </div>
+                <div className="flex gap-1">
+                  <input
+                    type="number"
+                    min="0"
+                    value={touchProdStock}
+                    onChange={(e) => setTouchProdStock(e.target.value)}
+                    placeholder="0 un"
+                    className="w-full bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-white text-center outline-none"
+                  />
+                  {["10", "20"].map((qty) => (
+                    <button
+                      key={qty}
+                      type="button"
+                      onClick={() => setTouchProdStock(qty)}
+                      className="px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[9px] font-black border border-white/5 cursor-pointer"
+                    >
+                      +{qty}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Código 4 Dígitos */}
+              <div className="space-y-1 col-span-2 sm:col-span-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[9px] font-black uppercase text-amber-400 tracking-wider">
+                    Código 4 Dígitos
                   </label>
                   <button
                     type="button"
@@ -2193,7 +2493,7 @@ export function PDVSalesTransitionStepper({
                       const rnd = Math.floor(1000 + Math.random() * 9000).toString();
                       setTouchProdQuickCode(rnd);
                     }}
-                    className="text-[8px] font-bold text-amber-400 hover:underline"
+                    className="text-[8px] font-bold text-amber-400 hover:underline cursor-pointer"
                   >
                     Gerar Auto
                   </button>

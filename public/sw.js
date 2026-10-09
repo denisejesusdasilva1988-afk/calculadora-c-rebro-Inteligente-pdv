@@ -1,7 +1,6 @@
 // Service Worker para a Calculadora Cérebro Inteligente (PWA)
-// IMPORTANTE: Se você atualizar os ícones (/public/icon-192.png, /public/icon-512.png, etc.), 
-// incremente o número da versão abaixo (ex: cerebro-pdv-v3, v4) para forçar o navegador a recarregar as novas imagens!
-const CACHE_NAME = 'cerebro-pdv-v5';
+// Incrementado para cerebro-pdv-v6 para atualizar o cache com suporte offline completo
+const CACHE_NAME = 'cerebro-pdv-v6';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -31,7 +30,9 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+      return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
+        console.warn('[SW] Falha ao pré-cachear alguns itens, prosseguindo:', err);
+      });
     }).then(() => self.skipWaiting())
   );
 });
@@ -51,26 +52,60 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Ignora chamadas de API, Firebase e rotas do servidor Express
+  // Ignora requisições que não sejam GET
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
+  // Ignora chamadas de API externas, Firebase e rotas de backend Express
+  const url = event.request.url;
   if (
-    event.request.url.includes('/api/') ||
-    event.request.url.includes('firestore.googleapis.com') ||
-    event.request.url.includes('identitytoolkit.googleapis.com')
+    url.includes('/api/') ||
+    url.includes('firestore.googleapis.com') ||
+    url.includes('identitytoolkit.googleapis.com') ||
+    url.includes('securetoken.googleapis.com') ||
+    url.includes('googleapis.com') ||
+    url.includes('chrome-extension:')
   ) {
     return;
   }
 
+  // Estratégia de Cache: Stale-While-Revalidate com Runtime Caching de bundles Vite (.js, .css, imagens)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).catch(() => {
-        // Fallback para quando estiver offline
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-      });
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
+          // Se obteve resposta válida do mesmo domínio ou assets locais, armazena no cache
+          if (
+            networkResponse &&
+            networkResponse.status === 200 &&
+            (networkResponse.type === 'basic' || networkResponse.type === 'cors')
+          ) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache).catch(() => {});
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          // Quando estiver sem conexão (ex: dentro do supermercado Guanabara)
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // Fallback para navegação
+          if (event.request.mode === 'navigate') {
+            return caches.match('/index.html') || caches.match('/');
+          }
+          return new Response('Offline: Recurso indisponível sem conexão.', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: new Headers({ 'Content-Type': 'text/plain' })
+          });
+        });
+
+      // Se temos o asset no cache, responde imediatamente para abrir super rápido mesmo offline!
+      return cachedResponse || fetchPromise;
     })
   );
 });

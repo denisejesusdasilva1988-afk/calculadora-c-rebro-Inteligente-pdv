@@ -12,6 +12,36 @@ try {
   console.warn('Storage is operating with memory fallback or restricted mode:', e);
 }
 
+// Helper to detect transient hardware or library errors in camera/scanner without crashing app
+const isCameraBenignError = (str: string) => {
+  return (
+    str.includes('Cannot transition to a new state') ||
+    str.includes('already under transition') ||
+    str.includes('NotReadableError') ||
+    str.includes('Could not start video source') ||
+    str.includes("minimum size of 'config.qrbox'") ||
+    str.includes('OverconstrainedError')
+  );
+};
+
+// Global protection against camera scanner async transition race conditions & hardware conflicts
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  const reasonStr = typeof reason === 'string' ? reason : (reason?.message || String(reason || ''));
+  if (isCameraBenignError(reasonStr)) {
+    event.preventDefault();
+    console.warn('Proteção de Scanner: suprimido aviso transitório de câmera/leitor:', reasonStr);
+  }
+});
+
+window.addEventListener('error', (event) => {
+  const errorMsg = event.message || String(event.error?.message || '');
+  if (isCameraBenignError(errorMsg)) {
+    event.preventDefault();
+    console.warn('Proteção de Scanner: suprimido erro transitório de câmera/leitor:', errorMsg);
+  }
+});
+
 interface ErrorBoundaryProps {
   children: ReactNode;
 }
@@ -29,6 +59,11 @@ class GlobalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
   };
 
   public static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    const msg = error?.message || String(error || '');
+    if (isCameraBenignError(msg)) {
+      console.warn('GlobalErrorBoundary: ignorada falha transitória do leitor de câmera:', msg);
+      return { hasError: false, error: null };
+    }
     return { hasError: true, error };
   }
 

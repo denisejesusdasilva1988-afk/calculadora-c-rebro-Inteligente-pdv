@@ -76,7 +76,7 @@ const PREDEFINED_CATEGORIES_BY_NICHE: Record<string, string[]> = {
   manicure: ["Alongamento", "Manicure Simples", "Pedicure", "Esmaltes", "Acessórios"],
   mercadinho: ["Alimentos", "Bebidas", "Limpeza", "Higiene Pessoal", "Frios & Laticínios", "Padaria"],
   sushi: ["Entradas", "Temakis", "Combinados", "Bebidas", "Sobremesas"],
-  lojas: ["Vestuário", "Calçados", "Acessórios", "Moda Íntima", "Infantil"],
+  lojas: ["Vestuário & Roupas", "Camisetas & Blusas", "Calças & Bermudas", "Vestidos & Saias", "Calçados & Tênis", "Moda Íntima & Pijamas", "Infantil & Bebê", "Acessórios & Bolsas", "Moda Praia & Fitness"],
   bar: ["Cervejas", "Destilados", "Porções", "Refrigerantes & Águas", "Cigarros"],
   serralheiro: ["Portões", "Grades", "Estruturas", "Ferragens", "Reparos / Mão de Obra"],
   estofador: ["Reforma Sofá", "Poltronas", "Almofadas", "Tecidos", "Higienização"],
@@ -94,7 +94,7 @@ const PREDEFINED_CATEGORIES_BY_NICHE: Record<string, string[]> = {
   sacolao: ["Frutas Frescas", "Legumes & Raízes", "Verduras & Folhagens", "Temperos & Ervas", "Ovos & Granja", "Bebidas & Polpas", "Outros"],
   loja_racao: ["Rações a Granel (kg)", "Rações Pacote Fechado", "Petiscos & Sachês", "Medicamentos & Higiene", "Acessórios & Coleiras"],
   aviario: ["Rações para Aves & Postura", "Grãos & Sementes a Granel", "Gaiolas & Bebedouros", "Medicamentos & Vitaminas", "Rações Cães & Gatos"],
-  comercio_geral: ["Produtos Gerais", "Serviços", "Outros"]
+  comercio_geral: ["Roupas & Moda", "Calçados & Tênis", "Alimentos", "Bebidas", "Limpeza", "Beleza & Cosméticos", "Eletrônicos & Celular", "Serviços", "Outros"]
 };
 
 export function CadastroProdutosModule({
@@ -240,6 +240,19 @@ export function CadastroProdutosModule({
 
   // Edit States
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+
+  // Check if current barcode belongs to another registered product
+  const existingProductWithBarcode = useMemo(() => {
+    const clean = prodBarcode.trim();
+    if (!clean || clean.length < 2) return null;
+    return customProducts.find(p => 
+      p.id !== editingProductId && (
+        p.barcode?.trim() === clean ||
+        p.additionalBarcodes?.some(b => b.trim() === clean) ||
+        (p.quickCode && p.quickCode.trim() === clean)
+      )
+    ) || null;
+  }, [prodBarcode, editingProductId, customProducts]);
 
   // Photo Camera States for product photo capture
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
@@ -407,7 +420,137 @@ export function CadastroProdutosModule({
   const [showScanner, setShowScanner] = useState(false);
   const [scannerDevices, setScannerDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedScannerDeviceId, setSelectedScannerDeviceId] = useState<string>("");
+  const [scannerRetryKey, setScannerRetryKey] = useState(0);
+  const [scannerTorchOn, setScannerTorchOn] = useState(false);
+  const [scannerZoom, setScannerZoom] = useState(1);
   const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
+
+  // Sound beep & haptic feedback for barcode scanner
+  const playScannerBeep = (freq = 1800, duration = 0.08) => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        const ctx = new AudioContextClass();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        gain.gain.setValueAtTime(0.35, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + duration);
+      }
+    } catch (_) {}
+    try {
+      if (navigator.vibrate) navigator.vibrate([60]);
+    } catch (_) {}
+  };
+
+  // Toggle Camera Flashlight (Torch)
+  const handleToggleScannerTorch = async () => {
+    try {
+      const container = document.getElementById("reg-barcode-scanner-viewport");
+      const video = container?.querySelector("video") as HTMLVideoElement | null;
+      if (video && video.srcObject) {
+        const stream = video.srcObject as MediaStream;
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          const next = !scannerTorchOn;
+          await track.applyConstraints({
+            advanced: [{ torch: next } as any]
+          });
+          setScannerTorchOn(next);
+          showNotification(next ? "Lanterna ligada 🔦" : "Lanterna desligada", "info");
+          return;
+        }
+      }
+      showNotification("Lanterna não suportada nesta câmera.", "warning");
+    } catch (e) {
+      showNotification("Lanterna indisponível neste aparelho.", "warning");
+    }
+  };
+
+  // Toggle Camera Zoom (1x / 2x)
+  const handleToggleScannerZoom = async () => {
+    try {
+      const container = document.getElementById("reg-barcode-scanner-viewport");
+      const video = container?.querySelector("video") as HTMLVideoElement | null;
+      if (video && video.srcObject) {
+        const stream = video.srcObject as MediaStream;
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          const nextZoom = scannerZoom === 1 ? 2 : 1;
+          await track.applyConstraints({
+            advanced: [{ zoom: nextZoom } as any]
+          });
+          setScannerZoom(nextZoom);
+          showNotification(`Zoom ajustado para ${nextZoom}x 🔍`, "info");
+        }
+      }
+    } catch (_) {}
+  };
+
+  // Global listener for physical USB / Wireless Barcode Scanner Guns in Cadastro
+  const regScannerBufferRef = useRef<string>("");
+  const regLastKeyTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    const handleGlobalBarcodeKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      // If user is inside an unrelated textarea or description, don't hijack unless it's a fast gun burst
+      const isTextArea = activeEl && activeEl.tagName === "TEXTAREA";
+      if (isTextArea) return;
+
+      const now = Date.now();
+      const isAlphanumericBarcodeKey = (e.key.length === 1 && /[0-9a-zA-Z\-_.]/.test(e.key));
+
+      if (isAlphanumericBarcodeKey) {
+        // Barcode guns type at extreme speeds (< 90ms per key)
+        if (now - regLastKeyTimeRef.current > 90) {
+          regScannerBufferRef.current = "";
+        }
+        regScannerBufferRef.current += e.key;
+        regLastKeyTimeRef.current = now;
+      } else if (e.key === "Enter") {
+        if (regScannerBufferRef.current.length >= 2 && now - regLastKeyTimeRef.current < 160) {
+          e.preventDefault();
+          e.stopPropagation();
+          const scannedCode = regScannerBufferRef.current.trim();
+          regScannerBufferRef.current = "";
+
+          // Se outro campo de input estava focado, limpar o código de barras dele
+          if (activeEl && activeEl.id !== "prodBarcodeField" && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) {
+            const inputEl = activeEl as HTMLInputElement;
+            if (inputEl.value && (inputEl.value.endsWith(scannedCode) || inputEl.value === scannedCode)) {
+              inputEl.value = inputEl.value === scannedCode ? "" : inputEl.value.slice(0, -scannedCode.length).trim();
+            }
+          }
+
+          playScannerBeep(1800, 0.09);
+          setProdBarcode(scannedCode);
+          if (scannedCode.length <= 4 && /^\d+$/.test(scannedCode) && !prodQuickCode) {
+            setProdQuickCode(scannedCode);
+          }
+          showNotification(`Código capturado pelo leitor: ${scannedCode} 🏷️⚡`, "success");
+
+          // Focus the barcode field to show it visually
+          const inputEl = document.getElementById("prodBarcodeField");
+          if (inputEl) inputEl.focus();
+          return;
+        }
+        regScannerBufferRef.current = "";
+      } else if (e.key !== "Shift" && e.key !== "Control" && e.key !== "Alt") {
+        regScannerBufferRef.current = "";
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalBarcodeKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalBarcodeKeyDown);
+    };
+  }, [prodQuickCode]);
 
   // Helper: Request camera permissions directly on user tap
   const handleRequestScannerPermission = async () => {
@@ -417,16 +560,14 @@ export function CadastroProdutosModule({
         video: { facingMode: "environment" }
       });
       stream.getTracks().forEach(t => t.stop());
-      const devices = await Html5Qrcode.getCameras();
-      if (devices && devices.length > 0) {
-        setScannerDevices(devices);
-        const backCam = devices.find(device => 
-          device.label.toLowerCase().includes("back") || 
-          device.label.toLowerCase().includes("traseira") || 
-          device.label.toLowerCase().includes("environment")
-        );
-        setSelectedScannerDeviceId(backCam ? backCam.id : devices[0].id);
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === "videoinput");
+        if (videoDevices.length > 0) {
+          setScannerDevices(videoDevices as any);
+        }
       }
+      setScannerRetryKey(prev => prev + 1);
       showNotification("Câmera liberada com sucesso! 📸✅", "success");
     } catch (err) {
       console.error("Erro ao solicitar permissão de câmera:", err);
@@ -449,66 +590,62 @@ export function CadastroProdutosModule({
     setProdQuickCode(fallback);
   };
 
-  // Initialize and list cameras for barcode scanner
-  useEffect(() => {
-    if (showScanner) {
-      setScannerCameraError(null);
-      Html5Qrcode.getCameras()
-        .then(devices => {
-          if (devices && devices.length > 0) {
-            setScannerDevices(devices);
-            if (!selectedScannerDeviceId) {
-              const backCam = devices.find(device => 
-                device.label.toLowerCase().includes("back") || 
-                device.label.toLowerCase().includes("traseira") || 
-                device.label.toLowerCase().includes("environment") ||
-                device.label.toLowerCase().includes("rear")
-              );
-              setSelectedScannerDeviceId(backCam ? backCam.id : devices[0].id);
+  // Stop all active MediaStream tracks inside the registration scanner viewport to release hardware lock
+  const stopRegScannerMediaTracks = () => {
+    try {
+      const container = document.getElementById("reg-barcode-scanner-viewport");
+      if (container) {
+        const videos = container.querySelectorAll("video");
+        videos.forEach(video => {
+          if (video.srcObject) {
+            const stream = video.srcObject as MediaStream;
+            if (stream && typeof stream.getTracks === "function") {
+              stream.getTracks().forEach(t => {
+                try { t.stop(); } catch (_) {}
+              });
             }
+            video.srcObject = null;
           }
-        })
-        .catch(() => {
-          // Silent catch: camera will request native browser prompt upon scanner.start()
         });
-    } else {
-      // Stop and clean up any existing scanner instance when showScanner is false
-      if (html5QrcodeRef.current) {
-        try {
-          if (html5QrcodeRef.current.isScanning) {
-            html5QrcodeRef.current.stop().then(() => {
-              html5QrcodeRef.current = null;
-            }).catch(e => {
-              console.error("Erro ao parar scanner:", e);
-              html5QrcodeRef.current = null;
-            });
-          } else {
-            html5QrcodeRef.current = null;
-          }
-        } catch (e) {
-          html5QrcodeRef.current = null;
-        }
       }
-    }
+    } catch (_) {}
+  };
 
-    return () => {
-      if (html5QrcodeRef.current) {
-        try {
-          if (html5QrcodeRef.current.isScanning) {
-            html5QrcodeRef.current.stop().catch(console.error);
-          }
-        } catch (e) {
-          // ignore
-        }
+  // Helper: safely stop and clear an Html5Qrcode instance without transition race condition errors
+  const safeStopHtml5Qrcode = async (scanner: any) => {
+    if (!scanner) {
+      stopRegScannerMediaTracks();
+      return;
+    }
+    try {
+      const state = typeof scanner.getState === "function" ? scanner.getState() : 0;
+      // Html5QrcodeScannerState: 2 = SCANNING, 3 = PAUSED
+      if (state === 2 || state === 3) {
+        await scanner.stop();
       }
-    };
-  }, [showScanner]);
+    } catch (err: any) {
+      console.warn("safeStopHtml5Qrcode stop aviso:", err);
+    } finally {
+      try {
+        scanner.clear();
+      } catch (err: any) {
+        console.warn("safeStopHtml5Qrcode clear aviso:", err);
+      }
+      stopRegScannerMediaTracks();
+    }
+  };
 
   // Handle active scanner instance start
   useEffect(() => {
     let isCancelled = false;
+    let currentScanner: any = null;
+    let startPromise: Promise<any> | null = null;
+
     if (showScanner) {
       setScannerCameraError(null);
+      // Clean up any lingering hardware tracks before creating a new instance
+      stopRegScannerMediaTracks();
+
       const timer = setTimeout(() => {
         if (isCancelled) return;
         const viewportElement = document.getElementById("reg-barcode-scanner-viewport");
@@ -526,7 +663,10 @@ export function CadastroProdutosModule({
               Html5QrcodeSupportedFormats.CODE_93,
               Html5QrcodeSupportedFormats.ITF,
               Html5QrcodeSupportedFormats.CODABAR,
-              Html5QrcodeSupportedFormats.QR_CODE
+              Html5QrcodeSupportedFormats.QR_CODE,
+              Html5QrcodeSupportedFormats.DATA_MATRIX,
+              Html5QrcodeSupportedFormats.PDF_417,
+              Html5QrcodeSupportedFormats.AZTEC
             ],
             experimentalFeatures: {
               useBarCodeDetectorIfSupported: true
@@ -534,25 +674,30 @@ export function CadastroProdutosModule({
             verbose: false
           });
           html5QrcodeRef.current = scanner;
+          currentScanner = scanner;
 
           const cameraTarget = selectedScannerDeviceId 
             ? selectedScannerDeviceId 
             : { facingMode: "environment" };
 
-          scanner.start(
+          startPromise = scanner.start(
             cameraTarget,
             {
               fps: 30,
               qrbox: (viewWidth, viewHeight) => {
-                // Generous area to capture small, angled, and fast codes on first try
-                const width = Math.min(viewWidth * 0.94, 380);
-                const height = Math.min(viewHeight * 0.75, 240);
+                // html5-qrcode strictly requires both width and height to be >= 50px
+                const minDimension = 60;
+                const vw = Math.max(minDimension, viewWidth || 280);
+                const vh = Math.max(minDimension, viewHeight || 200);
+                const width = Math.max(minDimension, Math.min(Math.floor(vw * 0.92), 380));
+                const height = Math.max(minDimension, Math.min(Math.floor(vh * 0.80), 240));
                 return { width, height };
               },
               aspectRatio: 1.333333
             },
             (decodedText) => {
               if (isCancelled) return;
+              playScannerBeep(1800, 0.09);
               setProdBarcode(decodedText);
               if (decodedText.length <= 4 && /^\d+$/.test(decodedText)) {
                 setProdQuickCode(decodedText);
@@ -561,12 +706,39 @@ export function CadastroProdutosModule({
               setShowScanner(false);
             },
             () => {}
-          ).catch(err => {
-            console.warn("Erro ao iniciar câmera html5Qrcode:", err);
-            if (!isCancelled) {
-              setScannerCameraError("Acesso à câmera não concedido. No celular, toque no cadeado 🔒 na barra do navegador para autorizar ou toque em 'Liberar Câmera'.");
-            }
-          });
+          );
+
+          startPromise
+            .then(() => {
+              if (isCancelled) {
+                safeStopHtml5Qrcode(scanner);
+                return;
+              }
+              // Safely enumerate devices now that camera is actively streaming
+              if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
+                navigator.mediaDevices.enumerateDevices().then(devices => {
+                  if (isCancelled) return;
+                  const videoDevices = devices.filter(d => d.kind === "videoinput");
+                  if (videoDevices.length > 0) {
+                    setScannerDevices(videoDevices as any);
+                  }
+                }).catch(() => {});
+              }
+            })
+            .catch(err => {
+              console.warn("Erro ao iniciar câmera html5Qrcode:", err);
+              if (!isCancelled) {
+                const errStr = String(err?.message || err || "");
+                if (errStr.includes("NotReadableError") || errStr.includes("Could not start video source")) {
+                  setScannerCameraError("A câmera está ocupada por outro aplicativo ou processo do aparelho. Feche outros apps com câmera aberta e tente novamente.");
+                } else if (errStr.includes("NotAllowedError") || errStr.includes("Permission denied")) {
+                  setScannerCameraError("Acesso à câmera não concedido. No celular, toque no cadeado 🔒 na barra do navegador para autorizar ou toque em 'Liberar Câmera'.");
+                } else {
+                  setScannerCameraError("Não foi possível iniciar a câmera. Verifique as permissões de vídeo.");
+                }
+              }
+              stopRegScannerMediaTracks();
+            });
         } catch (e) {
           console.error("Exceção ao criar scanner:", e);
         }
@@ -575,9 +747,26 @@ export function CadastroProdutosModule({
       return () => {
         isCancelled = true;
         clearTimeout(timer);
+        const scannerToStop = currentScanner || html5QrcodeRef.current;
+        html5QrcodeRef.current = null;
+        if (scannerToStop) {
+          if (startPromise) {
+            startPromise.finally(() => {
+              safeStopHtml5Qrcode(scannerToStop);
+            });
+          } else {
+            safeStopHtml5Qrcode(scannerToStop);
+          }
+        }
       };
+    } else {
+      const scannerToStop = html5QrcodeRef.current;
+      html5QrcodeRef.current = null;
+      if (scannerToStop) {
+        safeStopHtml5Qrcode(scannerToStop);
+      }
     }
-  }, [showScanner, selectedScannerDeviceId]);
+  }, [showScanner, selectedScannerDeviceId, scannerRetryKey]);
 
   // Categories suggestions for the selected niche (including custom ones)
   const suggestedCategories = useMemo(() => {
@@ -1350,7 +1539,7 @@ export function CadastroProdutosModule({
                   <div className="relative">
                     <input
                       type="text"
-                      placeholder="Ex: Bebidas, Serviços"
+                      placeholder="Ex: Roupas & Moda, Calçados, Bebidas..."
                       value={prodCategory}
                       onChange={(e) => setProdCategory(e.target.value)}
                       className="w-full bg-slate-900 border border-white/10 focus:border-sky-500/50 rounded-xl px-3.5 py-2.5 pr-8 text-xs text-white placeholder-slate-600 transition-all outline-none"
@@ -1372,6 +1561,23 @@ export function CadastroProdutosModule({
                         ))}
                       </div>
                     </div>
+                  </div>
+                  {/* Quick Category Chips for 1-click select */}
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {suggestedCategories.slice(0, 5).map(cat => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setProdCategory(cat)}
+                        className={`px-2 py-0.5 rounded-lg text-[9px] font-bold transition-all cursor-pointer border ${
+                          prodCategory === cat
+                            ? "bg-sky-500 text-white border-sky-400 font-black shadow-sm"
+                            : "bg-slate-950 text-slate-400 border-white/5 hover:text-white hover:bg-slate-800"
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -1408,14 +1614,14 @@ export function CadastroProdutosModule({
 
                 {/* 5. Barcode & Quick Shortcut Code */}
                 <div className="col-span-12 md:col-span-6 space-y-1">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-black text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
                     <span>Código de Barras EAN (13 dígitos)</span>
                     {!isService && (
                       <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => setShowScanner(!showScanner)}
-                          className={`text-[8.5px] font-black uppercase hover:underline cursor-pointer flex items-center gap-1 ${
+                          className={`text-xs font-black uppercase hover:underline cursor-pointer flex items-center gap-1 ${
                             showScanner ? "text-rose-400" : "text-sky-400"
                           }`}
                         >
@@ -1425,7 +1631,7 @@ export function CadastroProdutosModule({
                         <button
                           type="button"
                           onClick={handleGenerateBarcode}
-                          className="text-[8.5px] font-black uppercase text-sky-400 hover:underline cursor-pointer flex items-center gap-0.5"
+                          className="text-xs font-black uppercase text-sky-400 hover:underline cursor-pointer flex items-center gap-0.5"
                         >
                           ⚡ Gerar EAN
                         </button>
@@ -1435,27 +1641,65 @@ export function CadastroProdutosModule({
                   
                   {/* Camera view if active */}
                   {showScanner && !isService && (
-                    <div className="bg-slate-900 border border-sky-500/40 rounded-xl p-3 space-y-2.5 shadow-xl">
+                    <div className="bg-slate-900 border border-sky-500/40 rounded-2xl p-3.5 space-y-3 shadow-2xl">
                       <div className="flex items-center justify-between">
-                        <span className="text-[9.5px] font-black text-sky-400 uppercase tracking-wider flex items-center gap-1">
-                          <Camera className="w-3.5 h-3.5" />
+                        <span className="text-xs font-black text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Camera className="w-4 h-4 animate-pulse" />
                           Aponte para o código de barras
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowScanner(false)}
-                          className="text-slate-400 hover:text-white p-1"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                        
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={handleToggleScannerTorch}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-1 cursor-pointer ${
+                              scannerTorchOn 
+                                ? "bg-amber-400 text-slate-950 font-black shadow-md shadow-amber-400/20" 
+                                : "bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700"
+                            }`}
+                            title="Ligar ou desligar lanterna"
+                          >
+                            <Flashlight className="w-3.5 h-3.5" />
+                            <span>{scannerTorchOn ? "Lanterna Ligada" : "Lanterna"}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleToggleScannerZoom}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-0.5 cursor-pointer ${
+                              scannerZoom > 1
+                                ? "bg-sky-400 text-slate-950 font-black"
+                                : "bg-slate-800 text-slate-300 hover:text-white"
+                            }`}
+                            title="Alternar Zoom"
+                          >
+                            <span>🔍 {scannerZoom}x</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowScanner(false)}
+                            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/5 cursor-pointer ml-1"
+                            title="Fechar Câmera"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                       
                       {/* Active viewport */}
                       <div
                         id="reg-barcode-scanner-viewport"
-                        className="w-full bg-black rounded-xl overflow-hidden border border-white/10 aspect-video flex items-center justify-center relative shadow-inner"
+                        className="w-full min-h-[200px] bg-black rounded-xl overflow-hidden border-2 border-sky-500/30 aspect-video flex items-center justify-center relative shadow-inner"
                       >
-                        <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 h-[2px] bg-sky-400 shadow-[0_0_12px_#38bdf8] animate-pulse z-20 pointer-events-none" />
+                        {/* Four Corner Reticle Targets */}
+                        <div className="absolute top-2.5 left-2.5 w-6 h-6 border-t-2 border-l-2 border-sky-400 pointer-events-none z-20" />
+                        <div className="absolute top-2.5 right-2.5 w-6 h-6 border-t-2 border-r-2 border-sky-400 pointer-events-none z-20" />
+                        <div className="absolute bottom-2.5 left-2.5 w-6 h-6 border-b-2 border-l-2 border-sky-400 pointer-events-none z-20" />
+                        <div className="absolute bottom-2.5 right-2.5 w-6 h-6 border-b-2 border-r-2 border-sky-400 pointer-events-none z-20" />
+
+                        {/* Pulsing Red/Blue Laser Line */}
+                        <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 h-[2px] bg-sky-400 shadow-[0_0_12px_#38bdf8] animate-pulse z-20 pointer-events-none" />
                       </div>
 
                       {scannerCameraError && (
@@ -1474,12 +1718,13 @@ export function CadastroProdutosModule({
                       {/* Select input devices if multiple */}
                       {scannerDevices.length > 1 && (
                         <div className="space-y-1">
-                          <label className="text-[8px] font-black text-slate-500 uppercase tracking-wider">Trocar de Câmera</label>
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Trocar de Câmera</label>
                           <select
                             value={selectedScannerDeviceId}
                             onChange={(e) => setSelectedScannerDeviceId(e.target.value)}
-                            className="w-full bg-slate-950 border border-white/10 text-[10px] text-white rounded px-2 py-1 outline-none cursor-pointer"
+                            className="w-full bg-slate-950 border border-white/10 text-xs text-white rounded-lg px-2.5 py-1.5 outline-none cursor-pointer"
                           >
+                            <option value="">Câmera Traseira Padrão (Recomendada)</option>
                             {scannerDevices.map(device => (
                               <option key={device.id} value={device.id}>
                                 {device.label || `Câmera ${device.id.substring(0, 5)}`}
@@ -1495,7 +1740,7 @@ export function CadastroProdutosModule({
                     id="prodBarcodeField"
                     type="text"
                     disabled={isService}
-                    placeholder={isService ? "Não aplicável a Serviços" : "Ex: 789100034455"}
+                    placeholder={isService ? "Não aplicável a Serviços" : "Ex: 789100034455 (ou use leitor físico USB)"}
                     value={isService ? "" : prodBarcode}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -1517,6 +1762,47 @@ export function CadastroProdutosModule({
                       isService ? "opacity-40 cursor-not-allowed" : ""
                     }`}
                   />
+
+                  {/* Warning if code is already registered in another product */}
+                  {existingProductWithBarcode && (
+                    <div className="bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-xl flex items-center justify-between gap-2 mt-1.5 animate-fadeIn">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                        <div className="text-xs text-amber-200 truncate">
+                          <span>Atenção: Já cadastrado em <strong>{existingProductWithBarcode.name}</strong> (Estoque: {existingProductWithBarcode.stock} un • R$ {existingProductWithBarcode.price.toFixed(2)})</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleStartEdit(existingProductWithBarcode)}
+                        className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl uppercase tracking-wider shrink-0 cursor-pointer shadow"
+                      >
+                        Carregar Produto 📝
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Barcode format classification badge */}
+                  {prodBarcode.trim() && (
+                    <div className="flex items-center justify-between text-xs text-slate-300 font-mono mt-1 px-1">
+                      <span>
+                        {prodBarcode.trim().length === 13 && (prodBarcode.startsWith("789") || prodBarcode.startsWith("790"))
+                          ? "🇧🇷 Código EAN-13 Brasil (Válido)"
+                          : prodBarcode.trim().length === 13
+                          ? "🌐 Código EAN-13 Internacional"
+                          : prodBarcode.trim().length === 8
+                          ? "🏷️ EAN-8 Reduzido"
+                          : prodBarcode.trim().length === 12
+                          ? "🇺🇸 UPC-A"
+                          : prodBarcode.trim().length <= 4 && /^\d+$/.test(prodBarcode.trim())
+                          ? "⚡ Código Rápido / Balança / PLU"
+                          : "📦 Código Alfanumérico / SKU / Custom"}
+                      </span>
+                      <span className="text-emerald-400 font-bold flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> {prodBarcode.trim().length} dígitos
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* 5B. Quick Shortcut Code (Até 4 dígitos - Ex: 0102, 1213) */}
@@ -1607,27 +1893,77 @@ export function CadastroProdutosModule({
                   </select>
                 </div>
 
-                <div className="col-span-6 md:col-span-4">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
-                    Tamanho / Volume / Peso
-                  </label>
+                {/* Tamanho / Volume / Peso com atalhos de Roupas */}
+                <div className="col-span-12 md:col-span-6 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                      Tamanho / Volume / Peso (Roupas & Calçados)
+                    </label>
+                    {prodSize && (
+                      <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                        Selecionado: {prodSize}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
-                    placeholder="Ex: 500ml, 2 Litros, 1.5kg, Tam: G"
+                    placeholder="Ex: P, M, G, GG, 42, 500ml, 1kg..."
                     value={prodSize}
                     onChange={(e) => setProdSize(e.target.value)}
                     className="w-full bg-slate-900 border border-white/10 focus:border-sky-500/50 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 transition-all outline-none"
                   />
+                  {/* Quick Clothing Sizes Pills */}
+                  <div className="space-y-1 pt-1">
+                    <div className="flex items-center gap-1 text-[9px] font-black uppercase text-slate-400">
+                      <span>👕 Roupas Adulto:</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {["PP", "P", "M", "G", "GG", "XG", "EXG", "G1", "G2", "G3", "ÚNICO"].map(sz => (
+                        <button
+                          key={sz}
+                          type="button"
+                          onClick={() => setProdSize(sz)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer border ${
+                            prodSize === sz
+                              ? "bg-emerald-400 text-slate-950 border-emerald-300 font-black shadow-sm"
+                              : "bg-slate-950 text-slate-300 border-white/10 hover:border-sky-400/50 hover:bg-slate-800"
+                          }`}
+                        >
+                          {sz}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1 text-[9px] font-black uppercase text-slate-400 pt-0.5">
+                      <span>👖 Calças / Numérico / Calçados:</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {["34", "36", "38", "40", "42", "44", "46", "48", "50", "35", "37", "39", "41", "43", "45"].map(sz => (
+                        <button
+                          key={sz}
+                          type="button"
+                          onClick={() => setProdSize(sz)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer border ${
+                            prodSize === sz
+                              ? "bg-indigo-400 text-white border-indigo-300 font-black shadow-sm"
+                              : "bg-slate-950 text-slate-300 border-white/10 hover:border-indigo-400/50 hover:bg-slate-800"
+                          }`}
+                        >
+                          {sz}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
-                <div className="col-span-6 md:col-span-4">
+                {/* Marca / Fabricante */}
+                <div className="col-span-6 md:col-span-3">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
                     Marca / Fabricante
                   </label>
                   <input
                     type="text"
                     disabled={isService}
-                    placeholder="Ex: Coca-cola, Nike, Artesanal"
+                    placeholder="Ex: Nike, Zara, Artesanal"
                     value={isService ? "" : prodBrand}
                     onChange={(e) => setProdBrand(e.target.value)}
                     className={`w-full bg-slate-900 border border-white/10 focus:border-sky-500/50 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 transition-all outline-none ${
@@ -1636,17 +1972,54 @@ export function CadastroProdutosModule({
                   />
                 </div>
 
-                <div className="col-span-6 md:col-span-4">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
-                    Cor / Especificação
-                  </label>
+                {/* Cor / Especificação com atalhos visuais */}
+                <div className="col-span-6 md:col-span-3 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                      Cor / Especificação
+                    </label>
+                    {prodColor && (
+                      <span className="text-[9px] font-black text-pink-400 bg-pink-500/10 px-2 py-0.5 rounded-full">
+                        {prodColor}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
-                    placeholder="Ex: Vermelho, Alumínio, Zero Açúcar"
+                    placeholder="Ex: Preto, Branco, Azul..."
                     value={prodColor}
                     onChange={(e) => setProdColor(e.target.value)}
                     className="w-full bg-slate-900 border border-white/10 focus:border-sky-500/50 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 transition-all outline-none"
                   />
+                  {/* Quick Color Chips */}
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {[
+                      { name: "Branco", icon: "⚪" },
+                      { name: "Preto", icon: "⚫" },
+                      { name: "Azul", icon: "🔵" },
+                      { name: "Vermelho", icon: "🔴" },
+                      { name: "Verde", icon: "🟢" },
+                      { name: "Amarelo", icon: "🟡" },
+                      { name: "Rosa", icon: "🌸" },
+                      { name: "Bege", icon: "🟤" },
+                      { name: "Cinza", icon: "🔘" },
+                      { name: "Estampado", icon: "🎨" }
+                    ].map(c => (
+                      <button
+                        key={c.name}
+                        type="button"
+                        onClick={() => setProdColor(c.name)}
+                        className={`px-2 py-0.5 rounded-lg text-[9px] font-bold transition-all flex items-center gap-1 cursor-pointer border ${
+                          prodColor === c.name
+                            ? "bg-pink-500 text-white border-pink-400 font-black shadow-sm"
+                            : "bg-slate-950 text-slate-300 border-white/10 hover:border-pink-400/50 hover:bg-slate-800"
+                        }`}
+                      >
+                        <span>{c.icon}</span>
+                        <span>{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Descrição Complementar para o Cupom / Notinha */}

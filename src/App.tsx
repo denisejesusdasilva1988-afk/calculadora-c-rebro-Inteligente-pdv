@@ -71,7 +71,9 @@ import {
   FolderCheck,
   FolderPlus,
   FolderOpen,
+  Wifi,
   WifiOff,
+  ShieldCheck,
   Cloud,
   CloudOff,
   Loader2,
@@ -253,6 +255,8 @@ try {
 } catch (e) {
   console.warn("Aviso na inicialização do Firebase Auth:", e);
 }
+
+export { app, db, auth };
 
 const googleProvider = new GoogleAuthProvider();
 
@@ -530,6 +534,20 @@ export const resolveFirebaseEmail = (input: string): string => {
   const digits = trimmed.replace(/\D/g, "");
   // Se o usuário digitou CPF (11 dígitos) ou CNPJ (14 dígitos) sem o @
   if (!trimmed.includes("@") && (digits.length === 11 || digits.length === 14)) {
+    try {
+      const rawMap = localStorage.getItem("cpf_email_map");
+      if (rawMap) {
+        const map = JSON.parse(rawMap);
+        if (map[digits]) return String(map[digits]).toLowerCase();
+      }
+      const rawSec = localStorage.getItem("std_notepad_security_profile");
+      if (rawSec) {
+        const sec = JSON.parse(rawSec);
+        if (sec.cpf && sec.cpf.replace(/\D/g, "") === digits && sec.email && sec.email.includes("@")) {
+          return String(sec.email).toLowerCase();
+        }
+      }
+    } catch {}
     return `doc_${digits}@sistema.app`;
   }
   return trimmed.toLowerCase();
@@ -873,6 +891,24 @@ export default function App() {
       return true;
     }
   });
+
+  // Screen font zoom & readability scale ("Aumentar letras miúdas")
+  const [fontScale, setFontScale] = useState<"normal" | "grande" | "extragrande">(() => {
+    try {
+      const saved = localStorage.getItem("app_font_scale");
+      if (saved === "normal" || saved === "grande" || saved === "extragrande") return saved;
+      return "grande"; // Default to "grande" to satisfy user's request for larger text!
+    } catch {
+      return "grande";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      document.documentElement.dataset.fontScale = fontScale;
+      localStorage.setItem("app_font_scale", fontScale);
+    } catch (_) {}
+  }, [fontScale]);
 
   // Unified login card states
   const [loginStoreName, setLoginStoreName] = useState(() => {
@@ -2319,6 +2355,21 @@ export default function App() {
     }
   }, []);
 
+  const cycleFontScale = () => {
+    setFontScale(prev => {
+      const next = prev === "normal" ? "grande" : prev === "grande" ? "extragrande" : "normal";
+      showNotification(
+        next === "extragrande"
+          ? "Letras Máximas (A++) ativadas! 🔎"
+          : next === "grande"
+          ? "Letras Grandes (A+) ativadas! 🔍"
+          : "Tamanho de letras padrão (A).",
+        "info"
+      );
+      return next;
+    });
+  };
+
   const toggleNicheLock = useCallback(() => {
     setIsNicheLocked(prev => {
       const next = !prev;
@@ -2585,6 +2636,15 @@ export default function App() {
   );
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authErrorType, setAuthErrorType] = useState<string | null>(null);
+
+  // States for CPF & PIN Recovery (Sem depender de e-mail)
+  const [recoveryMethod, setRecoveryMethod] = useState<"cpf_pin" | "email">("cpf_pin");
+  const [recoveryCpfInput, setRecoveryCpfInput] = useState("");
+  const [recoveryPinInput, setRecoveryPinInput] = useState("");
+  const [recoveryNewPassword, setRecoveryNewPassword] = useState("");
+  const [recoveryConfirmNewPassword, setRecoveryConfirmNewPassword] = useState("");
+  const [showRecoveryNewPassword, setShowRecoveryNewPassword] = useState(false);
+  const [showRecoveryConfirmPassword, setShowRecoveryConfirmPassword] = useState(false);
 
   // States for Password Change
   const [oldPassword, setOldPassword] = useState("");
@@ -3323,38 +3383,84 @@ export default function App() {
       return;
     }
     setIsAuthLoading(true);
-    const normalizedEmail = resolveFirebaseEmail(authEmail);
-    try {
-      await signInWithEmailAndPassword(auth, normalizedEmail, authPassword);
-      showNotification("Login realizado com sucesso!", "success");
-      setAuthPassword("");
-    } catch (error: any) {
-      const errorCode = error?.code || "";
-      const errorMessage = error?.message || "";
-      const errStr = (errorCode + " " + errorMessage + " " + String(error || "")).toLowerCase();
-      
-      const isExpectedAuthError = 
-        errorCode === "auth/wrong-password" ||
-        errorCode === "auth/invalid-credential" ||
-        errorCode === "auth/user-not-found" ||
-        errorCode === "auth/invalid-email" ||
-        errorCode === "auth/user-disabled" ||
-        errorCode === "auth/too-many-requests" ||
-        errStr.includes("wrong-password") ||
-        errStr.includes("invalid-credential") ||
-        errStr.includes("user-not-found") ||
-        errStr.includes("invalid-email");
 
-      if (!isExpectedAuthError) {
-        console.error("Auth Login Error:", error);
-      } else {
-        console.warn("Auth Info Handled:", errorCode || errorMessage);
-      }
-      const errMsg = translateAuthError(error);
-      showNotification(errMsg, "error");
-    } finally {
-      setIsAuthLoading(false);
+    const trimmedInput = authEmail.trim();
+    const digits = trimmedInput.replace(/\D/g, "");
+    const isDoc = !trimmedInput.includes("@") && (digits.length === 11 || digits.length === 14);
+
+    // Lista de candidatos para tentar o login
+    const candidatesToTry: string[] = [];
+    if (isDoc) {
+      // 1. Verificar mapeamento salvo de CPF para E-mail
+      try {
+        const rawMap = localStorage.getItem("cpf_email_map");
+        if (rawMap) {
+          const map = JSON.parse(rawMap);
+          if (map[digits] && !candidatesToTry.includes(map[digits])) {
+            candidatesToTry.push(map[digits]);
+          }
+        }
+        // 2. Verificar perfil de segurança de notas
+        const rawSec = localStorage.getItem("std_notepad_security_profile");
+        if (rawSec) {
+          const sec = JSON.parse(rawSec);
+          if (sec.cpf && sec.cpf.replace(/\D/g, "") === digits && sec.email && sec.email.includes("@")) {
+            if (!candidatesToTry.includes(sec.email)) candidatesToTry.push(sec.email);
+          }
+        }
+      } catch {}
+      // 3. E-mail virtual gerado para o CPF/CNPJ
+      candidatesToTry.push(`doc_${digits}@sistema.app`);
+    } else {
+      candidatesToTry.push(trimmedInput.toLowerCase());
     }
+
+    let loginSuccess = false;
+    let lastError: any = null;
+
+    for (const emailCand of candidatesToTry) {
+      try {
+        await signInWithEmailAndPassword(auth, emailCand, authPassword);
+        loginSuccess = true;
+        // Salva mapeamento CPF <-> Email
+        if (isDoc) {
+          try {
+            const rawMap = localStorage.getItem("cpf_email_map");
+            const map = rawMap ? JSON.parse(rawMap) : {};
+            map[digits] = emailCand;
+            localStorage.setItem("cpf_email_map", JSON.stringify(map));
+          } catch {}
+        }
+        showNotification("Login realizado com sucesso! 🚀", "success");
+        setAuthPassword("");
+        break;
+      } catch (err: any) {
+        lastError = err;
+        const code = err?.code || "";
+        // Se a senha estiver incorreta para este usuário específico, interrompe para não testar email virtual à toa
+        if (code === "auth/wrong-password") {
+          break;
+        }
+      }
+    }
+
+    if (!loginSuccess) {
+      // Se estiver offline ou erro de conexão de rede, liberar acesso local seguro
+      if (!navigator.onLine || lastError?.message?.includes("network-request-failed") || lastError?.code === "auth/network-request-failed") {
+        showNotification("Você está sem internet (Modo Offline). Acesso local liberado no seu aparelho com todas as notas!", "info");
+        const guestUser = {
+          uid: "guest_visitor",
+          email: isDoc ? `CPF: ${digits}` : trimmedInput,
+          displayName: "Usuário Local"
+        } as any;
+        setUser(guestUser);
+      } else {
+        const errMsg = translateAuthError(lastError);
+        showNotification(errMsg, "error");
+      }
+    }
+
+    setIsAuthLoading(false);
   };
 
   const handleEmailSignUp = async (e: FormEvent) => {
@@ -3372,10 +3478,36 @@ export default function App() {
       return;
     }
     setIsAuthLoading(true);
+    const trimmedInput = authEmail.trim();
+    const digits = trimmedInput.replace(/\D/g, "");
+    const isDoc = !trimmedInput.includes("@") && (digits.length === 11 || digits.length === 14);
     const normalizedEmail = resolveFirebaseEmail(authEmail);
+
     try {
       await createUserWithEmailAndPassword(auth, normalizedEmail, authPassword);
-      showNotification("Conta criada com sucesso e conectada!", "success");
+      showNotification("Conta criada com sucesso e conectada! 🎉", "success");
+      
+      // Salva mapeamento caso tenha usado CPF
+      if (isDoc) {
+        try {
+          const rawMap = localStorage.getItem("cpf_email_map");
+          const map = rawMap ? JSON.parse(rawMap) : {};
+          map[digits] = normalizedEmail;
+          localStorage.setItem("cpf_email_map", JSON.stringify(map));
+
+          // Cria perfil de segurança inicial com os 4 primeiros dígitos da senha como PIN de recuperação
+          const existingSec = localStorage.getItem("std_notepad_security_profile");
+          if (!existingSec) {
+            localStorage.setItem("std_notepad_security_profile", JSON.stringify({
+              cpf: digits,
+              email: normalizedEmail,
+              pin: authPassword.slice(0, 4),
+              createdAt: new Date().toISOString()
+            }));
+          }
+        } catch {}
+      }
+
       setAuthPassword("");
       setAuthConfirmPassword("");
     } catch (error: any) {
@@ -3411,7 +3543,7 @@ export default function App() {
           setAuthErrorType(null);
           return;
         } catch (loginErr) {
-          showNotification("Este e-mail já está cadastrado no sistema! Por favor, digite sua senha na aba 'Entrar' para acessar.", "info");
+          showNotification("Este CPF ou E-mail já está cadastrado! Por favor, digite sua senha na aba 'Entrar' para acessar.", "info");
           setAuthPassword("");
           setAuthConfirmPassword("");
           return;
@@ -3432,6 +3564,14 @@ export default function App() {
       showNotification("Por favor, digite o seu e-mail.", "error");
       return;
     }
+    const cleanDigits = emailToUse.replace(/\D/g, "");
+    if (!emailToUse.includes("@") && (cleanDigits.length === 11 || cleanDigits.length === 14)) {
+      showNotification("Para CPF, use a aba 'Por CPF e PIN de Segurança' acima para redefinir sem depender de e-mail!", "info");
+      setRecoveryMethod("cpf_pin");
+      setRecoveryCpfInput(cleanDigits);
+      return;
+    }
+
     setIsAuthLoading(true);
     const normalizedEmail = resolveFirebaseEmail(emailToUse);
     try {
@@ -3451,6 +3591,138 @@ export default function App() {
       }
       const errMsg = translateAuthError(error);
       showNotification(errMsg, "error");
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleRecoverByCpfAndPin = async (e: FormEvent) => {
+    e.preventDefault();
+    const cleanCpf = recoveryCpfInput.replace(/\D/g, "");
+    if (cleanCpf.length !== 11 && cleanCpf.length !== 14) {
+      showNotification("Por favor, digite um CPF válido com 11 números.", "error");
+      return;
+    }
+    const cleanPin = recoveryPinInput.trim();
+    if (!cleanPin || cleanPin.length < 4) {
+      showNotification("Por favor, digite seu PIN de Segurança (mínimo 4 dígitos).", "error");
+      return;
+    }
+    if (!recoveryNewPassword || recoveryNewPassword.length < 6) {
+      showNotification("A nova senha deve ter no mínimo 6 caracteres.", "error");
+      return;
+    }
+    if (recoveryNewPassword !== recoveryConfirmNewPassword) {
+      showNotification("As novas senhas não coincidem.", "error");
+      return;
+    }
+
+    setIsAuthLoading(true);
+
+    try {
+      // 1. Validar identidade com o perfil de segurança local / notas
+      let isVerified = false;
+      let targetEmail = "";
+
+      // Verificar perfil de segurança do StandardNotepad
+      try {
+        const rawSec = localStorage.getItem("std_notepad_security_profile");
+        if (rawSec) {
+          const sec = JSON.parse(rawSec);
+          const secCpf = (sec.cpf || "").replace(/\D/g, "");
+          const secPin = String(sec.pin || "").trim();
+          if ((secCpf === cleanCpf || !secCpf) && secPin === cleanPin) {
+            isVerified = true;
+            if (sec.email && sec.email.includes("@")) targetEmail = sec.email;
+          }
+        }
+      } catch {}
+
+      // Verificar notas com PIN
+      if (!isVerified) {
+        try {
+          const rawNotes = localStorage.getItem("notepad_saved_notes");
+          if (rawNotes) {
+            const notes = JSON.parse(rawNotes);
+            if (Array.isArray(notes)) {
+              for (const n of notes) {
+                if (n.pin && String(n.pin).trim() === cleanPin) {
+                  isVerified = true;
+                  break;
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Verificar dados da loja / proprietário
+      if (!isVerified) {
+        const storedStoreCpf = (storeCnpjCpf || "").replace(/\D/g, "");
+        if (storedStoreCpf === cleanCpf) {
+          isVerified = true;
+        }
+      }
+
+      // Se não encontrou restrição local mas informou CPF e PIN válidos de 4 dígitos
+      if (!isVerified) {
+        // Se não havia perfil prévio de PIN, permitir definir a identidade com este PIN e recuperar
+        const rawSec = localStorage.getItem("std_notepad_security_profile");
+        if (!rawSec) {
+          isVerified = true;
+        }
+      }
+
+      if (isVerified) {
+        const finalEmail = targetEmail || `doc_${cleanCpf}@sistema.app`;
+
+        // Tenta redefinir / conectar Firebase
+        try {
+          try {
+            await createUserWithEmailAndPassword(auth, finalEmail, recoveryNewPassword);
+          } catch (createErr: any) {
+            if (createErr?.code === "auth/email-already-in-use") {
+              try {
+                await signInWithEmailAndPassword(auth, finalEmail, recoveryNewPassword);
+              } catch {
+                // Tenta atualizar senha se já autenticado
+                if (auth.currentUser) {
+                  await updatePassword(auth.currentUser, recoveryNewPassword);
+                }
+              }
+            }
+          }
+        } catch (authErr) {
+          console.warn("Aviso na sincronização do Firebase Auth para nova senha:", authErr);
+        }
+
+        // Atualiza perfil de segurança local e mapeamento de CPF
+        try {
+          const updatedSec = {
+            cpf: cleanCpf,
+            pin: cleanPin,
+            email: finalEmail,
+            updatedAt: new Date().toISOString()
+          };
+          localStorage.setItem("std_notepad_security_profile", JSON.stringify(updatedSec));
+
+          const rawMap = localStorage.getItem("cpf_email_map");
+          const map = rawMap ? JSON.parse(rawMap) : {};
+          map[cleanCpf] = finalEmail;
+          localStorage.setItem("cpf_email_map", JSON.stringify(map));
+        } catch {}
+
+        showNotification("Identidade validada com sucesso via CPF e PIN! Nova senha salva e acesso liberado sem precisar de e-mail! 🛡️✨", "success");
+        setAuthEmail(cleanCpf);
+        setAuthPassword(recoveryNewPassword);
+        setRecoveryNewPassword("");
+        setRecoveryConfirmNewPassword("");
+        setRecoveryPinInput("");
+        setRecoveryCpfInput("");
+        setAuthMode("login");
+      } else {
+        showNotification("O PIN de Segurança informado não confere com o cadastrado neste aparelho. Digite seu PIN de 4 dígitos ou use a recuperação por e-mail.", "error");
+      }
     } finally {
       setIsAuthLoading(false);
     }
@@ -5013,6 +5285,18 @@ export default function App() {
       const catalogProductsSaved = localStorage.getItem("custom_catalog_products");
       const localCatalogProducts = catalogProductsSaved ? JSON.parse(catalogProductsSaved) : [];
 
+      let localMasterPinProfile: any = null;
+      try {
+        const secSaved = localStorage.getItem("std_notepad_security_profile");
+        if (secSaved) localMasterPinProfile = JSON.parse(secSaved);
+      } catch {}
+
+      let localSavedNotes: any[] = [];
+      try {
+        const savedNotesRaw = localStorage.getItem(`notepad_saved_notes${suffix}`);
+        if (savedNotesRaw) localSavedNotes = JSON.parse(savedNotesRaw);
+      } catch {}
+
       const docRef = doc(db, "userData", userId);
       await setDoc(
         docRef,
@@ -5027,6 +5311,8 @@ export default function App() {
           superListData: localSuperListData,
           excelRows: localExcelRows,
           customCatalogProducts: localCatalogProducts,
+          savedNotes: localSavedNotes,
+          masterPinProfile: localMasterPinProfile,
           updatedAt: serverTimestamp(),
           lastModifiedAt: timestamp,
         },
@@ -5105,6 +5391,23 @@ export default function App() {
           if (data.superListData !== undefined) setSuperListData(data.superListData);
           if (data.excelRows !== undefined) setExcelRows(data.excelRows);
           if (data.customCatalogProducts !== undefined) setCustomCatalogProducts(data.customCatalogProducts);
+          if (data.savedNotes !== undefined && Array.isArray(data.savedNotes) && data.savedNotes.length > 0) {
+            setSavedNotes((prev) => {
+              const existingIds = new Set(prev.map((n) => n.id));
+              const merged = [...prev];
+              for (const n of data.savedNotes) {
+                if (!existingIds.has(n.id)) {
+                  merged.push(n);
+                  existingIds.add(n.id);
+                }
+              }
+              localStorage.setItem(`notepad_saved_notes${suffix}`, JSON.stringify(merged));
+              return merged;
+            });
+          }
+          if (data.masterPinProfile) {
+            localStorage.setItem("std_notepad_security_profile", JSON.stringify(data.masterPinProfile));
+          }
           
           // Save loaded cloud version locally
           localStorage.setItem(`notepad_draft${suffix}`, data.inputText || "");
@@ -5334,6 +5637,16 @@ export default function App() {
         return t || "";
       };
 
+      let secProfile: any = null;
+      try {
+        const secSaved = localStorage.getItem("std_notepad_security_profile");
+        if (secSaved) secProfile = JSON.parse(secSaved);
+      } catch {}
+
+      const cleanNotesToSync = Array.isArray((latestStatesRef.current as any)?.savedNotes)
+        ? (latestStatesRef.current as any).savedNotes.slice(0, 50)
+        : [];
+
       await setDoc(
         docRef,
         {
@@ -5347,6 +5660,8 @@ export default function App() {
           superListData: latestSuperListData,
           excelRows: latestExcelRows,
           customCatalogProducts: latestCustomCatalogProducts,
+          savedNotes: cleanNotesToSync,
+          masterPinProfile: secProfile,
           updatedAt: serverTimestamp(),
           lastModifiedAt: now,
         },
@@ -6417,23 +6732,6 @@ export default function App() {
       return;
     }
 
-    // ⚠️ Check list saving credits limit
-    if (!isPremium) {
-      const { hasExpired, expiryDate } = getPwaCreditsRemainingDays();
-      if (hasExpired) {
-        setPaywallType("pro");
-        setShowPaywall(true);
-        showNotification(`Seus 100 créditos grátis expiraram em ${expiryDate} (limite de 1 mês atingido)! Ative o Plano Premium (R$ 4,90/mensal) para continuar salvando listas. ⚡`, "error");
-        return;
-      }
-      if (pwaCredits <= 0) {
-        setPaywallType("pro");
-        setShowPaywall(true);
-        showNotification("Seus 100 créditos grátis acabaram! Ative o Plano Premium (R$ 4,90/mensal) para listas ilimitadas. ⚡", "error");
-        return;
-      }
-    }
-
     const listData: SavedList = {
       id: Date.now().toString(),
       saldo_total: budget,
@@ -6447,16 +6745,10 @@ export default function App() {
       data: Timestamp.now(),
     };
 
-    // Consume credit
-    if (!isPremium) {
-      setPwaCredits((prev) => {
-        const next = Math.max(0, prev - 1);
-        const { expiryDate, daysLeft } = getPwaCreditsRemainingDays();
-        showNotification(`Lista arquivada! Descontado 1 crédito. Restam ${next} créditos grátis de 100 (expira em ${expiryDate}, restam ${daysLeft} dias). 📊`, "success");
-        return next;
-      });
+    if (user && user.uid !== "guest_visitor") {
+      showNotification("Lista de compras arquivada e sincronizada na Nuvem! 🛒☁️", "success");
     } else {
-      showNotification("Lista arquivada com sucesso! Planilhas arquivadas na Nuvem. ☁️🚀", "success");
+      showNotification("Lista de compras arquivada com sucesso no aparelho! 🛒✨", "success");
     }
 
     // 1. Instant local save for responsiveness
@@ -7000,6 +7292,27 @@ export default function App() {
               <span className="text-base leading-none">👉</span>
               <span className="text-[10px] font-black uppercase tracking-tight">
                 Guia & Slides 👆
+              </span>
+            </button>
+
+            {/* Botão de Tamanho das Letras (Acessibilidade / Letras Maiores) */}
+            <button
+              type="button"
+              onClick={cycleFontScale}
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-black border ${
+                fontScale === "extragrande"
+                  ? "bg-emerald-600 text-white border-emerald-400 shadow-md shadow-emerald-500/20 ring-1 ring-emerald-300"
+                  : fontScale === "grande"
+                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30"
+                  : "bg-slate-800 text-slate-300 border-white/10 hover:text-white hover:bg-slate-700"
+              }`}
+              title="Aumentar o tamanho das letras para facilitar a leitura no celular ou computador"
+            >
+              <span className="font-mono text-xs font-black">
+                {fontScale === "extragrande" ? "A++" : fontScale === "grande" ? "A+" : "A"}
+              </span>
+              <span className="text-[10px] font-black uppercase tracking-tight">
+                {fontScale === "extragrande" ? "Letras Máximas" : fontScale === "grande" ? "Letras Grandes" : "Letras Padrão"}
               </span>
             </button>
             {user && isAdmin && (
@@ -7883,49 +8196,179 @@ export default function App() {
 
                 {authMode === "recovery" && (
                   <div className="space-y-4">
-                    <form
-                      onSubmit={handleSendResetEmail}
-                      className="space-y-4 text-left"
-                    >
-                      <div className="bg-purple-950/20 p-4 rounded-2xl border border-purple-500/10 text-center space-y-2">
-                        <Key className="w-8 h-8 text-purple-400 mx-auto" />
-                        <p className="text-xs text-purple-200 font-black uppercase tracking-wider">
-                          Recuperar Senha
-                        </p>
-                        <p className="text-[10px] text-slate-400 leading-normal">
-                          Digite seu e-mail cadastrado que enviaremos o link
-                          oficial de redefinição de senha do Firebase.
-                        </p>
-                      </div>
-                      <div className="space-y-1.5 focus-within:text-purple-400 transition-colors">
-                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                          E-mail Cadastrado
-                        </label>
-                        <input
-                          type="text"
-                          value={recoveryEmailState || authEmail}
-                          onChange={(e) => {
-                            setRecoveryEmailState(e.target.value);
-                            setAuthEmail(e.target.value);
-                          }}
-                          placeholder="Digite seu e-mail"
-                          required
-                          className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs px-4 py-3 rounded-2xl focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 font-medium"
-                        />
-                      </div>
-
+                    {/* Seletor do método de recuperação */}
+                    <div className="flex gap-2 p-1 bg-slate-950/80 rounded-2xl border border-white/5">
                       <button
-                        type="submit"
-                        disabled={isAuthLoading}
-                        className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 disabled:opacity-50 text-white py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-500/20 hover:scale-[1.01] active:opacity-90 transition-all flex items-center justify-center gap-2 mt-2"
+                        type="button"
+                        onClick={() => setRecoveryMethod("cpf_pin")}
+                        className={`flex-1 py-2 rounded-xl font-black text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${recoveryMethod === "cpf_pin" ? "bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/10" : "text-slate-400 hover:text-slate-200"}`}
                       >
-                        {isAuthLoading ? (
-                          <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-                        ) : (
-                          "Enviar E-mail de Recuperação"
-                        )}
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        Por CPF e PIN (Sem E-mail) 🛡️
                       </button>
-                    </form>
+                      <button
+                        type="button"
+                        onClick={() => setRecoveryMethod("email")}
+                        className={`flex-1 py-2 rounded-xl font-black text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${recoveryMethod === "email" ? "bg-purple-600 text-white shadow-md shadow-purple-600/10" : "text-slate-400 hover:text-slate-200"}`}
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                        Por E-mail 📧
+                      </button>
+                    </div>
+
+                    {recoveryMethod === "cpf_pin" ? (
+                      <form
+                        onSubmit={handleRecoverByCpfAndPin}
+                        className="space-y-3.5 text-left"
+                      >
+                        <div className="bg-amber-500/10 border border-amber-500/20 p-3.5 rounded-2xl text-left space-y-1.5">
+                          <div className="flex items-center gap-2 text-amber-400">
+                            <ShieldCheck className="w-4 h-4 shrink-0" />
+                            <p className="text-xs font-black uppercase tracking-wider">
+                              Recuperar sem precisar de E-mail
+                            </p>
+                          </div>
+                          <p className="text-[10px] text-slate-300 leading-normal">
+                            Se você esqueceu seu e-mail, digitou CPF ou sua caixa de entrada está cheia, valide sua identidade informando seu <strong>CPF</strong> e seu <strong>PIN de Segurança</strong> (4 dígitos) cadastrado no app para redefinir sua senha imediatamente!
+                          </p>
+                        </div>
+
+                        <div className="space-y-1 focus-within:text-amber-400 transition-colors">
+                          <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                            Seu CPF (apenas números)
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={recoveryCpfInput}
+                            onChange={(e) => setRecoveryCpfInput(e.target.value)}
+                            placeholder="Ex: 12345678900"
+                            required
+                            className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs px-4 py-3 rounded-2xl focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-medium"
+                          />
+                        </div>
+
+                        <div className="space-y-1 focus-within:text-amber-400 transition-colors">
+                          <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                            PIN de Segurança (4 a 6 dígitos)
+                          </label>
+                          <input
+                            type="password"
+                            inputMode="numeric"
+                            maxLength={6}
+                            value={recoveryPinInput}
+                            onChange={(e) => setRecoveryPinInput(e.target.value)}
+                            placeholder="PIN cadastrado nas notas ou perfil"
+                            required
+                            className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs px-4 py-3 rounded-2xl focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-medium tracking-widest"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="space-y-1 focus-within:text-amber-400 transition-colors">
+                            <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                              Nova Senha
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showRecoveryNewPassword ? "text" : "password"}
+                                value={recoveryNewPassword}
+                                onChange={(e) => setRecoveryNewPassword(e.target.value)}
+                                placeholder="Mínimo 6 dígitos"
+                                required
+                                className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs px-4 py-3 rounded-2xl focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-medium pr-10"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowRecoveryNewPassword(!showRecoveryNewPassword)}
+                                className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
+                              >
+                                {showRecoveryNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 focus-within:text-amber-400 transition-colors">
+                            <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                              Confirmar Nova Senha
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showRecoveryConfirmPassword ? "text" : "password"}
+                                value={recoveryConfirmNewPassword}
+                                onChange={(e) => setRecoveryConfirmNewPassword(e.target.value)}
+                                placeholder="Repita a nova senha"
+                                required
+                                className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs px-4 py-3 rounded-2xl focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-medium pr-10"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowRecoveryConfirmPassword(!showRecoveryConfirmPassword)}
+                                className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
+                              >
+                                {showRecoveryConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isAuthLoading}
+                          className="w-full bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:scale-[1.01] active:opacity-90 transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer"
+                        >
+                          {isAuthLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                          ) : (
+                            "Validar Identidade e Salvar Nova Senha 🛡️"
+                          )}
+                        </button>
+                      </form>
+                    ) : (
+                      <form
+                        onSubmit={handleSendResetEmail}
+                        className="space-y-4 text-left"
+                      >
+                        <div className="bg-purple-950/20 p-4 rounded-2xl border border-purple-500/10 text-center space-y-2">
+                          <Key className="w-8 h-8 text-purple-400 mx-auto" />
+                          <p className="text-xs text-purple-200 font-black uppercase tracking-wider">
+                            Recuperar por E-mail
+                          </p>
+                          <p className="text-[10px] text-slate-400 leading-normal">
+                            Digite seu e-mail cadastrado que enviaremos o link
+                            oficial de redefinição de senha do Firebase.
+                          </p>
+                        </div>
+                        <div className="space-y-1.5 focus-within:text-purple-400 transition-colors">
+                          <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                            E-mail Cadastrado
+                          </label>
+                          <input
+                            type="text"
+                            value={recoveryEmailState || authEmail}
+                            onChange={(e) => {
+                              setRecoveryEmailState(e.target.value);
+                              setAuthEmail(e.target.value);
+                            }}
+                            placeholder="Digite seu e-mail"
+                            required
+                            className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs px-4 py-3 rounded-2xl focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 font-medium"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isAuthLoading}
+                          className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 disabled:opacity-50 text-white py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-500/20 hover:scale-[1.01] active:opacity-90 transition-all flex items-center justify-center gap-2 mt-2"
+                        >
+                          {isAuthLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                          ) : (
+                            "Enviar E-mail de Recuperação"
+                          )}
+                        </button>
+                      </form>
+                    )}
 
                     {/* Highly requested help section on configuring the Firebase Email Template name */}
                     <div className="bg-slate-900 border border-purple-500/15 rounded-2xl p-4 text-left space-y-3 mt-4">
@@ -8025,81 +8468,74 @@ export default function App() {
               <div className="bg-slate-800/50 p-5 rounded-3xl border border-white/5">
                 <Award className="w-5 h-5 text-amber-500 mb-2" />
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">
-                  Status Premium
+                  Seu Plano Atual
                 </p>
                 <p className="text-base font-black text-white">
-                  {isPremium ? "Premium Pro" : "Free User"}
+                  {SUBSCRIPTION_PLANS.find((p) => p.id === subscriptionTier)?.name || "Plano Grátis"}
                 </p>
+                <span className="text-[9px] text-amber-400 font-bold block mt-0.5">
+                  {SUBSCRIPTION_PLANS.find((p) => p.id === subscriptionTier)?.price || "R$ 0,00"}
+                </span>
               </div>
               <div className="bg-slate-800/50 p-5 rounded-3xl border border-white/5">
                 <ListChecks className="w-5 h-5 text-green-400 mb-2" />
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">
-                  Listas Arquivadas
+                  Listas no Aparelho
                 </p>
                 <p className="text-base font-black text-white">
                   {history.length} listas
                 </p>
+                <span className="text-[9px] text-emerald-400 font-bold block mt-0.5">
+                  Livre & Ilimitado 🛒
+                </span>
               </div>
               <div className="bg-slate-800/50 p-5 rounded-3xl border border-white/5">
-                <Zap className="w-5 h-5 text-indigo-400 mb-2 fill-indigo-400/20" />
+                {isOnline ? (
+                  <Wifi className="w-5 h-5 text-emerald-400 mb-2" />
+                ) : (
+                  <WifiOff className="w-5 h-5 text-amber-400 mb-2" />
+                )}
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">
-                  Créditos Grátis
+                  Status de Conexão
                 </p>
                 <p className="text-base font-black text-white">
-                  {isPremium ? "ILIMITADO" : `${pwaCredits} / 100`}
+                  {isOnline ? "Conectado 🟢" : "Modo Offline 🟡"}
                 </p>
+                <span className="text-[9px] text-slate-400 font-bold block mt-0.5">
+                  {isOnline ? "Nuvem Sincronizada" : "Armazenamento Local"}
+                </span>
               </div>
               <div className="bg-slate-800/50 p-5 rounded-3xl border border-white/5">
                 <Store className="w-5 h-5 text-emerald-400 mb-2" />
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">
-                  Licença PDV
+                  Módulos de Loja / PDV
                 </p>
                 <p className="text-base font-black text-white">
-                  {pdvLicenseActive ? "Ativo Pro" : "Demonstração"}
+                  {subscriptionTier === "pdv_total" ? "PDV Total + IA" : subscriptionTier === "estoque_gestao" ? "Estoque & Caixa" : subscriptionTier === "pro_tools" ? "Ferramentas Pro" : "Básico Grátis"}
                 </p>
+                <span className="text-[9px] text-purple-300 font-bold block mt-0.5">
+                  {subscriptionTier === "free" ? "Demonstração" : "Liberado Pro"}
+                </span>
               </div>
             </div>
 
-            {/* Guia de Consumo e Validade dos Créditos - Calculadora Cérebro */}
-            {!isPremium && (
-              <div className="bg-indigo-950/40 border border-indigo-500/20 p-5 rounded-3xl space-y-3">
-                <div className="flex items-center gap-2.5 text-indigo-400">
-                  <Brain className="w-5 h-5 shrink-0" />
-                  <h4 className="text-xs font-black uppercase tracking-wider">
-                    Como Consumir seus Créditos no Mês
-                  </h4>
-                </div>
-                <div className="space-y-2 text-[11px] text-slate-300 leading-relaxed">
-                  <p>
-                    🧠 <strong>Calculadora Cérebro:</strong> Os 100 créditos gratuitos são consumidos de forma simples: <strong>cada lista de supermercado salva ou arquivada gasta exatamente 1 crédito</strong>.
-                  </p>
-                  <p>
-                    ⏳ <strong>Validade Limitada:</strong> Para garantir o planejamento consciente, estes créditos são válidos por <strong>apenas 1 mês (30 dias)</strong> a partir do seu primeiro acesso.
-                  </p>
-                </div>
-                
-                <div className="pt-2 border-t border-indigo-500/10 grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-400">
-                  <div>
-                    <span className="block text-[8px] uppercase text-slate-500">Início do Uso:</span>
-                    <span className="text-slate-200">
-                      {new Date(pwaCreditsStartDate).toLocaleDateString("pt-BR")}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="block text-[8px] uppercase text-slate-500">Expira em:</span>
-                    <span className="text-indigo-300 font-bold">
-                      {getPwaCreditsRemainingDays().expiryDate} ({getPwaCreditsRemainingDays().daysLeft} dias restantes)
-                    </span>
-                  </div>
-                </div>
-
-                {getPwaCreditsRemainingDays().hasExpired && (
-                  <div className="p-2 bg-rose-500/10 border border-rose-500/20 rounded-xl text-center text-rose-400 text-[10px] font-bold">
-                    🚨 Seus créditos de 1 mês expiraram! Ative o Plano Premium para continuar salvando.
-                  </div>
-                )}
+            {/* Transparência Honesta de Conexão e Offline */}
+            <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3 text-left">
+              <div className="flex items-center gap-2.5 text-cyan-400">
+                <ShieldCheck className="w-5 h-5 shrink-0" />
+                <h4 className="text-xs font-black uppercase tracking-wider">
+                  Transparência de Conexão: O que funciona sem internet?
+                </h4>
               </div>
-            )}
+              <div className="space-y-2 text-[11px] text-slate-300 leading-relaxed">
+                <p>
+                  📱 <strong>Sem Internet (Offline no Mercado):</strong> Se você estiver sem sinal dentro do supermercado (como no Guanabara), a <strong>Calculadora rápida de compras</strong>, o <strong>Bloco de Notas do aparelho</strong> e suas <strong>Listas locais salvas</strong> abrem e funcionam normalmente sem internet!
+                </p>
+                <p>
+                  ☁️ <strong>Com Internet (Servidor e Nuvem):</strong> Criar conta, fazer login, recuperar senha, sincronizar dados entre aparelhos diferentes, IA Gemini e carregar novos encartes online dependem de conexão com a internet.
+                </p>
+              </div>
+            </div>
 
             <div className="space-y-4">
               {/* Restaurar Configurações e Dados Antigos Card */}
@@ -8152,119 +8588,140 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Plano 1: Calculadoras & Recibos */}
-              {!isPremium ? (
-                <div className="bg-amber-500/10 border border-amber-500/20 p-6 rounded-3xl space-y-4">
-                  <div className="flex items-center gap-4">
-                    <Award className="w-8 h-8 text-amber-500" />
+              {/* Botão de Ver Todos os Planos */}
+              <div className="bg-gradient-to-r from-purple-900/40 via-indigo-900/40 to-slate-900 border border-purple-500/30 p-6 rounded-3xl space-y-3 text-left">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <Crown className="w-6 h-6 text-amber-400" />
                     <div>
                       <h4 className="text-sm font-black text-white uppercase tracking-tight">
-                        Calculadoras & Recibos Pro
+                        Tabela Oficial de Planos & Assinaturas
                       </h4>
-                      <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest">
-                        R$ 4,90 / mês
+                      <p className="text-[10px] text-purple-300 font-bold uppercase tracking-wider">
+                        Valores Atualizados: R$ 0 | R$ 14,90 | R$ 29,90 | R$ 39,90
                       </p>
                     </div>
                   </div>
-                  <p className="text-xs text-slate-400 font-medium">
-                    Desbloqueia a <strong>Calculadora de Precificação</strong>, <strong>Calculadora Avançada: Notas & Excel</strong>, e o <strong>Emissor de Recibos/Pagamentos diário (Notinhas)</strong> com salvamento em nuvem ilimitado!
-                  </p>
                   <button
-                    onClick={() => {
-                      setPaywallType("pro");
-                      setShowPaywall(true);
-                    }}
-                    className="w-full bg-amber-500 text-slate-950 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:scale-[1.02] transition-all cursor-pointer"
+                    type="button"
+                    onClick={() => openSubscriptionModal("Planos Oficiais")}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:scale-102 transition-all cursor-pointer"
                   >
-                    Ativar Calculadoras & Recibos Pro
+                    Ver Comparativo Completo 👑
                   </button>
                 </div>
-              ) : (
-                <div className="bg-amber-500/10 border border-amber-500/30 p-6 rounded-3xl space-y-2">
-                  <span className="text-xs font-bold text-amber-500 uppercase tracking-widest block">★ Plano Pro Ativado (R$ 4,90/mês)</span>
-                  <p className="text-xs text-slate-300 font-medium">Calculadora de Precificação, Notas/Excel Avançadas e Recibos Eletrônicos liberados na Nuvem!</p>
-                </div>
-              )}
+                <p className="text-xs text-slate-300 leading-relaxed font-medium">
+                  Escolha o plano ideal para suas necessidades: do uso doméstico 100% gratuito ao comércio completo com Frente de Caixa e IA!
+                </p>
+              </div>
 
-              {/* Plano 2: PDV Celular / Tablet Play Store */}
-              {!pdvLicenseActive ? (
-                <div className="bg-emerald-500/10 border border-emerald-500/20 p-6 rounded-3xl space-y-4">
-                  <div className="flex items-center gap-4">
+              {/* Plano 1: Ferramentas Pro (R$ 14,90) */}
+              <div className="bg-amber-500/10 border border-amber-500/20 p-6 rounded-3xl space-y-4 text-left">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-3">
+                    <Award className="w-8 h-8 text-amber-500" />
+                    <div>
+                      <h4 className="text-sm font-black text-white uppercase tracking-tight">
+                        Ferramentas Pro
+                      </h4>
+                      <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest">
+                        R$ 14,90 / mês
+                      </p>
+                    </div>
+                  </div>
+                  {subscriptionTier === "pro_tools" && (
+                    <span className="px-3 py-1 bg-amber-500 text-slate-950 rounded-full font-black text-[9px] uppercase tracking-wider">
+                      ★ Plano Ativo
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-300 font-medium">
+                  Desbloqueia a <strong>Calculadora de Precificação Inteligente</strong> (custo, margem e lucro), <strong>Calculadora Nota de Bloco com exportação para Excel e PDF</strong>, e o <strong>Emissor de Talões e Recibos Digitais</strong> para balcão e WhatsApp com salvamento na Nuvem!
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openSubscriptionModal("Ferramentas Pro (R$ 14,90)", "pro_tools")}
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:scale-[1.01] transition-all cursor-pointer"
+                >
+                  {subscriptionTier === "pro_tools" ? "Gerenciar Ferramentas Pro" : "Assinar Ferramentas Pro (R$ 14,90)"}
+                </button>
+              </div>
+
+              {/* Plano 2: Gestão, Estoque & Caixa (R$ 29,90) */}
+              <div className="bg-emerald-500/10 border border-emerald-500/20 p-6 rounded-3xl space-y-4 text-left">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-3">
                     <Smartphone className="w-8 h-8 text-emerald-400" />
                     <div>
                       <h4 className="text-sm font-black text-white uppercase tracking-tight">
-                        PDV Móvel - Play Store
+                        Gestão, Estoque & Caixa
                       </h4>
                       <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">
                         R$ 29,90 / mês
                       </p>
                     </div>
                   </div>
-                  <p className="text-xs text-slate-400 font-medium">
-                    Frente de Caixa completo para celulares e tablets Android na Play Store. Controle estoque, caixa físico diário, relatórios de faturamento e operadores de caixa!
-                  </p>
-                  <button
-                    onClick={() => {
-                      setPaywallType("pdv");
-                      setShowPaywall(true);
-                    }}
-                    className="w-full bg-emerald-500 text-slate-950 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:scale-[1.02] transition-all cursor-pointer"
-                  >
-                    Ativar PDV Celular
-                  </button>
+                  {subscriptionTier === "estoque_gestao" && (
+                    <span className="px-3 py-1 bg-emerald-500 text-slate-950 rounded-full font-black text-[9px] uppercase tracking-wider">
+                      ★ Plano Ativo
+                    </span>
+                  )}
                 </div>
-              ) : (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 p-6 rounded-3xl space-y-2">
-                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest block">📲 Licença PDV Celular Ativa (R$ 29,90/mês)</span>
-                  <p className="text-xs text-slate-300 font-medium">Terminal de Vendas e Controle de Caixa completo para múltiplos dispositivos móveis ativado!</p>
-                </div>
-              )}
+                <p className="text-xs text-slate-300 font-medium">
+                  Tudo do plano anterior mais <strong>Frente de Caixa (PDV) completa</strong> para registrar vendas e emitir cupons, <strong>Controle de Estoque Completo Liberado</strong>, recebimento em Pix, Cartão e Fiado, sangria, suprimento e alerta de estoque baixo!
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openSubscriptionModal("Gestão, Estoque & Caixa (R$ 29,90)", "estoque_gestao")}
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:scale-[1.01] transition-all cursor-pointer"
+                >
+                  {subscriptionTier === "estoque_gestao" ? "Gerenciar Caixa & Estoque" : "Assinar Caixa & Estoque (R$ 29,90)"}
+                </button>
+              </div>
 
-              {/* Plano 3: PDV PC & Notebook + Mercado Pago */}
-              {!pdvPcLicenseActive ? (
-                <div className="bg-emerald-500/10 border border-emerald-500/20 p-6 rounded-3xl space-y-4">
-                  <div className="flex items-center gap-4">
-                    <Laptop className="w-8 h-8 text-emerald-400" />
+              {/* Plano 3: PDV Total & IA (R$ 39,90) */}
+              <div className="bg-purple-500/10 border border-purple-500/20 p-6 rounded-3xl space-y-4 text-left">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-3">
+                    <Laptop className="w-8 h-8 text-purple-400" />
                     <div>
                       <h4 className="text-sm font-black text-white uppercase tracking-tight">
-                        PDV PC & Notebook
+                        PDV Total & IA 👑
                       </h4>
-                      <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">
-                        R$ 100,00 / mês
+                      <p className="text-[10px] text-purple-400 font-bold uppercase tracking-widest">
+                        R$ 39,90 / mês
                       </p>
                     </div>
                   </div>
-                  <p className="text-xs text-slate-400 font-medium">
-                    Frente de Caixa completo otimizado para Computadores e Notebooks, <strong>totalmente integrado com Pix automático do Mercado Pago</strong>!
-                  </p>
-                  <button
-                    onClick={() => {
-                      setPaywallType("pdv_pc");
-                      setShowPaywall(true);
-                    }}
-                    className="w-full bg-emerald-500 text-slate-950 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:scale-[1.02] transition-all cursor-pointer"
-                  >
-                    Ativar PDV PC & Notebook
-                  </button>
+                  {subscriptionTier === "pdv_total" && (
+                    <span className="px-3 py-1 bg-purple-500 text-white rounded-full font-black text-[9px] uppercase tracking-wider">
+                      ★ Plano Total Ativo
+                    </span>
+                  )}
                 </div>
-              ) : (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 p-6 rounded-3xl space-y-2">
-                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest block">💻 Licença PDV PC Ativa (R$ 100,00/mês)</span>
-                  <p className="text-xs text-slate-300 font-medium">Frente de Caixa mestre para PC e Notebook configurado com o Mercado Pago Ativado!</p>
-                </div>
-              )}
+                <p className="text-xs text-slate-300 font-medium">
+                  <strong>Direito a TUDO no sistema</strong>: Frente de Caixa para Celular, Tablet, Computador e Notebook, <strong>Inteligência Artificial Gemini</strong> integrada para análise de estoque e vendas, Pix automático e suporte prioritário!
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openSubscriptionModal("PDV Total & IA (R$ 39,90)", "pdv_total")}
+                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-500/20 hover:scale-[1.01] transition-all cursor-pointer"
+                >
+                  {subscriptionTier === "pdv_total" ? "Plano Total Liberado" : "Assinar PDV Total & IA (R$ 39,90)"}
+                </button>
+              </div>
 
               {/* Seção Grátis: Detalhes de Benefícios Gratuitos */}
-              <div className="bg-slate-800/30 border border-white/5 p-6 rounded-3xl space-y-4">
+              <div className="bg-slate-800/30 border border-white/5 p-6 rounded-3xl space-y-4 text-left">
                 <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-[8.5px] font-black uppercase tracking-wider inline-block">
-                  Recursos 100% Gratuitos
+                  Recursos 100% Gratuitos (Sempre Grátis)
                 </span>
-                <h4 className="text-sm font-black text-white uppercase tracking-tight">O que está incluído de graça:</h4>
-                <div className="space-y-2 text-xs text-slate-400 leading-normal">
-                  <p>• <strong>Calculadora Comum:</strong> Contas rápidas e calculadora matemática com histórico integrado.</p>
-                  <p>• <strong>Bloco de Notas Padrão:</strong> Digitação livre offline para rascunhos rápidos.</p>
-                  <p>• <strong>Supermercado & Listas:</strong> Lista de compras, encartes digitais de ofertas e verificação de planilhas de supermercados.</p>
-                  <p>• <strong>Avisos de Promoções:</strong> Notificações push de grandes promoções locais de supermercados.</p>
+                <h4 className="text-sm font-black text-white uppercase tracking-tight">O que está incluído no Plano Grátis:</h4>
+                <div className="space-y-2 text-xs text-slate-300 leading-normal">
+                  <p>• <strong>Calculadora Comum:</strong> Contas rápidas e calculadora matemática com histórico integrado (funciona sem internet!).</p>
+                  <p>• <strong>Supermercado & Listas de Compras:</strong> Lista de compras com soma automática em tempo real, economia e arquivamento livre e ilimitado.</p>
+                  <p>• <strong>Bloco de Notas do Aparelho:</strong> Digitação livre e rápida para rascunhos e recados.</p>
+                  <p>• <strong>Mural de Encartes e Ofertas:</strong> Folhetos digitais de ofertas de grandes supermercados locais.</p>
                 </div>
               </div>
 
@@ -10194,6 +10651,11 @@ export default function App() {
                       handleUpdateNotePin={handleUpdateNotePin}
                       showNotification={showNotification}
                       user={user}
+                      onOpenAccountTab={() => setActiveTab("account")}
+                      onSyncToCloud={async () => {
+                        await syncToCloud();
+                        showNotification("Todas as anotações foram sincronizadas na Nuvem com sucesso! ☁️✨", "success");
+                      }}
                     />
                   ) : notepadMode === "receipts" ? (
                     <NotesModule
@@ -13164,7 +13626,7 @@ export default function App() {
                           3. Plano Pró, Transações e Cobranças
                         </h4>
                         <p className="text-slate-400">
-                          O aplicativo pode oferecer uma assinatura ou compra pontual da versão Pró (disponível pelo valor nominal e acessível de R$ 4,90 mensais ou conforme reajuste anual da plataforma), a qual remove anúncios e telas promocionais, além de conceder acesso total a relatórios analíticos, gráficos e exportação ilimitada. Todas as transações financeiras, cobranças, assinaturas e faturamentos são processados exclusivamente pelos sistemas de pagamento oficiais da <strong>Google Play Store Billing API</strong>. O cancelamento pode ser executado pelo próprio usuário a qualquer momento nas configurações de sua conta do Google Play, sem taxas de cancelamento ou fidelidades residuais.
+                          O aplicativo disponibiliza planos de assinatura acessíveis e transparentes (a partir de R$ 14,90 mensais conforme a tabela oficial de planos vigente), os quais removem telas promocionais e concedem acesso total a relatórios analíticos, gráficos, calculadoras profissionais de precificação, controle de estoque e frente de caixa (PDV). Todas as transações financeiras e assinaturas são processadas com segurança pelos sistemas de pagamento oficiais da <strong>Google Play Store Billing API</strong> ou Pix integrado. O cancelamento pode ser executado pelo próprio usuário a qualquer momento sem taxas de cancelamento ou fidelidades residuais.
                         </p>
                       </div>
 

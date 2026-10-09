@@ -33,6 +33,82 @@
   }
 }
 
+/* Elevate tiny font classes across the app ("Aumentar letras miúdas") */
+[class*="text-[6px]"], 
+[class*="text-[7px]"], 
+[class*="text-[8px]"], 
+[class*="text-[8.5px]"] {
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+}
+
+[class*="text-[9px]"], 
+[class*="text-[9.5px]"] {
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+[class*="text-[10px]"], 
+[class*="text-[10.5px]"] {
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+[class*="text-[11px]"], 
+[class*="text-[11.5px]"] {
+  font-size: 13.5px !important;
+  line-height: 1.4 !important;
+}
+
+/* Accessibility / Font Scale Zoom: Grande & Extra Grande */
+html[data-font-scale="grande"] {
+  font-size: 110%;
+}
+html[data-font-scale="grande"] [class*="text-[6px]"],
+html[data-font-scale="grande"] [class*="text-[7px]"],
+html[data-font-scale="grande"] [class*="text-[8px]"],
+html[data-font-scale="grande"] [class*="text-[8.5px]"] {
+  font-size: 12.5px !important;
+}
+html[data-font-scale="grande"] [class*="text-[9px]"],
+html[data-font-scale="grande"] [class*="text-[9.5px]"] {
+  font-size: 13.5px !important;
+}
+html[data-font-scale="grande"] [class*="text-[10px]"],
+html[data-font-scale="grande"] [class*="text-[10.5px]"] {
+  font-size: 14.5px !important;
+}
+html[data-font-scale="grande"] [class*="text-xs"] {
+  font-size: 14px !important;
+}
+html[data-font-scale="grande"] [class*="text-sm"] {
+  font-size: 15.5px !important;
+}
+
+html[data-font-scale="extragrande"] {
+  font-size: 120%;
+}
+html[data-font-scale="extragrande"] [class*="text-[6px]"],
+html[data-font-scale="extragrande"] [class*="text-[7px]"],
+html[data-font-scale="extragrande"] [class*="text-[8px]"],
+html[data-font-scale="extragrande"] [class*="text-[8.5px]"] {
+  font-size: 14px !important;
+}
+html[data-font-scale="extragrande"] [class*="text-[9px]"],
+html[data-font-scale="extragrande"] [class*="text-[9.5px]"] {
+  font-size: 15px !important;
+}
+html[data-font-scale="extragrande"] [class*="text-[10px]"],
+html[data-font-scale="extragrande"] [class*="text-[10.5px]"] {
+  font-size: 16px !important;
+}
+html[data-font-scale="extragrande"] [class*="text-xs"] {
+  font-size: 15.5px !important;
+}
+html[data-font-scale="extragrande"] [class*="text-sm"] {
+  font-size: 17px !important;
+}
+
 .notepad-paper {
   background-color: var(--color-notepad-yellow);
   background-image: linear-gradient(var(--color-notepad-line) 1px, transparent 1px);

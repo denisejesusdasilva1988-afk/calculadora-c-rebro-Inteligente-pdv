@@ -42,8 +42,12 @@ import {
   CloudUpload,
   Smartphone,
   RefreshCw,
+  HardDrive,
+  HelpCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "../App";
 import { refineSpeechText, applyLocalDictionaryCorrections } from "../utils/speechRefiner";
 
 export interface NotepadAttachment {
@@ -81,6 +85,8 @@ interface StandardNotepadProps {
   handleUpdateNotePin?: (id: string, newPin: string) => void;
   showNotification: (msg: string, type: "success" | "error" | "info") => void;
   user?: any;
+  onOpenAccountTab?: () => void;
+  onSyncToCloud?: () => Promise<void> | void;
 }
 
 export const StandardNotepad: React.FC<StandardNotepadProps> = ({
@@ -92,6 +98,8 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
   handleUpdateNotePin,
   showNotification,
   user,
+  onOpenAccountTab,
+  onSyncToCloud,
 }) => {
   // Local editor text
   const [text, setText] = useState<string>(freeNotesText || "");
@@ -808,7 +816,7 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
 
   const cleanCpf = (val: string): string => val.replace(/\D/g, "");
 
-  const saveMasterSecurityProfile = (pin: string, cpf: string, email: string) => {
+  const saveMasterSecurityProfile = async (pin: string, cpf: string, email: string) => {
     const profile: MasterPinProfile = {
       pin,
       cpf: cpf.trim(),
@@ -819,8 +827,45 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
       localStorage.setItem("std_notepad_security_profile", JSON.stringify(profile));
     } catch {}
     setMasterPinProfile(profile);
+
+    // Sincroniza na Nuvem (Firestore) caso o usuário esteja conectado
+    if (user && user.uid && user.uid !== "guest_visitor") {
+      try {
+        const userDocRef = doc(db, "userData", user.uid);
+        await setDoc(userDocRef, { masterPinProfile: profile, updatedAt: serverTimestamp() }, { merge: true });
+      } catch (err) {
+        console.warn("Aviso ao salvar perfil de segurança na nuvem:", err);
+      }
+    }
     return profile;
   };
+
+  // Carrega perfil de segurança da nuvem caso o usuário esteja em um novo celular
+  useEffect(() => {
+    if (user && user.uid && user.uid !== "guest_visitor") {
+      const loadCloudSecurityProfile = async () => {
+        try {
+          const userDocRef = doc(db, "userData", user.uid);
+          const snap = await getDoc(userDocRef);
+          if (snap.exists() && snap.data()?.masterPinProfile) {
+            const cloudProfile = snap.data().masterPinProfile;
+            setMasterPinProfile((prev) => {
+              if (!prev || !prev.pin) {
+                try {
+                  localStorage.setItem("std_notepad_security_profile", JSON.stringify(cloudProfile));
+                } catch {}
+                return cloudProfile;
+              }
+              return prev;
+            });
+          }
+        } catch (e) {
+          console.warn("Aviso ao buscar perfil de segurança no Firestore:", e);
+        }
+      };
+      loadCloudSecurityProfile();
+    }
+  }, [user]);
 
   // Save Modal States
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -851,6 +896,12 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
   const [recoverNewPinConfirm, setRecoverNewPinConfirm] = useState("");
   const [recoverError, setRecoverError] = useState("");
 
+  // Modal de Transferência para Outro Celular e Backup
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferTab, setTransferTab] = useState<"cloud" | "pin" | "backup" | "faq">("cloud");
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const importBackupInputRef = useRef<HTMLInputElement>(null);
+
   const handleOpenRecovery = (targetNoteId?: string) => {
     if (targetNoteId) {
       setActiveUnlockNoteId(targetNoteId);
@@ -864,16 +915,10 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
     setShowRecoverModal(true);
   };
 
-  const handleVerifyRecovery = () => {
+  const handleVerifyRecovery = async () => {
     setRecoverError("");
-    if (!masterPinProfile) {
-      setRecoverError("Nenhum PIN cadastrado neste dispositivo para recuperar.");
-      return;
-    }
     const enteredCpfClean = cleanCpf(recoverCpf);
-    const savedCpfClean = cleanCpf(masterPinProfile.cpf);
     const enteredEmailNorm = recoverEmail.trim().toLowerCase();
-    const savedEmailNorm = masterPinProfile.email.trim().toLowerCase();
 
     if (!enteredCpfClean || enteredCpfClean.length !== 11) {
       setRecoverError("Digite um CPF válido com 11 números.");
@@ -883,6 +928,39 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
       setRecoverError("Digite um e-mail válido.");
       return;
     }
+
+    let activeProfile = masterPinProfile;
+
+    // Se não tiver gravado localmente neste aparelho, busca na Nuvem
+    if (!activeProfile && user && user.uid && user.uid !== "guest_visitor") {
+      try {
+        const userDocRef = doc(db, "userData", user.uid);
+        const snap = await getDoc(userDocRef);
+        if (snap.exists() && snap.data()?.masterPinProfile) {
+          activeProfile = snap.data().masterPinProfile;
+          setMasterPinProfile(activeProfile);
+          try {
+            localStorage.setItem("std_notepad_security_profile", JSON.stringify(activeProfile));
+          } catch {}
+        }
+      } catch (err) {
+        console.warn("Erro ao buscar perfil de segurança na nuvem:", err);
+      }
+    }
+
+    if (!activeProfile) {
+      // Se não há perfil cadastrado, mas o usuário está logado com este e-mail
+      if (user && user.email && user.email.toLowerCase() === enteredEmailNorm) {
+        setRecoverStep("new_pin");
+        showNotification("Identidade confirmada pela sua conta de acesso! Defina seu novo PIN.", "success");
+        return;
+      }
+      setRecoverError("Nenhum cadastro de PIN encontrado com esses dados neste aparelho ou na conta. Conecte sua conta cadastrada ou crie um novo PIN.");
+      return;
+    }
+
+    const savedCpfClean = cleanCpf(activeProfile.cpf);
+    const savedEmailNorm = activeProfile.email.trim().toLowerCase();
 
     if (enteredCpfClean !== savedCpfClean) {
       setRecoverError("CPF incorreto! Não coincide com o cadastro de segurança.");
@@ -895,10 +973,10 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
 
     // Success: advance to create new pin
     setRecoverStep("new_pin");
-    showNotification("Dados de segurança confirmados! Crie seu novo PIN.", "success");
+    showNotification("Dados de segurança confirmados! Crie seu novo PIN de 4 dígitos.", "success");
   };
 
-  const handleConfirmNewRecoveredPin = () => {
+  const handleConfirmNewRecoveredPin = async () => {
     setRecoverError("");
     if (recoverNewPin.length !== 4) {
       setRecoverError("O novo PIN deve ter exatamente 4 dígitos numéricos.");
@@ -910,9 +988,9 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
     }
 
     if (masterPinProfile) {
-      saveMasterSecurityProfile(recoverNewPin, masterPinProfile.cpf, masterPinProfile.email);
+      await saveMasterSecurityProfile(recoverNewPin, masterPinProfile.cpf, masterPinProfile.email);
     } else {
-      saveMasterSecurityProfile(recoverNewPin, cleanCpf(recoverCpf), recoverEmail);
+      await saveMasterSecurityProfile(recoverNewPin, cleanCpf(recoverCpf), recoverEmail);
     }
 
     // Update existing saved notes to use the new PIN if they had a PIN
@@ -931,7 +1009,228 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
     }
 
     setShowRecoverModal(false);
-    showNotification("PIN redefinido com sucesso! Novo PIN ativo 🛡️", "success");
+    showNotification("PIN redefinido com sucesso! Suas anotações foram desbloqueadas e atualizadas na nuvem. 🛡️", "success");
+  };
+
+  // --- MÉTODOS DE TRANSFERÊNCIA PARA OUTRO CELULAR & BACKUP ---
+  const handleForceCloudSyncAllNotes = async () => {
+    if (!user || user.uid === "guest_visitor") {
+      showNotification("Conecte sua conta gratuita (E-mail ou CPF) para salvar tudo na Nuvem!", "info");
+      if (onOpenAccountTab) onOpenAccountTab();
+      return;
+    }
+    setIsSyncingCloud(true);
+    try {
+      let syncedCount = 0;
+      for (const note of savedNotes) {
+        try {
+          await setDoc(doc(db, "notas", note.id), {
+            userId: user.uid,
+            text: note.text || "",
+            date: note.date || new Date().toLocaleString("pt-BR"),
+            signatureImg: note.signatureImg || "",
+            folder: note.folder || "",
+            pages: note.pages || (note.text ? [note.text] : []),
+            pin: note.pin || "",
+            images: note.images || [],
+            imageSizes: note.imageSizes || [],
+            attachments: note.attachments || [],
+            createdAt: serverTimestamp(),
+          }, { merge: true });
+          syncedCount++;
+        } catch (e) {
+          console.warn("Aviso ao sincronizar nota individual:", e);
+        }
+      }
+
+      const userDocRef = doc(db, "userData", user.uid);
+      await setDoc(userDocRef, {
+        userId: user.uid,
+        savedNotes: savedNotes.slice(0, 100),
+        masterPinProfile: masterPinProfile,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
+      if (onSyncToCloud) {
+        await onSyncToCloud();
+      }
+
+      showNotification(`Sincronização concluída! ${syncedCount} anotações salvas na Nuvem. Nada se perde! ☁️✨`, "success");
+    } catch (err: any) {
+      console.error("Erro na sincronização manual com nuvem:", err);
+      showNotification("Aviso na conexão com a nuvem.", "error");
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
+
+  const handleRestoreNotesFromCloud = async () => {
+    if (!user || user.uid === "guest_visitor") {
+      showNotification("Entre na sua conta (E-mail ou CPF) para restaurar as notas da nuvem!", "info");
+      if (onOpenAccountTab) onOpenAccountTab();
+      return;
+    }
+    setIsSyncingCloud(true);
+    try {
+      const userDocRef = doc(db, "userData", user.uid);
+      const snap = await getDoc(userDocRef);
+      let count = 0;
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.masterPinProfile) {
+          setMasterPinProfile(data.masterPinProfile);
+          try {
+            localStorage.setItem("std_notepad_security_profile", JSON.stringify(data.masterPinProfile));
+          } catch {}
+        }
+        if (data.savedNotes && Array.isArray(data.savedNotes) && data.savedNotes.length > 0) {
+          for (const cloudNote of data.savedNotes) {
+            const exists = savedNotes.some((n) => n.id === cloudNote.id);
+            if (!exists) {
+              handleSaveNote(
+                cloudNote.text,
+                cloudNote.signatureImg,
+                cloudNote.folder,
+                cloudNote.pages,
+                cloudNote.pin,
+                cloudNote.images,
+                cloudNote.imageSizes,
+                cloudNote.attachments
+              );
+              count++;
+            }
+          }
+        }
+      }
+      showNotification(
+        count > 0
+          ? `${count} anotações restauradas da nuvem para este celular com sucesso! 🎉`
+          : "Suas notas já estão sincronizadas com a nuvem! ☁️",
+        "success"
+      );
+    } catch (err) {
+      console.error("Erro ao restaurar da nuvem:", err);
+      showNotification("Erro ao buscar anotações na nuvem.", "error");
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
+
+  const handleExportBackup = () => {
+    try {
+      const backupData = {
+        app: "BlocoDeNotasComum",
+        version: "2.0",
+        exportDate: new Date().toISOString(),
+        securityProfile: masterPinProfile,
+        notes: savedNotes,
+      };
+      const jsonStr = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `backup_bloco_de_notas_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showNotification("Backup exportado com sucesso! Guarde ou envie o arquivo para o novo celular. 📦", "success");
+    } catch (e) {
+      showNotification("Erro ao gerar arquivo de backup.", "error");
+    }
+  };
+
+  const handleShareBackupWhatsApp = () => {
+    if (savedNotes.length === 0) {
+      showNotification("Nenhuma nota salva para enviar.", "info");
+      return;
+    }
+    const notesSummary = savedNotes
+      .slice(0, 8)
+      .map(
+        (n, i) =>
+          `📌 *Nota ${i + 1} (${n.date})*:\n${(n.text || "[Anexo]").slice(0, 250)}${
+            (n.text || "").length > 250 ? "..." : ""
+          }`
+      )
+      .join("\n\n---\n\n");
+
+    const message = `📱 *BACKUP DO BLOCO DE NOTAS - NOVO CELULAR*\n\nTotal de Notas: ${savedNotes.length}\nData: ${new Date().toLocaleDateString(
+      "pt-BR"
+    )}\n\n${notesSummary}\n\n💡 *Dica:* Para restaurar todas as notas no outro aparelho, basta instalar o app e fazer login com o cadastro ou importar o arquivo .json!`;
+
+    const encoded = encodeURIComponent(message);
+    window.open(`https://api.whatsapp.com/send?text=${encoded}`, "_blank");
+    showNotification("Resumo do backup pronto para envio pelo WhatsApp! 💬", "success");
+  };
+
+  const handleShareBackupEmail = () => {
+    if (savedNotes.length === 0) {
+      showNotification("Nenhuma nota salva para enviar.", "info");
+      return;
+    }
+    const notesBody = savedNotes
+      .map((n, i) => `Nota ${i + 1} (${n.date}):\n${n.text || "[Nota com anexo]"}\n`)
+      .join("\n-------------------------\n\n");
+
+    const subject = encodeURIComponent("Backup das Minhas Anotações - Bloco de Notas");
+    const body = encodeURIComponent(
+      `BACKUP COMPLETO DO BLOCO DE NOTAS\nData: ${new Date().toLocaleString(
+        "pt-BR"
+      )}\nTotal de Notas: ${savedNotes.length}\n\n${notesBody}`
+    );
+
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    showNotification("Cliente de e-mail aberto para envio do backup! ✉️", "success");
+  };
+
+  const handleImportBackupFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const data = JSON.parse(content);
+        if (data && Array.isArray(data.notes)) {
+          let count = 0;
+          data.notes.forEach((importedNote: any) => {
+            const exists = savedNotes.some((n) => n.id === importedNote.id);
+            if (!exists) {
+              handleSaveNote(
+                importedNote.text,
+                importedNote.signatureImg,
+                importedNote.folder,
+                importedNote.pages,
+                importedNote.pin,
+                importedNote.images,
+                importedNote.imageSizes,
+                importedNote.attachments
+              );
+              count++;
+            }
+          });
+          if (data.securityProfile && !masterPinProfile) {
+            saveMasterSecurityProfile(
+              data.securityProfile.pin,
+              data.securityProfile.cpf,
+              data.securityProfile.email
+            );
+          }
+          showNotification(
+            `Sucesso! ${count} anotações restauradas do arquivo de backup no novo celular! 🎉`,
+            "success"
+          );
+        } else {
+          showNotification("Arquivo de backup inválido.", "error");
+        }
+      } catch (err) {
+        showNotification("Erro ao processar arquivo de backup.", "error");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   };
 
   // Confirm Save Note
@@ -1145,6 +1444,15 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowTransferModal(true)}
+            className="px-3.5 py-2 rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer border shadow-sm bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border-indigo-500/30 hover:scale-[1.02]"
+            title="Passar notas para outro aparelho, salvar na nuvem ou fazer backup"
+          >
+            <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Outro Celular & Nuvem 📲</span>
+          </button>
           <button
             type="button"
             onClick={() => handleOpenRecovery()}
@@ -1737,21 +2045,32 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
       ) : (
         /* Saved Notes Section */
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-slate-900 border border-white/10 p-4 rounded-3xl">
+          <div className="flex items-center justify-between bg-slate-900 border border-white/10 p-4 rounded-3xl flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-400" />
               <h3 className="text-sm font-black uppercase text-white tracking-wider">
                 Suas Anotações Salvas ({savedNotes.length})
               </h3>
             </div>
-            <button
-              type="button"
-              onClick={() => setViewTab("editor")}
-              className="px-3 py-1.5 bg-amber-500 text-slate-950 font-black text-xs uppercase rounded-xl hover:bg-amber-400 transition-all cursor-pointer flex items-center gap-1"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Voltar ao Editor</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setShowTransferModal(true)}
+                className="px-3 py-1.5 bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+                title="Passar notas para outro aparelho ou salvar na nuvem"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Passar p/ Outro Celular 📱</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewTab("editor")}
+                className="px-3 py-1.5 bg-amber-500 text-slate-950 font-black text-xs uppercase rounded-xl hover:bg-amber-400 transition-all cursor-pointer flex items-center gap-1"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Voltar ao Editor</span>
+              </button>
+            </div>
           </div>
 
           {savedNotes.length === 0 ? (
@@ -1765,13 +2084,23 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
                 <strong className="text-amber-400">Salvar Nota 💾</strong>. Você pode
                 proteger notas importantes com PIN e recuperá-lo com CPF e E-mail!
               </p>
-              <button
-                type="button"
-                onClick={() => setViewTab("editor")}
-                className="mt-2 px-4 py-2 bg-slate-800 hover:bg-slate-750 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-              >
-                Abrir Bloco de Notas
-              </button>
+              <div className="pt-2 flex flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setViewTab("editor")}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md"
+                >
+                  Abrir Bloco de Notas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTransferModal(true)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-550 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                >
+                  <CloudDownload className="w-4 h-4" />
+                  <span>Restaurar de Outro Aparelho / Nuvem 📲</span>
+                </button>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2772,6 +3101,367 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
                 >
                   <X className="w-4 h-4" />
                   <span>Fechar</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Hidden File Input for Backup Import */}
+      <input
+        type="file"
+        ref={importBackupInputRef}
+        accept=".json"
+        className="hidden"
+        onChange={handleImportBackupFile}
+      />
+
+      {/* Modal: Passar para Outro Aparelho, Nuvem & Recuperação com CPF/E-mail */}
+      <AnimatePresence>
+        {showTransferModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 border border-indigo-500/30 rounded-3xl p-5 sm:p-6 max-w-xl w-full text-slate-100 shadow-2xl space-y-4 my-auto relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2.5 bg-indigo-500/10 rounded-2xl text-indigo-400 border border-indigo-500/20">
+                    <Smartphone className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black uppercase tracking-wide text-white flex items-center gap-1.5 flex-wrap">
+                      Passar para Outro Aparelho & Nuvem 📲☁️
+                    </h3>
+                    <p className="text-[11px] text-slate-400 font-medium">
+                      Trocou de celular ou o aparelho quebrou? Nada se perde!
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTransferModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Tabs Navigation */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 bg-slate-950/80 rounded-2xl border border-white/5 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setTransferTab("cloud")}
+                  className={`py-2 px-2 rounded-xl transition-all flex items-center justify-center gap-1 text-center ${
+                    transferTab === "cloud"
+                      ? "bg-indigo-600 text-white shadow-md font-black"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <Cloud className="w-3.5 h-3.5 shrink-0" />
+                  <span>Nuvem & Conta</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransferTab("pin")}
+                  className={`py-2 px-2 rounded-xl transition-all flex items-center justify-center gap-1 text-center ${
+                    transferTab === "pin"
+                      ? "bg-amber-500 text-slate-950 shadow-md font-black"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span>Recuperar PIN</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransferTab("backup")}
+                  className={`py-2 px-2 rounded-xl transition-all flex items-center justify-center gap-1 text-center ${
+                    transferTab === "backup"
+                      ? "bg-purple-600 text-white shadow-md font-black"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <HardDrive className="w-3.5 h-3.5 shrink-0" />
+                  <span>Backup Manual</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransferTab("faq")}
+                  className={`py-2 px-2 rounded-xl transition-all flex items-center justify-center gap-1 text-center ${
+                    transferTab === "faq"
+                      ? "bg-emerald-600 text-white shadow-md font-black"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <HelpCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Dúvidas ❓</span>
+                </button>
+              </div>
+
+              {/* Tab 1: Nuvem & Conta */}
+              {transferTab === "cloud" && (
+                <div className="space-y-3.5 text-left text-xs leading-relaxed">
+                  <div className="bg-slate-950/60 p-4 rounded-2xl border border-white/5 space-y-2">
+                    <p className="font-bold text-slate-200 text-xs flex items-center gap-1.5">
+                      <Cloud className="w-4 h-4 text-indigo-400" />
+                      Como funciona o salvamento na Nuvem?
+                    </p>
+                    <p className="text-[11px] text-slate-300">
+                      Quando você tem um cadastro no aplicativo (com seu <strong>E-mail ou CPF</strong>), todas as suas anotações, documentos, áudios, músicas e fotos são salvas de forma automática e criptografada nos servidores da Google.
+                    </p>
+                    <div className="h-px bg-white/5 my-1" />
+                    <p className="text-[11px] text-amber-300 font-semibold">
+                      ✨ <strong>Se o celular quebrar ou for trocado:</strong> basta instalar o app no novo aparelho e fazer login com seu E-mail ou CPF. Suas notas são carregadas sozinhas!
+                    </p>
+                  </div>
+
+                  {/* Status do Usuário */}
+                  {user && user.uid !== "guest_visitor" ? (
+                    <div className="bg-indigo-950/40 border border-indigo-500/30 p-4 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-indigo-400 tracking-wider block">
+                            Conta Conectada
+                          </span>
+                          <span className="text-xs font-bold text-white font-mono">
+                            {user.email || user.uid}
+                          </span>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                          <Check className="w-3 h-3" /> Nuvem Ativa
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleForceCloudSyncAllNotes}
+                          disabled={isSyncingCloud}
+                          className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-550 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                        >
+                          <CloudUpload className={`w-4 h-4 ${isSyncingCloud ? "animate-spin" : ""}`} />
+                          <span>{isSyncingCloud ? "Sincronizando..." : "Sincronizar Nuvem Agora ☁️"}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRestoreNotesFromCloud}
+                          disabled={isSyncingCloud}
+                          className="w-full py-2.5 px-3 bg-slate-800 hover:bg-slate-750 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                        >
+                          <CloudDownload className={`w-4 h-4 ${isSyncingCloud ? "animate-spin" : ""}`} />
+                          <span>Baixar Notas da Nuvem 📲</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl space-y-3">
+                      <div className="flex items-center gap-2 text-amber-400">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span className="text-xs font-black uppercase tracking-wider">
+                          Modo Visitante (Sem Conta Vinculada)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-normal">
+                        No momento, suas notas estão salvas <strong>apenas na memória deste aparelho</strong>. Se você perder ou trocar este celular, precisará de uma conta para restaurá-las!
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTransferModal(false);
+                          if (onOpenAccountTab) onOpenAccountTab();
+                        }}
+                        className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <KeyRound className="w-4 h-4" />
+                        <span>Conectar Minha Conta Grátis (E-mail ou CPF) 🔐</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 2: Recuperar PIN */}
+              {transferTab === "pin" && (
+                <div className="space-y-3.5 text-left text-xs leading-relaxed">
+                  <div className="bg-slate-950/60 p-4 rounded-2xl border border-white/5 space-y-2">
+                    <p className="font-bold text-amber-300 text-xs flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-amber-400" />
+                      Recuperação de Notas Trancadas por PIN
+                    </p>
+                    <p className="text-[11px] text-slate-300">
+                      Você pode proteger notas importantes com um <strong>PIN de 4 dígitos</strong>. Caso troque de celular ou esqueça o seu PIN, você pode redefini-lo na hora usando o <strong>CPF e o E-mail</strong> cadastrados!
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-950/90 p-4 rounded-2xl border border-amber-500/30 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span className="text-[11px] font-black uppercase text-slate-400 tracking-wider">
+                        Status do PIN de Segurança
+                      </span>
+                      {masterPinProfile ? (
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                          <Lock className="w-3 h-3" /> PIN Ativo Cadastrado
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-slate-800 text-slate-400">
+                          Nenhum PIN Cadastrado
+                        </span>
+                      )}
+                    </div>
+
+                    {masterPinProfile && (
+                      <div className="text-[11px] text-slate-300 space-y-1 bg-slate-900/60 p-3 rounded-xl border border-white/5">
+                        <p>
+                          📧 <strong>E-mail vinculado:</strong> {masterPinProfile.email}
+                        </p>
+                        <p>
+                          📄 <strong>CPF vinculado:</strong> ***.{masterPinProfile.cpf.slice(-2) || "••"}
+                        </p>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowTransferModal(false);
+                        handleOpenRecovery();
+                      }}
+                      className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <KeyRound className="w-4 h-4" />
+                      <span>{masterPinProfile ? "Recuperar / Redefinir PIN com CPF e E-mail 🛡️" : "Cadastrar Novo PIN com CPF e E-mail 🔑"}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: Backup Manual */}
+              {transferTab === "backup" && (
+                <div className="space-y-3 text-left text-xs leading-relaxed">
+                  <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-white/5 space-y-1.5">
+                    <p className="font-bold text-purple-300 text-xs flex items-center gap-1.5">
+                      <HardDrive className="w-4 h-4 text-purple-400" />
+                      Passar para outro aparelho sem internet (Arquivo ou WhatsApp)
+                    </p>
+                    <p className="text-[11px] text-slate-300">
+                      Você pode baixar um arquivo <strong>.json</strong> contendo 100% das suas anotações, pastas e fotos, ou enviar o resumo para seu WhatsApp/E-mail.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleExportBackup}
+                      className="p-3 bg-slate-800 hover:bg-slate-750 text-white border border-white/10 rounded-2xl font-bold flex items-center gap-2.5 transition-all cursor-pointer shadow-sm active:scale-98"
+                    >
+                      <div className="p-2 rounded-xl bg-purple-500/20 text-purple-300 shrink-0">
+                        <Download className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <div className="font-black text-xs uppercase text-purple-300">Exportar Arquivo (.json)</div>
+                        <div className="text-[10px] text-slate-400">Salva todas as notas e mídias</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => importBackupInputRef.current?.click()}
+                      className="p-3 bg-slate-800 hover:bg-slate-750 text-white border border-white/10 rounded-2xl font-bold flex items-center gap-2.5 transition-all cursor-pointer shadow-sm active:scale-98"
+                    >
+                      <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300 shrink-0">
+                        <UploadCloud className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <div className="font-black text-xs uppercase text-emerald-300">Importar Backup (.json)</div>
+                        <div className="text-[10px] text-slate-400">Restaura notas no celular novo</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleShareBackupWhatsApp}
+                      className="p-3 bg-slate-800 hover:bg-slate-750 text-white border border-white/10 rounded-2xl font-bold flex items-center gap-2.5 transition-all cursor-pointer shadow-sm active:scale-98"
+                    >
+                      <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300 shrink-0">
+                        <MessageCircle className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <div className="font-black text-xs uppercase text-emerald-300">Enviar pelo WhatsApp</div>
+                        <div className="text-[10px] text-slate-400">Manda resumo para você mesmo</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleShareBackupEmail}
+                      className="p-3 bg-slate-800 hover:bg-slate-750 text-white border border-white/10 rounded-2xl font-bold flex items-center gap-2.5 transition-all cursor-pointer shadow-sm active:scale-98"
+                    >
+                      <div className="p-2 rounded-xl bg-blue-500/20 text-blue-300 shrink-0">
+                        <Mail className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <div className="font-black text-xs uppercase text-blue-300">Enviar por E-mail</div>
+                        <div className="text-[10px] text-slate-400">Envia notas para sua caixa postal</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 4: FAQ */}
+              {transferTab === "faq" && (
+                <div className="space-y-3 text-left text-xs leading-relaxed max-h-80 overflow-y-auto pr-1">
+                  <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-white/5 space-y-1">
+                    <p className="font-black text-amber-300 text-xs">
+                      ❓ Tem como passar para o outro aparelho o bloco de notas?
+                    </p>
+                    <p className="text-[11px] text-slate-300">
+                      <strong>SIM! 100% garantido.</strong> Basta conectar sua conta (E-mail ou CPF). Ao abrir o aplicativo no outro aparelho e fazer login, todas as suas notas aparecem automaticamente. Você também pode exportar o arquivo de backup e abri-lo no celular novo.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-white/5 space-y-1">
+                    <p className="font-black text-indigo-300 text-xs">
+                      ❓ Caso o celular quebre, fica salvo quando instalar novamente?
+                    </p>
+                    <p className="text-[11px] text-slate-300">
+                      <strong>SIM!</strong> Se você tiver cadastro no aplicativo, todas as suas informações estão guardadas nos servidores da nuvem da Google. Você não perde nenhuma nota, mesmo se o aparelho quebrar, for roubado ou formatado.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-white/5 space-y-1">
+                    <p className="font-black text-emerald-300 text-xs">
+                      ❓ Tem como recuperar as senhas e pins com CPF e E-mail?
+                    </p>
+                    <p className="text-[11px] text-slate-300">
+                      <strong>SIM!</strong> Para o <strong>PIN</strong> de notas importantes, basta clicar em "Recuperar PIN", digitar seu CPF e seu E-mail, e criar um novo PIN na hora. Para a <strong>senha do cadastro</strong>, você pode solicitar a redefinição por e-mail na tela de login.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-white/5 space-y-1">
+                    <p className="font-black text-purple-300 text-xs">
+                      ❓ Músicas, áudios gravados e fotos também são restaurados?
+                    </p>
+                    <p className="text-[11px] text-slate-300">
+                      <strong>SIM!</strong> Todos os anexos (documentos em PDF/Word, gravações de áudio pelo microfone, músicas em MP3 e fotos da câmera) ficam salvos junto com cada nota e voltam com ela.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Close Button */}
+              <div className="pt-2 border-t border-white/10 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowTransferModal(false)}
+                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-750 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md"
+                >
+                  Entendi e Fechar
                 </button>
               </div>
             </motion.div>

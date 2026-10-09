@@ -107,6 +107,18 @@ export interface CustomProduct {
   validity?: string;
   stock?: number;
   image?: string;
+  niche?: string;
+  quickCode?: string;
+  size?: string;
+  color?: string;
+  description?: string;
+  additionalBarcodes?: string[];
+  imageUrl?: string;
+  isService?: boolean;
+  brand?: string;
+  gender?: string;
+  material?: string;
+  location?: string;
 }
 
 export interface ProductStockInfo {
