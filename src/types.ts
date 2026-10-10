@@ -119,6 +119,7 @@ export interface CustomProduct {
   gender?: string;
   material?: string;
   location?: string;
+  section?: string; // Sessão / Departamento do Mercado (ex: "Grãos & Cereais", "Laticínios", "Açougue", "Limpeza", etc.)
 }
 
 export interface ProductStockInfo {
@@ -127,5 +128,43 @@ export interface ProductStockInfo {
   costPrice?: number;
   unit?: string;
   lastUpdated?: any;
+}
+
+export interface OrcamentoItem {
+  id: string;
+  productId?: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  discount: number; // em R$
+  total: number;
+  details?: string;
+}
+
+export interface Orcamento {
+  id: string;
+  code: string; // Ex: "#ORC-001"
+  date: string; // Ex: "10/10/2026, 09:30"
+  validUntil: string; // Ex: "17/10/2026"
+  validityDays: number; // 3, 7, 15, 30...
+  status: "pendente" | "aprovado" | "recusado" | "convertido";
+  clientName: string;
+  clientPhone?: string;
+  clientDoc?: string;
+  clientAddress?: string;
+  clientEmail?: string;
+  sellerName?: string;
+  items: OrcamentoItem[];
+  subtotal: number;
+  discountTotal: number;
+  shippingOrFees: number;
+  total: number;
+  paymentConditions?: string;
+  deliveryTerms?: string;
+  warrantyTerms?: string;
+  notes?: string;
+  createdAt: number;
+  updatedAt?: number;
 }
 

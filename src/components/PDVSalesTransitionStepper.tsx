@@ -2252,10 +2252,10 @@ export function PDVSalesTransitionStepper({
                       type="button"
                       onClick={() => {
                         setTouchProdCategory(cat.name);
-                        if (cat.isClothing) {
+                        if ((cat as any).isApparel || (cat as any).isClothing) {
                           setShowSizePicker(true);
                           setTouchSizeType("letras");
-                        } else if (cat.isFootwear) {
+                        } else if ((cat as any).isFootwear) {
                           setShowSizePicker(true);
                           setTouchSizeType("calcados");
                         }

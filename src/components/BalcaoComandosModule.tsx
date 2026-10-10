@@ -30,7 +30,8 @@ import {
   HelpCircle,
   ShieldAlert,
   Smartphone,
-  Laptop
+  Laptop,
+  FileText
 } from "lucide-react";
 
 interface BalcaoComandosModuleProps {
@@ -134,6 +135,7 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
       else if (actionKey === "clientes") onOpenPDVWithSubTab("clientes");
       else if (actionKey === "relatorios") onOpenPDVWithSubTab("relatorios");
       else if (actionKey === "proprietario") onOpenPDVWithSubTab("proprietario");
+      else if (actionKey === "orcamentos") onOpenPDVWithSubTab("orcamentos");
       else if (actionKey === "ajuda") onOpenPDVWithSubTab("ajuda");
       else if (actionKey === "scanner") {
         showNotification("Abrindo leitor de código de barras / câmera no Balcão...", "info");
@@ -624,6 +626,28 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
               </div>
             </div>
             <span className="text-xs font-mono text-amber-400 font-black">💡🤖</span>
+          </button>
+
+          {/* 9. ORÇAMENTOS & NOTINHAS (SEM MEXER NO ESTOQUE E DINHEIRO) */}
+          <button
+            type="button"
+            onClick={() => triggerAction("orcamentos")}
+            className="p-3.5 bg-slate-950/80 hover:bg-slate-950 border border-amber-500/30 hover:border-amber-400 rounded-2xl flex items-center justify-between transition-all duration-200 cursor-pointer shadow-lg hover:shadow-amber-500/10 group text-left active:scale-[0.98]"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-500/15 text-amber-400 rounded-xl group-hover:scale-110 transition-transform">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-xs font-black uppercase tracking-wide text-white block">
+                  Orçamentos & Notinhas
+                </span>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  Cotações sem mexer no estoque ou no caixa
+                </span>
+              </div>
+            </div>
+            <span className="text-xs font-mono text-amber-400 font-black">📄</span>
           </button>
         </div>
       </div>

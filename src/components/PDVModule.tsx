@@ -113,6 +113,7 @@ import { OwnerDashboard, SystemConfig, RolePermissions } from "./OwnerDashboard"
 import { CadastroProdutosModule } from "./CadastroProdutosModule";
 import { FichaTecnicaModule } from "./FichaTecnicaModule";
 import { ClientesFieisModule } from "./ClientesFieisModule";
+import { OrcamentosModule } from "./OrcamentosModule";
 import { ContabilidadeTributosModule } from "./ContabilidadeTributosModule";
 import { PDVPricingCalculator } from "./PDVPricingCalculator";
 import { PDVSettingsProfile } from "./PDVSettingsProfile";
@@ -497,6 +498,10 @@ export interface CustomProduct {
   additionalBarcodes?: string[];
   validity?: string;
   imageUrl?: string;
+  gender?: string;
+  material?: string;
+  location?: string;
+  section?: string;
 }
 
 export interface CartItem {
@@ -1216,8 +1221,12 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   // "manual" index = Suprimento / Sangria / Despesas direct inputs
   // "estoque" index = Smart Stock Inventory Control & AI Analysis
   const [pricingTab, setPricingTab] = useState<"calculadora" | "ficha">("calculadora");
-  const [opMode, setOpMode] = useState<"venda" | "manual" | "estoque" | "relatorios" | "cadastro_produtos" | "ficha_tecnica" | "clientes" | "proprietario" | "fiado" | "taxas" | "impressoras">(() => {
+  const [orcamentoSeedItems, setOrcamentoSeedItems] = useState<{ name: string; price: number; quantity: number; unit?: string }[] | undefined>(undefined);
+  const [opMode, setOpMode] = useState<"venda" | "manual" | "estoque" | "relatorios" | "cadastro_produtos" | "ficha_tecnica" | "clientes" | "proprietario" | "fiado" | "taxas" | "impressoras" | "orcamentos">(() => {
     if (onlyCheckout) return "venda";
+    if (activeSubTab === "orcamentos" || activeSubTab === "orcamento") {
+      return "orcamentos";
+    }
     if (
       activeSubTab === "impressoras" ||
       activeSubTab === "impressora" ||
@@ -2193,6 +2202,8 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         setShowDiagnosticPanel(true);
         setMentorshipTab("health");
         setOpMode("relatorios");
+      } else if (activeSubTab === "orcamentos" || activeSubTab === "orcamento") {
+        setOpMode("orcamentos");
       } else if (activeSubTab === "fiado") {
         setMentorshipTab("fiado");
         setOpMode("fiado");
@@ -17612,6 +17623,23 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
           </button>
           <button
             type="button"
+            id="tab-mode-orcamentos"
+            onClick={() => {
+              setOpMode("orcamentos");
+              if (onSubTabChange) onSubTabChange("orcamentos");
+            }}
+            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              opMode === "orcamentos"
+                ? "bg-amber-600 text-white border border-amber-400 shadow-lg shadow-amber-500/25"
+                : "text-amber-300 hover:text-white hover:bg-amber-950/40 border border-amber-500/20"
+            }`}
+            title="Aba de Orçamentos e Propostas: Notinhas Térmicas (58/80mm) e A4 sem mexer no estoque ou dinheiro"
+          >
+            <FileText className="w-4 h-4 text-amber-300" />
+            <span>Orçamentos (Notinhas) 📄</span>
+          </button>
+          <button
+            type="button"
             id="tab-mode-impressoras"
             onClick={() => {
               setOpMode("impressoras");
@@ -17721,6 +17749,43 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               }}
               formatCurrency={formatCurrency}
               showNotification={showNotification}
+            />
+          </div>
+        ) : opMode === "orcamentos" ? (
+          <div className="lg:col-span-12 w-full text-left">
+            <OrcamentosModule
+              customProducts={customProducts}
+              formatCurrency={formatCurrency}
+              showNotification={showNotification}
+              initialItems={orcamentoSeedItems}
+              initialClientName={clientName || ""}
+              storeInfo={{
+                name: storeName || "Meu Estabelecimento",
+                phone: "",
+                address: "",
+                cnpj: storeCnpjCpf || ""
+              }}
+              onLoadIntoCart={(items, customerName) => {
+                items.forEach(it => {
+                  handleDirectAddToCart({
+                    id: "orc_item_" + Date.now() + "_" + Math.random(),
+                    name: it.name,
+                    price: it.price,
+                    unit: it.unit || "un",
+                    quantity: it.quantity
+                  });
+                });
+                if (customerName) {
+                  setClientName(customerName);
+                }
+                setOpMode("venda");
+                if (onSubTabChange) onSubTabChange(null);
+                showNotification(`Itens do orçamento importados para o Carrinho do PDV! 🛒`, "success");
+              }}
+              onBackToPDV={() => {
+                setOpMode("venda");
+                if (onSubTabChange) onSubTabChange(null);
+              }}
             />
           </div>
         ) : opMode === "fiado" || opMode === "taxas" ? null : opMode === "ficha_tecnica" ? (
@@ -18879,14 +18944,35 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   </div>
                 </div>
                 {cart.length > 0 && (
-                  <button 
-                    type="button"
-                    id="clear-active-cart-btn"
-                    onClick={handleClearCart}
-                    className="text-[8.5px] font-black uppercase tracking-wider text-rose-450 hover:text-rose-400 cursor-pointer p-1"
-                  >
-                    Zerar Carrinho 🧹
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setOrcamentoSeedItems(cart.map(c => ({
+                          name: c.name,
+                          price: c.price,
+                          quantity: c.quantity,
+                          unit: c.unit || "un"
+                        })));
+                        setOpMode("orcamentos");
+                        if (onSubTabChange) onSubTabChange("orcamentos");
+                        showNotification("Criando orçamento com os itens do carrinho! (Sem mexer no estoque ou caixa)", "info");
+                      }}
+                      className="text-[9px] font-black uppercase tracking-wider text-amber-300 hover:text-white bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 rounded-lg px-2 py-1 cursor-pointer flex items-center gap-1"
+                      title="Transformar itens em orçamento/notinha sem baixar estoque e sem lançar no caixa"
+                    >
+                      <FileText className="w-3 h-3 text-amber-400" />
+                      <span>Orçamento 📄</span>
+                    </button>
+                    <button 
+                      type="button"
+                      id="clear-active-cart-btn"
+                      onClick={handleClearCart}
+                      className="text-[8.5px] font-black uppercase tracking-wider text-rose-450 hover:text-rose-400 cursor-pointer p-1"
+                    >
+                      Zerar 🧹
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -19632,6 +19718,27 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  {cart.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrcamentoSeedItems(cart.map(c => ({
+                          name: c.name,
+                          price: c.price,
+                          quantity: c.quantity,
+                          unit: c.unit || "un"
+                        })));
+                        setOpMode("orcamentos");
+                        if (onSubTabChange) onSubTabChange("orcamentos");
+                        showNotification("Criando orçamento com os itens do carrinho! (Sem mexer no estoque ou caixa)", "info");
+                      }}
+                      className="px-3 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-white border border-amber-500/40 font-black text-[11px] uppercase tracking-wider rounded-xl transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
+                      title="Emitir Orçamento / Notinha sem baixar estoque e sem lançar no caixa"
+                    >
+                      <FileText className="w-4 h-4 text-amber-400" />
+                      <span>Emitir Orçamento 📄</span>
+                    </button>
+                  )}
                   {cartPaymentMethod === "pix" ? (
                     <>
                       <button

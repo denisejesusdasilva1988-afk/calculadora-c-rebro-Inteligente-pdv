@@ -27,7 +27,16 @@ import {
   Image as ImageIcon,
   Check,
   Zap,
-  Flashlight
+  Flashlight,
+  Shirt,
+  Copy,
+  Palette,
+  Ruler,
+  MapPin,
+  Grid,
+  Filter,
+  CheckSquare,
+  Square
 } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 
@@ -48,7 +57,332 @@ export interface CustomProduct {
   imageUrl?: string;
   isService?: boolean;
   brand?: string;
+  gender?: string; // Gênero: "unissex", "feminino", "masculino", "infantil_menino", "infantil_menina", "bebe"
+  material?: string; // Tecido / Material: "Algodão", "Jeans", "Viscose", etc.
+  location?: string; // Localização física na loja / estoque: "Arara 1", "Prateleira B", etc.
+  section?: string; // Sessão / Departamento do Mercado (ex: "Café da Manhã", "Laticínios", "Açougue", "Limpeza", "Grãos & Cereais", "Higiênico", "Higiênico Infantil", "Molhos & Condimentos", "Adega & Bebidas", etc.)
 }
+
+export interface MercadoSectionDef {
+  id: string;
+  name: string;
+  icon: string;
+  badgeColor: string;
+  description: string;
+  suggestedCategory: string;
+  quickProducts: Array<{
+    name: string;
+    unit: string;
+    suggestedPrice?: string;
+    suggestedCost?: string;
+  }>;
+}
+
+export const MERCADO_SECTIONS: MercadoSectionDef[] = [
+  {
+    id: "cafe_manha",
+    name: "Café da Manhã",
+    icon: "☕",
+    badgeColor: "text-amber-300 bg-amber-500/15 border-amber-500/30",
+    description: "Cafés, achocolatados, chás, torradas, geleias, cereais e biscoitos matinais",
+    suggestedCategory: "Café da Manhã & Matinais",
+    quickProducts: [
+      { name: "Café Torrado e Moído 500g", unit: "un", suggestedPrice: "21,90", suggestedCost: "16,50" },
+      { name: "Café Solúvel Tradicional 100g", unit: "un", suggestedPrice: "14,50", suggestedCost: "10,20" },
+      { name: "Achocolatado em Pó 400g", unit: "un", suggestedPrice: "9,90", suggestedCost: "6,80" },
+      { name: "Cereal Matinal / Sucrilhos 300g", unit: "un", suggestedPrice: "12,90", suggestedCost: "8,90" },
+      { name: "Torrada Tradicional 140g", unit: "un", suggestedPrice: "6,50", suggestedCost: "4,20" },
+      { name: "Geleia de Frutas Vermelhas 230g", unit: "un", suggestedPrice: "13,90", suggestedCost: "9,50" },
+      { name: "Pão de Forma Tradicional 500g", unit: "un", suggestedPrice: "8,90", suggestedCost: "5,80" },
+      { name: "Biscoito Cream Cracker 400g", unit: "un", suggestedPrice: "5,90", suggestedCost: "3,80" },
+      { name: "Biscoito Recheado Chocolate 130g", unit: "un", suggestedPrice: "3,50", suggestedCost: "2,20" },
+      { name: "Chá de Camomila Caixa 15 sachês", unit: "un", suggestedPrice: "5,50", suggestedCost: "3,50" },
+      { name: "Mel Puro Bisnaga 250g", unit: "un", suggestedPrice: "16,00", suggestedCost: "11,00" },
+      { name: "Cappuccino Tradicional Pote 200g", unit: "un", suggestedPrice: "13,50", suggestedCost: "9,20" }
+    ]
+  },
+  {
+    id: "laticinios",
+    name: "Laticínios",
+    icon: "🧀",
+    badgeColor: "text-yellow-300 bg-yellow-500/15 border-yellow-500/30",
+    description: "Leites, queijos, manteigas, iogurtes, requeijão e cremes de leite",
+    suggestedCategory: "Laticínios & Derivados",
+    quickProducts: [
+      { name: "Leite Integral UHT 1L", unit: "un", suggestedPrice: "5,89", suggestedCost: "4,30" },
+      { name: "Leite Desnatado UHT 1L", unit: "un", suggestedPrice: "5,89", suggestedCost: "4,30" },
+      { name: "Leite Zero Lactose 1L", unit: "un", suggestedPrice: "7,50", suggestedCost: "5,40" },
+      { name: "Queijo Mussarela Fatiado 200g", unit: "un", suggestedPrice: "11,90", suggestedCost: "8,20" },
+      { name: "Queijo Prato Fatiado 200g", unit: "un", suggestedPrice: "12,50", suggestedCost: "8,70" },
+      { name: "Requeijão Cremoso Tradicional 200g", unit: "un", suggestedPrice: "8,90", suggestedCost: "6,00" },
+      { name: "Manteiga com Sal Pote 200g", unit: "un", suggestedPrice: "13,90", suggestedCost: "9,80" },
+      { name: "Margarina com Sal 500g", unit: "un", suggestedPrice: "7,50", suggestedCost: "5,00" },
+      { name: "Iogurte Natural Integral 170g", unit: "un", suggestedPrice: "4,20", suggestedCost: "2,80" },
+      { name: "Iogurte de Morango Garrafa 850g", unit: "un", suggestedPrice: "9,90", suggestedCost: "6,90" },
+      { name: "Creme de Leite TP 200g", unit: "un", suggestedPrice: "3,99", suggestedCost: "2,70" },
+      { name: "Leite Condensado TP 395g", unit: "un", suggestedPrice: "6,80", suggestedCost: "4,60" }
+    ]
+  },
+  {
+    id: "acougue",
+    name: "Açougue",
+    icon: "🥩",
+    badgeColor: "text-red-300 bg-red-500/15 border-red-500/30",
+    description: "Carnes bovinas nobres e moídas, frango, suínos e linguiças frescas",
+    suggestedCategory: "Açougue & Carnes",
+    quickProducts: [
+      { name: "Picanha Bovina Resfriada (kg)", unit: "kg", suggestedPrice: "79,90", suggestedCost: "58,00" },
+      { name: "Alcatra Bovina com Maminha (kg)", unit: "kg", suggestedPrice: "48,90", suggestedCost: "36,00" },
+      { name: "Contrafilé Bovino (kg)", unit: "kg", suggestedPrice: "52,90", suggestedCost: "39,00" },
+      { name: "Patinho Bovino Moído (kg)", unit: "kg", suggestedPrice: "42,90", suggestedCost: "31,00" },
+      { name: "Acém Bovino em Cubos (kg)", unit: "kg", suggestedPrice: "34,90", suggestedCost: "25,00" },
+      { name: "Peito de Frango Filé (kg)", unit: "kg", suggestedPrice: "24,90", suggestedCost: "17,50" },
+      { name: "Coxa e Sobrecoxa Frango (kg)", unit: "kg", suggestedPrice: "16,90", suggestedCost: "11,80" },
+      { name: "Bisteca Suína (kg)", unit: "kg", suggestedPrice: "23,90", suggestedCost: "16,00" },
+      { name: "Linguiça Toscana para Churrasco (kg)", unit: "kg", suggestedPrice: "25,90", suggestedCost: "17,80" },
+      { name: "Costelinha Suína Fresca (kg)", unit: "kg", suggestedPrice: "31,90", suggestedCost: "22,00" },
+      { name: "Coração de Frango (kg)", unit: "kg", suggestedPrice: "34,90", suggestedCost: "24,00" },
+      { name: "Carvão Vegetal Saco 2.5kg", unit: "un", suggestedPrice: "18,90", suggestedCost: "12,00" }
+    ]
+  },
+  {
+    id: "graos",
+    name: "Grãos & Cereais",
+    icon: "🌾",
+    badgeColor: "text-emerald-300 bg-emerald-500/15 border-emerald-500/30",
+    description: "Arroz, feijão, açúcar, sal, farinha de trigo, macarrão, óleos e básicos",
+    suggestedCategory: "Grãos, Cereais & Básicos",
+    quickProducts: [
+      { name: "Arroz Agulhinha Tipo 1 Pacote 5kg", unit: "un", suggestedPrice: "29,90", suggestedCost: "22,50" },
+      { name: "Feijão Carioca Tipo 1 1kg", unit: "un", suggestedPrice: "8,90", suggestedCost: "6,20" },
+      { name: "Feijão Preto Tipo 1 1kg", unit: "un", suggestedPrice: "9,50", suggestedCost: "6,70" },
+      { name: "Açúcar Refinado Pacote 1kg", unit: "un", suggestedPrice: "4,90", suggestedCost: "3,30" },
+      { name: "Açúcar Cristal Pacote 1kg", unit: "un", suggestedPrice: "4,50", suggestedCost: "3,00" },
+      { name: "Sal Refinado Iodado Pacote 1kg", unit: "un", suggestedPrice: "2,50", suggestedCost: "1,40" },
+      { name: "Farinha de Trigo Tradicional 1kg", unit: "un", suggestedPrice: "5,80", suggestedCost: "3,90" },
+      { name: "Macarrão Espaguete com Ovos 500g", unit: "un", suggestedPrice: "4,60", suggestedCost: "3,10" },
+      { name: "Macarrão Parafuso com Ovos 500g", unit: "un", suggestedPrice: "4,60", suggestedCost: "3,10" },
+      { name: "Óleo de Soja Refinado Pet 900ml", unit: "un", suggestedPrice: "7,80", suggestedCost: "5,70" },
+      { name: "Farinha de Mandioca Torrada 500g", unit: "un", suggestedPrice: "5,20", suggestedCost: "3,40" },
+      { name: "Farofa Temperada Tradicional 500g", unit: "un", suggestedPrice: "6,90", suggestedCost: "4,50" },
+      { name: "Fubá Mimoso 500g", unit: "un", suggestedPrice: "3,90", suggestedCost: "2,50" },
+      { name: "Aveia em Flocos Finos 200g", unit: "un", suggestedPrice: "4,90", suggestedCost: "3,20" }
+    ]
+  },
+  {
+    id: "molhos",
+    name: "Molhos & Condimentos",
+    icon: "🥫",
+    badgeColor: "text-orange-300 bg-orange-500/15 border-orange-500/30",
+    description: "Molho de tomate, ketchup, mostardas, maionese, azeites, vinagres e temperos",
+    suggestedCategory: "Molhos & Condimentos",
+    quickProducts: [
+      { name: "Molho de Tomate Tradicional Sachê 300g", unit: "un", suggestedPrice: "2,49", suggestedCost: "1,60" },
+      { name: "Extrato de Tomate Concentrado Lata 140g", unit: "un", suggestedPrice: "3,80", suggestedCost: "2,50" },
+      { name: "Ketchup Tradicional Frasco 400g", unit: "un", suggestedPrice: "8,90", suggestedCost: "5,80" },
+      { name: "Mostarda Amarela Frasco 200g", unit: "un", suggestedPrice: "6,50", suggestedCost: "4,10" },
+      { name: "Maionese Tradicional Pote 500g", unit: "un", suggestedPrice: "9,90", suggestedCost: "6,70" },
+      { name: "Molho Shoyu Tradicional 150ml", unit: "un", suggestedPrice: "5,90", suggestedCost: "3,80" },
+      { name: "Azeite de Oliva Extra Virgem 500ml", unit: "un", suggestedPrice: "38,90", suggestedCost: "28,50" },
+      { name: "Vinagre de Álcool Tradicional 750ml", unit: "un", suggestedPrice: "2,99", suggestedCost: "1,90" },
+      { name: "Vinagre de Maçã 750ml", unit: "un", suggestedPrice: "4,50", suggestedCost: "2,90" },
+      { name: "Caldo de Galinha em Cubos 6 tabletes", unit: "un", suggestedPrice: "3,20", suggestedCost: "2,00" },
+      { name: "Molho de Pimenta Vermelha 60ml", unit: "un", suggestedPrice: "4,50", suggestedCost: "2,80" },
+      { name: "Tempero Completo Alho e Sal 300g", unit: "un", suggestedPrice: "4,80", suggestedCost: "3,10" }
+    ]
+  },
+  {
+    id: "limpeza",
+    name: "Limpeza",
+    icon: "🧹",
+    badgeColor: "text-cyan-300 bg-cyan-500/15 border-cyan-500/30",
+    description: "Detergentes, desinfetantes, sabão em pó, amaciante, água sanitária e esponjas",
+    suggestedCategory: "Limpeza & Lavanderia",
+    quickProducts: [
+      { name: "Detergente Líquido Lava Louças 500ml", unit: "un", suggestedPrice: "2,89", suggestedCost: "1,85" },
+      { name: "Sabão em Pó Lava Roupas 1kg", unit: "un", suggestedPrice: "14,90", suggestedCost: "10,20" },
+      { name: "Sabão Líquido Lava Roupas 1L", unit: "un", suggestedPrice: "16,90", suggestedCost: "11,50" },
+      { name: "Amaciante de Roupas Tradicional 2L", unit: "un", suggestedPrice: "12,90", suggestedCost: "8,50" },
+      { name: "Amaciante Concentrado 500ml", unit: "un", suggestedPrice: "15,50", suggestedCost: "10,80" },
+      { name: "Água Sanitária Cloro Ativo 1L", unit: "un", suggestedPrice: "3,99", suggestedCost: "2,60" },
+      { name: "Desinfetante Perfumado Lavanda 500ml", unit: "un", suggestedPrice: "4,80", suggestedCost: "3,10" },
+      { name: "Limpador Multiuso Tradicional 500ml", unit: "un", suggestedPrice: "5,50", suggestedCost: "3,60" },
+      { name: "Esponja Multiuso Dupla Face (pct 3 un)", unit: "pct", suggestedPrice: "4,90", suggestedCost: "2,90" },
+      { name: "Lã de Aço Bombril Pacote 8 un", unit: "pct", suggestedPrice: "3,50", suggestedCost: "2,10" },
+      { name: "Saco de Lixo Reforçado 50L (10 un)", unit: "pct", suggestedPrice: "6,90", suggestedCost: "4,30" },
+      { name: "Álcool 70% Líquido Frasco 1L", unit: "un", suggestedPrice: "7,50", suggestedCost: "4,90" }
+    ]
+  },
+  {
+    id: "higienico",
+    name: "Higiênico (Pessoal)",
+    icon: "🧴",
+    badgeColor: "text-purple-300 bg-purple-500/15 border-purple-500/30",
+    description: "Sabonetes, shampoos, desodorantes, creme dental, papel higiênico e banho",
+    suggestedCategory: "Higiene Pessoal & Banho",
+    quickProducts: [
+      { name: "Sabonete em Barra 90g", unit: "un", suggestedPrice: "2,99", suggestedCost: "1,90" },
+      { name: "Sabonete Líquido Refil 200ml", unit: "un", suggestedPrice: "7,50", suggestedCost: "4,80" },
+      { name: "Shampoo Revitalizante 350ml", unit: "un", suggestedPrice: "15,90", suggestedCost: "10,50" },
+      { name: "Condicionador Revitalizante 350ml", unit: "un", suggestedPrice: "16,90", suggestedCost: "11,20" },
+      { name: "Desodorante Antitranspirante Aerosol 150ml", unit: "un", suggestedPrice: "14,90", suggestedCost: "9,80" },
+      { name: "Desodorante Roll-on 50ml", unit: "un", suggestedPrice: "8,90", suggestedCost: "5,80" },
+      { name: "Creme Dental Proteção Anticárie 90g", unit: "un", suggestedPrice: "4,90", suggestedCost: "3,10" },
+      { name: "Escova Dental Cerdas Macias", unit: "un", suggestedPrice: "7,50", suggestedCost: "4,50" },
+      { name: "Papel Higiênico Folha Dupla (pct 4 rolos)", unit: "pct", suggestedPrice: "7,90", suggestedCost: "5,20" },
+      { name: "Papel Higiênico Folha Dupla (pct 12 rolos)", unit: "pct", suggestedPrice: "21,90", suggestedCost: "15,00" },
+      { name: "Fio Dental 50 metros", unit: "un", suggestedPrice: "6,90", suggestedCost: "4,20" },
+      { name: "Absorvente com Abas Pacote 8 un", unit: "pct", suggestedPrice: "5,50", suggestedCost: "3,50" }
+    ]
+  },
+  {
+    id: "higienico_infantil",
+    name: "Higiênico Infantil",
+    icon: "👶",
+    badgeColor: "text-pink-300 bg-pink-500/15 border-pink-500/30",
+    description: "Fraldas descartáveis, lenços umedecidos, pomadas, shampoo bebê e cuidados infantis",
+    suggestedCategory: "Higiênico Infantil & Bebê",
+    quickProducts: [
+      { name: "Fralda Descartável Tam P (pct 24 un)", unit: "pct", suggestedPrice: "27,90", suggestedCost: "19,50" },
+      { name: "Fralda Descartável Tam M (pct 22 un)", unit: "pct", suggestedPrice: "27,90", suggestedCost: "19,50" },
+      { name: "Fralda Descartável Tam G (pct 20 un)", unit: "pct", suggestedPrice: "27,90", suggestedCost: "19,50" },
+      { name: "Fralda Descartável Tam XG (pct 18 un)", unit: "pct", suggestedPrice: "27,90", suggestedCost: "19,50" },
+      { name: "Lenços Umedecidos Bebê (pct 48 un)", unit: "pct", suggestedPrice: "8,90", suggestedCost: "5,60" },
+      { name: "Lenços Umedecidos Bebê Leve 96 Pague 48", unit: "pct", suggestedPrice: "14,90", suggestedCost: "9,80" },
+      { name: "Pomada para Assaduras Infantil 45g", unit: "un", suggestedPrice: "16,90", suggestedCost: "11,20" },
+      { name: "Shampoo Infantil Suave Bebê 200ml", unit: "un", suggestedPrice: "12,90", suggestedCost: "8,50" },
+      { name: "Sabonete Líquido Bebê Cabeça aos Pés 200ml", unit: "un", suggestedPrice: "14,50", suggestedCost: "9,60" },
+      { name: "Talco Suave Infantil 100g", unit: "un", suggestedPrice: "9,50", suggestedCost: "6,20" },
+      { name: "Colônia Suave Bebê 100ml", unit: "un", suggestedPrice: "19,90", suggestedCost: "13,50" },
+      { name: "Hastes Flexíveis / Cotonetes (pct 75 un)", unit: "pct", suggestedPrice: "3,80", suggestedCost: "2,30" }
+    ]
+  },
+  {
+    id: "adega",
+    name: "Adega & Bebidas",
+    icon: "🍷",
+    badgeColor: "text-rose-300 bg-rose-500/15 border-rose-500/30",
+    description: "Vinhos, espumantes, cervejas, destilados, refrigerantes, sucos e águas",
+    suggestedCategory: "Adega & Bebidas",
+    quickProducts: [
+      { name: "Vinho Tinto Fino Seco Cabernet 750ml", unit: "un", suggestedPrice: "36,90", suggestedCost: "24,50" },
+      { name: "Vinho Tinto Suave de Mesa 750ml", unit: "un", suggestedPrice: "19,90", suggestedCost: "13,20" },
+      { name: "Vinho Branco Seco Sauvignon 750ml", unit: "un", suggestedPrice: "34,90", suggestedCost: "23,00" },
+      { name: "Espumante Brut 750ml", unit: "un", suggestedPrice: "39,90", suggestedCost: "26,50" },
+      { name: "Cerveja Pilsen Lata 350ml", unit: "un", suggestedPrice: "3,99", suggestedCost: "2,75" },
+      { name: "Cerveja Puro Malte Long Neck 330ml", unit: "un", suggestedPrice: "6,50", suggestedCost: "4,40" },
+      { name: "Cerveja Puro Malte Garrafa 600ml", unit: "un", suggestedPrice: "9,90", suggestedCost: "6,80" },
+      { name: "Refrigerante Cola Pet 2L", unit: "un", suggestedPrice: "9,50", suggestedCost: "6,80" },
+      { name: "Refrigerante Guaraná Pet 2L", unit: "un", suggestedPrice: "8,90", suggestedCost: "6,20" },
+      { name: "Suco de Uva 100% Integral 1.5L", unit: "un", suggestedPrice: "15,90", suggestedCost: "10,80" },
+      { name: "Água Mineral Sem Gás Pet 500ml", unit: "un", suggestedPrice: "2,50", suggestedCost: "1,20" },
+      { name: "Água Mineral Com Gás Pet 500ml", unit: "un", suggestedPrice: "2,80", suggestedCost: "1,40" },
+      { name: "Whisky 8 Anos Garrafa 1L", unit: "un", suggestedPrice: "98,00", suggestedCost: "72,00" },
+      { name: "Vodka Tradicional 900ml", unit: "un", suggestedPrice: "38,00", suggestedCost: "26,00" }
+    ]
+  },
+  {
+    id: "hortifruti",
+    name: "Hortifruti & Feira",
+    icon: "🍎",
+    badgeColor: "text-lime-300 bg-lime-500/15 border-lime-500/30",
+    description: "Frutas frescas, legumes, verduras, temperos frescos e ovos",
+    suggestedCategory: "Hortifruti & Feira Fresca",
+    quickProducts: [
+      { name: "Banana Prata (kg)", unit: "kg", suggestedPrice: "6,99", suggestedCost: "4,50" },
+      { name: "Maçã Nacional Fuji / Gala (kg)", unit: "kg", suggestedPrice: "8,90", suggestedCost: "5,80" },
+      { name: "Laranja Pera para Suco (kg)", unit: "kg", suggestedPrice: "4,90", suggestedCost: "3,00" },
+      { name: "Batata Inglesa Lavada (kg)", unit: "kg", suggestedPrice: "5,90", suggestedCost: "3,80" },
+      { name: "Cebola Nacional (kg)", unit: "kg", suggestedPrice: "6,50", suggestedCost: "4,20" },
+      { name: "Alho Roxo Cartela / kg", unit: "kg", suggestedPrice: "34,90", suggestedCost: "24,00" },
+      { name: "Tomate Longa Vida (kg)", unit: "kg", suggestedPrice: "7,90", suggestedCost: "5,10" },
+      { name: "Cenoura Selecionada (kg)", unit: "kg", suggestedPrice: "5,50", suggestedCost: "3,50" },
+      { name: "Alface Crespa Hidropônica (un)", unit: "un", suggestedPrice: "3,50", suggestedCost: "2,00" },
+      { name: "Ovos Brancos Cartela com 30 un", unit: "cx", suggestedPrice: "21,90", suggestedCost: "15,80" }
+    ]
+  },
+  {
+    id: "padaria",
+    name: "Padaria & Confeitaria",
+    icon: "🥖",
+    badgeColor: "text-amber-300 bg-amber-500/15 border-amber-500/30",
+    description: "Pães franceses, bolos, tortas, salgados e biscoitos artesanais",
+    suggestedCategory: "Padaria & Confeitaria",
+    quickProducts: [
+      { name: "Pão Francês Quentinho (kg)", unit: "kg", suggestedPrice: "16,90", suggestedCost: "9,50" },
+      { name: "Pão de Queijo Assado 100g", unit: "un", suggestedPrice: "4,50", suggestedCost: "2,20" },
+      { name: "Bolo de Cenoura com Chocolate Fatia", unit: "un", suggestedPrice: "6,50", suggestedCost: "3,00" },
+      { name: "Bolo Caseiro de Fubá Inteiro", unit: "un", suggestedPrice: "15,00", suggestedCost: "8,00" },
+      { name: "Croissant Misto Presunto e Queijo", unit: "un", suggestedPrice: "8,50", suggestedCost: "4,50" }
+    ]
+  },
+  {
+    id: "frios",
+    name: "Frios & Embutidos",
+    icon: "🥓",
+    badgeColor: "text-red-300 bg-red-500/15 border-red-500/30",
+    description: "Presuntos, salames, mortadelas, peito de peru e bacon",
+    suggestedCategory: "Frios & Embutidos",
+    quickProducts: [
+      { name: "Presunto Cozido Fatiado 200g", unit: "un", suggestedPrice: "7,90", suggestedCost: "5,20" },
+      { name: "Apresuntado Fatiado 200g", unit: "un", suggestedPrice: "5,90", suggestedCost: "3,90" },
+      { name: "Mortadela Tradicional Fatiada 200g", unit: "un", suggestedPrice: "4,90", suggestedCost: "3,10" },
+      { name: "Salame Italiano Fatiado 100g", unit: "un", suggestedPrice: "9,90", suggestedCost: "6,50" },
+      { name: "Peito de Peru Defumado Fatiado 200g", unit: "un", suggestedPrice: "12,90", suggestedCost: "8,80" },
+      { name: "Bacon em Pedaço / Fatiado (kg)", unit: "kg", suggestedPrice: "34,90", suggestedCost: "24,00" }
+    ]
+  },
+  {
+    id: "congelados",
+    name: "Congelados & Prontos",
+    icon: "❄️",
+    badgeColor: "text-sky-300 bg-sky-500/15 border-sky-500/30",
+    description: "Pizzas congeladas, lasanhas, hambúrgueres e sorvetes",
+    suggestedCategory: "Congelados & Prontos",
+    quickProducts: [
+      { name: "Pizza Congelada Calabresa 460g", unit: "un", suggestedPrice: "14,90", suggestedCost: "10,20" },
+      { name: "Pizza Congelada Mussarela 460g", unit: "un", suggestedPrice: "14,90", suggestedCost: "10,20" },
+      { name: "Lasanha à Bolonhesa 600g", unit: "un", suggestedPrice: "13,90", suggestedCost: "9,50" },
+      { name: "Hambúrguer Bovino Caixa 12 un (672g)", unit: "cx", suggestedPrice: "21,90", suggestedCost: "15,00" },
+      { name: "Empanados de Frango / Nuggets 300g", unit: "un", suggestedPrice: "11,90", suggestedCost: "7,90" },
+      { name: "Batata Pré-frita Congelada Pacote 2kg", unit: "un", suggestedPrice: "26,90", suggestedCost: "18,50" },
+      { name: "Sorvete Pote 1.5L Tradicional", unit: "un", suggestedPrice: "24,90", suggestedCost: "16,80" }
+    ]
+  },
+  {
+    id: "petshop",
+    name: "Pet Shop",
+    icon: "🐾",
+    badgeColor: "text-emerald-300 bg-emerald-500/15 border-emerald-500/30",
+    description: "Rações cães e gatos, petiscos, sachês e areia sanitária",
+    suggestedCategory: "Pet Shop & Animais",
+    quickProducts: [
+      { name: "Ração para Cães Adultos Frango & Carne (kg)", unit: "kg", suggestedPrice: "14,90", suggestedCost: "9,80" },
+      { name: "Ração para Gatos Castrados Salmão (kg)", unit: "kg", suggestedPrice: "22,90", suggestedCost: "15,50" },
+      { name: "Sachê de Carne para Cães 85g", unit: "un", suggestedPrice: "3,50", suggestedCost: "2,20" },
+      { name: "Sachê de Salmão para Gatos 85g", unit: "un", suggestedPrice: "3,50", suggestedCost: "2,20" },
+      { name: "Areia Higiênica para Gatos Pacote 4kg", unit: "un", suggestedPrice: "12,90", suggestedCost: "8,00" },
+      { name: "Petisco / Bifinho para Cães 65g", unit: "un", suggestedPrice: "4,50", suggestedCost: "2,80" }
+    ]
+  },
+  {
+    id: "doces",
+    name: "Doces & Bomboniere",
+    icon: "🍫",
+    badgeColor: "text-pink-300 bg-pink-500/15 border-pink-500/30",
+    description: "Chocolates, balas, pirulitos, chicletes, salgadinhos e guloseimas",
+    suggestedCategory: "Doces, Chocolates & Snacks",
+    quickProducts: [
+      { name: "Barra de Chocolate ao Leite 80g", unit: "un", suggestedPrice: "6,90", suggestedCost: "4,50" },
+      { name: "Caixa de Bombons Sortidos 250g", unit: "un", suggestedPrice: "14,90", suggestedCost: "10,50" },
+      { name: "Salgadinho de Batata Crocante 100g", unit: "un", suggestedPrice: "7,90", suggestedCost: "5,00" },
+      { name: "Pipoca de Micro-ondas com Manteiga 100g", unit: "un", suggestedPrice: "4,50", suggestedCost: "2,80" },
+      { name: "Bala de Gelatina / Goma Pacote 100g", unit: "un", suggestedPrice: "4,90", suggestedCost: "3,10" },
+      { name: "Goma de Mascar / Chiclete Display", unit: "un", suggestedPrice: "2,00", suggestedCost: "1,10" },
+      { name: "Paçoca de Amendoim Rolha Pote", unit: "un", suggestedPrice: "1,50", suggestedCost: "0,80" }
+    ]
+  }
+];
 
 interface CadastroProdutosModuleProps {
   customProducts: CustomProduct[];
@@ -74,9 +408,49 @@ const PREDEFINED_CATEGORIES_BY_NICHE: Record<string, string[]> = {
   salao_beleza: ["Serviços de Cabelo", "Manicure & Unhas", "Maquiagem", "Tratamentos", "Produtos de Venda"],
   barbearia: ["Corte & Barba", "Combo e Pacotes", "Cervejas & Bebidas", "Pomadas & Ceras", "Tratamentos"],
   manicure: ["Alongamento", "Manicure Simples", "Pedicure", "Esmaltes", "Acessórios"],
-  mercadinho: ["Alimentos", "Bebidas", "Limpeza", "Higiene Pessoal", "Frios & Laticínios", "Padaria"],
+  mercadinho: [
+    "Café da Manhã & Matinais",
+    "Laticínios & Derivados",
+    "Açougue & Carnes",
+    "Grãos, Cereais & Básicos",
+    "Molhos & Condimentos",
+    "Limpeza & Lavanderia",
+    "Higiene Pessoal & Banho",
+    "Higiênico Infantil & Bebê",
+    "Adega & Bebidas",
+    "Hortifruti & Feira Fresca",
+    "Padaria & Confeitaria",
+    "Frios & Embutidos",
+    "Congelados & Prontos",
+    "Pet Shop & Animais",
+    "Doces, Chocolates & Snacks",
+    "Bazar & Utilidades"
+  ],
   sushi: ["Entradas", "Temakis", "Combinados", "Bebidas", "Sobremesas"],
-  lojas: ["Vestuário & Roupas", "Camisetas & Blusas", "Calças & Bermudas", "Vestidos & Saias", "Calçados & Tênis", "Moda Íntima & Pijamas", "Infantil & Bebê", "Acessórios & Bolsas", "Moda Praia & Fitness"],
+  lojas: [
+    "Vestuário & Roupas",
+    "Camisetas & Tops",
+    "Camisas & Polos",
+    "Calças Jeans & Sarja",
+    "Bermudas & Shorts",
+    "Vestidos & Macacões",
+    "Saias",
+    "Casacos, Jaquetas & Moletons",
+    "Moda Íntima & Lingerie",
+    "Pijamas & Sleepwear",
+    "Moda Praia & Biquínis",
+    "Roupas Fitness & Academia",
+    "Infantil & Bebê",
+    "Calçados & Tênis",
+    "Sandálias & Chinelos",
+    "Bolsas & Mochilas",
+    "Cintos, Bonés & Acessórios",
+    "Bijuterias & Semijoias",
+    "Plus Size",
+    "Moda Evangélica",
+    "Uniformes & Linha Trabalho",
+    "Promoção & Liquidação"
+  ],
   bar: ["Cervejas", "Destilados", "Porções", "Refrigerantes & Águas", "Cigarros"],
   serralheiro: ["Portões", "Grades", "Estruturas", "Ferragens", "Reparos / Mão de Obra"],
   estofador: ["Reforma Sofá", "Poltronas", "Almofadas", "Tecidos", "Higienização"],
@@ -94,7 +468,22 @@ const PREDEFINED_CATEGORIES_BY_NICHE: Record<string, string[]> = {
   sacolao: ["Frutas Frescas", "Legumes & Raízes", "Verduras & Folhagens", "Temperos & Ervas", "Ovos & Granja", "Bebidas & Polpas", "Outros"],
   loja_racao: ["Rações a Granel (kg)", "Rações Pacote Fechado", "Petiscos & Sachês", "Medicamentos & Higiene", "Acessórios & Coleiras"],
   aviario: ["Rações para Aves & Postura", "Grãos & Sementes a Granel", "Gaiolas & Bebedouros", "Medicamentos & Vitaminas", "Rações Cães & Gatos"],
-  comercio_geral: ["Roupas & Moda", "Calçados & Tênis", "Alimentos", "Bebidas", "Limpeza", "Beleza & Cosméticos", "Eletrônicos & Celular", "Serviços", "Outros"]
+  comercio_geral: [
+    "Vestuário & Moda",
+    "Camisetas & Blusas",
+    "Calças & Bermudas",
+    "Vestidos & Saias",
+    "Calçados & Tênis",
+    "Bolsas & Acessórios",
+    "Alimentos & Mercearia",
+    "Bebidas & Sucos",
+    "Limpeza & Utilidades",
+    "Beleza & Cosméticos",
+    "Eletrônicos & Celular",
+    "Brinquedos & Presentes",
+    "Serviços",
+    "Outros"
+  ]
 };
 
 export function CadastroProdutosModule({
@@ -228,13 +617,29 @@ export function CadastroProdutosModule({
   const [prodColor, setProdColor] = useState("");
   const [prodBrand, setProdBrand] = useState("");
   const [prodValidity, setProdValidity] = useState("");
+  const [prodGender, setProdGender] = useState("");
+  const [prodMaterial, setProdMaterial] = useState("");
+  const [prodLocation, setProdLocation] = useState("");
+  const [prodSection, setProdSection] = useState("");
   const [prodImageUrl, setProdImageUrl] = useState("");
   const [selectedEmoji, setSelectedEmoji] = useState("🛍️");
   const [scannerCameraError, setScannerCameraError] = useState<string | null>(null);
+
+  // Clothing Size Category Tab and Multi-size Grid Generator
+  const [sizeCategoryTab, setSizeCategoryTab] = useState<"adulto" | "calcas" | "calcados" | "infantil" | "lingerie" | "volumes" | "pesos">("adulto");
+  const [isGridMode, setIsGridMode] = useState(false);
+  const [gridSelectedSizes, setGridSelectedSizes] = useState<string[]>([]);
+
+  // Inline Quick Category Modal / Popover
+  const [inlineCategoryModalOpen, setInlineCategoryModalOpen] = useState(false);
+  const [inlineCategoryName, setInlineCategoryName] = useState("");
   
   // Search & Filters for List Tab
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [filterSection, setFilterSection] = useState("all");
+  const [filterSize, setFilterSize] = useState("all");
+  const [filterColor, setFilterColor] = useState("all");
   const [typeFilter, setTypeFilter] = useState<"all" | "product" | "service">("all");
   const [stockFilter, setStockFilter] = useState<"all" | "low" | "out">("all");
 
@@ -881,6 +1286,77 @@ export function CadastroProdutosModule({
     showNotification("Código de barras EAN gerado com sucesso! 🏷️", "success");
   };
 
+  // Generate Clothing SKU (ex: ROUP-AZU-M-819)
+  const handleGenerateClothingSKU = () => {
+    const cleanCat = (prodCategory || "ROUP").substring(0, 4).toUpperCase().replace(/[^A-Z]/g, "R");
+    const cleanColor = (prodColor || "COR").substring(0, 3).toUpperCase().replace(/[^A-Z]/g, "C");
+    const cleanSize = (prodSize || "U").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const randNum = Math.floor(100 + Math.random() * 900);
+    const generatedSKU = `${cleanCat}-${cleanColor}-${cleanSize}-${randNum}`;
+    setProdBarcode(generatedSKU);
+    showNotification(`SKU de vestuário gerado: ${generatedSKU} 🏷️👗`, "success");
+  };
+
+  // Quick Markup pricing calculation
+  const handleApplyMarkup = (markupPercent: number) => {
+    const cost = parsePortugueseNumber(prodCostPrice);
+    if (cost <= 0) {
+      showNotification("Preencha o Preço de Custo primeiro para calcular o markup!", "warning");
+      return;
+    }
+    const calculatedSale = cost * (1 + markupPercent / 100);
+    setProdPrice(calculatedSale.toFixed(2).replace(".", ","));
+    showNotification(`Preço de venda ajustado com +${markupPercent}% de markup: R$ ${calculatedSale.toFixed(2).replace(".", ",")} 💰`, "success");
+  };
+
+  // Toggle size in multi-size grid mode
+  const handleToggleGridSize = (sz: string) => {
+    if (gridSelectedSizes.includes(sz)) {
+      setGridSelectedSizes(gridSelectedSizes.filter(s => s !== sz));
+    } else {
+      setGridSelectedSizes([...gridSelectedSizes, sz]);
+    }
+  };
+
+  // Fast inline category creation
+  const handleCreateInlineCategory = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = inlineCategoryName.trim();
+    if (!clean) {
+      showNotification("Digite o nome da categoria!", "warning");
+      return;
+    }
+    if (!customCategories.some(c => c.toLowerCase() === clean.toLowerCase())) {
+      setCustomCategories([...customCategories, clean]);
+    }
+    setProdCategory(clean);
+    setInlineCategoryName("");
+    setInlineCategoryModalOpen(false);
+    showNotification(`Categoria "${clean}" criada e selecionada! 🏷️✨`, "success");
+  };
+
+  // Quick Product Autofill from Mercado Section (Café da Manhã, Laticínios, Açougue, Grãos, etc.)
+  const handleSelectQuickProduct = (
+    item: { name: string; unit: string; suggestedPrice?: string; suggestedCost?: string },
+    section: MercadoSectionDef
+  ) => {
+    setProdName(item.name);
+    setProdUnit(item.unit || "un");
+    setProdSection(section.name);
+    setProdCategory(section.suggestedCategory || "Alimentos & Mercearia");
+    if (item.suggestedPrice) {
+      setProdPrice(item.suggestedPrice);
+    }
+    if (item.suggestedCost) {
+      setProdCostPrice(item.suggestedCost);
+    }
+    if (!prodBarcode) {
+      const randomCode = "789" + Math.floor(1000000000 + Math.random() * 9000000000).toString();
+      setProdBarcode(randomCode);
+    }
+    showNotification(`Item "${item.name}" carregado da sessão ${section.name}! 🛒 Altere valores se desejar e salve.`, "success");
+  };
+
   // Submit Product/Service registration
   const handleRegisterProduct = (e: React.FormEvent) => {
     e.preventDefault();
@@ -900,6 +1376,65 @@ export function CadastroProdutosModule({
     const stockParsed = isService ? 999999 : (prodInitialStock ? parseInt(prodInitialStock, 10) : 0);
     const minParsed = prodMinStock ? parseInt(prodMinStock, 10) : undefined;
 
+    // MULTI-SIZE GRID GENERATOR MODE (Cadastrar Grade de Vários Tamanhos)
+    if (!editingProductId && isGridMode && gridSelectedSizes.length > 0) {
+      const baseName = prodName.trim();
+      const nextStock = { ...productStockData };
+      const createdProds: CustomProduct[] = [];
+
+      gridSelectedSizes.forEach((sz, idx) => {
+        const itemProdId = "cp_" + Date.now() + "_" + Math.floor(Math.random() * 1000) + "_" + idx;
+        const itemBarcode = prodBarcode.trim()
+          ? `${prodBarcode.trim()}-${sz}`
+          : ("789" + Math.floor(1000000000 + Math.random() * 9000000000).toString());
+
+        const itemProduct: CustomProduct = {
+          id: itemProdId,
+          name: `${baseName} - Tam ${sz}`,
+          price: priceParsed,
+          niche: selectedNiche,
+          category: prodCategory || "Vestuário & Roupas",
+          barcode: itemBarcode,
+          quickCode: undefined,
+          unit: prodUnit.trim() || "un",
+          size: sz,
+          color: prodColor.trim() || undefined,
+          description: prodDescription.trim() || undefined,
+          validity: prodValidity.trim() || undefined,
+          imageUrl: prodImageUrl.trim() || selectedEmoji,
+          isService: isService,
+          brand: prodBrand.trim() || undefined,
+          gender: prodGender || undefined,
+          material: prodMaterial.trim() || undefined,
+          location: prodLocation.trim() || undefined,
+          section: prodSection.trim() || undefined
+        };
+
+        createdProds.push(itemProduct);
+        nextStock[itemProdId] = {
+          costPrice: costParsed,
+          stockQty: isNaN(stockParsed) ? 0 : stockParsed,
+          minStockAlert: minParsed,
+          salesCount: 0
+        };
+      });
+
+      const nextProds = [...customProducts, ...createdProds];
+      onSaveCatalog(nextProds, nextStock);
+      try {
+        localStorage.setItem("pdv_custom_products", JSON.stringify(nextProds));
+        localStorage.setItem("pdv_product_stock_data", JSON.stringify(nextStock));
+      } catch (err) {
+        console.warn("Erro ao salvar grade de produtos:", err);
+      }
+
+      showNotification(`Grade de roupas criada com sucesso! ${gridSelectedSizes.length} variações cadastradas (${gridSelectedSizes.join(", ")}) 👕✨`, "success");
+      handleResetForm();
+      setActiveTab("lista");
+      return;
+    }
+
+    // SINGLE PRODUCT REGISTRATION
     // If user filled barcode with 1 to 4 digits and left quickCode empty, use it as quickCode
     let finalQuickCode = prodQuickCode.trim();
     let finalBarcode = prodBarcode.trim();
@@ -925,7 +1460,11 @@ export function CadastroProdutosModule({
       validity: prodValidity.trim() || undefined,
       imageUrl: prodImageUrl.trim() || selectedEmoji,
       isService: isService,
-      brand: prodBrand.trim() || undefined
+      brand: prodBrand.trim() || undefined,
+      gender: prodGender || undefined,
+      material: prodMaterial.trim() || undefined,
+      location: prodLocation.trim() || undefined,
+      section: prodSection.trim() || undefined
     };
 
     let nextProds: CustomProduct[];
@@ -977,9 +1516,15 @@ export function CadastroProdutosModule({
     setProdDescription("");
     setProdBrand("");
     setProdValidity("");
+    setProdGender("");
+    setProdMaterial("");
+    setProdLocation("");
+    setProdSection("");
     setProdImageUrl("");
     setSelectedEmoji("🛍️");
     setIsService(false);
+    setIsGridMode(false);
+    setGridSelectedSizes([]);
     setEditingProductId(null);
     if (suggestedCategories.length > 0) {
       setProdCategory(suggestedCategories[0]);
@@ -1018,8 +1563,14 @@ export function CadastroProdutosModule({
     setProdDescription(product.description || "");
     setProdBrand(product.brand || "");
     setProdValidity(product.validity || "");
+    setProdGender(product.gender || "");
+    setProdMaterial(product.material || "");
+    setProdLocation(product.location || "");
+    setProdSection(product.section || "");
     setProdImageUrl(product.imageUrl || "");
     setIsService(!!product.isService);
+    setIsGridMode(false);
+    setGridSelectedSizes([]);
     
     if (DEFAULT_EMOJIS.includes(product.imageUrl || "")) {
       setSelectedEmoji(product.imageUrl || "🛍️");
@@ -1037,6 +1588,44 @@ export function CadastroProdutosModule({
     }
 
     setActiveTab("novo");
+  };
+
+  // Duplicate product (especially useful for clothing variations)
+  const handleDuplicateProduct = (product: CustomProduct) => {
+    setEditingProductId(null);
+    setProdName(`${product.name} (Cópia)`);
+    setProdCategory(product.category || "");
+    setProdPrice(product.price.toString().replace(".", ","));
+    setProdBarcode(""); // Leave empty so operator can scan or generate a new code
+    setProdQuickCode("");
+    setProdUnit(product.unit || "un");
+    setProdSize(product.size || "");
+    setProdColor(product.color || "");
+    setProdDescription(product.description || "");
+    setProdBrand(product.brand || "");
+    setProdValidity(product.validity || "");
+    setProdGender(product.gender || "");
+    setProdMaterial(product.material || "");
+    setProdLocation(product.location || "");
+    setProdSection(product.section || "");
+    setProdImageUrl(product.imageUrl || "");
+    setIsService(!!product.isService);
+    setIsGridMode(false);
+    setGridSelectedSizes([]);
+
+    const stock = productStockData[product.id];
+    if (stock) {
+      setProdCostPrice(stock.costPrice !== undefined ? stock.costPrice.toString().replace(".", ",") : "");
+      setProdInitialStock(stock.stockQty.toString());
+      setProdMinStock(stock.minStockAlert !== undefined ? stock.minStockAlert.toString() : "");
+    } else {
+      setProdCostPrice("");
+      setProdInitialStock("");
+      setProdMinStock("");
+    }
+
+    setActiveTab("novo");
+    showNotification(`Produto copiado para o formulário! Altere tamanho, cor ou código e salve. 📋✨`, "info");
   };
 
   // Quick Stock adjustments
@@ -1065,6 +1654,33 @@ export function CadastroProdutosModule({
     return Array.from(cats);
   }, [customProducts]);
 
+  // Distinct sizes from existing customProducts
+  const existingSizes = useMemo(() => {
+    const sizes = new Set<string>();
+    customProducts.forEach(p => {
+      if (p.size) sizes.add(p.size);
+    });
+    return Array.from(sizes).sort();
+  }, [customProducts]);
+
+  // Distinct colors from existing customProducts
+  const existingColors = useMemo(() => {
+    const colors = new Set<string>();
+    customProducts.forEach(p => {
+      if (p.color) colors.add(p.color);
+    });
+    return Array.from(colors).sort();
+  }, [customProducts]);
+
+  // Distinct market sections from existing customProducts
+  const existingSections = useMemo(() => {
+    const sects = new Set<string>();
+    customProducts.forEach(p => {
+      if (p.section) sects.add(p.section);
+    });
+    return Array.from(sects).sort();
+  }, [customProducts]);
+
   // Filtered list of products
   const filteredProducts = useMemo(() => {
     return customProducts.filter(product => {
@@ -1074,13 +1690,26 @@ export function CadastroProdutosModule({
       const barcodeMatch = product.barcode?.toLowerCase().includes(query);
       const quickCodeMatch = product.quickCode?.toLowerCase().includes(query) || (product.quickCode && product.quickCode.padStart(4, "0") === query.padStart(4, "0"));
       const categoryMatch = product.category?.toLowerCase().includes(query);
-      const searchOk = !query || nameMatch || barcodeMatch || quickCodeMatch || categoryMatch;
+      const brandMatch = product.brand?.toLowerCase().includes(query);
+      const colorMatch = product.color?.toLowerCase().includes(query);
+      const sizeMatch = product.size?.toLowerCase().includes(query);
+      const sectionMatch = product.section?.toLowerCase().includes(query);
+      const searchOk = !query || nameMatch || barcodeMatch || quickCodeMatch || categoryMatch || brandMatch || colorMatch || sizeMatch || sectionMatch;
 
       // 2. Niche match
       const nicheOk = product.niche === selectedNiche;
 
       // 3. Category Filter
       const categoryOk = categoryFilter === "all" || product.category === categoryFilter;
+
+      // 3B. Section / Departamento Filter
+      const sectionOk = filterSection === "all" || product.section === filterSection;
+
+      // 3C. Size Filter
+      const sizeOk = filterSize === "all" || product.size === filterSize;
+
+      // 3D. Color Filter
+      const colOk = filterColor === "all" || product.color?.toLowerCase().includes(filterColor.toLowerCase());
 
       // 4. Product / Service Filter
       const typeOk =
@@ -1097,9 +1726,9 @@ export function CadastroProdutosModule({
         stockOk = !product.isService && stockInfo && stockInfo.stockQty <= 0;
       }
 
-      return searchOk && nicheOk && categoryOk && typeOk && stockOk;
+      return searchOk && nicheOk && categoryOk && sectionOk && sizeOk && colOk && typeOk && stockOk;
     });
-  }, [customProducts, searchTerm, selectedNiche, categoryFilter, typeFilter, stockFilter, productStockData]);
+  }, [customProducts, searchTerm, selectedNiche, categoryFilter, filterSection, filterSize, filterColor, typeFilter, stockFilter, productStockData]);
 
   // Dynamic statistics
   const stats = useMemo(() => {
@@ -1126,6 +1755,12 @@ export function CadastroProdutosModule({
 
     return { totalItems, productsCount, servicesCount, lowStockCount, outOfStockCount, totalStockValue };
   }, [customProducts, selectedNiche, productStockData]);
+
+  // Active selected Mercado section object
+  const activeMercadoSection = useMemo(() => {
+    if (!prodSection) return null;
+    return MERCADO_SECTIONS.find(s => s.name.toLowerCase() === prodSection.toLowerCase() || s.id === prodSection) || null;
+  }, [prodSection]);
 
   return (
     <div className="bg-slate-900 border border-white/5 rounded-3xl p-5 sm:p-6 space-y-6">
@@ -1264,6 +1899,21 @@ export function CadastroProdutosModule({
                 </button>
               </div>
 
+              {/* Section / Departamento Dropdown Filter */}
+              <select
+                value={filterSection}
+                onChange={(e) => setFilterSection(e.target.value)}
+                className="bg-slate-900 border border-white/10 hover:border-white/20 text-xs text-white rounded-xl px-3 py-2 cursor-pointer outline-none focus:border-amber-500/50"
+              >
+                <option value="all">🏛️ Todas as Sessões</option>
+                {MERCADO_SECTIONS.map(s => (
+                  <option key={s.id} value={s.name}>{s.icon} {s.name}</option>
+                ))}
+                {existingSections.filter(s => !MERCADO_SECTIONS.some(ms => ms.name === s)).map(s => (
+                  <option key={s} value={s}>🏷️ {s}</option>
+                ))}
+              </select>
+
               {/* Category Dropdown Filter */}
               <select
                 value={categoryFilter}
@@ -1278,6 +1928,34 @@ export function CadastroProdutosModule({
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
+
+              {/* Size Filter Dropdown */}
+              {existingSizes.length > 0 && (
+                <select
+                  value={filterSize}
+                  onChange={(e) => setFilterSize(e.target.value)}
+                  className="bg-slate-900 border border-white/10 hover:border-white/20 text-xs text-white rounded-xl px-3 py-2 cursor-pointer outline-none focus:border-sky-500/50"
+                >
+                  <option value="all">👕 Todos os Tamanhos</option>
+                  {existingSizes.map(sz => (
+                    <option key={sz} value={sz}>Tam: {sz}</option>
+                  ))}
+                </select>
+              )}
+
+              {/* Color Filter Dropdown */}
+              {existingColors.length > 0 && (
+                <select
+                  value={filterColor}
+                  onChange={(e) => setFilterColor(e.target.value)}
+                  className="bg-slate-900 border border-white/10 hover:border-white/20 text-xs text-white rounded-xl px-3 py-2 cursor-pointer outline-none focus:border-sky-500/50"
+                >
+                  <option value="all">🎨 Todas as Cores</option>
+                  {existingColors.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              )}
 
               {/* Stock dropdown warning selector */}
               <select
@@ -1303,6 +1981,9 @@ export function CadastroProdutosModule({
                   onClick={() => {
                     setSearchTerm("");
                     setCategoryFilter("all");
+                    setFilterSection("all");
+                    setFilterSize("all");
+                    setFilterColor("all");
                     setTypeFilter("all");
                     setStockFilter("all");
                   }}
@@ -1318,12 +1999,12 @@ export function CadastroProdutosModule({
                     <tr className="border-b border-white/5 bg-slate-900/60 text-[9.5px] font-black uppercase text-slate-400 tracking-wider">
                       <th className="py-3.5 px-4 w-12">Ícone</th>
                       <th className="py-3.5 px-4">Nome do Cadastro</th>
-                      <th className="py-3.5 px-4">Categoria / Tipo</th>
+                      <th className="py-3.5 px-4">Sessão / Categoria</th>
                       <th className="py-3.5 px-4 text-right">Preço de Custo</th>
                       <th className="py-3.5 px-4 text-right">Preço de Venda</th>
                       <th className="py-3.5 px-4 text-right">Margem %</th>
                       <th className="py-3.5 px-4 text-center">Controle de Estoque</th>
-                      <th className="py-3.5 px-4 text-right w-24">Ações</th>
+                      <th className="py-3.5 px-4 text-right w-28">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5 text-xs">
@@ -1337,6 +2018,9 @@ export function CadastroProdutosModule({
                       // Stock alert state
                       const isLowStock = !product.isService && stockInfo && stockInfo.minStockAlert !== undefined && stockInfo.stockQty <= stockInfo.minStockAlert && stockInfo.stockQty > 0;
                       const isOutOfStock = !product.isService && stockInfo && stockInfo.stockQty <= 0;
+
+                      // Matching section definition for badge icon and styling
+                      const matchedSec = product.section ? MERCADO_SECTIONS.find(ms => ms.name.toLowerCase() === product.section?.toLowerCase()) : null;
 
                       return (
                         <tr key={product.id} className="hover:bg-white/[0.02] transition-colors group">
@@ -1359,14 +2043,24 @@ export function CadastroProdutosModule({
                                   ⚡ {product.quickCode}
                                 </span>
                               )}
-                              {product.unit && product.unit !== "un" && (
-                                <span className="px-1.5 py-0.2 bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 rounded text-[8.5px] font-bold">
-                                  {product.unit}
+                              {product.size && (
+                                <span className="px-2 py-0.5 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded text-[9px] font-black tracking-wide" title="Tamanho">
+                                  👕 Tam: {product.size}
                                 </span>
                               )}
-                              {product.size && (
-                                <span className="px-1.5 py-0.2 bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 rounded text-[8.5px] font-bold">
-                                  {product.size}
+                              {product.color && (
+                                <span className="px-1.5 py-0.5 bg-pink-500/15 text-pink-300 border border-pink-500/25 rounded text-[8.5px] font-bold" title="Cor / Especificação">
+                                  🎨 {product.color}
+                                </span>
+                              )}
+                              {product.brand && (
+                                <span className="px-1.5 py-0.5 bg-sky-500/15 text-sky-300 border border-sky-500/25 rounded text-[8.5px] font-bold" title="Marca / Fabricante">
+                                  🏷️ {product.brand}
+                                </span>
+                              )}
+                              {product.unit && product.unit !== "un" && (
+                                <span className="px-1.5 py-0.2 bg-slate-800 text-slate-300 border border-white/10 rounded text-[8.5px] font-bold">
+                                  {product.unit}
                                 </span>
                               )}
                             </div>
@@ -1377,6 +2071,21 @@ export function CadastroProdutosModule({
                                   {product.barcode}
                                 </span>
                               )}
+                              {product.gender && (
+                                <span className="text-[9px] text-indigo-300 bg-indigo-500/10 px-1.5 py-0.2 rounded font-semibold">
+                                  {product.gender.toUpperCase()}
+                                </span>
+                              )}
+                              {product.material && (
+                                <span className="text-[9px] text-amber-300 bg-amber-500/10 px-1.5 py-0.2 rounded font-semibold">
+                                  🧵 {product.material}
+                                </span>
+                              )}
+                              {product.location && (
+                                <span className="text-[9px] text-teal-300 bg-teal-500/10 px-1.5 py-0.2 rounded font-semibold flex items-center gap-0.5">
+                                  <MapPin className="w-2.5 h-2.5" /> {product.location}
+                                </span>
+                              )}
                               {product.description && (
                                 <span className="text-[9.5px] text-slate-400 italic">
                                   • {product.description}
@@ -1385,16 +2094,27 @@ export function CadastroProdutosModule({
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            <span className="px-2.5 py-1 bg-slate-900 border border-white/5 rounded-lg text-[9.5px] font-bold text-slate-300 uppercase">
-                              {product.category || "Outros"}
-                            </span>
-                            <span className={`ml-1.5 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
-                              product.isService 
-                                ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" 
-                                : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                            }`}>
-                              {product.isService ? "Serviço" : "Produto"}
-                            </span>
+                            <div className="flex flex-col gap-1 items-start">
+                              {product.section && (
+                                <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wide inline-flex items-center gap-1 border ${
+                                  matchedSec ? matchedSec.badgeColor : "text-amber-300 bg-amber-500/15 border-amber-500/30"
+                                }`} title="Sessão / Departamento">
+                                  {matchedSec?.icon || "🏛️"} {product.section}
+                                </span>
+                              )}
+                              <div className="flex flex-wrap items-center gap-1">
+                                <span className="px-2.5 py-0.5 bg-slate-900 border border-white/5 rounded-lg text-[9px] font-bold text-slate-300 uppercase">
+                                  {product.category || "Outros"}
+                                </span>
+                                <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
+                                  product.isService 
+                                    ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" 
+                                    : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                }`}>
+                                  {product.isService ? "Serviço" : "Produto"}
+                                </span>
+                              </div>
+                            </div>
                           </td>
                           <td className="py-3 px-4 text-right font-mono text-slate-400">
                             {cost > 0 ? formatCurrency(cost) : "-"}
@@ -1448,6 +2168,14 @@ export function CadastroProdutosModule({
                           </td>
                           <td className="py-3 px-4 text-right">
                             <div className="flex gap-1.5 justify-end">
+                              <button
+                                type="button"
+                                onClick={() => handleDuplicateProduct(product)}
+                                className="p-1.5 bg-slate-900 hover:bg-emerald-950/60 text-emerald-400 hover:text-emerald-300 rounded-lg cursor-pointer transition-all"
+                                title="Duplicar Item (Ideal para criar outros tamanhos ou cores da mesma peça)"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleStartEdit(product)}
@@ -1516,6 +2244,124 @@ export function CadastroProdutosModule({
 
               {/* Grid Fields */}
               <div className="grid grid-cols-12 gap-3 text-xs">
+                {/* 0. SESSÕES & DEPARTAMENTOS DO MERCADO (Café da Manhã, Laticínios, Açougue, Limpeza, Grãos, Molhos, Adega, etc.) */}
+                <div className="col-span-12 bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-amber-500/10 text-amber-400 rounded-lg text-base">
+                        🏛️
+                      </div>
+                      <div>
+                        <h5 className="text-xs font-black uppercase text-white flex items-center gap-2">
+                          Sessões & Departamentos do Mercado
+                          {prodSection && (
+                            <span className="text-[9.5px] font-black text-amber-300 bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              {activeMercadoSection?.icon || "🏷️"} {prodSection}
+                            </span>
+                          )}
+                        </h5>
+                        <p className="text-[9.5px] text-slate-400 font-semibold">
+                          Café da manhã, Laticínios, Açougue, Limpeza, Grãos (arroz, feijão, açúcar, sal...), Higiênico, Infantil, Molhos, Adega e outros
+                        </p>
+                      </div>
+                    </div>
+
+                    {prodSection && (
+                      <button
+                        type="button"
+                        onClick={() => setProdSection("")}
+                        className="text-[9px] font-bold text-slate-400 hover:text-rose-400 px-2 py-1 bg-slate-950 rounded-lg border border-white/5 cursor-pointer self-start sm:self-auto transition-colors"
+                      >
+                        Limpar Sessão ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Grid of Mercado Section Buttons */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
+                    {MERCADO_SECTIONS.map((sec) => {
+                      const isSelected = prodSection === sec.name;
+                      return (
+                        <button
+                          key={sec.id}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              setProdSection("");
+                            } else {
+                              setProdSection(sec.name);
+                              if (!prodCategory || suggestedCategories.includes(prodCategory) || MERCADO_SECTIONS.some(ms => ms.suggestedCategory === prodCategory)) {
+                                setProdCategory(sec.suggestedCategory);
+                              }
+                            }
+                          }}
+                          className={`p-2 rounded-xl text-left transition-all cursor-pointer border flex flex-col gap-0.5 ${
+                            isSelected
+                              ? "bg-amber-500/20 text-white border-amber-400 shadow-md shadow-amber-500/10 scale-[1.02]"
+                              : "bg-slate-950 text-slate-300 border-white/5 hover:border-amber-500/30 hover:bg-slate-800"
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-base">{sec.icon}</span>
+                            <span className="text-[10px] font-black truncate">{sec.name}</span>
+                          </div>
+                          <span className="text-[8px] text-slate-400 line-clamp-1">
+                            {sec.description}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Quick Product Presets when a section is selected */}
+                  {activeMercadoSection && activeMercadoSection.quickProducts.length > 0 && (
+                    <div className="bg-slate-950/90 border border-amber-500/30 rounded-xl p-3 space-y-2 animate-fadeIn">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <span className="text-[10px] font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>{activeMercadoSection.icon}</span>
+                          Itens Rápidos & Sugestões da Sessão "{activeMercadoSection.name}":
+                        </span>
+                        <span className="text-[8.5px] text-slate-400 font-semibold">
+                          (Clique no item para preencher nome, categoria, preço e código EAN na hora!)
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
+                        {activeMercadoSection.quickProducts.map((item, idx) => (
+                          <button
+                            key={item.name + "_" + idx}
+                            type="button"
+                            onClick={() => handleSelectQuickProduct(item, activeMercadoSection)}
+                            className="px-2.5 py-1 bg-slate-900 hover:bg-amber-400 hover:text-slate-950 text-slate-300 border border-white/10 hover:border-amber-300 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer flex items-center gap-1.5 group active:scale-95 shadow-sm"
+                            title={`Preencher "${item.name}" (Preço sugerido: R$ ${item.suggestedPrice || "-"})`}
+                          >
+                            <span className="group-hover:scale-110 transition-transform">➕</span>
+                            <span>{item.name}</span>
+                            {item.suggestedPrice && (
+                              <span className="text-[8px] font-mono text-emerald-400 group-hover:text-slate-950 font-black">
+                                R$ {item.suggestedPrice}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Custom manual session name input */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider shrink-0">
+                      Ou digite outra sessão:
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Ex: Bazar & Utilidades, Bebê, Congelados Especiais, Padaria Gourmet..."
+                      value={prodSection}
+                      onChange={(e) => setProdSection(e.target.value)}
+                      className="flex-1 bg-slate-950 border border-white/10 focus:border-amber-500/50 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 transition-all outline-none"
+                    />
+                  </div>
+                </div>
+
                 {/* 1. Name */}
                 <div className="col-span-12 md:col-span-8">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
@@ -1533,9 +2379,19 @@ export function CadastroProdutosModule({
 
                 {/* 2. Category selection */}
                 <div className="col-span-12 md:col-span-4">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
-                    Categoria
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                      Categoria *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setInlineCategoryModalOpen(true)}
+                      className="text-[9px] font-black uppercase text-sky-400 hover:text-sky-300 flex items-center gap-0.5 cursor-pointer hover:underline"
+                      title="Adicionar uma nova categoria rapidamente"
+                    >
+                      <Plus className="w-3 h-3" /> Nova Categoria
+                    </button>
+                  </div>
                   <div className="relative">
                     <input
                       type="text"
@@ -1547,16 +2403,17 @@ export function CadastroProdutosModule({
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 group">
                       <ChevronDown className="w-4 h-4 text-slate-500 cursor-pointer" />
                       {/* Floating suggestions dropdown */}
-                      <div className="hidden group-hover:block hover:block absolute right-0 top-4 bg-slate-900 border border-white/10 rounded-xl p-1.5 shadow-2xl z-50 min-w-[12rem] max-h-48 overflow-y-auto">
+                      <div className="hidden group-hover:block hover:block absolute right-0 top-4 bg-slate-900 border border-white/10 rounded-xl p-1.5 shadow-2xl z-50 min-w-[14rem] max-h-52 overflow-y-auto">
                         <p className="text-[8px] font-black uppercase text-slate-500 px-2 py-1 border-b border-white/5 mb-1">Sugestões do Nicho</p>
                         {suggestedCategories.map(cat => (
                           <button
                             key={cat}
                             type="button"
                             onClick={() => setProdCategory(cat)}
-                            className="w-full text-left px-2 py-1 rounded text-[10px] text-slate-300 hover:bg-sky-600 hover:text-white transition-colors"
+                            className="w-full text-left px-2 py-1 rounded text-[10px] text-slate-300 hover:bg-sky-600 hover:text-white transition-colors flex items-center justify-between"
                           >
-                            {cat}
+                            <span>{cat}</span>
+                            {prodCategory === cat && <Check className="w-3 h-3 text-emerald-400" />}
                           </button>
                         ))}
                       </div>
@@ -1564,7 +2421,7 @@ export function CadastroProdutosModule({
                   </div>
                   {/* Quick Category Chips for 1-click select */}
                   <div className="flex flex-wrap gap-1 mt-1.5">
-                    {suggestedCategories.slice(0, 5).map(cat => (
+                    {suggestedCategories.slice(0, 6).map(cat => (
                       <button
                         key={cat}
                         type="button"
@@ -1589,11 +2446,30 @@ export function CadastroProdutosModule({
                   </label>
                   <input
                     type="text"
-                    placeholder="Ex: 2,50"
+                    placeholder="Ex: 25,00"
                     value={prodCostPrice}
                     onChange={(e) => setProdCostPrice(e.target.value)}
                     className="w-full bg-slate-900 border border-white/10 focus:border-sky-500/50 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 transition-all outline-none font-mono"
                   />
+                  {/* Markup Quick Shortcuts */}
+                  <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                    <span className="text-[8.5px] font-bold text-slate-500 uppercase tracking-wider">Margem:</span>
+                    {[30, 50, 70, 100, 150].map((mk) => (
+                      <button
+                        key={mk}
+                        type="button"
+                        onClick={() => handleApplyMarkup(mk)}
+                        className={`px-1.5 py-0.5 rounded text-[8.5px] font-black transition-all cursor-pointer border ${
+                          mk === 100
+                            ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25"
+                            : "bg-slate-900 text-slate-300 border-white/5 hover:border-sky-500/40 hover:text-white"
+                        }`}
+                        title={`Calcular preço com +${mk}% de lucro sobre o custo`}
+                      >
+                        +{mk}%{mk === 100 ? " (2x)" : ""}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* 4. Preço de Venda */}
@@ -1605,19 +2481,32 @@ export function CadastroProdutosModule({
                   <input
                     type="text"
                     required
-                    placeholder="Ex: 5,90"
+                    placeholder="Ex: 50,00"
                     value={prodPrice}
                     onChange={(e) => setProdPrice(e.target.value)}
                     className="w-full bg-slate-900 border border-sky-500/40 focus:border-sky-500 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 transition-all outline-none font-mono font-bold text-sky-350"
                   />
+                  {/* Profit preview badge */}
+                  {parsePortugueseNumber(prodPrice) > 0 && (
+                    <div className="flex items-center gap-2 mt-1.5 text-[9px] font-mono">
+                      <span className="text-slate-400 font-semibold">
+                        Lucro Bruto: <strong className="text-emerald-400">R$ {pricingCalculations.profit.toFixed(2)}</strong>
+                      </span>
+                      <span className={`px-1.5 py-0.2 rounded font-black ${
+                        pricingCalculations.health === "warning" ? "bg-red-500/20 text-red-400" : "bg-emerald-500/20 text-emerald-300"
+                      }`}>
+                        {pricingCalculations.margin.toFixed(0)}% margem
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* 5. Barcode & Quick Shortcut Code */}
                 <div className="col-span-12 md:col-span-6 space-y-1">
                   <label className="block text-xs font-black text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
-                    <span>Código de Barras EAN (13 dígitos)</span>
+                    <span>Código de Barras / SKU</span>
                     {!isService && (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={() => setShowScanner(!showScanner)}
@@ -1633,7 +2522,15 @@ export function CadastroProdutosModule({
                           onClick={handleGenerateBarcode}
                           className="text-xs font-black uppercase text-sky-400 hover:underline cursor-pointer flex items-center gap-0.5"
                         >
-                          ⚡ Gerar EAN
+                          ⚡ EAN-13
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleGenerateClothingSKU}
+                          className="text-xs font-black uppercase text-pink-400 hover:underline cursor-pointer flex items-center gap-0.5"
+                          title="Gerar código SKU para vestuário e calçados (ex: ROUP-AZU-M-819)"
+                        >
+                          👗 SKU Moda
                         </button>
                       </div>
                     )}
@@ -1893,70 +2790,517 @@ export function CadastroProdutosModule({
                   </select>
                 </div>
 
-                {/* Tamanho / Volume / Peso com atalhos de Roupas */}
+                {/* 7. SEÇÃO DE TAMANHOS, ROUPAS & GRADE MULTI-TAMANHO */}
+                <div className="col-span-12 bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                        <Shirt className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h5 className="text-xs font-black uppercase text-white flex items-center gap-2">
+                          Tamanhos & Grade de Moda / Varejo
+                          {prodSize && !isGridMode && (
+                            <span className="text-[9.5px] font-black text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                              Tam: {prodSize}
+                            </span>
+                          )}
+                          {isGridMode && (
+                            <span className="text-[9.5px] font-black text-amber-300 bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                              Grade: {gridSelectedSizes.length} selecionados
+                            </span>
+                          )}
+                        </h5>
+                        <p className="text-[9.5px] text-slate-400 font-semibold">
+                          Selecione o tamanho unitário ou ative a Grade Rápida para cadastrar P, M, G, GG de uma vez só!
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Single vs Multi-Size Grid Toggle */}
+                    {!editingProductId && (
+                      <div className="flex bg-slate-950 border border-white/10 rounded-xl p-0.5 self-start sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsGridMode(false);
+                            setGridSelectedSizes([]);
+                          }}
+                          className={`px-3 py-1 rounded-lg text-[9.5px] font-black uppercase transition-all cursor-pointer ${
+                            !isGridMode ? "bg-emerald-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                          }`}
+                        >
+                          Tamanho Único
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsGridMode(true);
+                            if (gridSelectedSizes.length === 0) {
+                              setGridSelectedSizes(["P", "M", "G", "GG"]);
+                            }
+                          }}
+                          className={`px-3 py-1 rounded-lg text-[9.5px] font-black uppercase transition-all cursor-pointer flex items-center gap-1 ${
+                            isGridMode ? "bg-amber-500 text-slate-950 shadow-sm" : "text-slate-400 hover:text-white"
+                          }`}
+                        >
+                          <Zap className="w-3 h-3 fill-current" />
+                          Grade Rápida (Multi)
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Size Categories Sub-tabs */}
+                  <div className="flex flex-wrap gap-1 border-b border-white/5 pb-2">
+                    {[
+                      { id: "adulto", label: "👕 Adulto (P, M, G...)" },
+                      { id: "calcas", label: "👖 Calças / Numérico (34 a 56)" },
+                      { id: "calcados", label: "👟 Calçados (33 a 46)" },
+                      { id: "infantil", label: "👶 Infantil & Bebê" },
+                      { id: "lingerie", label: "👙 Moda Íntima" },
+                      { id: "volumes", label: "🥤 Volumes / Frascos" },
+                      { id: "pesos", label: "⚖️ Balança / Peso" }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setSizeCategoryTab(tab.id as any)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer border ${
+                          sizeCategoryTab === tab.id
+                            ? "bg-sky-600 text-white border-sky-400 shadow-sm"
+                            : "bg-slate-950 text-slate-400 border-white/5 hover:text-white hover:bg-slate-800"
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Multi-Size Grid Controls */}
+                  {isGridMode && (
+                    <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl p-2.5 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[10px] text-amber-200 font-bold flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                        <span>
+                          {gridSelectedSizes.length === 0
+                            ? "Clique nos tamanhos abaixo para montar a grade de variações."
+                            : `Grade ativa com ${gridSelectedSizes.length} variações: [${gridSelectedSizes.join(", ")}].`}
+                        </span>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setGridSelectedSizes(["P", "M", "G", "GG"])}
+                          className="px-2 py-0.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[9px] uppercase rounded-lg cursor-pointer"
+                        >
+                          Grade P, M, G, GG
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGridSelectedSizes(["PP", "P", "M", "G", "GG", "XG"])}
+                          className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-400/30 font-black text-[9px] uppercase rounded-lg cursor-pointer"
+                        >
+                          Grade Completa (PP ao XG)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGridSelectedSizes([])}
+                          className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-bold text-[9px] uppercase rounded-lg cursor-pointer"
+                        >
+                          Limpar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Size Options Grid */}
+                  <div>
+                    {sizeCategoryTab === "adulto" && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {["PP", "P", "M", "G", "GG", "XG", "EXG", "G1", "G2", "G3", "G4", "ÚNICO"].map(sz => {
+                          const isSelected = isGridMode ? gridSelectedSizes.includes(sz) : prodSize === sz;
+                          return (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => {
+                                if (isGridMode) {
+                                  handleToggleGridSize(sz);
+                                } else {
+                                  setProdSize(sz);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border flex items-center gap-1.5 ${
+                                isSelected
+                                  ? isGridMode
+                                    ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md font-black scale-105"
+                                    : "bg-emerald-400 text-slate-950 border-emerald-300 shadow-md font-black scale-105"
+                                  : "bg-slate-950 text-slate-300 border-white/10 hover:border-sky-400/50 hover:bg-slate-800"
+                              }`}
+                            >
+                              {isGridMode && (
+                                isSelected ? <CheckSquare className="w-3.5 h-3.5 text-slate-950" /> : <Square className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                              <span>{sz}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {sizeCategoryTab === "calcas" && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {["34", "36", "38", "40", "42", "44", "46", "48", "50", "52", "54", "56"].map(sz => {
+                          const isSelected = isGridMode ? gridSelectedSizes.includes(sz) : prodSize === sz;
+                          return (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => {
+                                if (isGridMode) {
+                                  handleToggleGridSize(sz);
+                                } else {
+                                  setProdSize(sz);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border flex items-center gap-1.5 ${
+                                isSelected
+                                  ? isGridMode
+                                    ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md font-black scale-105"
+                                    : "bg-indigo-400 text-white border-indigo-300 shadow-md font-black scale-105"
+                                  : "bg-slate-950 text-slate-300 border-white/10 hover:border-indigo-400/50 hover:bg-slate-800"
+                              }`}
+                            >
+                              {isGridMode && (
+                                isSelected ? <CheckSquare className="w-3.5 h-3.5 text-slate-950" /> : <Square className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                              <span>{sz}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {sizeCategoryTab === "calcados" && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {["33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46"].map(sz => {
+                          const isSelected = isGridMode ? gridSelectedSizes.includes(sz) : prodSize === sz;
+                          return (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => {
+                                if (isGridMode) {
+                                  handleToggleGridSize(sz);
+                                } else {
+                                  setProdSize(sz);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border flex items-center gap-1.5 ${
+                                isSelected
+                                  ? isGridMode
+                                    ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md font-black scale-105"
+                                    : "bg-teal-400 text-slate-950 border-teal-300 shadow-md font-black scale-105"
+                                  : "bg-slate-950 text-slate-300 border-white/10 hover:border-teal-400/50 hover:bg-slate-800"
+                              }`}
+                            >
+                              {isGridMode && (
+                                isSelected ? <CheckSquare className="w-3.5 h-3.5 text-slate-950" /> : <Square className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                              <span>{sz}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {sizeCategoryTab === "infantil" && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {["RN", "0-3M", "3-6M", "6-9M", "9-12M", "1 ano", "2 anos", "3 anos", "4 anos", "6 anos", "8 anos", "10 anos", "12 anos", "14 anos", "16 anos"].map(sz => {
+                          const isSelected = isGridMode ? gridSelectedSizes.includes(sz) : prodSize === sz;
+                          return (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => {
+                                if (isGridMode) {
+                                  handleToggleGridSize(sz);
+                                } else {
+                                  setProdSize(sz);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border flex items-center gap-1.5 ${
+                                isSelected
+                                  ? isGridMode
+                                    ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md font-black scale-105"
+                                    : "bg-pink-400 text-slate-950 border-pink-300 shadow-md font-black scale-105"
+                                  : "bg-slate-950 text-slate-300 border-white/10 hover:border-pink-400/50 hover:bg-slate-800"
+                              }`}
+                            >
+                              {isGridMode && (
+                                isSelected ? <CheckSquare className="w-3.5 h-3.5 text-slate-950" /> : <Square className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                              <span>{sz}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {sizeCategoryTab === "lingerie" && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {["38 (PP)", "40 (P)", "42 (M)", "44 (G)", "46 (GG)", "48 (XG)"].map(sz => {
+                          const isSelected = isGridMode ? gridSelectedSizes.includes(sz) : prodSize === sz;
+                          return (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => {
+                                if (isGridMode) {
+                                  handleToggleGridSize(sz);
+                                } else {
+                                  setProdSize(sz);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border flex items-center gap-1.5 ${
+                                isSelected
+                                  ? isGridMode
+                                    ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md font-black scale-105"
+                                    : "bg-rose-400 text-slate-950 border-rose-300 shadow-md font-black scale-105"
+                                  : "bg-slate-950 text-slate-300 border-white/10 hover:border-rose-400/50 hover:bg-slate-800"
+                              }`}
+                            >
+                              {isGridMode && (
+                                isSelected ? <CheckSquare className="w-3.5 h-3.5 text-slate-950" /> : <Square className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                              <span>{sz}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {sizeCategoryTab === "volumes" && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {["150ml", "200ml", "250ml", "300ml", "350ml", "473ml", "500ml", "600ml", "1L", "1.5L", "2L", "5L"].map(sz => {
+                          const isSelected = isGridMode ? gridSelectedSizes.includes(sz) : prodSize === sz;
+                          return (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => {
+                                if (isGridMode) {
+                                  handleToggleGridSize(sz);
+                                } else {
+                                  setProdSize(sz);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border flex items-center gap-1.5 ${
+                                isSelected
+                                  ? isGridMode
+                                    ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md font-black scale-105"
+                                    : "bg-sky-400 text-slate-950 border-sky-300 shadow-md font-black scale-105"
+                                  : "bg-slate-950 text-slate-300 border-white/10 hover:border-sky-400/50 hover:bg-slate-800"
+                              }`}
+                            >
+                              {isGridMode && (
+                                isSelected ? <CheckSquare className="w-3.5 h-3.5 text-slate-950" /> : <Square className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                              <span>{sz}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {sizeCategoryTab === "pesos" && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {["50g", "100g", "200g", "250g", "500g", "1kg", "2kg", "5kg"].map(sz => {
+                          const isSelected = isGridMode ? gridSelectedSizes.includes(sz) : prodSize === sz;
+                          return (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => {
+                                if (isGridMode) {
+                                  handleToggleGridSize(sz);
+                                } else {
+                                  setProdSize(sz);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border flex items-center gap-1.5 ${
+                                isSelected
+                                  ? isGridMode
+                                    ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md font-black scale-105"
+                                    : "bg-emerald-400 text-slate-950 border-emerald-300 shadow-md font-black scale-105"
+                                  : "bg-slate-950 text-slate-300 border-white/10 hover:border-emerald-400/50 hover:bg-slate-800"
+                              }`}
+                            >
+                              {isGridMode && (
+                                isSelected ? <CheckSquare className="w-3.5 h-3.5 text-slate-950" /> : <Square className="w-3.5 h-3.5 text-slate-600" />
+                              )}
+                              <span>{sz}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Custom Size manual input (when in single mode) */}
+                  {!isGridMode && (
+                    <div className="pt-1 flex items-center gap-2">
+                      <span className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider shrink-0">
+                        Ou digite um tamanho livre:
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Ex: GG Especial, 48 Plus, 1.8 Litros..."
+                        value={prodSize}
+                        onChange={(e) => setProdSize(e.target.value)}
+                        className="flex-1 bg-slate-950 border border-white/10 focus:border-sky-500/50 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 transition-all outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 8. CORES & ESTAMPAS COM PALETA REAL */}
                 <div className="col-span-12 md:col-span-6 space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                      Tamanho / Volume / Peso (Roupas & Calçados)
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <Palette className="w-3.5 h-3.5 text-pink-400" />
+                      Cor / Estampa da Peça
                     </label>
-                    {prodSize && (
-                      <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                        Selecionado: {prodSize}
+                    {prodColor && (
+                      <span className="text-[9px] font-black text-pink-300 bg-pink-500/15 border border-pink-500/25 px-2 py-0.5 rounded-full">
+                        Selecionada: {prodColor}
                       </span>
                     )}
                   </div>
                   <input
                     type="text"
-                    placeholder="Ex: P, M, G, GG, 42, 500ml, 1kg..."
-                    value={prodSize}
-                    onChange={(e) => setProdSize(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/10 focus:border-sky-500/50 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 transition-all outline-none"
+                    placeholder="Ex: Preto, Azul Marinho, Estampa Floral..."
+                    value={prodColor}
+                    onChange={(e) => setProdColor(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-pink-500/50 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-600 transition-all outline-none"
                   />
-                  {/* Quick Clothing Sizes Pills */}
-                  <div className="space-y-1 pt-1">
-                    <div className="flex items-center gap-1 text-[9px] font-black uppercase text-slate-400">
-                      <span>👕 Roupas Adulto:</span>
-                    </div>
+                  {/* Swatches de Cores Reais */}
+                  <div className="flex flex-wrap gap-1 pt-1 max-h-24 overflow-y-auto pr-1">
+                    {[
+                      { name: "Preto", bg: "#0f172a" },
+                      { name: "Branco", bg: "#ffffff" },
+                      { name: "Cinza Mescla", bg: "#94a3b8" },
+                      { name: "Grafite", bg: "#334155" },
+                      { name: "Azul Marinho", bg: "#1e3a8a" },
+                      { name: "Azul Royal", bg: "#2563eb" },
+                      { name: "Azul Céu", bg: "#38bdf8" },
+                      { name: "Vermelho", bg: "#dc2626" },
+                      { name: "Vinho", bg: "#881337" },
+                      { name: "Rosa Bebê", bg: "#fbcfe8" },
+                      { name: "Pink", bg: "#ec4899" },
+                      { name: "Verde Militar", bg: "#4d7c0f" },
+                      { name: "Verde Bandeira", bg: "#15803d" },
+                      { name: "Verde Água", bg: "#2dd4bf" },
+                      { name: "Amarelo", bg: "#eab308" },
+                      { name: "Mostarda", bg: "#ca8a04" },
+                      { name: "Laranja", bg: "#ea580c" },
+                      { name: "Bege / Nude", bg: "#e7e5e4" },
+                      { name: "Marrom", bg: "#78350f" },
+                      { name: "Roxo", bg: "#9333ea" },
+                      { name: "Dourado", bg: "#d97706" },
+                      { name: "Prateado", bg: "#cbd5e1" },
+                      { name: "Estampado", icon: "🎨" },
+                      { name: "Listrado", icon: "💈" },
+                      { name: "Floral", icon: "🌸" },
+                      { name: "Xadrez", icon: "🏁" },
+                      { name: "Jeans Claro", icon: "👖" },
+                      { name: "Jeans Escuro", icon: "👖" }
+                    ].map(c => (
+                      <button
+                        key={c.name}
+                        type="button"
+                        onClick={() => setProdColor(c.name)}
+                        className={`px-2 py-0.5 rounded-lg text-[9px] font-bold transition-all flex items-center gap-1 cursor-pointer border ${
+                          prodColor === c.name
+                            ? "bg-pink-500 text-white border-pink-400 font-black shadow-sm scale-105"
+                            : "bg-slate-950 text-slate-300 border-white/10 hover:border-pink-400/50 hover:bg-slate-800"
+                        }`}
+                      >
+                        {c.bg ? (
+                          <span
+                            className="w-2.5 h-2.5 rounded-full border border-black/40 inline-block shrink-0"
+                            style={{ backgroundColor: c.bg }}
+                          />
+                        ) : (
+                          <span className="text-[10px]">{c.icon}</span>
+                        )}
+                        <span>{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 9. GÊNERO / PÚBLICO E TECIDO / MATERIAL */}
+                <div className="col-span-12 md:col-span-6 space-y-1.5">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                    Gênero / Linha & Tecido
+                  </label>
+                  {/* Gênero Chips */}
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      { id: "unissex", label: "Unissex" },
+                      { id: "feminino", label: "Feminino" },
+                      { id: "masculino", label: "Masculino" },
+                      { id: "infantil_menino", label: "Menino" },
+                      { id: "infantil_menina", label: "Menina" },
+                      { id: "bebe", label: "Bebê" }
+                    ].map(g => (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => setProdGender(prodGender === g.id ? "" : g.id)}
+                        className={`px-2 py-1 rounded-lg text-[9.5px] font-black uppercase transition-all cursor-pointer border ${
+                          prodGender === g.id
+                            ? "bg-indigo-600 text-white border-indigo-400 shadow-sm"
+                            : "bg-slate-950 text-slate-400 border-white/5 hover:text-white hover:bg-slate-800"
+                        }`}
+                      >
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Tecido / Material Input com Chips rápidos */}
+                  <div className="pt-1 space-y-1">
+                    <input
+                      type="text"
+                      placeholder="Tecido: Algodão, Jeans, Viscose, Linho, Dry Fit..."
+                      value={prodMaterial}
+                      onChange={(e) => setProdMaterial(e.target.value)}
+                      className="w-full bg-slate-900 border border-white/10 focus:border-indigo-500/50 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 transition-all outline-none"
+                    />
                     <div className="flex flex-wrap gap-1">
-                      {["PP", "P", "M", "G", "GG", "XG", "EXG", "G1", "G2", "G3", "ÚNICO"].map(sz => (
+                      {["100% Algodão", "Jeans / Denim", "Linho", "Viscose", "Poliéster", "Moletom", "Dry Fit", "Suplex", "Seda", "Couro Sintético"].map(mat => (
                         <button
-                          key={sz}
+                          key={mat}
                           type="button"
-                          onClick={() => setProdSize(sz)}
-                          className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer border ${
-                            prodSize === sz
-                              ? "bg-emerald-400 text-slate-950 border-emerald-300 font-black shadow-sm"
-                              : "bg-slate-950 text-slate-300 border-white/10 hover:border-sky-400/50 hover:bg-slate-800"
+                          onClick={() => setProdMaterial(mat)}
+                          className={`px-1.5 py-0.5 rounded text-[8.5px] font-bold transition-all cursor-pointer border ${
+                            prodMaterial === mat
+                              ? "bg-indigo-500/20 text-indigo-300 border-indigo-400"
+                              : "bg-slate-950 text-slate-400 border-white/5 hover:text-white"
                           }`}
                         >
-                          {sz}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-1 text-[9px] font-black uppercase text-slate-400 pt-0.5">
-                      <span>👖 Calças / Numérico / Calçados:</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {["34", "36", "38", "40", "42", "44", "46", "48", "50", "35", "37", "39", "41", "43", "45"].map(sz => (
-                        <button
-                          key={sz}
-                          type="button"
-                          onClick={() => setProdSize(sz)}
-                          className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer border ${
-                            prodSize === sz
-                              ? "bg-indigo-400 text-white border-indigo-300 font-black shadow-sm"
-                              : "bg-slate-950 text-slate-300 border-white/10 hover:border-indigo-400/50 hover:bg-slate-800"
-                          }`}
-                        >
-                          {sz}
+                          {mat}
                         </button>
                       ))}
                     </div>
                   </div>
                 </div>
 
-                {/* Marca / Fabricante */}
-                <div className="col-span-6 md:col-span-3">
+                {/* 10. MARCA & LOCALIZAÇÃO NO ESTOQUE / LOJA */}
+                <div className="col-span-6 md:col-span-3 space-y-1">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
                     Marca / Fabricante
                   </label>
@@ -1970,53 +3314,45 @@ export function CadastroProdutosModule({
                       isService ? "opacity-45 cursor-not-allowed" : ""
                     }`}
                   />
+                  <div className="flex flex-wrap gap-1 pt-0.5">
+                    {["Própria", "Artesanal", "Importada", "Nacional"].map(b => (
+                      <button
+                        key={b}
+                        type="button"
+                        onClick={() => setProdBrand(b)}
+                        className="px-1.5 py-0.5 bg-slate-950 hover:bg-slate-800 text-[8.5px] font-bold text-slate-400 hover:text-white rounded border border-white/5"
+                      >
+                        {b}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {/* Cor / Especificação com atalhos visuais */}
-                <div className="col-span-6 md:col-span-3 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                      Cor / Especificação
-                    </label>
-                    {prodColor && (
-                      <span className="text-[9px] font-black text-pink-400 bg-pink-500/10 px-2 py-0.5 rounded-full">
-                        {prodColor}
-                      </span>
-                    )}
-                  </div>
+                {/* Localização no Estoque / Loja */}
+                <div className="col-span-6 md:col-span-3 space-y-1">
+                  <label className="block text-[10px] font-black text-teal-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-teal-400" />
+                    Localização (Loja / Arara / Gaveta)
+                  </label>
                   <input
                     type="text"
-                    placeholder="Ex: Preto, Branco, Azul..."
-                    value={prodColor}
-                    onChange={(e) => setProdColor(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/10 focus:border-sky-500/50 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 transition-all outline-none"
+                    disabled={isService}
+                    placeholder="Ex: Arara 1, Gaveta B, Prateleira 3"
+                    value={isService ? "" : prodLocation}
+                    onChange={(e) => setProdLocation(e.target.value)}
+                    className={`w-full bg-slate-900 border border-white/10 focus:border-teal-500/50 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 transition-all outline-none ${
+                      isService ? "opacity-45 cursor-not-allowed" : ""
+                    }`}
                   />
-                  {/* Quick Color Chips */}
-                  <div className="flex flex-wrap gap-1 pt-1">
-                    {[
-                      { name: "Branco", icon: "⚪" },
-                      { name: "Preto", icon: "⚫" },
-                      { name: "Azul", icon: "🔵" },
-                      { name: "Vermelho", icon: "🔴" },
-                      { name: "Verde", icon: "🟢" },
-                      { name: "Amarelo", icon: "🟡" },
-                      { name: "Rosa", icon: "🌸" },
-                      { name: "Bege", icon: "🟤" },
-                      { name: "Cinza", icon: "🔘" },
-                      { name: "Estampado", icon: "🎨" }
-                    ].map(c => (
+                  <div className="flex flex-wrap gap-1 pt-0.5">
+                    {["Arara 1", "Arara 2", "Gaveta 1", "Prateleira A", "Vitrine", "Depósito"].map(loc => (
                       <button
-                        key={c.name}
+                        key={loc}
                         type="button"
-                        onClick={() => setProdColor(c.name)}
-                        className={`px-2 py-0.5 rounded-lg text-[9px] font-bold transition-all flex items-center gap-1 cursor-pointer border ${
-                          prodColor === c.name
-                            ? "bg-pink-500 text-white border-pink-400 font-black shadow-sm"
-                            : "bg-slate-950 text-slate-300 border-white/10 hover:border-pink-400/50 hover:bg-slate-800"
-                        }`}
+                        onClick={() => setProdLocation(loc)}
+                        className="px-1.5 py-0.5 bg-slate-950 hover:bg-slate-800 text-[8.5px] font-bold text-teal-300 rounded border border-teal-500/20"
                       >
-                        <span>{c.icon}</span>
-                        <span>{c.name}</span>
+                        {loc}
                       </button>
                     ))}
                   </div>
@@ -2358,6 +3694,32 @@ export function CadastroProdutosModule({
                 Criar Categoria
               </button>
             </form>
+
+            {/* Quick Import Market Categories */}
+            <div className="pt-3 border-t border-white/5 space-y-2">
+              <span className="text-[9px] font-black uppercase text-amber-400 tracking-wider block">
+                Pacote de Mercado & Mercearia
+              </span>
+              <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
+                Adicione em 1 clique todas as categorias padrão de mercado (Café da Manhã, Laticínios, Açougue, Limpeza, Grãos, Molhos, Higiene, Adega...):
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const mercadoCats = PREDEFINED_CATEGORIES_BY_NICHE["mercadinho"];
+                  const toAdd = mercadoCats.filter(c => !customCategories.some(cc => cc.toLowerCase() === c.toLowerCase()));
+                  if (toAdd.length === 0) {
+                    showNotification("Todas as categorias de mercado já estão presentes na sua lista!", "info");
+                    return;
+                  }
+                  setCustomCategories([...customCategories, ...toAdd]);
+                  showNotification(`${toAdd.length} categorias de mercado adicionadas com sucesso! 🛒`, "success");
+                }}
+                className="w-full py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-sm"
+              >
+                <span>🛒 Importar Categorias de Mercado</span>
+              </button>
+            </div>
           </div>
 
           {/* COLUMN RIGHT: MANAGE LIST OF CATEGORIES (8/12) */}
@@ -2576,6 +3938,55 @@ export function CadastroProdutosModule({
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK INLINE NEW CATEGORY MODAL */}
+      {inlineCategoryModalOpen && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-sky-500/40 rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl text-left">
+            <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+              <h4 className="text-xs font-black uppercase text-white flex items-center gap-1.5">
+                <Tag className="w-4 h-4 text-sky-400" />
+                Criar Nova Categoria 🏷️
+              </h4>
+              <button
+                type="button"
+                onClick={() => setInlineCategoryModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 font-sans leading-relaxed">
+              Adicione a categoria agora sem perder o preenchimento do produto. Ela será selecionada automaticamente!
+            </p>
+            <form onSubmit={handleCreateInlineCategory} className="space-y-3">
+              <input
+                type="text"
+                placeholder="Ex: Vestidos & Macacões, Moda Praia, Acessórios..."
+                value={inlineCategoryName}
+                onChange={(e) => setInlineCategoryName(e.target.value)}
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-600 outline-none focus:border-sky-500"
+                autoFocus
+              />
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setInlineCategoryModalOpen(false)}
+                  className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold uppercase cursor-pointer hover:bg-slate-700"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-black uppercase cursor-pointer shadow-md shadow-sky-500/20"
+                >
+                  Criar e Selecionar ✅
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

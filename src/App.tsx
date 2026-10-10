@@ -135,6 +135,7 @@ import { refineSpeechText, applyLocalDictionaryCorrections } from "./utils/speec
 import { AdminModule } from "./components/Admin";
 import { AgendaModule } from "./components/Agenda";
 import { BrechoSalesModule } from "./components/BrechoSales";
+import { OrcamentosModule } from "./components/OrcamentosModule";
 import { PDVModule } from "./components/PDVModule";
 import { InteractiveTutorial } from "./components/InteractiveTutorial";
 import { AjudaManual } from "./components/AjudaManual";
@@ -395,9 +396,13 @@ export const getSectionLabel = (mode: string, subTab: string | null): string => 
           return "🏪 PDV / Fiado & Clientes";
         case "taxas":
           return "🏪 PDV / Configurações & Taxas";
+        case "orcamentos":
+          return "📄 Orçamentos & Notinhas (Sem Estoque/Caixa)";
         default:
           return "🏪 Frente de Caixa (PDV)";
       }
+    case "orcamentos":
+      return "📄 Orçamentos & Notinhas (Sem Estoque/Caixa)";
     case "ajuda":
       return "📚 Manual Operante & Suporte";
     default:
@@ -1399,6 +1404,7 @@ export default function App() {
     | "contabilidade"
     | "balcao"
     | "pastas"
+    | "orcamentos"
   >(() => {
     try { return (localStorage.getItem("notepad_mode") as any) || "pdv"; } catch { return "pdv"; }
   });
@@ -1614,6 +1620,15 @@ export default function App() {
       }
     }
   };
+
+  const customProductsList = useMemo(() => {
+    try {
+      const saved = localStorage.getItem("pdv_custom_products");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  }, [notepadMode, pdvActiveSubTab]);
   const [editingField, setEditingField] = useState<{
     id: string;
     field: string;
@@ -9940,6 +9955,19 @@ export default function App() {
                   <Store className={`w-4 h-4 transition-transform ${notepadMode === "brecho" ? "text-pink-700 scale-110 rotate-3" : "text-slate-400"}`} />
                   <span>PDV por Segmento</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetNotepadMode("orcamentos")}
+                  className={`flex-1 min-w-[120px] flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-t-2xl font-extrabold text-xs sm:text-sm uppercase tracking-wide transition-all duration-200 cursor-pointer ${
+                    notepadMode === "orcamentos"
+                      ? "bg-amber-100 text-amber-950 shadow-[0_-8px_20px_-4px_rgba(245,158,11,0.25)] border-2 border-amber-500 border-b-0 scale-[1.03] z-50 transform origin-bottom font-black"
+                      : "bg-slate-900/50 hover:bg-slate-900/80 border border-white/5 border-b-0 text-slate-350 hover:text-white"
+                  }`}
+                  title="Orçamentos: Emissão de notinhas sem mexer no estoque e sem mexer no caixa"
+                >
+                  <FileText className={`w-4 h-4 transition-transform ${notepadMode === "orcamentos" ? "text-amber-700 scale-110 rotate-3" : "text-amber-400"}`} />
+                  <span>Orçamentos 📄</span>
+                </button>
               </div>
 
               {/* ROW 4: SISTEMA & APP */}
@@ -10331,6 +10359,27 @@ export default function App() {
                     <span>Trocas & Devoluções 🔄</span>
                   </div>
                 </button>
+
+                {/* 9. ORÇAMENTOS & NOTINHAS (SEM ESTOQUE / SEM CAIXA) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPdvCheckoutOnly(false);
+                    setPdvActiveSubTab("orcamentos");
+                    handleSetNotepadMode("pdv");
+                  }}
+                  className={`flex-1 min-w-[170px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center ${
+                    notepadMode === "pdv" && pdvActiveSubTab === "orcamentos"
+                      ? "bg-amber-600 text-white border-2 border-amber-400 shadow-lg scale-[1.02]"
+                      : "bg-slate-900/60 hover:bg-slate-900/90 border border-amber-500/20 text-amber-300 hover:text-white"
+                  }`}
+                  title="Orçamentos e Propostas: Notinhas Térmicas (58/80mm) e A4 sem mexer no estoque ou dinheiro"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Orçamentos (Notinhas) 📄</span>
+                  </div>
+                </button>
               </div>
             </div>
             )}
@@ -10342,6 +10391,8 @@ export default function App() {
                 className={`${
                   notepadMode === "notes"
                     ? "bg-slate-900 border-slate-800"
+                    : notepadMode === "orcamentos"
+                    ? "bg-amber-950/80 border-amber-500/30"
                     : notepadMode === "contabilidade"
                     ? "bg-slate-950 border-indigo-500/30"
                     : notepadMode === "balcao"
@@ -10369,6 +10420,8 @@ export default function App() {
                   className={`text-sm sm:text-base font-extrabold uppercase tracking-wide flex items-center gap-2 ${
                     notepadMode === "notes" || notepadMode === "contabilidade" || notepadMode === "balcao"
                       ? "text-white"
+                      : notepadMode === "orcamentos"
+                      ? "text-amber-400"
                       : notepadMode === "receipts"
                       ? "text-amber-950"
                       : notepadMode === "brecho"
@@ -10406,7 +10459,9 @@ export default function App() {
                                 ? "🧾 Bloquinho de Recibo & Orçamento Comercial"
                                 : notepadMode === "pdv"
                                   ? "🏪 Frente de Caixa (PDV) & Saldo do Dia"
-                                  : notepadMode === "ajuda"
+                                  : notepadMode === "orcamentos"
+                                    ? "📄 Orçamentos & Propostas (Notinhas sem Estoque/Caixa)"
+                                    : notepadMode === "ajuda"
                                     ? "📚 Manual Operante & Central de Sugestões"
                                     : notepadMode === "notes"
                                       ? "📝 Bloco de Notas (Anotações Livres)"
@@ -10718,6 +10773,33 @@ export default function App() {
                       setStoreOwnerRg={setStoreOwnerRg}
                       refreshSecuritySettings={refreshSecuritySettings}
                     />
+                  ) : notepadMode === "orcamentos" ? (
+                    <motion.div
+                      key="orcamentos-panel"
+                      initial={{ opacity: 0, y: 15 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -15 }}
+                      transition={{ duration: 0.2 }}
+                      className="p-4 sm:p-6 bg-slate-900 border border-white/5 rounded-3xl min-h-[75vh] pb-36 text-slate-100 font-sans text-left"
+                    >
+                      <OrcamentosModule
+                        customProducts={customProductsList}
+                        formatCurrency={formatCurrency}
+                        showNotification={showNotification}
+                        storeInfo={{
+                          name: storeName,
+                          phone: "",
+                          address: "",
+                          cnpj: storeCnpjCpf || ""
+                        }}
+                        onBackToPDV={() => handleSetNotepadMode("pdv")}
+                        onLoadIntoCart={() => {
+                          handleSetNotepadMode("pdv", false);
+                          setPdvActiveSubTab(null);
+                          showNotification("Itens do orçamento encaminhados para a Frente de Caixa!", "info");
+                        }}
+                      />
+                    </motion.div>
                   ) : notepadMode === "segmentos" ? (
                     <motion.div
                       key="segmentos-panel"
