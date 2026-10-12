@@ -1,5 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
+  getScopedItem,
+  setScopedItem
+} from "../utils/userScopedStorage";
+import {
   FileText,
   Printer,
   Download,
@@ -7,6 +11,9 @@ import {
   Share2,
   Copy,
   Plus,
+  Minus,
+  Folder,
+  Package,
   Search,
   Trash2,
   Edit3,
@@ -51,6 +58,7 @@ interface OrcamentosModuleProps {
   onBackToPDV?: () => void;
   initialItems?: { name: string; price: number; quantity: number; unit?: string }[];
   initialClientName?: string;
+  userId?: string;
 }
 
 const STORAGE_KEY = "pdv_orcamentos_data";
@@ -63,18 +71,19 @@ export function OrcamentosModule({
   storeInfo = {},
   onBackToPDV,
   initialItems,
-  initialClientName
+  initialClientName,
+  userId
 }: OrcamentosModuleProps) {
   // Store details with sensible defaults
-  const storeName = storeInfo.name || localStorage.getItem("pdv_store_custom_name") || "MEU ESTABELECIMENTO";
-  const storePhone = storeInfo.phone || localStorage.getItem("pdv_store_custom_phone") || "";
-  const storeAddress = storeInfo.address || localStorage.getItem("pdv_store_custom_address") || "";
-  const storeCnpj = storeInfo.cnpj || localStorage.getItem("pdv_store_custom_cnpj") || "";
+  const storeName = storeInfo.name || getScopedItem("pdv_store_custom_name", userId) || "MEU ESTABELECIMENTO";
+  const storePhone = storeInfo.phone || getScopedItem("pdv_store_custom_phone", userId) || "";
+  const storeAddress = storeInfo.address || getScopedItem("pdv_store_custom_address", userId) || "";
+  const storeCnpj = storeInfo.cnpj || getScopedItem("pdv_store_custom_cnpj", userId) || "";
 
   // List of quotes
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = getScopedItem(STORAGE_KEY, userId);
       if (saved) return JSON.parse(saved);
     } catch (e) {
       console.warn("Erro ao carregar orçamentos:", e);
@@ -82,14 +91,26 @@ export function OrcamentosModule({
     return [];
   });
 
-  // Save to localStorage on change
+  // Reload orcamentos when userId changes
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(orcamentos));
+      const saved = getScopedItem(STORAGE_KEY, userId);
+      if (saved) {
+        setOrcamentos(JSON.parse(saved));
+      } else {
+        setOrcamentos([]);
+      }
+    } catch {}
+  }, [userId]);
+
+  // Save to scoped storage on change
+  useEffect(() => {
+    try {
+      setScopedItem(STORAGE_KEY, JSON.stringify(orcamentos), userId);
     } catch (e) {
       console.warn("Erro ao salvar orçamentos:", e);
     }
-  }, [orcamentos]);
+  }, [orcamentos, userId]);
 
   // Tab state within OrcamentosModule
   const [activeTab, setActiveTab] = useState<"lista" | "novo">("lista");
@@ -172,6 +193,69 @@ export function OrcamentosModule({
     setShowCatalogDropdown(false);
   };
 
+  // Catalog Modal States
+  const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
+  const [catalogModalCategory, setCatalogModalCategory] = useState<string>("all");
+  const [catalogModalSearch, setCatalogModalSearch] = useState<string>("");
+
+  // Categories list for catalog modal
+  const distinctCategories = useMemo(() => {
+    const set = new Set<string>();
+    customProducts.forEach(p => {
+      if (p.category) set.add(p.category);
+    });
+    return Array.from(set).sort();
+  }, [customProducts]);
+
+  // Direct Add Product to Quote Form without touching stock
+  const handleDirectAddProductToForm = (prod: CustomProduct) => {
+    setFormItems(prev => {
+      const existsIndex = prev.findIndex(it => it.name.toUpperCase() === prod.name.toUpperCase() || (it.productId && it.productId === prod.id));
+      if (existsIndex >= 0) {
+        return prev.map((it, idx) => {
+          if (idx === existsIndex) {
+            const nextQty = it.quantity + 1;
+            return {
+              ...it,
+              quantity: nextQty,
+              total: Math.max(0, (it.unitPrice * nextQty) - it.discount)
+            };
+          }
+          return it;
+        });
+      }
+      const newItem: OrcamentoItem = {
+        id: "item_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        productId: prod.id,
+        name: prod.name.trim(),
+        quantity: 1,
+        unit: prod.unit || "un",
+        unitPrice: prod.price,
+        discount: 0,
+        total: prod.price,
+        details: prod.description || undefined
+      };
+      return [...prev, newItem];
+    });
+    showNotification(`+1 "${prod.name}" lançado no orçamento! (Estoque e caixa 100% protegidos) 📋✨`, "success");
+  };
+
+  // Filter products for the catalog modal
+  const filteredCatalogModalProducts = useMemo(() => {
+    return customProducts.filter(p => {
+      const q = catalogModalSearch.toLowerCase().trim();
+      const matchSearch =
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        (p.barcode && p.barcode.includes(q)) ||
+        (p.quickCode && p.quickCode.includes(q)) ||
+        (p.category && p.category.toLowerCase().includes(q));
+
+      const matchCat = catalogModalCategory === "all" || p.category === catalogModalCategory;
+      return matchSearch && matchCat;
+    });
+  }, [customProducts, catalogModalSearch, catalogModalCategory]);
+
   // Parse Portuguese formatted number (ex: "1.250,50" -> 1250.50)
   const parseNum = (val: string): number => {
     if (!val) return 0;
@@ -227,6 +311,26 @@ export function OrcamentosModule({
   // Remove Item from Quote Form
   const handleRemoveItem = (itemId: string) => {
     setFormItems(prev => prev.filter(it => it.id !== itemId));
+  };
+
+  // Update Item Quantity in Quote Form (+ or - or direct value)
+  const handleUpdateItemQty = (itemId: string, deltaOrExact: number, isExact: boolean = false) => {
+    setFormItems(prev => {
+      return prev.map(it => {
+        if (it.id === itemId) {
+          const newQty = isExact ? Math.max(0, deltaOrExact) : Math.max(0, it.quantity + deltaOrExact);
+          if (newQty <= 0) return null;
+          const cleanQty = Math.round(newQty * 1000) / 1000;
+          const newTotal = Math.max(0, (it.unitPrice * cleanQty) - it.discount);
+          return {
+            ...it,
+            quantity: cleanQty,
+            total: newTotal
+          };
+        }
+        return it;
+      }).filter((it): it is OrcamentoItem => it !== null);
+    });
   };
 
   // Calculate live totals for the Form
@@ -901,13 +1005,15 @@ export function OrcamentosModule({
               setActiveTab("lista");
               handleResetForm();
             }}
-            className={`px-4 py-2 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer ${
+            className={`px-4 py-2 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
               activeTab === "lista"
                 ? "bg-amber-600 text-white shadow-lg shadow-amber-500/20"
                 : "text-slate-400 hover:text-slate-200"
             }`}
+            title="Pasta de Arquivos com todos os orçamentos gravados: reimprima quantas vezes quiser"
           >
-            📋 Todos os Orçamentos ({orcamentos.length})
+            <Folder className="w-3.5 h-3.5" />
+            <span>Pasta de Arquivos ({orcamentos.length})</span>
           </button>
           <button
             type="button"
@@ -1335,45 +1441,71 @@ export function OrcamentosModule({
                   </span>
                 </div>
 
-                {/* Quick Catalog Search / Autocomplete Box */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                  <input
-                    type="text"
-                    placeholder="🔍 Pesquisar produto no catálogo cadastrado para puxar nome e preço..."
-                    value={searchCatalogQuery}
-                    onChange={(e) => {
-                      setSearchCatalogQuery(e.target.value);
-                      setShowCatalogDropdown(true);
-                    }}
-                    onFocus={() => setShowCatalogDropdown(true)}
-                    className="w-full bg-slate-900 border border-amber-500/30 hover:border-amber-400 focus:border-amber-400 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 transition-all outline-none"
-                  />
+                {/* Quick Catalog Search / Autocomplete Box + Ver Estoque Button */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input
+                      type="text"
+                      placeholder="🔍 Digite nome, código ou barras do produto cadastrado para puxar..."
+                      value={searchCatalogQuery}
+                      onChange={(e) => {
+                        setSearchCatalogQuery(e.target.value);
+                        setShowCatalogDropdown(true);
+                      }}
+                      onFocus={() => setShowCatalogDropdown(true)}
+                      className="w-full bg-slate-900 border border-amber-500/30 hover:border-amber-400 focus:border-amber-400 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 transition-all outline-none"
+                    />
 
-                  {/* Autocomplete Dropdown list */}
-                  {showCatalogDropdown && catalogSuggestions.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-amber-500/30 rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto divide-y divide-white/5">
-                      <p className="text-[8.5px] font-black uppercase text-slate-400 px-3 py-1.5 bg-slate-950">
-                        Clique para preencher item do catálogo:
-                      </p>
-                      {catalogSuggestions.map(p => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => handleSelectCatalogItem(p)}
-                          className="w-full text-left px-3 py-2 hover:bg-amber-500 hover:text-slate-950 transition-colors flex items-center justify-between group cursor-pointer"
-                        >
-                          <div>
-                            <span className="font-bold text-xs text-white group-hover:text-slate-950 block">{p.name}</span>
-                            <span className="text-[9px] text-slate-400 group-hover:text-slate-900">{p.category || "Produto"} • {p.unit || "un"}</span>
+                    {/* Autocomplete Dropdown list */}
+                    {showCatalogDropdown && catalogSuggestions.length > 0 && (
+                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-amber-500/40 rounded-xl shadow-2xl z-50 max-h-64 overflow-y-auto divide-y divide-white/5">
+                        <div className="p-2 bg-slate-950 flex items-center justify-between text-[9px] font-black uppercase text-slate-400">
+                          <span>Produtos Cadastrados Encontrados:</span>
+                          <span className="text-amber-400">Sem baixa de estoque</span>
+                        </div>
+                        {catalogSuggestions.map(p => (
+                          <div
+                            key={p.id}
+                            className="w-full px-3 py-2 hover:bg-slate-800 transition-colors flex items-center justify-between gap-3 group"
+                          >
+                            <div 
+                              className="min-w-0 flex-1 cursor-pointer"
+                              onClick={() => handleSelectCatalogItem(p)}
+                              title="Clique para preencher os campos abaixo"
+                            >
+                              <span className="font-bold text-xs text-white group-hover:text-amber-300 block truncate">{p.name}</span>
+                              <span className="text-[9px] text-slate-400 block">{p.category || "Produto"} • {p.unit || "un"}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-black text-xs text-emerald-400">
+                                {formatCurrency(p.price)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleDirectAddProductToForm(p)}
+                                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[10px] uppercase rounded-lg cursor-pointer flex items-center gap-1 active:scale-95 shadow-sm"
+                                title="Lançar direto no orçamento (+1)"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Lançar</span>
+                              </button>
+                            </div>
                           </div>
-                          <span className="font-mono font-black text-xs text-emerald-400 group-hover:text-slate-950">
-                            {formatCurrency(p.price)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCatalogModalOpen(true)}
+                    className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-amber-500/20 flex items-center justify-center gap-2 shrink-0 cursor-pointer active:scale-95"
+                    title="Abrir catálogo completo com fotos, categorias e preços de todos os produtos do estoque para lançar no orçamento"
+                  >
+                    <Package className="w-4 h-4 text-slate-950" />
+                    <span>Ver Catálogo do Estoque ({customProducts.length})</span>
+                  </button>
                 </div>
 
                 {/* Manual Item Fields (Can be edited or typed freely) */}
@@ -1409,13 +1541,39 @@ export function OrcamentosModule({
                       <label className="block text-[9.5px] font-black text-slate-400 uppercase tracking-wider mb-1">
                         Quantidade
                       </label>
-                      <input
-                        type="text"
-                        placeholder="Ex: 1"
-                        value={itemInputQty}
-                        onChange={(e) => setItemInputQty(e.target.value)}
-                        className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 outline-none focus:border-amber-500 font-mono text-center"
-                      />
+                      <div className="flex items-center bg-slate-950 border border-white/10 rounded-xl overflow-hidden focus-within:border-amber-500 shadow-inner">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = parseFloat(itemInputQty.replace(",", ".")) || 1;
+                            const next = Math.max(1, cur - 1);
+                            setItemInputQty(String(next));
+                          }}
+                          className="px-2.5 py-2 text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-all cursor-pointer"
+                          title="Diminuir quantidade em 1"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <input
+                          type="text"
+                          placeholder="Ex: 1"
+                          value={itemInputQty}
+                          onChange={(e) => setItemInputQty(e.target.value)}
+                          className="w-full bg-transparent px-1 py-2 text-xs text-white placeholder-slate-600 outline-none font-mono text-center font-bold"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = parseFloat(itemInputQty.replace(",", ".")) || 0;
+                            const next = cur + 1;
+                            setItemInputQty(String(next));
+                          }}
+                          className="px-2.5 py-2 text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-all cursor-pointer"
+                          title="Aumentar quantidade em 1"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="col-span-4 sm:col-span-1">
@@ -1497,8 +1655,41 @@ export function OrcamentosModule({
                                 <span className="text-[9px] text-slate-500 italic block">{it.details}</span>
                               )}
                             </td>
-                            <td className="py-2 px-2 text-center font-mono text-slate-300">
-                              {it.quantity} {it.unit}
+                            <td className="py-2 px-2 text-center">
+                              <div className="inline-flex items-center bg-slate-900 border border-white/10 rounded-lg overflow-hidden shadow-inner">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateItemQty(it.id, -1)}
+                                  className="p-1 text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-all cursor-pointer"
+                                  title="Diminuir quantidade em 1"
+                                >
+                                  <Minus className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const val = prompt(`Digite a nova quantidade para "${it.name}":`, String(it.quantity).replace(".", ","));
+                                    if (val !== null && val.trim() !== "") {
+                                      const parsed = parseFloat(val.replace(",", "."));
+                                      if (!isNaN(parsed) && parsed > 0) {
+                                        handleUpdateItemQty(it.id, parsed, true);
+                                      }
+                                    }
+                                  }}
+                                  className="px-2 font-mono text-xs font-black text-slate-100 hover:text-amber-400 underline decoration-dotted cursor-pointer select-none"
+                                  title="Clique para digitar a quantidade exata (ex: 20 un ou 0,800 kg)"
+                                >
+                                  {it.quantity} {it.unit}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateItemQty(it.id, 1)}
+                                  className="p-1 text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-all cursor-pointer"
+                                  title="Aumentar quantidade em 1"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </button>
+                              </div>
                             </td>
                             <td className="py-2 px-2 text-right font-mono text-slate-400">
                               {formatCurrency(it.unitPrice)}
@@ -1900,6 +2091,189 @@ export function OrcamentosModule({
                   </button>
                 </div>
               )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 5. MODAL VITRINE: ADICIONAR PRODUTOS DO ESTOQUE AO ORÇAMENTO */}
+      {isCatalogModalOpen && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-3 sm:p-5 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
+          <div className="bg-slate-900 border-2 border-amber-500/40 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl text-left overflow-hidden">
+            
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-white/10 bg-slate-950/70 flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-500/20 text-amber-400 rounded-2xl border border-amber-500/30">
+                  <Package className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base sm:text-lg font-black uppercase text-white tracking-wide">
+                      Catálogo de Produtos do Estoque 📦
+                    </h3>
+                    <span className="px-2 py-0.5 text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full">
+                      Sem Baixa de Estoque
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Clique em <strong>+ Adicionar</strong> nos itens desejados para lançar no orçamento. Os produtos continuam intactos no estoque!
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsCatalogModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-white rounded-xl bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
+                title="Fechar catálogo"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="p-4 bg-slate-950/40 border-b border-white/5 space-y-3">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por nome, categoria, código rápido ou código de barras..."
+                    value={catalogModalSearch}
+                    onChange={(e) => setCatalogModalSearch(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-amber-400 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 outline-none"
+                    autoFocus
+                  />
+                  {catalogModalSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setCatalogModalSearch("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setCatalogModalCategory("all")}
+                    className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase whitespace-nowrap cursor-pointer transition-all ${
+                      catalogModalCategory === "all"
+                        ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/25"
+                        : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    }`}
+                  >
+                    Todos ({customProducts.length})
+                  </button>
+                  {distinctCategories.map(cat => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setCatalogModalCategory(cat)}
+                      className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase whitespace-nowrap cursor-pointer transition-all ${
+                        catalogModalCategory === cat
+                          ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/25"
+                          : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Products Grid */}
+            <div className="p-4 sm:p-5 flex-1 overflow-y-auto max-h-[55vh]">
+              {filteredCatalogModalProducts.length === 0 ? (
+                <div className="py-16 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
+                  <Package className="w-10 h-10 text-slate-600" />
+                  <p className="text-sm font-bold uppercase">Nenhum produto encontrado</p>
+                  <span className="text-xs text-slate-500">Tente buscar por outro termo ou cadastre mais produtos no Estoque.</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {filteredCatalogModalProducts.map(prod => {
+                    const existingInQuote = formItems.find(it => it.name.toUpperCase() === prod.name.toUpperCase() || (it.productId && it.productId === prod.id));
+                    return (
+                      <div
+                        key={prod.id}
+                        className={`p-3 rounded-2xl border transition-all flex flex-col justify-between gap-2.5 ${
+                          existingInQuote
+                            ? "bg-amber-950/20 border-amber-500/40 shadow-sm"
+                            : "bg-slate-950/70 border-white/10 hover:border-white/20"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-black text-white text-xs uppercase block truncate" title={prod.name}>
+                              {prod.name}
+                            </span>
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                              <span className="text-[9px] font-bold text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded border border-white/5 uppercase">
+                                {prod.category || "Geral"}
+                              </span>
+                              {prod.unit && (
+                                <span className="text-[9px] font-mono text-slate-400">
+                                  /{prod.unit}
+                                </span>
+                              )}
+                              {prod.quickCode && (
+                                <span className="text-[8.5px] font-mono font-bold text-amber-400 bg-amber-400/10 px-1 py-0.2 rounded">
+                                  ⚡{prod.quickCode}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <span className="font-mono font-black text-sm text-emerald-400 shrink-0">
+                            {formatCurrency(prod.price)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">
+                          {existingInQuote ? (
+                            <span className="text-[10px] font-black font-mono text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-lg border border-amber-500/30">
+                              No orçamento: {existingInQuote.quantity} {existingInQuote.unit}
+                            </span>
+                          ) : (
+                            <span className="text-[9.5px] text-slate-500">
+                              Não adicionado
+                            </span>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleDirectAddProductToForm(prod)}
+                            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all flex items-center gap-1 shadow-md shadow-amber-500/20 active:scale-95"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>{existingInQuote ? "+1 Mais" : "Adicionar"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3.5 sm:p-4 bg-slate-950 border-t border-white/10 flex items-center justify-between gap-3">
+              <span className="text-xs text-slate-400 font-medium">
+                Total no orçamento agora: <strong className="text-white font-mono">{formItems.length} itens</strong> ({formatCurrency(formCalculations.total)})
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsCatalogModalOpen(false)}
+                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-black text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all"
+              >
+                Concluir e Voltar ao Orçamento
+              </button>
             </div>
 
           </div>

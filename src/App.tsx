@@ -193,6 +193,13 @@ import {
 } from "firebase/auth";
 import rawFirebaseConfig from "../firebase-applet-config.json";
 import { AgendaEvent } from "./types";
+import {
+  getScopedItem,
+  setScopedItem,
+  removeScopedItem,
+  clearLegacyUnscopedData,
+  getScopedStorageKey
+} from "./utils/userScopedStorage";
 
 // Reconstruct apiKey dynamically to bypass aggressive static scanners (e.g., Netlify) that block on "AIza" keys
 const customApiKey = (import.meta as any).env?.VITE_FIREBASE_API_KEY || ("AI" + "za" + "SyCYU87c6H-0ut6I2khbZWywcJmdxCD4kB8");
@@ -1623,7 +1630,7 @@ export default function App() {
 
   const customProductsList = useMemo(() => {
     try {
-      const saved = localStorage.getItem("pdv_custom_products");
+      const saved = getScopedItem("pdv_custom_products", auth?.currentUser?.uid);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -2924,14 +2931,8 @@ export default function App() {
   const [newCatalogShop, setNewCatalogShop] = useState("Todos");
   const [customCatalogProducts, setCustomCatalogProducts] = useState<any[]>(() => {
     try {
-      const saved = localStorage.getItem("custom_catalog_products");
-      return saved ? JSON.parse(saved) : [
-        { id: "p1", name: "Arroz Prato Fino 5kg", price: 29.90, category: "mercearia", shopName: "Guanabara" },
-        { id: "p2", name: "Feijão Preto Comum 1kg", price: 7.49, category: "mercearia", shopName: "Mundial" },
-        { id: "p3", name: "Leite Integral Elegê 1L", price: 4.89, category: "laticinios", shopName: "Assaí" },
-        { id: "p4", name: "Alcatra Bovina kg", price: 38.90, category: "açougue", shopName: "Atacadão" },
-        { id: "p5", name: "Açúcar Refinado União 1kg", price: 4.19, category: "mercearia", shopName: "Super Market" }
-      ];
+      const saved = getScopedItem("custom_catalog_products", auth.currentUser?.uid);
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
@@ -2939,7 +2940,7 @@ export default function App() {
 
   const saveCustomCatalogProducts = (items: any[]) => {
     setCustomCatalogProducts(items);
-    localStorage.setItem("custom_catalog_products", JSON.stringify(items));
+    setScopedItem("custom_catalog_products", JSON.stringify(items), user?.uid);
   };
 
   const handleAddCatalogProduct = (e: FormEvent) => {
@@ -3389,6 +3390,14 @@ export default function App() {
     localStorage.removeItem("pdv_gestao_user_staff_name");
     localStorage.removeItem("pdv_permissions");
     localStorage.removeItem("pdv_owner_pin");
+
+    // Reset company and catalog states so no business data leaks across users
+    setCustomCatalogProducts([]);
+    setStoreName("");
+    setStoreCnpjCpf("");
+    setStoreOwnerRg("");
+    setSelectedNiche("comercio_geral");
+    clearLegacyUnscopedData();
   };
 
   const handleEmailLogin = async (e: FormEvent) => {
@@ -5203,6 +5212,13 @@ export default function App() {
     } catch {
       setLocalHistory([]);
     }
+
+    try {
+      const savedCatalog = getScopedItem("custom_catalog_products", userId);
+      setCustomCatalogProducts(savedCatalog ? JSON.parse(savedCatalog) : []);
+    } catch {
+      setCustomCatalogProducts([]);
+    }
   };
 
   // Handle Auth State
@@ -5243,6 +5259,8 @@ export default function App() {
       try {
         if (currentUser) {
           try { localStorage.removeItem("explicit_logout"); } catch {}
+          // Clear legacy unscoped data from prior user to eliminate cross-contamination
+          clearLegacyUnscopedData();
           setUser(currentUser);
           try { saveUserProfileToFirestore(currentUser); } catch {}
           try {
@@ -5254,6 +5272,13 @@ export default function App() {
             console.warn("Aviso na sincronização da nuvem:", err);
             try { loadFromLocalStorage(currentUser.uid); } catch {}
           }
+          // Ensure scoped segment and company settings for this specific user
+          const userSegment = getScopedItem("pdv_selected_segment", currentUser.uid);
+          if (userSegment) setSelectedNiche(userSegment);
+          const userStore = getScopedItem("pdv_store_name", currentUser.uid);
+          if (userStore) setStoreName(userStore);
+          const userCnpj = getScopedItem("pdv_store_cnpj_cpf", currentUser.uid);
+          if (userCnpj) setStoreCnpjCpf(userCnpj);
         } else {
           const guestUser = {
             uid: "guest_visitor",
@@ -5297,7 +5322,7 @@ export default function App() {
       const excelSaved = localStorage.getItem(`notepad_excel_rows${suffix}`);
       const localExcelRows = excelSaved ? JSON.parse(excelSaved) : [];
 
-      const catalogProductsSaved = localStorage.getItem("custom_catalog_products");
+      const catalogProductsSaved = getScopedItem("custom_catalog_products", userId);
       const localCatalogProducts = catalogProductsSaved ? JSON.parse(catalogProductsSaved) : [];
 
       let localMasterPinProfile: any = null;
@@ -5434,7 +5459,7 @@ export default function App() {
           localStorage.setItem(`notepad_super_list_data${suffix}`, JSON.stringify(data.superListData || {}));
           localStorage.setItem(`notepad_excel_rows${suffix}`, JSON.stringify(data.excelRows || []));
           if (data.customCatalogProducts !== undefined) {
-            localStorage.setItem("custom_catalog_products", JSON.stringify(data.customCatalogProducts));
+            setScopedItem("custom_catalog_products", JSON.stringify(data.customCatalogProducts), userId);
           }
           
           setLastModifiedAt(cloudTime);
@@ -5537,7 +5562,7 @@ export default function App() {
           localStorage.setItem(`notepad_super_list_data${suffix}`, JSON.stringify(data.superListData || {}));
           localStorage.setItem(`notepad_excel_rows${suffix}`, JSON.stringify(data.excelRows || []));
           if (data.customCatalogProducts !== undefined) {
-            localStorage.setItem("custom_catalog_products", JSON.stringify(data.customCatalogProducts));
+            setScopedItem("custom_catalog_products", JSON.stringify(data.customCatalogProducts), user.uid);
           }
         } else {
           loadFromLocalStorage(user.uid);
@@ -10380,6 +10405,27 @@ export default function App() {
                     <span>Orçamentos (Notinhas) 📄</span>
                   </div>
                 </button>
+
+                {/* 10. PASTA DE CUPONS & NOTINHAS (HISTÓRICO PERMANENTE) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPdvCheckoutOnly(false);
+                    setPdvActiveSubTab("cupons");
+                    handleSetNotepadMode("pdv");
+                  }}
+                  className={`flex-1 min-w-[170px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center ${
+                    notepadMode === "pdv" && pdvActiveSubTab === "cupons"
+                      ? "bg-amber-500 text-slate-950 border-2 border-amber-300 shadow-lg scale-[1.02]"
+                      : "bg-slate-900/60 hover:bg-slate-900/90 border border-amber-500/20 text-amber-300 hover:text-white"
+                  }`}
+                  title="Pasta de Arquivos: Todas as notinhas e cupons emitidos ficam gravados permanentemente para reimprimir quantas vezes quiser"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Folder className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Pasta de Cupons 📂🧾</span>
+                  </div>
+                </button>
               </div>
             </div>
             )}
@@ -10783,6 +10829,7 @@ export default function App() {
                       className="p-4 sm:p-6 bg-slate-900 border border-white/5 rounded-3xl min-h-[75vh] pb-36 text-slate-100 font-sans text-left"
                     >
                       <OrcamentosModule
+                        userId={user?.uid}
                         customProducts={customProductsList}
                         formatCurrency={formatCurrency}
                         showNotification={showNotification}

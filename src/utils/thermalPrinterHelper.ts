@@ -1,4 +1,5 @@
 import { PDVTransaction } from "../components/PDVModule";
+import { loadCompanyProfile } from "./companyProfile";
 
 export interface PrinterConfig {
   printerType: "58mm" | "80mm" | "A4";
@@ -14,7 +15,23 @@ export interface PrinterConfig {
   storeCnpjCpf: string;
   storePhone?: string;
   storeAddress?: string;
+  storeWhatsapp?: string;
+  storeInstagram?: string;
+  storeFacebook?: string;
+  storeWebsite?: string;
+  storeEmail?: string;
   receiptFooterMsg: string;
+
+  // Opções de exibição de dados da empresa na notinha (Sim / Não)
+  showNameOnReceipt?: boolean;
+  showCnpjOnReceipt?: boolean;
+  showPhoneOnReceipt?: boolean;
+  showWhatsappOnReceipt?: boolean;
+  showInstagramOnReceipt?: boolean;
+  showFacebookOnReceipt?: boolean;
+  showWebsiteOnReceipt?: boolean;
+  showEmailOnReceipt?: boolean;
+  showAddressOnReceipt?: boolean;
 }
 
 export const DEFAULT_PRINTER_CONFIG: PrinterConfig = {
@@ -31,14 +48,52 @@ export const DEFAULT_PRINTER_CONFIG: PrinterConfig = {
   storeCnpjCpf: "",
   storePhone: "",
   storeAddress: "",
-  receiptFooterMsg: "Obrigado pela preferência! Volte sempre! 🛒✨"
+  storeWhatsapp: "",
+  storeInstagram: "",
+  storeFacebook: "",
+  storeWebsite: "",
+  storeEmail: "",
+  receiptFooterMsg: "Obrigado pela preferência! Volte sempre! 🛒✨",
+  showNameOnReceipt: true,
+  showCnpjOnReceipt: true,
+  showPhoneOnReceipt: true,
+  showWhatsappOnReceipt: true,
+  showInstagramOnReceipt: true,
+  showFacebookOnReceipt: false,
+  showWebsiteOnReceipt: true,
+  showEmailOnReceipt: false,
+  showAddressOnReceipt: true,
 };
 
 export function loadPrinterConfig(): PrinterConfig {
+  const company = loadCompanyProfile();
+
   try {
     const saved = localStorage.getItem("pdv_printer_full_config");
     if (saved) {
-      return { ...DEFAULT_PRINTER_CONFIG, ...JSON.parse(saved) };
+      const parsed = JSON.parse(saved);
+      return {
+        ...DEFAULT_PRINTER_CONFIG,
+        ...parsed,
+        storeName: parsed.storeName || company.name || localStorage.getItem("pdv_store_name") || "",
+        storeCnpjCpf: parsed.storeCnpjCpf || company.cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "",
+        storePhone: parsed.storePhone || company.phone || localStorage.getItem("pdv_store_phone") || "",
+        storeAddress: parsed.storeAddress || company.address || localStorage.getItem("pdv_store_address") || "",
+        storeWhatsapp: parsed.storeWhatsapp || company.whatsapp || localStorage.getItem("pdv_store_whatsapp") || "",
+        storeInstagram: parsed.storeInstagram || company.instagram || localStorage.getItem("pdv_store_instagram") || "",
+        storeFacebook: parsed.storeFacebook || company.facebook || localStorage.getItem("pdv_store_facebook") || "",
+        storeWebsite: parsed.storeWebsite || company.website || localStorage.getItem("pdv_store_website") || "",
+        storeEmail: parsed.storeEmail || company.email || localStorage.getItem("pdv_store_email") || "",
+        showNameOnReceipt: parsed.showNameOnReceipt !== undefined ? parsed.showNameOnReceipt : company.showNameOnReceipt,
+        showCnpjOnReceipt: parsed.showCnpjOnReceipt !== undefined ? parsed.showCnpjOnReceipt : company.showCnpjOnReceipt,
+        showPhoneOnReceipt: parsed.showPhoneOnReceipt !== undefined ? parsed.showPhoneOnReceipt : company.showPhoneOnReceipt,
+        showWhatsappOnReceipt: parsed.showWhatsappOnReceipt !== undefined ? parsed.showWhatsappOnReceipt : company.showWhatsappOnReceipt,
+        showInstagramOnReceipt: parsed.showInstagramOnReceipt !== undefined ? parsed.showInstagramOnReceipt : company.showInstagramOnReceipt,
+        showFacebookOnReceipt: parsed.showFacebookOnReceipt !== undefined ? parsed.showFacebookOnReceipt : company.showFacebookOnReceipt,
+        showWebsiteOnReceipt: parsed.showWebsiteOnReceipt !== undefined ? parsed.showWebsiteOnReceipt : company.showWebsiteOnReceipt,
+        showEmailOnReceipt: parsed.showEmailOnReceipt !== undefined ? parsed.showEmailOnReceipt : company.showEmailOnReceipt,
+        showAddressOnReceipt: parsed.showAddressOnReceipt !== undefined ? parsed.showAddressOnReceipt : company.showAddressOnReceipt,
+      };
     }
   } catch (e) {
     console.warn("Erro ao carregar pdv_printer_full_config:", e);
@@ -56,11 +111,25 @@ export function loadPrinterConfig(): PrinterConfig {
     printTwoCopies: localStorage.getItem("pdv_printer_two_copies") === "true",
     showQrCode: localStorage.getItem("pdv_printer_show_qrcode") !== "false",
     autoPrintOnSale: localStorage.getItem("pdv_printer_auto_print_on_sale") === "true",
-    storeName: localStorage.getItem("pdv_store_custom_name") || "",
-    storeCnpjCpf: localStorage.getItem("pdv_store_cnpj_cpf") || "",
-    storePhone: localStorage.getItem("pdv_store_phone") || "",
-    storeAddress: localStorage.getItem("pdv_store_address") || "",
-    receiptFooterMsg: localStorage.getItem("pdv_receipt_footer_msg") || DEFAULT_PRINTER_CONFIG.receiptFooterMsg
+    storeName: company.name || localStorage.getItem("pdv_store_name") || "",
+    storeCnpjCpf: company.cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "",
+    storePhone: company.phone || localStorage.getItem("pdv_store_phone") || "",
+    storeAddress: company.address || localStorage.getItem("pdv_store_address") || "",
+    storeWhatsapp: company.whatsapp || localStorage.getItem("pdv_store_whatsapp") || "",
+    storeInstagram: company.instagram || localStorage.getItem("pdv_store_instagram") || "",
+    storeFacebook: company.facebook || localStorage.getItem("pdv_store_facebook") || "",
+    storeWebsite: company.website || localStorage.getItem("pdv_store_website") || "",
+    storeEmail: company.email || localStorage.getItem("pdv_store_email") || "",
+    receiptFooterMsg: localStorage.getItem("pdv_receipt_footer_msg") || DEFAULT_PRINTER_CONFIG.receiptFooterMsg,
+    showNameOnReceipt: company.showNameOnReceipt,
+    showCnpjOnReceipt: company.showCnpjOnReceipt,
+    showPhoneOnReceipt: company.showPhoneOnReceipt,
+    showWhatsappOnReceipt: company.showWhatsappOnReceipt,
+    showInstagramOnReceipt: company.showInstagramOnReceipt,
+    showFacebookOnReceipt: company.showFacebookOnReceipt,
+    showWebsiteOnReceipt: company.showWebsiteOnReceipt,
+    showEmailOnReceipt: company.showEmailOnReceipt,
+    showAddressOnReceipt: company.showAddressOnReceipt,
   };
 }
 
@@ -184,12 +253,19 @@ export function buildThermalReceiptHtml(params: {
         <!-- Header -->
         <div style="text-align: center; margin-bottom: 4px;">
           ${copyLabel ? `<div style="display: inline-block; padding: 1px 6px; border: 1px solid #000; font-weight: ${boldWeight}; font-size: ${fontSmallPx}px; text-transform: uppercase; margin-bottom: 3px;">${copyLabel}</div>` : ''}
-          <div style="font-size: ${fontHeaderPx}px; font-weight: ${boldWeight}; line-height: 1.2; text-transform: uppercase;">
-            ${storeTitle}
-          </div>
-          ${storeCnpj ? `<div style="font-size: ${fontSmallPx}px; font-weight: ${contrastWeight}; margin-top: 2px;">CNPJ/CPF: ${storeCnpj}</div>` : ''}
-          ${storeAddr ? `<div style="font-size: ${fontSmallPx}px; margin-top: 1px;">${storeAddr}</div>` : ''}
-          ${storePhone ? `<div style="font-size: ${fontSmallPx}px; margin-top: 1px;">TEL: ${storePhone}</div>` : ''}
+          ${config.showNameOnReceipt !== false && storeTitle ? `
+            <div style="font-size: ${fontHeaderPx}px; font-weight: ${boldWeight}; line-height: 1.2; text-transform: uppercase;">
+              ${storeTitle}
+            </div>
+          ` : ''}
+          ${config.showCnpjOnReceipt !== false && storeCnpj ? `<div style="font-size: ${fontSmallPx}px; font-weight: ${contrastWeight}; margin-top: 2px;">CNPJ/CPF: ${storeCnpj}</div>` : ''}
+          ${config.showAddressOnReceipt !== false && storeAddr ? `<div style="font-size: ${fontSmallPx}px; margin-top: 1px;">END: ${storeAddr}</div>` : ''}
+          ${config.showPhoneOnReceipt !== false && storePhone ? `<div style="font-size: ${fontSmallPx}px; margin-top: 1px;">TEL: ${storePhone}</div>` : ''}
+          ${config.showWhatsappOnReceipt !== false && config.storeWhatsapp ? `<div style="font-size: ${fontSmallPx}px; margin-top: 1px;">WHATSAPP: ${config.storeWhatsapp}</div>` : ''}
+          ${config.showInstagramOnReceipt !== false && config.storeInstagram ? `<div style="font-size: ${fontSmallPx}px; margin-top: 1px;">INSTAGRAM: ${config.storeInstagram}</div>` : ''}
+          ${config.showFacebookOnReceipt && config.storeFacebook ? `<div style="font-size: ${fontSmallPx}px; margin-top: 1px;">FACEBOOK: ${config.storeFacebook}</div>` : ''}
+          ${config.showWebsiteOnReceipt !== false && config.storeWebsite ? `<div style="font-size: ${fontSmallPx}px; margin-top: 1px;">SITE: ${config.storeWebsite}</div>` : ''}
+          ${config.showEmailOnReceipt && config.storeEmail ? `<div style="font-size: ${fontSmallPx}px; margin-top: 1px;">E-MAIL: ${config.storeEmail}</div>` : ''}
           <div style="font-size: ${fontSmallPx}px; font-weight: ${boldWeight}; margin-top: 3px; text-transform: uppercase;">
             ${isTest ? '*** COMPROVANTE DE TESTE DA BOBINA ***' : 'CUPOM DE VENDA / REGISTRO COMERCIAL'}
           </div>
@@ -510,17 +586,37 @@ export async function printViaBluetoothEscPos(
 
     // Align Center: ESC a 1
     chunks.push(new Uint8Array([0x1B, 0x61, 0x01]));
-    // Double height/width header: ESC ! 0x30
-    chunks.push(new Uint8Array([0x1B, 0x21, 0x30]));
-    chunks.push(encoder.encode((config.storeName || "ESTABELECIMENTO").toUpperCase() + "\n"));
+    if (config.showNameOnReceipt !== false) {
+      // Double height/width header: ESC ! 0x30
+      chunks.push(new Uint8Array([0x1B, 0x21, 0x30]));
+      chunks.push(encoder.encode((config.storeName || "ESTABELECIMENTO").toUpperCase() + "\n"));
+    }
 
     // Reset font: ESC ! 0x00
     chunks.push(new Uint8Array([0x1B, 0x21, 0x00]));
-    if (config.storeCnpjCpf) {
+    if (config.showCnpjOnReceipt !== false && config.storeCnpjCpf) {
       chunks.push(encoder.encode(`CNPJ/CPF: ${config.storeCnpjCpf}\n`));
     }
-    if (config.storePhone) {
+    if (config.showAddressOnReceipt !== false && config.storeAddress) {
+      chunks.push(encoder.encode(`END: ${config.storeAddress}\n`));
+    }
+    if (config.showPhoneOnReceipt !== false && config.storePhone) {
       chunks.push(encoder.encode(`TEL: ${config.storePhone}\n`));
+    }
+    if (config.showWhatsappOnReceipt !== false && config.storeWhatsapp) {
+      chunks.push(encoder.encode(`WHATSAPP: ${config.storeWhatsapp}\n`));
+    }
+    if (config.showInstagramOnReceipt !== false && config.storeInstagram) {
+      chunks.push(encoder.encode(`INSTA: ${config.storeInstagram}\n`));
+    }
+    if (config.showFacebookOnReceipt && config.storeFacebook) {
+      chunks.push(encoder.encode(`FACE: ${config.storeFacebook}\n`));
+    }
+    if (config.showWebsiteOnReceipt !== false && config.storeWebsite) {
+      chunks.push(encoder.encode(`SITE: ${config.storeWebsite}\n`));
+    }
+    if (config.showEmailOnReceipt && config.storeEmail) {
+      chunks.push(encoder.encode(`EMAIL: ${config.storeEmail}\n`));
     }
     chunks.push(encoder.encode("CUPOM DE VENDA / REGISTRO FISCAL\n"));
 

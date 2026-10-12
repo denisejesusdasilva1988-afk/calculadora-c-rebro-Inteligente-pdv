@@ -13,10 +13,13 @@ import {
   EyeOff,
   Sliders,
   ShieldAlert,
-  Printer
+  Printer,
+  Building2,
+  Receipt
 } from "lucide-react";
 import { getAuth, updatePassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
+import { CompanyProfileModal } from "./CompanyProfileModal";
 
 interface PDVSettingsProfileProps {
   storeName: string;
@@ -66,6 +69,7 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
   const [showNewPin, setShowNewPin] = useState(false);
 
   // Tools security lock form states
+  const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [lockCalcNotes, setLockCalcNotes] = useState<boolean>(() => {
     return localStorage.getItem("pdv_lock_calc_notes") === "true";
   });
@@ -277,9 +281,19 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
       
       {/* 1. Dados do Usuário */}
       <div className="bg-slate-950 p-4 rounded-xl border border-white/5 space-y-4">
-        <div className="flex items-center gap-2 border-b border-white/5 pb-2">
-          <User className="w-4 h-4 text-purple-400" />
-          <span className="text-[11.5px] font-black uppercase text-slate-300 font-sans">👤 Identificação do Proprietário & Negócio</span>
+        <div className="flex items-center justify-between border-b border-white/5 pb-2 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-purple-400" />
+            <span className="text-[11.5px] font-black uppercase text-slate-300 font-sans">👤 Identificação do Proprietário & Negócio</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsCompanyModalOpen(true)}
+            className="px-3 py-1.5 bg-gradient-to-r from-orange-500/20 to-amber-500/20 hover:from-orange-500/30 border border-orange-500/40 rounded-xl text-[10px] font-black uppercase text-amber-300 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+          >
+            <Building2 className="w-3.5 h-3.5 text-orange-400" />
+            <span>Contatos da Notinha (Tel, WhatsApp, Redes) 🧾</span>
+          </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -848,6 +862,16 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
         </div>
       </div>
 
+      <CompanyProfileModal
+        isOpen={isCompanyModalOpen}
+        onClose={() => setIsCompanyModalOpen(false)}
+        userId={userId}
+        onSaved={(savedProfile) => {
+          setStoreName(savedProfile.name);
+          setStoreCnpjCpf(savedProfile.cnpjCpf);
+        }}
+        showNotification={showNotification}
+      />
     </div>
   );
 };

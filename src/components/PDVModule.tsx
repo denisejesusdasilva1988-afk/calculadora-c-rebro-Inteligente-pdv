@@ -24,6 +24,8 @@ import {
   MapPin,
   Edit2,
   FileText, 
+  Folder,
+  Receipt,
   ArrowUpRight, 
   ArrowDownRight,
   ClipboardEdit,
@@ -114,6 +116,7 @@ import { CadastroProdutosModule } from "./CadastroProdutosModule";
 import { FichaTecnicaModule } from "./FichaTecnicaModule";
 import { ClientesFieisModule } from "./ClientesFieisModule";
 import { OrcamentosModule } from "./OrcamentosModule";
+import { PastaCuponsModule } from "./PastaCuponsModule";
 import { ContabilidadeTributosModule } from "./ContabilidadeTributosModule";
 import { PDVPricingCalculator } from "./PDVPricingCalculator";
 import { PDVSettingsProfile } from "./PDVSettingsProfile";
@@ -135,6 +138,12 @@ import {
   printViaBluetoothEscPos 
 } from "../utils/thermalPrinterHelper";
 import { OperationType, FirestoreErrorInfo } from "../types";
+import {
+  getScopedItem,
+  setScopedItem,
+  removeScopedItem,
+  clearLegacyUnscopedData
+} from "../utils/userScopedStorage";
 
 // Self-contained lightweight debounce function
 function debounce<T extends (...args: any[]) => void>(func: T, wait: number) {
@@ -1043,7 +1052,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 }) => {
   // --- Persistent States (with local fallbacks) ---
   const [localIsNicheLocked, setLocalIsNicheLocked] = useState<boolean>(() => {
-    try { return localStorage.getItem("pdv_niche_locked") === "true"; } catch { return false; }
+    try { return getScopedItem("pdv_niche_locked", userId) === "true"; } catch { return false; }
   });
   const isNicheLocked = propIsNicheLocked !== undefined ? propIsNicheLocked : localIsNicheLocked;
 
@@ -1053,7 +1062,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     } else {
       setLocalIsNicheLocked(prev => {
         const next = !prev;
-        localStorage.setItem("pdv_niche_locked", next ? "true" : "false");
+        setScopedItem("pdv_niche_locked", next ? "true" : "false", userId);
         showNotification(
           next
             ? `Segmento fixado com sucesso! Não mudará por acidente. 🔒`
@@ -1063,10 +1072,10 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         return next;
       });
     }
-  }, [propOnToggleNicheLock, showNotification]);
+  }, [propOnToggleNicheLock, showNotification, userId]);
   const [transactions, setTransactions] = useState<PDVTransaction[]>(() => {
     try {
-      const saved = localStorage.getItem("pdv_transactions");
+      const saved = getScopedItem("pdv_transactions", userId);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -1075,7 +1084,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   const [initialCash, setInitialCash] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem("pdv_initial_cash");
+      const saved = getScopedItem("pdv_initial_cash", userId);
       return saved ? parseFloat(saved) : 0;
     } catch {
       return 0;
@@ -1084,7 +1093,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem("pdv_is_cash_register_open");
+      const saved = getScopedItem("pdv_is_cash_register_open", userId);
       return saved === "true";
     } catch {
       return false;
@@ -1092,7 +1101,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   });
 
   const [localSelectedNiche, setLocalSelectedNiche] = useState<string>(() => {
-    return localStorage.getItem("pdv_selected_segment") || "comercio_geral";
+    return getScopedItem("pdv_selected_segment", userId) || "comercio_geral";
   });
 
   const selectedNiche = propSelectedNiche !== undefined ? propSelectedNiche : localSelectedNiche;
@@ -1115,7 +1124,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   const [customProducts, setCustomProducts] = useState<CustomProduct[]>(() => {
     try {
-      const saved = localStorage.getItem("pdv_custom_products");
+      const saved = getScopedItem("pdv_custom_products", userId);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -1125,7 +1134,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   // --- Product Stock and Inventory Data ---
   const [productStockData, setProductStockData] = useState<Record<string, { costPrice?: number; stockQty: number; minStockAlert?: number; salesCount?: number }>>(() => {
     try {
-      const saved = localStorage.getItem("pdv_product_stock_data");
+      const saved = getScopedItem("pdv_product_stock_data", userId);
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
@@ -1135,7 +1144,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   // --- Custom Niches State ---
   const [localCustomNiches, setLocalCustomNiches] = useState<{ id: string; name: string; label: string }[]>(() => {
     try {
-      const saved = localStorage.getItem("pdv_custom_niches");
+      const saved = getScopedItem("pdv_custom_niches", userId);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -1162,18 +1171,18 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   // --- Multi-PDV Feedback & Advanced Feature States ---
   const [surchargeClientForFees, setSurchargeClientForFees] = useState<boolean>(() => {
-    return localStorage.getItem("pdv_surcharge_client_for_fees") === "true";
+    return getScopedItem("pdv_surcharge_client_for_fees", userId) === "true";
   });
 
   const [allowRetroactiveSales, setAllowRetroactiveSales] = useState<boolean>(() => {
-    return localStorage.getItem("pdv_allow_retroactive_sales") === "true";
+    return getScopedItem("pdv_allow_retroactive_sales", userId) === "true";
   });
 
   const [fiadoSortMode, setFiadoSortMode] = useState<"name" | "balance">("name");
 
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(() => {
     try {
-      const saved = localStorage.getItem("pdv_raw_materials");
+      const saved = getScopedItem("pdv_raw_materials", userId);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -1182,7 +1191,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   const [productRecipes, setProductRecipes] = useState<Record<string, RecipeItem[]>>(() => {
     try {
-      const saved = localStorage.getItem("pdv_product_recipes");
+      const saved = getScopedItem("pdv_product_recipes", userId);
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
@@ -1191,7 +1200,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   const [deliveryOrders, setDeliveryOrders] = useState<DeliveryOrder[]>(() => {
     try {
-      const saved = localStorage.getItem("pdv_delivery_orders");
+      const saved = getScopedItem("pdv_delivery_orders", userId);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -1206,7 +1215,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     address?: string;
   }>>(() => {
     try {
-      const saved = localStorage.getItem("pdv_client_profiles");
+      const saved = getScopedItem("pdv_client_profiles", userId);
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
@@ -1222,8 +1231,11 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   // "estoque" index = Smart Stock Inventory Control & AI Analysis
   const [pricingTab, setPricingTab] = useState<"calculadora" | "ficha">("calculadora");
   const [orcamentoSeedItems, setOrcamentoSeedItems] = useState<{ name: string; price: number; quantity: number; unit?: string }[] | undefined>(undefined);
-  const [opMode, setOpMode] = useState<"venda" | "manual" | "estoque" | "relatorios" | "cadastro_produtos" | "ficha_tecnica" | "clientes" | "proprietario" | "fiado" | "taxas" | "impressoras" | "orcamentos">(() => {
+  const [opMode, setOpMode] = useState<"venda" | "manual" | "estoque" | "relatorios" | "cadastro_produtos" | "ficha_tecnica" | "clientes" | "proprietario" | "fiado" | "taxas" | "impressoras" | "orcamentos" | "cupons">(() => {
     if (onlyCheckout) return "venda";
+    if (activeSubTab === "cupons" || activeSubTab === "notinhas" || activeSubTab === "recibos") {
+      return "cupons";
+    }
     if (activeSubTab === "orcamentos" || activeSubTab === "orcamento") {
       return "orcamentos";
     }
@@ -2204,6 +2216,8 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         setOpMode("relatorios");
       } else if (activeSubTab === "orcamentos" || activeSubTab === "orcamento") {
         setOpMode("orcamentos");
+      } else if (activeSubTab === "cupons" || activeSubTab === "notinhas" || activeSubTab === "recibos") {
+        setOpMode("cupons");
       } else if (activeSubTab === "fiado") {
         setMentorshipTab("fiado");
         setOpMode("fiado");
@@ -3693,18 +3707,18 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     staff = staffPins,
     perms = pdvPermissions
   ) => {
-    localStorage.setItem("pdv_transactions", JSON.stringify(txs));
-    localStorage.setItem("pdv_initial_cash", cash.toString());
-    localStorage.setItem("pdv_custom_products", JSON.stringify(prods));
-    localStorage.setItem("pdv_selected_segment", niche);
-    localStorage.setItem("pdv_product_overrides", JSON.stringify(overrides));
-    localStorage.setItem("pdv_custom_niches", JSON.stringify(cniches));
-    localStorage.setItem("pdv_product_stock_data", JSON.stringify(stock));
-    localStorage.setItem("pdv_owner_pin", pin);
-    localStorage.setItem("pdv_security_active", secActive.toString());
-    localStorage.setItem("pdv_is_cash_register_open", isRegisterOpen ? "true" : "false");
-    localStorage.setItem("pdv_staff_pins", JSON.stringify(staff));
-    localStorage.setItem("pdv_permissions", JSON.stringify(perms));
+    setScopedItem("pdv_transactions", JSON.stringify(txs), userId);
+    setScopedItem("pdv_initial_cash", cash.toString(), userId);
+    setScopedItem("pdv_custom_products", JSON.stringify(prods), userId);
+    setScopedItem("pdv_selected_segment", niche, userId);
+    setScopedItem("pdv_product_overrides", JSON.stringify(overrides), userId);
+    setScopedItem("pdv_custom_niches", JSON.stringify(cniches), userId);
+    setScopedItem("pdv_product_stock_data", JSON.stringify(stock), userId);
+    setScopedItem("pdv_owner_pin", pin, userId);
+    setScopedItem("pdv_security_active", secActive.toString(), userId);
+    setScopedItem("pdv_is_cash_register_open", isRegisterOpen ? "true" : "false", userId);
+    setScopedItem("pdv_staff_pins", JSON.stringify(staff), userId);
+    setScopedItem("pdv_permissions", JSON.stringify(perms), userId);
   };
 
   // --- Fetch Cloud Data on Mount if Authenticated ---
@@ -3751,26 +3765,33 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
             cloudDeliveryOrders.length > 0 ||
             Object.keys(cloudClientProfiles).length > 0
           ) {
-            // Safely merge cloud products with locally saved products so newly registered products are never erased!
+            // Safely load only products that belong to THIS SPECIFIC authenticated account!
+            // NEVER merge legacy un-scoped local storage from a prior user!
             const localSavedProds: CustomProduct[] = (() => {
               try {
-                const s = localStorage.getItem("pdv_custom_products");
+                const s = getScopedItem("pdv_custom_products", userId);
                 return s ? JSON.parse(s) : [];
               } catch { return []; }
             })();
 
-            const mergedProdsMap = new Map<string, CustomProduct>();
-            localSavedProds.forEach(p => { if (p && p.id) mergedProdsMap.set(p.id, p); });
-            cloudProds.forEach(p => { if (p && p.id) mergedProdsMap.set(p.id, p); });
-            const finalProds = Array.from(mergedProdsMap.values());
+            // Cloud data is authoritative for this account.
+            let finalProds = cloudProds;
+            if (cloudProds.length === 0 && localSavedProds.length > 0) {
+              finalProds = localSavedProds;
+            } else if (cloudProds.length > 0 && localSavedProds.length > 0) {
+              const mergedProdsMap = new Map<string, CustomProduct>();
+              cloudProds.forEach(p => { if (p && p.id) mergedProdsMap.set(p.id, p); });
+              localSavedProds.forEach(p => { if (p && p.id && !mergedProdsMap.has(p.id)) mergedProdsMap.set(p.id, p); });
+              finalProds = Array.from(mergedProdsMap.values());
+            }
 
             const localSavedStock = (() => {
               try {
-                const s = localStorage.getItem("pdv_product_stock_data");
+                const s = getScopedItem("pdv_product_stock_data", userId);
                 return s ? JSON.parse(s) : {};
               } catch { return {}; }
             })();
-            const finalStock = { ...localSavedStock, ...cloudStock };
+            const finalStock = { ...cloudStock, ...localSavedStock };
 
             setTransactions(cloudTxs);
             setInitialCash(cloudCash);
@@ -3789,21 +3810,21 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
             setPdvPermissions(cloudPerms);
             if (cloudRawMaterials.length > 0) {
               setRawMaterials(cloudRawMaterials);
-              localStorage.setItem("pdv_raw_materials", JSON.stringify(cloudRawMaterials));
+              setScopedItem("pdv_raw_materials", JSON.stringify(cloudRawMaterials), userId);
             }
             if (Object.keys(cloudProductRecipes).length > 0) {
               setProductRecipes(cloudProductRecipes);
-              localStorage.setItem("pdv_product_recipes", JSON.stringify(cloudProductRecipes));
+              setScopedItem("pdv_product_recipes", JSON.stringify(cloudProductRecipes), userId);
             }
             if (cloudDeliveryOrders.length > 0) {
               setDeliveryOrders(cloudDeliveryOrders);
-              localStorage.setItem("pdv_delivery_orders", JSON.stringify(cloudDeliveryOrders));
+              setScopedItem("pdv_delivery_orders", JSON.stringify(cloudDeliveryOrders), userId);
             }
             if (Object.keys(cloudClientProfiles).length > 0) {
               setClientProfiles(cloudClientProfiles);
-              localStorage.setItem("pdv_client_profiles", JSON.stringify(cloudClientProfiles));
+              setScopedItem("pdv_client_profiles", JSON.stringify(cloudClientProfiles), userId);
             }
-            localStorage.setItem("pdv_reconciliation_logs", JSON.stringify(cloudReconciliations));
+            setScopedItem("pdv_reconciliation_logs", JSON.stringify(cloudReconciliations), userId);
             saveToLocalStorage(
               cloudTxs, 
               cloudCash, 
@@ -3819,7 +3840,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
               cloudPerms
             );
 
-            if (finalProds.length > cloudProds.length) {
+            if (finalProds.length > cloudProds.length && localSavedProds.length > 0) {
               pushToCloud(cloudTxs, cloudCash, finalProds, cloudOverrides, cloudNiches, finalStock, cloudOwnerPin, cloudSecurityActive, cloudReconciliations, cloudIsRegisterOpen, migratedStaff, cloudPerms);
             }
           }
@@ -3924,6 +3945,51 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
     debouncedPushToCloud();
   };
+
+  // --- SEGREGATION & CLEANUP HELPER (PURGE ITEMS FROM OTHER NICHES ACCIDENTALLY SYNCED) ---
+  const foreignProductsList = useMemo(() => {
+    return customProducts.filter(p => {
+      // If product has niche explicitly set and it does NOT match current selectedNiche
+      if (p.niche && p.niche !== selectedNiche) {
+        return true;
+      }
+      // If current niche is mechanic ('mecanico'), check for grocery/food products (e.g. manteiga, leite, arroz)
+      if (selectedNiche === "mecanico") {
+        const lowerName = p.name.toLowerCase();
+        const lowerCat = (p.category || "").toLowerCase();
+        const isGroceryWord = [
+          "manteiga", "leite", "feijão", "feijao", "arroz", "açúcar", "acucar",
+          "café", "cafe", "bolacha", "biscoito", "presunto", "queijo", "refrigerante",
+          "cerveja", "iogurte", "farinha", "óleo de soja", "oleo de soja", "macarrão", "macarrao"
+        ].some(w => lowerName.includes(w));
+        const isGroceryCat = [
+          "mercearia", "laticínios", "laticinios", "padaria", "açougue", "acougue",
+          "hortifrúti", "hortifruti", "bebidas", "confeitaria"
+        ].some(c => lowerCat.includes(c));
+        return isGroceryWord || isGroceryCat;
+      }
+      return false;
+    });
+  }, [customProducts, selectedNiche]);
+
+  const handlePurgeForeignProducts = useCallback(() => {
+    if (foreignProductsList.length === 0) {
+      showNotification("Nenhum item de outro segmento encontrado no estoque desta empresa.", "info");
+      return;
+    }
+    const foreignIds = new Set<string>(foreignProductsList.map(p => p.id));
+    const nextProds = customProducts.filter(p => !foreignIds.has(p.id));
+    const nextStock = { ...productStockData };
+    foreignIds.forEach((id: string) => {
+      delete nextStock[id];
+    });
+
+    setCustomProducts(nextProds);
+    setProductStockData(nextStock);
+    saveToLocalStorage(transactions, initialCash, nextProds, selectedNiche, productOverrides, customNiches, nextStock);
+    pushToCloud(transactions, initialCash, nextProds, productOverrides, customNiches, nextStock);
+    showNotification(`Sucesso! ${foreignProductsList.length} itens de outro ramo foram removidos deste cadastro (${selectedNiche.replace("_", " ").toUpperCase()}) com isolamento total! 🛡️🧹`, "success");
+  }, [foreignProductsList, customProducts, productStockData, transactions, initialCash, selectedNiche, productOverrides, customNiches, saveToLocalStorage, pushToCloud, showNotification]);
 
   // --- Portuguese Number Parser helper ---
   const parsePortugueseNumber = (valStr: string): number => {
@@ -6355,8 +6421,10 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       };
     });
     
-    // Produtos customizados cadastrados pelo lojista (ficam sempre preservados e visíveis)
-    const customs = customProducts.map(p => {
+    // Produtos customizados cadastrados pelo lojista (ficam estritamente separados por nicho)
+    const customs = customProducts
+      .filter(p => !p.niche || p.niche === selectedNiche)
+      .map(p => {
       const id = p.id;
       const override = productOverrides[id];
       const finalName = override ? override.name : p.name;
@@ -17490,6 +17558,33 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
         </div>
       </div>
 
+      {/* ISOLAMENTO DE DADOS E EMPRESAS: AVISO SE HOUVER PRODUTOS DE OUTRO NICHO/EMPRESA */}
+      {foreignProductsList.length > 0 && (
+        <div className="mb-4 max-w-4xl mx-auto w-full bg-amber-950/40 border border-amber-500/40 rounded-2xl p-4 text-amber-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xl text-left">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-amber-500/20 border border-amber-500/30 rounded-xl text-amber-400 shrink-0">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-amber-300">
+                Isolamento de Contas e Empresas ({foreignProductsList.length} itens de outro segmento detectados)
+              </p>
+              <p className="text-[11px] text-amber-200/90 mt-0.5 leading-relaxed">
+                Detectamos produtos que pertencem a outro segmento ({foreignProductsList.slice(0, 3).map(p => p.name).join(", ")}{foreignProductsList.length > 3 ? "..." : ""}). Clique abaixo para limpá-los e manter o estoque desta empresa ({selectedNiche.replace("_", " ").toUpperCase()}) 100% isolado e privativo!
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handlePurgeForeignProducts}
+            className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shrink-0 cursor-pointer flex items-center gap-1.5"
+          >
+            <Trash2 className="w-4 h-4" />
+            Remover Desta Empresa 🧹
+          </button>
+        </div>
+      )}
+
       {/* 3.5 OPERATIONAL MODE SWITCHER */}
       {!onlyCheckout && (
         <div className="mb-5 bg-slate-900 border border-white/10 rounded-2xl p-1.5 flex flex-wrap sm:flex-nowrap gap-1 max-w-3xl mx-auto w-full shadow-xl">
@@ -17640,6 +17735,23 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
           </button>
           <button
             type="button"
+            id="tab-mode-cupons"
+            onClick={() => {
+              setOpMode("cupons");
+              if (onSubTabChange) onSubTabChange("cupons");
+            }}
+            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              opMode === "cupons"
+                ? "bg-amber-500 text-slate-950 font-black border border-amber-300 shadow-lg shadow-amber-500/25"
+                : "text-amber-300 hover:text-white hover:bg-amber-950/40 border border-amber-500/20"
+            }`}
+            title="Pasta de Arquivos de Cupons e Notinhas: Todos os comprovantes gravados para reimprimir quantas vezes quiser"
+          >
+            <Folder className="w-4 h-4 text-amber-400" />
+            <span>Pasta de Cupons 📂🧾</span>
+          </button>
+          <button
+            type="button"
             id="tab-mode-impressoras"
             onClick={() => {
               setOpMode("impressoras");
@@ -17729,6 +17841,12 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               }}
               selectedNiche={selectedNiche}
               customNiches={customNiches}
+              userId={userId}
+              userEmail={getAuth().currentUser?.email || undefined}
+              storeName={storeName}
+              onPurgeForeignProducts={handlePurgeForeignProducts}
+              foreignProductsCount={foreignProductsList.length}
+              foreignProductsSampleNames={foreignProductsList.slice(0, 3).map(p => p.name)}
               formatCurrency={formatCurrency}
               showNotification={showNotification}
             />
@@ -17754,6 +17872,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
         ) : opMode === "orcamentos" ? (
           <div className="lg:col-span-12 w-full text-left">
             <OrcamentosModule
+              userId={userId}
               customProducts={customProducts}
               formatCurrency={formatCurrency}
               showNotification={showNotification}
@@ -17767,13 +17886,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               }}
               onLoadIntoCart={(items, customerName) => {
                 items.forEach(it => {
-                  handleDirectAddToCart({
-                    id: "orc_item_" + Date.now() + "_" + Math.random(),
-                    name: it.name,
-                    price: it.price,
-                    unit: it.unit || "un",
-                    quantity: it.quantity
-                  });
+                  handleAddToCart(it.name, it.price, undefined, { unit: it.unit || "un" }, it.quantity);
                 });
                 if (customerName) {
                   setClientName(customerName);
@@ -17785,6 +17898,32 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               onBackToPDV={() => {
                 setOpMode("venda");
                 if (onSubTabChange) onSubTabChange(null);
+              }}
+            />
+          </div>
+        ) : opMode === "cupons" ? (
+          <div className="lg:col-span-12 w-full text-left">
+            <PastaCuponsModule
+              transactions={transactions}
+              formatCurrency={formatCurrency}
+              showNotification={showNotification}
+              storeName={storeName || "Meu Estabelecimento"}
+              storeCnpjCpf={storeCnpjCpf || ""}
+              onBackToPDV={() => {
+                setOpMode("venda");
+                if (onSubTabChange) onSubTabChange(null);
+              }}
+              onReopenInCart={(reopenItems) => {
+                setCart(reopenItems.map((it, idx) => ({
+                  id: "reopen_" + Date.now() + "_" + idx,
+                  name: it.name,
+                  price: it.price,
+                  quantity: it.quantity,
+                  unit: it.unit || "un"
+                })));
+                setOpMode("venda");
+                if (onSubTabChange) onSubTabChange(null);
+                showNotification(`${reopenItems.length} itens do cupom recarregados no carrinho do PDV! 🛒`, "success");
               }}
             />
           </div>
@@ -18943,8 +19082,21 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     <span className="text-[8.5px] font-mono text-slate-500 uppercase mt-0.5 block">{cart.length} item(ns) selecionado(s)</span>
                   </div>
                 </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpMode("cupons");
+                      if (onSubTabChange) onSubTabChange("cupons");
+                    }}
+                    className="text-[9px] font-black uppercase tracking-wider text-amber-300 hover:text-white bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 rounded-lg px-2 py-1 cursor-pointer flex items-center gap-1"
+                    title="Abrir Pasta de Arquivos com todas as notinhas e cupons emitidos para reimprimir"
+                  >
+                    <Folder className="w-3 h-3 text-amber-400" />
+                    <span>Cupons 📂</span>
+                  </button>
                 {cart.length > 0 && (
-                  <div className="flex items-center gap-1.5">
+                  <>
                     <button 
                       type="button"
                       onClick={() => {
@@ -18972,8 +19124,9 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     >
                       Zerar 🧹
                     </button>
-                  </div>
+                  </>
                 )}
+                </div>
               </div>
 
               {/* Added items index */}
@@ -19020,18 +19173,18 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                       <div className="flex items-center gap-2">
                         {/* Qty adjusters */}
-                        <div className="flex items-center bg-slate-900 border border-white/10 rounded-lg overflow-hidden">
+                        <div className="flex items-center bg-slate-900 border border-white/20 rounded-lg overflow-hidden shrink-0 shadow-inner">
                           <button
                             type="button"
                             onClick={() => handleUpdateCartQty(item.id, -1)}
-                            className="p-1 text-slate-400 hover:text-white hover:bg-white/[0.05]"
+                            className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 active:scale-90 transition-all cursor-pointer shrink-0"
                             title="Diminuir 1"
                           >
                             <Minus className="w-3 h-3" />
                           </button>
                           <span 
                             onClick={() => handleOpenEditCartItem(item)}
-                            className="px-2 font-mono text-[12.5px] font-bold text-slate-100 hover:text-amber-400 cursor-pointer underline decoration-dotted" 
+                            className="px-2 font-mono text-[12px] font-black text-slate-100 hover:text-amber-400 cursor-pointer underline decoration-dotted whitespace-nowrap text-center min-w-[40px]" 
                             title="Clique para digitar a quantidade exata (ex: 20 pães ou 0,800 kg)"
                           >
                             {item.quantity} {item.unit || "un"}
@@ -19039,10 +19192,10 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                           <button
                             type="button"
                             onClick={() => handleUpdateCartQty(item.id, 1)}
-                            className="p-1 text-slate-400 hover:text-white hover:bg-white/[0.05]"
+                            className="w-7 h-7 flex items-center justify-center text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500 hover:text-slate-950 active:scale-90 transition-all cursor-pointer shrink-0 border-l border-white/10"
                             title="Aumentar 1"
                           >
-                            <Plus className="w-3 h-3" />
+                            <Plus className="w-3 h-3 font-bold" />
                           </button>
                         </div>
 

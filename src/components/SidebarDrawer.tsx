@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { CompanyProfileModal } from "./CompanyProfileModal";
+import { loadCompanyProfile } from "../utils/companyProfile";
 import {
   Store,
   Tag,
@@ -148,6 +150,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   const [pinEmail, setPinEmail] = useState(() => { try { return localStorage.getItem("pdv_session_email") || ""; } catch { return ""; } });
   const [pinRole, setPinRole] = useState<"proprietario" | "gerente" | "caixa" | "funcionario">("proprietario");
   const [isEditingCompany, setIsEditingCompany] = useState(false);
+  const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [companyName, setCompanyName] = useState(storeName);
   const [companyCnpjCpf, setCompanyCnpjCpf] = useState(storeCnpjCpf);
 
@@ -815,6 +818,15 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                         <p className="text-[10.5px] font-bold text-emerald-200/90 truncate max-w-full font-mono mt-0.5">
                           ✉️ {user?.email || "visitante@cerebro.com"}
                         </p>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsCompanyModalOpen(true)}
+                          className="w-full mt-2 py-2 px-2.5 bg-gradient-to-r from-orange-500/15 to-amber-500/15 hover:from-orange-500/25 hover:to-amber-500/25 border border-orange-500/30 rounded-xl text-[10px] font-black uppercase text-amber-300 flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+                        >
+                          <Building2 className="w-3.5 h-3.5 text-orange-400" />
+                          <span>Contatos & Notinha (WhatsApp, Tel, Redes) 🧾</span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1104,9 +1116,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
                   <button
                     onClick={() => {
+                      onClose();
                       if (onOpenPaywall) onOpenPaywall("Planos & Preços", currentTier as any);
                     }}
-                    className="w-full py-2 px-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation active:scale-95"
                   >
                     <span>Ver Planos & Preços (R$ 0 | R$ 14,90 | R$ 29,90 | R$ 39,90)</span>
                     <ChevronRight className="w-3.5 h-3.5" />
@@ -2023,6 +2036,20 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               </div>
             </div>
           )}
+
+          {/* Modal Completo de Cadastro da Empresa e Notinha */}
+          <CompanyProfileModal
+            isOpen={isCompanyModalOpen}
+            onClose={() => setIsCompanyModalOpen(false)}
+            userId={user?.uid}
+            onSaved={(savedProfile) => {
+              if (setStoreName) setStoreName(savedProfile.name);
+              if (setStoreCnpjCpf) setStoreCnpjCpf(savedProfile.cnpjCpf);
+              setCompanyName(savedProfile.name);
+              setCompanyCnpjCpf(savedProfile.cnpjCpf);
+            }}
+            showNotification={showNotification}
+          />
         </>
   );
 };

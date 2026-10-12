@@ -36,9 +36,12 @@ import {
   Grid,
   Filter,
   CheckSquare,
-  Square
+  Square,
+  ShieldCheck,
+  ShieldAlert
 } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import { getScopedItem, setScopedItem } from "../utils/userScopedStorage";
 
 export interface CustomProduct {
   id: string;
@@ -395,6 +398,12 @@ interface CadastroProdutosModuleProps {
   customNiches: { id: string; name: string; label: string }[];
   formatCurrency: (value: number) => string;
   showNotification: (message: string, type: "success" | "error" | "info" | "warning") => void;
+  userId?: string;
+  userEmail?: string;
+  storeName?: string;
+  onPurgeForeignProducts?: () => void;
+  foreignProductsCount?: number;
+  foreignProductsSampleNames?: string[];
 }
 
 const DEFAULT_EMOJIS = [
@@ -493,14 +502,20 @@ export function CadastroProdutosModule({
   selectedNiche,
   customNiches,
   formatCurrency,
-  showNotification
+  showNotification,
+  userId,
+  userEmail,
+  storeName,
+  onPurgeForeignProducts,
+  foreignProductsCount = 0,
+  foreignProductsSampleNames = []
 }: CadastroProdutosModuleProps) {
   // Navigation tabs within Cadastro
   const [activeTab, setActiveTab] = useState<"lista" | "novo" | "categorias">("lista");
 
   // Custom categories list state
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
-    const local = localStorage.getItem(`pdv_custom_categories_${selectedNiche}`);
+    const local = getScopedItem(`pdv_custom_categories_${selectedNiche}`, userId);
     if (local) {
       try {
         return JSON.parse(local);
@@ -513,8 +528,8 @@ export function CadastroProdutosModule({
 
   // Save custom categories to local storage
   useEffect(() => {
-    localStorage.setItem(`pdv_custom_categories_${selectedNiche}`, JSON.stringify(customCategories));
-  }, [customCategories, selectedNiche]);
+    setScopedItem(`pdv_custom_categories_${selectedNiche}`, JSON.stringify(customCategories), userId);
+  }, [customCategories, selectedNiche, userId]);
 
   // Category management states
   const [newCategoryInput, setNewCategoryInput] = useState("");
@@ -1422,8 +1437,8 @@ export function CadastroProdutosModule({
       const nextProds = [...customProducts, ...createdProds];
       onSaveCatalog(nextProds, nextStock);
       try {
-        localStorage.setItem("pdv_custom_products", JSON.stringify(nextProds));
-        localStorage.setItem("pdv_product_stock_data", JSON.stringify(nextStock));
+        setScopedItem("pdv_custom_products", JSON.stringify(nextProds), userId);
+        setScopedItem("pdv_product_stock_data", JSON.stringify(nextStock), userId);
       } catch (err) {
         console.warn("Erro ao salvar grade de produtos:", err);
       }
@@ -1486,8 +1501,8 @@ export function CadastroProdutosModule({
 
     onSaveCatalog(nextProds, nextStock);
     try {
-      localStorage.setItem("pdv_custom_products", JSON.stringify(nextProds));
-      localStorage.setItem("pdv_product_stock_data", JSON.stringify(nextStock));
+      setScopedItem("pdv_custom_products", JSON.stringify(nextProds), userId);
+      setScopedItem("pdv_product_stock_data", JSON.stringify(nextStock), userId);
     } catch (err) {
       console.warn("Erro ao salvar produto no localStorage:", err);
     }
@@ -1540,8 +1555,8 @@ export function CadastroProdutosModule({
 
       onSaveCatalog(nextProds, nextStock);
       try {
-        localStorage.setItem("pdv_custom_products", JSON.stringify(nextProds));
-        localStorage.setItem("pdv_product_stock_data", JSON.stringify(nextStock));
+        setScopedItem("pdv_custom_products", JSON.stringify(nextProds), userId);
+        setScopedItem("pdv_product_stock_data", JSON.stringify(nextStock), userId);
       } catch (err) {
         console.warn("Erro ao salvar após exclusão:", err);
       }
@@ -1778,6 +1793,20 @@ export function CadastroProdutosModule({
           <p className="text-xs text-slate-400 mt-1 max-w-2xl">
             Gerencie o cardápio, produtos físicos ou serviços oferecidos na sua Frente de Caixa (PDV). Defina preços de custo, de venda e controle de estoque inteligente.
           </p>
+
+          {/* TENANT & COMPANY ISOLATION BADGE */}
+          <div className="flex flex-wrap items-center gap-2 mt-2.5">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg text-[10.5px] font-bold">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Empresa: <strong>{userEmail || storeName || "Minha Empresa"}</strong></span>
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-lg text-[10.5px] font-bold">
+              <span>Segmento: <strong>{selectedNiche.toUpperCase().replace("_", " ")}</strong></span>
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-500/10 border border-purple-500/20 text-purple-300 rounded-lg text-[10px] font-medium">
+              <span>🔒 Banco de dados 100% exclusivo e isolado (LGPD)</span>
+            </div>
+          </div>
         </div>
 
         {/* TAB CONTROLLERS */}
@@ -1820,6 +1849,38 @@ export function CadastroProdutosModule({
           </button>
         </div>
       </div>
+
+      {/* PURGE FOREIGN PRODUCTS BANNER IF LEAK DETECTED */}
+      {foreignProductsCount > 0 && onPurgeForeignProducts && (
+        <div className="bg-amber-950/40 border border-amber-500/40 rounded-2xl p-4 text-amber-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-amber-500/20 border border-amber-500/30 rounded-xl text-amber-400 shrink-0">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+                  Aviso de Isolamento de Empresa ({foreignProductsCount} itens de outro segmento detectados)
+                </span>
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold">
+                  Segurança LGPD
+                </span>
+              </div>
+              <p className="text-xs text-amber-200/90 mt-1 leading-relaxed">
+                Foram identificados {foreignProductsCount} produtos pertencentes a outro segmento ({foreignProductsSampleNames?.join(", ") || "outros ramos"}) no estoque desta empresa ({selectedNiche.replace("_", " ").toUpperCase()}). Deseja limpá-los agora para manter o estoque 100% exclusivo deste negócio?
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onPurgeForeignProducts}
+            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shrink-0 cursor-pointer flex items-center gap-2"
+          >
+            <Trash2 className="w-4 h-4" />
+            Remover e Isolar Estoque Desta Empresa 🧹
+          </button>
+        </div>
+      )}
 
       {/* QUICK BENTO STATS */}
       {activeTab === "lista" && (

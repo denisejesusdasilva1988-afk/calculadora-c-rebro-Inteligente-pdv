@@ -930,22 +930,22 @@ export function PDVSalesTransitionStepper({
                     </div>
 
                     {/* Quantity controls & Subtotal */}
-                    <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5">
-                      {/* Big - / + adjusters */}
-                      <div className="flex items-center bg-slate-900 border border-white/15 rounded-xl overflow-hidden shadow-inner">
+                    <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 shrink-0 pt-2.5 sm:pt-0 border-t sm:border-t-0 border-white/10 w-full sm:w-auto">
+                      {/* Big - / + adjusters (shrink-0 so Plus is never clipped on mobile) */}
+                      <div className="flex items-center bg-slate-900 border border-white/20 rounded-xl overflow-hidden shadow-inner shrink-0">
                         <button
                           type="button"
                           onClick={() => handleUpdateCartQty(item.id, -1)}
-                          className="px-2.5 py-2 text-slate-300 hover:text-white hover:bg-white/10 active:scale-95 transition-all cursor-pointer"
-                          title="Diminuir quantidade"
+                          className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 active:scale-90 transition-all cursor-pointer shrink-0"
+                          title="Diminuir quantidade em 1"
                         >
-                          <Minus className="w-3.5 h-3.5" />
+                          <Minus className="w-4 h-4" />
                         </button>
 
                         <span 
                           onClick={() => handleOpenEditCartItem(item)}
-                          className="px-3 font-mono font-black text-sm text-white hover:text-amber-400 cursor-pointer select-none"
-                          title="Clique para digitar quantidade direta"
+                          className="px-2.5 sm:px-3 font-mono font-black text-xs sm:text-sm text-white hover:text-amber-400 cursor-pointer select-none whitespace-nowrap text-center min-w-[48px]"
+                          title="Clique para digitar quantidade direta (ex: 20 un ou 0,800 kg)"
                         >
                           {item.quantity} {item.unit || "un"}
                         </span>
@@ -953,16 +953,16 @@ export function PDVSalesTransitionStepper({
                         <button
                           type="button"
                           onClick={() => handleUpdateCartQty(item.id, 1)}
-                          className="px-2.5 py-2 text-slate-300 hover:text-white hover:bg-white/10 active:scale-95 transition-all cursor-pointer"
-                          title="Aumentar quantidade"
+                          className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500 hover:text-slate-950 active:scale-90 transition-all cursor-pointer shrink-0 border-l border-white/10"
+                          title="Aumentar quantidade em 1"
                         >
-                          <Plus className="w-3.5 h-3.5" />
+                          <Plus className="w-4 h-4 font-black" />
                         </button>
                       </div>
 
                       {/* Item subtotal */}
-                      <div className="w-24 text-right">
-                        <span className="font-mono font-black text-base text-emerald-400 block">
+                      <div className="text-right shrink-0 min-w-[70px]">
+                        <span className="font-mono font-black text-sm sm:text-base text-emerald-400 block whitespace-nowrap">
                           {formatCurrency(item.price * item.quantity)}
                         </span>
                       </div>
@@ -971,7 +971,7 @@ export function PDVSalesTransitionStepper({
                       <button
                         type="button"
                         onClick={() => handleRemoveFromCart(item.id, item.name)}
-                        className="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl transition-all cursor-pointer"
+                        className="w-9 h-9 flex items-center justify-center bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl transition-all cursor-pointer shrink-0"
                         title="Remover produto da venda"
                       >
                         <Trash2 className="w-4 h-4" />
