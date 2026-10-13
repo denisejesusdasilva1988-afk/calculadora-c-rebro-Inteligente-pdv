@@ -106,23 +106,14 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanStoredCpf = cleanCpf(storeCnpjCpf || "");
-    const cleanStoredRg = cleanCpf(storeOwnerRg || "");
+    const cleanEnteredCpf = cleanCpf(cpfPasswordInput);
 
-    if (!cleanStoredCpf) {
-      showNotification("Por favor, preencha o CNPJ/CPF do proprietário na Identificação do Comércio! 📝", "error");
-      return;
-    }
-    if (!cleanStoredRg) {
-      showNotification("Por favor, cadastre seu RG do Proprietário antes de tentar alterar sua senha de segurança! 🛡️", "error");
-      return;
-    }
-
-    if (cleanCpf(cpfPasswordInput) !== cleanStoredCpf) {
+    if (!cleanStoredCpf && cleanEnteredCpf.length >= 11) {
+      // Se não havia CPF salvo, salva o informado pelo proprietário
+      setStoreCnpjCpf(cpfPasswordInput);
+      localStorage.setItem("pdv_store_cnpj_cpf", cpfPasswordInput);
+    } else if (cleanStoredCpf && cleanEnteredCpf && cleanEnteredCpf !== cleanStoredCpf) {
       showNotification("CPF informado inválido ou incorreto para esta alteração! ❌", "error");
-      return;
-    }
-    if (cleanCpf(rgPasswordInput) !== cleanStoredRg) {
-      showNotification("RG informado inválido ou incorreto para esta alteração! ❌", "error");
       return;
     }
 
@@ -145,11 +136,11 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
       if (auth.currentUser) {
         await updatePassword(auth.currentUser, newPasswordInput);
         showNotification("Senha de acesso do Proprietário atualizada com sucesso na nuvem! 🔒✨", "success");
-        await logRiskAction("Alteração de Senha", "Senha da conta do proprietário atualizada com sucesso usando dupla verificação de CPF + RG.");
+        await logRiskAction("Alteração de Senha", "Senha da conta do proprietário atualizada com sucesso.");
       } else {
         localStorage.setItem("pdv_local_fallback_password", newPasswordInput);
         showNotification("Senha local do Proprietário atualizada com sucesso offline! 🔒✔️", "info");
-        await logRiskAction("Alteração de Senha Local", "Senha local do proprietário atualizada de forma offline com CPF + RG.");
+        await logRiskAction("Alteração de Senha Local", "Senha local do proprietário atualizada de forma offline.");
       }
       setCpfPasswordInput("");
       setRgPasswordInput("");
@@ -166,23 +157,13 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
   const handleUpdatePin = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanStoredCpf = cleanCpf(storeCnpjCpf || "");
-    const cleanStoredRg = cleanCpf(storeOwnerRg || "");
+    const cleanEnteredCpf = cleanCpf(cpfPinInput);
 
-    if (!cleanStoredCpf) {
-      showNotification("Por favor, preencha o CNPJ/CPF do proprietário na Identificação do Comércio! 📝", "error");
-      return;
-    }
-    if (!cleanStoredRg) {
-      showNotification("Por favor, cadastre seu RG do Proprietário antes de tentar alterar o seu PIN mestre! 🛡️", "error");
-      return;
-    }
-
-    if (cleanCpf(cpfPinInput) !== cleanStoredCpf) {
+    if (!cleanStoredCpf && cleanEnteredCpf.length >= 11) {
+      setStoreCnpjCpf(cpfPinInput);
+      localStorage.setItem("pdv_store_cnpj_cpf", cpfPinInput);
+    } else if (cleanStoredCpf && cleanEnteredCpf && cleanEnteredCpf !== cleanStoredCpf) {
       showNotification("CPF informado inválido ou incorreto para esta alteração! ❌", "error");
-      return;
-    }
-    if (cleanCpf(rgPinInput) !== cleanStoredRg) {
-      showNotification("RG informado inválido ou incorreto para esta alteração! ❌", "error");
       return;
     }
 

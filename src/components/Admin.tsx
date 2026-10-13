@@ -17,9 +17,12 @@ import {
   SlidersHorizontal,
   ChevronRight,
   TrendingUp,
-  Activity
+  Activity,
+  Megaphone
 } from "lucide-react";
 import { addDoc, collection, serverTimestamp, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+import { MarketingAdsAdminModeration } from "./MarketingAdsAdminModeration";
+import { MarketingAd, loadLocalMarketingAds, saveLocalMarketingAds } from "../utils/marketingAds";
 
 interface AdminProps {
   db: any;
@@ -62,7 +65,8 @@ export const AdminModule = React.memo(({
   OperationType,
   userId
 }: AdminProps) => {
-  const [activeAdminSubTab, setActiveAdminSubTab] = useState<"dashboard" | "mural" | "configuracoes" | "usuarios" | "notificacoes">("dashboard");
+  const [activeAdminSubTab, setActiveAdminSubTab] = useState<"dashboard" | "mural" | "marketing_moderation" | "configuracoes" | "usuarios" | "notificacoes">("dashboard");
+  const [marketingAds, setMarketingAds] = useState<MarketingAd[]>(() => loadLocalMarketingAds());
   const [appConfig, setAppConfig] = useState<AppConfig>(DEFAULT_APP_CONFIG);
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
@@ -94,6 +98,25 @@ export const AdminModule = React.memo(({
   useEffect(() => {
     checkSubscription();
   }, [activeAdminSubTab]);
+
+  useEffect(() => {
+    if (!db) return;
+    try {
+      const q = collection(db, "marketing_ads");
+      const unsub = onSnapshot(q, (snapshot) => {
+        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MarketingAd));
+        if (docs.length > 0) {
+          setMarketingAds(docs);
+          saveLocalMarketingAds(docs);
+        }
+      }, (err) => {
+        console.warn("Aviso ao escutar marketing_ads:", err);
+      });
+      return () => unsub();
+    } catch (e) {
+      console.warn("Erro ao registrar listener marketing_ads:", e);
+    }
+  }, [db]);
 
   const handleSubscribe = async () => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -362,6 +385,17 @@ export const AdminModule = React.memo(({
             >
               <Users className="w-3.5 h-3.5" />
               <span>Mural de Ofertas</span>
+            </button>
+            <button
+              onClick={() => setActiveAdminSubTab("marketing_moderation")}
+              className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 ${
+                activeAdminSubTab === "marketing_moderation"
+                  ? "bg-red-500 text-white shadow-lg shadow-red-500/20"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Megaphone className="w-3.5 h-3.5" />
+              <span>Moderação Anúncios R$20 📢</span>
             </button>
             <button
               onClick={() => setActiveAdminSubTab("configuracoes")}
@@ -692,6 +726,12 @@ export const AdminModule = React.memo(({
               </div>
             </div>
           </div>
+        ) : activeAdminSubTab === "marketing_moderation" ? (
+          <MarketingAdsAdminModeration
+            ads={marketingAds}
+            setAds={setMarketingAds}
+            showNotification={showNotification}
+          />
         ) : activeAdminSubTab === "configuracoes" ? (
           // --- APP PARAMETERS AND GLOBAL CONFIGS ---
           <div className="space-y-6 animate-fadeIn text-left">

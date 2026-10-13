@@ -9,6 +9,10 @@
 export interface CompanyProfile {
   name: string;
   cnpjCpf: string;
+  ownerName?: string;
+  ownerCpf?: string;
+  pixKey?: string;
+  logoUrl?: string;
   phone: string;
   whatsapp: string;
   instagram: string;
@@ -32,6 +36,10 @@ export interface CompanyProfile {
 export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
   name: "",
   cnpjCpf: "",
+  ownerName: "",
+  ownerCpf: "",
+  pixKey: "",
+  logoUrl: "",
   phone: "",
   whatsapp: "",
   instagram: "",
@@ -70,6 +78,10 @@ export function loadCompanyProfile(userId?: string | null): CompanyProfile {
         // Fallbacks para campos clássicos caso tenham sido salvos separadamente
         name: parsed.name || localStorage.getItem("pdv_store_name") || "",
         cnpjCpf: parsed.cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "",
+        ownerName: parsed.ownerName || localStorage.getItem("pdv_owner_name") || "",
+        ownerCpf: parsed.ownerCpf || parsed.cnpjCpf || localStorage.getItem("pdv_owner_cpf") || localStorage.getItem("pdv_store_cnpj_cpf") || "",
+        pixKey: parsed.pixKey || localStorage.getItem("pdv_pix_key") || "21966713263",
+        logoUrl: parsed.logoUrl || localStorage.getItem("pdv_company_logo") || "",
         phone: parsed.phone || localStorage.getItem("pdv_store_phone") || "",
         whatsapp: parsed.whatsapp || localStorage.getItem("pdv_store_whatsapp") || "",
         address: parsed.address || localStorage.getItem("pdv_store_address") || "",
@@ -84,6 +96,10 @@ export function loadCompanyProfile(userId?: string | null): CompanyProfile {
     ...DEFAULT_COMPANY_PROFILE,
     name: localStorage.getItem("pdv_store_name") || "",
     cnpjCpf: localStorage.getItem("pdv_store_cnpj_cpf") || "",
+    ownerName: localStorage.getItem("pdv_owner_name") || "",
+    ownerCpf: localStorage.getItem("pdv_owner_cpf") || localStorage.getItem("pdv_store_cnpj_cpf") || "",
+    pixKey: localStorage.getItem("pdv_pix_key") || "21966713263",
+    logoUrl: localStorage.getItem("pdv_company_logo") || "",
     phone: localStorage.getItem("pdv_store_phone") || "",
     whatsapp: localStorage.getItem("pdv_store_whatsapp") || "",
     address: localStorage.getItem("pdv_store_address") || "",
@@ -101,6 +117,10 @@ export function saveCompanyProfile(profile: CompanyProfile, userId?: string | nu
     // Atualizar chaves individuais para retrocompatibilidade
     if (profile.name) localStorage.setItem("pdv_store_name", profile.name);
     if (profile.cnpjCpf) localStorage.setItem("pdv_store_cnpj_cpf", profile.cnpjCpf);
+    if (profile.ownerName) localStorage.setItem("pdv_owner_name", profile.ownerName);
+    if (profile.ownerCpf) localStorage.setItem("pdv_owner_cpf", profile.ownerCpf);
+    if (profile.pixKey) localStorage.setItem("pdv_pix_key", profile.pixKey);
+    if (profile.logoUrl) localStorage.setItem("pdv_company_logo", profile.logoUrl);
     if (profile.phone) localStorage.setItem("pdv_store_phone", profile.phone);
     if (profile.whatsapp) localStorage.setItem("pdv_store_whatsapp", profile.whatsapp);
     if (profile.address) localStorage.setItem("pdv_store_address", profile.address);

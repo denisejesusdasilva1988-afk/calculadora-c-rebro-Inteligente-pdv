@@ -21,8 +21,10 @@ import {
   Zap,
   Check,
   ShoppingCart,
-  ArrowLeft
+  ArrowLeft,
+  Building2
 } from "lucide-react";
+import { CompanyProfileModal } from "./CompanyProfileModal";
 import { 
   PrinterConfig, 
   DEFAULT_PRINTER_CONFIG, 
@@ -55,6 +57,7 @@ export function PDVPrinterConfigView({
   const [isPrintingTest, setIsPrintingTest] = useState(false);
   const [isPrintingBt, setIsPrintingBt] = useState(false);
   const [btStatusMsg, setBtStatusMsg] = useState("");
+  const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
 
   const handleUpdate = <K extends keyof PrinterConfig>(key: K, val: PrinterConfig[K]) => {
     setLocalConfig(prev => ({ ...prev, [key]: val }));
@@ -441,6 +444,15 @@ export function PDVPrinterConfigView({
         {/* TAB 2: STORE DETAILS */}
         {activeTab === "loja" && (
           <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setIsCompanyModalOpen(true)}
+              className="w-full py-3 px-4 bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 hover:from-orange-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+            >
+              <Building2 className="w-4 h-4 text-slate-950" />
+              <span>Configurar Todos os Contatos & O que Sai na Notinha 🧾</span>
+            </button>
+
             <div className="p-3.5 bg-slate-950 border border-white/10 rounded-2xl space-y-3 shadow-inner">
               <div>
                 <label className="text-[10px] font-black uppercase text-slate-300 tracking-wider">
@@ -771,15 +783,44 @@ export function PDVPrinterConfigView({
     </div>
   );
 
-  if (isEmbedded) {
-    return content;
-  }
-
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 text-white animate-in fade-in duration-200">
-      <div className="max-w-3xl w-full">
-        {content}
-      </div>
-    </div>
+    <>
+      {isEmbedded ? content : (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 text-white animate-in fade-in duration-200">
+          <div className="max-w-3xl w-full">
+            {content}
+          </div>
+        </div>
+      )}
+
+      <CompanyProfileModal
+        isOpen={isCompanyModalOpen}
+        onClose={() => setIsCompanyModalOpen(false)}
+        onSaved={(savedProfile) => {
+          setLocalConfig(prev => ({
+            ...prev,
+            storeName: savedProfile.name,
+            storeCnpjCpf: savedProfile.cnpjCpf,
+            storePhone: savedProfile.phone,
+            storeWhatsapp: savedProfile.whatsapp,
+            storeInstagram: savedProfile.instagram,
+            storeFacebook: savedProfile.facebook,
+            storeWebsite: savedProfile.website,
+            storeEmail: savedProfile.email,
+            storeAddress: savedProfile.address,
+            showNameOnReceipt: savedProfile.showNameOnReceipt,
+            showCnpjOnReceipt: savedProfile.showCnpjOnReceipt,
+            showPhoneOnReceipt: savedProfile.showPhoneOnReceipt,
+            showWhatsappOnReceipt: savedProfile.showWhatsappOnReceipt,
+            showInstagramOnReceipt: savedProfile.showInstagramOnReceipt,
+            showFacebookOnReceipt: savedProfile.showFacebookOnReceipt,
+            showWebsiteOnReceipt: savedProfile.showWebsiteOnReceipt,
+            showEmailOnReceipt: savedProfile.showEmailOnReceipt,
+            showAddressOnReceipt: savedProfile.showAddressOnReceipt,
+          }));
+        }}
+        showNotification={showNotification as any}
+      />
+    </>
   );
 }

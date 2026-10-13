@@ -1,0 +1,1700 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 
+ * Módulo Completo para Barbearias, Salões de Beleza, Profissionais & Encomendas de Festas/Eventos
+ * 
+ * Recursos:
+ * 1. Fotos e Dados dos Profissionais / Funcionários separados (Barbeiros, Cabeleireiras, etc.)
+ * 2. Logomarca e Link Personalizado da Empresa (Instagram, WhatsApp, Site)
+ * 3. Aniversários de Clientes (com botão para felicitar e enviar presente no WhatsApp)
+ * 4. Agenda de Atendimentos & Serviços de Salão e Barbearia (com lembretes)
+ * 5. Módulo de Encomendas para Festas & Eventos (Bolos, Salgados, Doces, Kits, Sinal e Saldo)
+ */
+
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  Scissors,
+  Users,
+  Calendar as CalendarIcon,
+  Cake,
+  PartyPopper,
+  Building2,
+  Plus,
+  Trash2,
+  Edit2,
+  CheckCircle2,
+  Clock,
+  Phone,
+  MessageCircle,
+  Share2,
+  DollarSign,
+  Camera,
+  Upload,
+  Link as LinkIcon,
+  Copy,
+  ExternalLink,
+  Search,
+  Filter,
+  Sparkles,
+  Gift,
+  ArrowRight,
+  TrendingUp,
+  Receipt,
+  AlertCircle,
+  Save,
+  X
+} from "lucide-react";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+
+// Modelo de Profissional / Barbeiro
+export interface ProfissionalBarbearia {
+  id: string;
+  nome: string;
+  apelido?: string;
+  fotoUrl: string;
+  especialidade: string; // Ex: Corte Degradê, Barba Terapia, Manicure, Doces
+  telefone: string;
+  chavePix?: string;
+  comissaoPct: number; // Ex: 50%
+  horarioTrabalho?: string;
+  totalAtendimentos: number;
+  totalFaturado: number;
+  ativo: boolean;
+}
+
+// Modelo de Agendamento de Atendimento
+export interface AgendamentoServico {
+  id: string;
+  data: string; // YYYY-MM-DD
+  horario: string; // HH:mm
+  clienteNome: string;
+  clienteTelefone: string;
+  profissionalId: string;
+  profissionalNome: string;
+  servico: string;
+  valor: number;
+  status: "agendado" | "em_atendimento" | "concluido" | "cancelado";
+  observacoes?: string;
+  criadoEm: string;
+}
+
+// Modelo de Aniversário de Cliente
+export interface AniversarioCliente {
+  id: string;
+  nome: string;
+  telefone: string;
+  dia: number; // 1 a 31
+  mes: number; // 1 a 12
+  anoNascimento?: number;
+  observacao?: string;
+  presenteOferecido?: string;
+}
+
+// Modelo de Encomenda para Festas
+export interface EncomendaFesta {
+  id: string;
+  dataEntrega: string; // YYYY-MM-DD
+  horarioEntrega: string; // HH:mm
+  clienteNome: string;
+  clienteTelefone: string;
+  tipoEvento: string; // Aniversário, Casamento, Confraternização, Festa Infantil
+  itensDescricao: string; // Ex: Bolo Chocolate 3kg + 100 Salgados + 50 Brigadeiros
+  valorTotal: number;
+  sinalPago: number;
+  saldoRestante: number;
+  metodoPagamentoSinal: string;
+  status: "anotado" | "em_preparo" | "pronto" | "entregue";
+  observacoes?: string;
+  criadoEm: string;
+}
+
+interface BarbeariaSalaoEventosModuleProps {
+  userId?: string | null;
+  db?: any;
+  formatCurrency?: (val: number) => string;
+  showNotification: (msg: string, type?: "success" | "error" | "info") => void;
+  onOpenPDV?: () => void;
+}
+
+// Avatares ilustrativos para fotos de profissionais caso não faça upload
+const AVATAR_PRESETS = [
+  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&auto=format&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80",
+  "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
+];
+
+export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModuleProps> = ({
+  userId,
+  db,
+  formatCurrency = (v) => `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`,
+  showNotification,
+  onOpenPDV
+}) => {
+  // Aba Ativa
+  const [activeTab, setActiveTab] = useState<"profissionais" | "agenda" | "aniversarios" | "encomendas" | "empresa">("profissionais");
+
+  // Armazenamento
+  const storagePrefix = userId && userId !== "guest_visitor" ? `barbearia_${userId}_` : "barbearia_guest_";
+
+  // 1. Profissionais State
+  const [profissionais, setProfissionais] = useState<ProfissionalBarbearia[]>(() => {
+    try {
+      const saved = localStorage.getItem(`${storagePrefix}profissionais`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        id: "prof_1",
+        nome: "Carlos Eduardo",
+        apelido: "Kadu Navalha",
+        fotoUrl: AVATAR_PRESETS[0],
+        especialidade: "Corte Degradê & Barba",
+        telefone: "21988887777",
+        chavePix: "21988887777",
+        comissaoPct: 50,
+        horarioTrabalho: "Terça a Sábado, 09h às 19h",
+        totalAtendimentos: 42,
+        totalFaturado: 1470,
+        ativo: true
+      },
+      {
+        id: "prof_2",
+        nome: "Juliana Santos",
+        apelido: "Ju Hair",
+        fotoUrl: AVATAR_PRESETS[2],
+        especialidade: "Escova, Coloração & Penteados",
+        telefone: "21977776666",
+        chavePix: "21977776666",
+        comissaoPct: 50,
+        horarioTrabalho: "Quarta a Domingo, 10h às 20h",
+        totalAtendimentos: 28,
+        totalFaturado: 1960,
+        ativo: true
+      }
+    ];
+  });
+
+  // 2. Agendamentos State
+  const [agendamentos, setAgendamentos] = useState<AgendamentoServico[]>(() => {
+    try {
+      const saved = localStorage.getItem(`${storagePrefix}agendamentos`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const today = new Date().toISOString().slice(0, 10);
+    return [
+      {
+        id: "ag_1",
+        data: today,
+        horario: "14:00",
+        clienteNome: "Marcos Vinicius",
+        clienteTelefone: "21999991111",
+        profissionalId: "prof_1",
+        profissionalNome: "Carlos Eduardo",
+        servico: "Corte Degradê + Barba Terapia",
+        valor: 55,
+        status: "agendado",
+        criadoEm: new Date().toISOString()
+      },
+      {
+        id: "ag_2",
+        data: today,
+        horario: "16:30",
+        clienteNome: "Fernanda Lima",
+        clienteTelefone: "21999992222",
+        profissionalId: "prof_2",
+        profissionalNome: "Juliana Santos",
+        servico: "Escova Modelada + Hidratação",
+        valor: 75,
+        status: "agendado",
+        criadoEm: new Date().toISOString()
+      }
+    ];
+  });
+
+  // 3. Aniversários State
+  const [aniversarios, setAniversarios] = useState<AniversarioCliente[]>(() => {
+    try {
+      const saved = localStorage.getItem(`${storagePrefix}aniversarios`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const now = new Date();
+    return [
+      {
+        id: "aniv_1",
+        nome: "Rodrigo Mendonça",
+        telefone: "21996673263",
+        dia: now.getDate(), // Hoje para demonstrar
+        mes: now.getMonth() + 1,
+        observacao: "Cliente assíduo de barba",
+        presenteOferecido: "10% de desconto no corte de aniversário"
+      },
+      {
+        id: "aniv_2",
+        nome: "Patrícia Alves",
+        telefone: "21988882222",
+        dia: (now.getDate() + 3) % 28 + 1,
+        mes: now.getMonth() + 1,
+        observacao: "Faz unhas e cabelo para festas",
+        presenteOferecido: "Hidratação cortesia de aniversário"
+      }
+    ];
+  });
+
+  // 4. Encomendas para Festas State
+  const [encomendas, setEncomendas] = useState<EncomendaFesta[]>(() => {
+    try {
+      const saved = localStorage.getItem(`${storagePrefix}encomendas`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    return [
+      {
+        id: "enc_1",
+        dataEntrega: tomorrow,
+        horarioEntrega: "15:00",
+        clienteNome: "Renata Oliveira",
+        clienteTelefone: "21998887766",
+        tipoEvento: "Aniversário Infantil",
+        itensDescricao: "Bolo de Chocolate Brigadeiro 3kg + 100 Coxinhas + 50 Brigadeiros",
+        valorTotal: 280,
+        sinalPago: 140,
+        saldoRestante: 140,
+        metodoPagamentoSinal: "PIX",
+        status: "em_preparo",
+        criadoEm: new Date().toISOString()
+      }
+    ];
+  });
+
+  // 5. Dados da Empresa e Link
+  const [companyName, setCompanyName] = useState(() => {
+    return localStorage.getItem("pdv_store_name") || "Barbearia & Salão Cérebro PDV";
+  });
+  const [companyLogo, setCompanyLogo] = useState(() => {
+    return localStorage.getItem("pdv_company_logo") || "";
+  });
+  const [companyLink, setCompanyLink] = useState(() => {
+    return localStorage.getItem("pdv_company_link") || "https://instagram.com/calculadoracerebro";
+  });
+  const [companyPhone, setCompanyPhone] = useState(() => {
+    return localStorage.getItem("pdv_store_phone") || "(21) 96671-3263";
+  });
+
+  // Salvar no localStorage sempre que mudar
+  useEffect(() => {
+    localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(profissionais));
+  }, [profissionais, storagePrefix]);
+
+  useEffect(() => {
+    localStorage.setItem(`${storagePrefix}agendamentos`, JSON.stringify(agendamentos));
+  }, [agendamentos, storagePrefix]);
+
+  useEffect(() => {
+    localStorage.setItem(`${storagePrefix}aniversarios`, JSON.stringify(aniversarios));
+  }, [aniversarios, storagePrefix]);
+
+  useEffect(() => {
+    localStorage.setItem(`${storagePrefix}encomendas`, JSON.stringify(encomendas));
+  }, [encomendas, storagePrefix]);
+
+  // Modal States
+  const [isAddProfissionalOpen, setIsAddProfissionalOpen] = useState(false);
+  const [newProfNome, setNewProfNome] = useState("");
+  const [newProfApelido, setNewProfApelido] = useState("");
+  const [newProfEspecialidade, setNewProfEspecialidade] = useState("");
+  const [newProfTelefone, setNewProfTelefone] = useState("");
+  const [newProfPix, setNewProfPix] = useState("");
+  const [newProfComissao, setNewProfComissao] = useState("50");
+  const [newProfFoto, setNewProfFoto] = useState(AVATAR_PRESETS[0]);
+
+  const [isAddAgendamentoOpen, setIsAddAgendamentoOpen] = useState(false);
+  const [newAgData, setNewAgData] = useState(() => new Date().toISOString().slice(0, 10));
+  const [newAgHora, setNewAgHora] = useState("14:00");
+  const [newAgClienteNome, setNewAgClienteNome] = useState("");
+  const [newAgClienteTelefone, setNewAgClienteTelefone] = useState("");
+  const [newAgProfissionalId, setNewAgProfissionalId] = useState(profissionais[0]?.id || "");
+  const [newAgServico, setNewAgServico] = useState("");
+  const [newAgValor, setNewAgValor] = useState("45");
+
+  const [isAddAniversarioOpen, setIsAddAniversarioOpen] = useState(false);
+  const [newAnivNome, setNewAnivNome] = useState("");
+  const [newAnivTelefone, setNewAnivTelefone] = useState("");
+  const [newAnivDia, setNewAnivDia] = useState(new Date().getDate().toString());
+  const [newAnivMes, setNewAnivMes] = useState((new Date().getMonth() + 1).toString());
+  const [newAnivPresente, setNewAnivPresente] = useState("10% de desconto no mês de aniversário");
+
+  const [isAddEncomendaOpen, setIsAddEncomendaOpen] = useState(false);
+  const [newEncData, setNewEncData] = useState(() => new Date(Date.now() + 86400000).toISOString().slice(0, 10));
+  const [newEncHora, setNewEncHora] = useState("15:00");
+  const [newEncClienteNome, setNewEncClienteNome] = useState("");
+  const [newEncClienteTelefone, setNewEncClienteTelefone] = useState("");
+  const [newEncTipoEvento, setNewEncTipoEvento] = useState("Festa de Aniversário");
+  const [newEncItens, setNewEncItens] = useState("");
+  const [newEncValorTotal, setNewEncValorTotal] = useState("");
+  const [newEncSinal, setNewEncSinal] = useState("");
+  const [newEncMetodo, setNewEncMetodo] = useState("PIX");
+
+  // Análise de Aniversários
+  const hoje = new Date();
+  const diaHoje = hoje.getDate();
+  const mesHoje = hoje.getMonth() + 1;
+
+  const aniversariantesHoje = useMemo(() => {
+    return aniversarios.filter((a) => Number(a.dia) === diaHoje && Number(a.mes) === mesHoje);
+  }, [aniversarios, diaHoje, mesHoje]);
+
+  const aniversariantesMes = useMemo(() => {
+    return aniversarios.filter((a) => Number(a.mes) === mesHoje);
+  }, [aniversarios, mesHoje]);
+
+  // Handler para Adicionar Profissional
+  const handleSaveProfissional = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProfNome.trim()) {
+      showNotification("Informe o nome do profissional! 👤", "error");
+      return;
+    }
+
+    const novoProf: ProfissionalBarbearia = {
+      id: "prof_" + Date.now(),
+      nome: newProfNome.trim(),
+      apelido: newProfApelido.trim() || undefined,
+      fotoUrl: newProfFoto,
+      especialidade: newProfEspecialidade.trim() || "Corte e Barba",
+      telefone: newProfTelefone.trim(),
+      chavePix: newProfPix.trim() || undefined,
+      comissaoPct: Number(newProfComissao) || 50,
+      totalAtendimentos: 0,
+      totalFaturado: 0,
+      ativo: true
+    };
+
+    setProfissionais((prev) => [novoProf, ...prev]);
+    showNotification(`Profissional ${novoProf.nome} cadastrado com sucesso! 💈✨`, "success");
+    setIsAddProfissionalOpen(false);
+    setNewProfNome("");
+    setNewProfApelido("");
+    setNewProfEspecialidade("");
+    setNewProfTelefone("");
+    setNewProfPix("");
+  };
+
+  // Handler para Upload de Foto do Profissional
+  const handleFotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setNewProfFoto(reader.result);
+          showNotification("Foto carregada com sucesso! 📸", "success");
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Handler para Adicionar Agendamento
+  const handleSaveAgendamento = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAgClienteNome.trim()) {
+      showNotification("Informe o nome do cliente! 👤", "error");
+      return;
+    }
+
+    const prof = profissionais.find((p) => p.id === newAgProfissionalId) || profissionais[0];
+    const valorNum = Number(newAgValor) || 0;
+
+    const novoAg: AgendamentoServico = {
+      id: "ag_" + Date.now(),
+      data: newAgData,
+      horario: newAgHora,
+      clienteNome: newAgClienteNome.trim(),
+      clienteTelefone: newAgClienteTelefone.trim(),
+      profissionalId: prof?.id || "geral",
+      profissionalNome: prof?.nome || "Equipe",
+      servico: newAgServico.trim() || "Atendimento",
+      valor: valorNum,
+      status: "agendado",
+      criadoEm: new Date().toISOString()
+    };
+
+    setAgendamentos((prev) => [novoAg, ...prev]);
+    showNotification("Horário agendado com sucesso! ⏰✨", "success");
+    setIsAddAgendamentoOpen(false);
+    setNewAgClienteNome("");
+    setNewAgClienteTelefone("");
+    setNewAgServico("");
+  };
+
+  // Handler para Adicionar Aniversário
+  const handleSaveAniversario = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAnivNome.trim()) {
+      showNotification("Informe o nome do aniversariante! 🎂", "error");
+      return;
+    }
+
+    const novoAniv: AniversarioCliente = {
+      id: "aniv_" + Date.now(),
+      nome: newAnivNome.trim(),
+      telefone: newAnivTelefone.trim(),
+      dia: Number(newAnivDia) || 1,
+      mes: Number(newAnivMes) || 1,
+      presenteOferecido: newAnivPresente.trim()
+    };
+
+    setAniversarios((prev) => [novoAniv, ...prev]);
+    showNotification("Aniversário de cliente anotado com sucesso! 🎈🎉", "success");
+    setIsAddAniversarioOpen(false);
+    setNewAnivNome("");
+    setNewAnivTelefone("");
+  };
+
+  // Handler para Adicionar Encomenda de Festa
+  const handleSaveEncomenda = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEncClienteNome.trim() || !newEncItens.trim()) {
+      showNotification("Preencha o nome do cliente e os itens da encomenda! 🍰", "error");
+      return;
+    }
+
+    const totalNum = Number(newEncValorTotal) || 0;
+    const sinalNum = Number(newEncSinal) || 0;
+    const restante = Math.max(0, totalNum - sinalNum);
+
+    const novaEnc: EncomendaFesta = {
+      id: "enc_" + Date.now(),
+      dataEntrega: newEncData,
+      horarioEntrega: newEncHora,
+      clienteNome: newEncClienteNome.trim(),
+      clienteTelefone: newEncClienteTelefone.trim(),
+      tipoEvento: newEncTipoEvento,
+      itensDescricao: newEncItens.trim(),
+      valorTotal: totalNum,
+      sinalPago: sinalNum,
+      saldoRestante: restante,
+      metodoPagamentoSinal: newEncMetodo,
+      status: "em_preparo",
+      criadoEm: new Date().toISOString()
+    };
+
+    setEncomendas((prev) => [novaEnc, ...prev]);
+    showNotification("Encomenda para festa cadastrada com sucesso! 🍰🎉", "success");
+    setIsAddEncomendaOpen(false);
+    setNewEncClienteNome("");
+    setNewEncClienteTelefone("");
+    setNewEncItens("");
+    setNewEncValorTotal("");
+    setNewEncSinal("");
+  };
+
+  // WhatsApp Mensagem de Aniversário
+  const handleFelicitarAniversario = (cliente: AniversarioCliente) => {
+    const limpo = cliente.telefone.replace(/\D/g, "");
+    const msg = encodeURIComponent(
+      `Olá ${cliente.nome}! 🎂🎈\n\nA equipe da ${companyName} deseja a você um FELIZ ANIVERSÁRIO repleto de saúde, paz e conquistas! 🎉✨\n\nComo presente especial pelo seu dia, você ganhou: *${cliente.presenteOferecido || "10% de desconto"}*!\n\nVenha comemorar conosco! Agende seu horário ou faça sua encomenda: ${companyPhone} 🥳`
+    );
+    window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
+  };
+
+  // WhatsApp Lembrete de Horário
+  const handleLembreteWhatsApp = (ag: AgendamentoServico) => {
+    const limpo = ag.clienteTelefone.replace(/\D/g, "");
+    const msg = encodeURIComponent(
+      `Olá ${ag.clienteNome}! ⏰💈\n\nPassando para confirmar seu horário na *${companyName}*:\n📅 Data: ${ag.data.split("-").reverse().join("/")}\n🕒 Horário: ${ag.horario}\n✂️ Serviço: ${ag.servico}\n👤 Profissional: ${ag.profissionalNome}\n💰 Valor: ${formatCurrency(ag.valor)}\n\nEsperamos por você! Qualquer dúvida, nos avise aqui. 👍`
+    );
+    window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
+  };
+
+  // WhatsApp Comprovante de Encomenda
+  const handleComprovanteEncomenda = (enc: EncomendaFesta) => {
+    const limpo = enc.clienteTelefone.replace(/\D/g, "");
+    const msg = encodeURIComponent(
+      `🍰 *COMPROVANTE DE ENCOMENDA - ${companyName}* 🎉\n\n` +
+      `👤 *Cliente:* ${enc.clienteNome}\n` +
+      `📅 *Data de Entrega/Festa:* ${enc.dataEntrega.split("-").reverse().join("/")} às ${enc.horarioEntrega}\n` +
+      `🎈 *Tipo de Evento:* ${enc.tipoEvento}\n` +
+      `📦 *Itens Encomendados:*\n${enc.itensDescricao}\n\n` +
+      `💵 *Valor Total:* ${formatCurrency(enc.valorTotal)}\n` +
+      `✅ *Sinal Pago:* ${formatCurrency(enc.sinalPago)} (${enc.metodoPagamentoSinal})\n` +
+      `⚠️ *Saldo Restante na Entrega:* ${formatCurrency(enc.saldoRestante)}\n\n` +
+      `Agradecemos a sua preferência! Estamos preparando tudo com muito carinho! ❤️`
+    );
+    window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
+  };
+
+  // Salvar Identidade da Empresa
+  const handleSaveEmpresa = () => {
+    localStorage.setItem("pdv_store_name", companyName);
+    localStorage.setItem("pdv_company_logo", companyLogo);
+    localStorage.setItem("pdv_company_link", companyLink);
+    localStorage.setItem("pdv_store_phone", companyPhone);
+    showNotification("Dados e link da empresa salvos com sucesso! 🏢✅", "success");
+  };
+
+  return (
+    <div className="space-y-6 text-left">
+      {/* BANNER HEADER */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950/70 to-slate-900 border border-white/10 rounded-3xl p-5 sm:p-7 shadow-2xl relative overflow-hidden">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5 relative z-10">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-amber-500/20 shrink-0">
+              <Scissors className="w-7 h-7" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                  {companyName}
+                </h2>
+                <span className="bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full">
+                  Barbearia • Salão • Encomendas
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 font-medium mt-1">
+                Profissionais com dados separados, controle de comissões, agenda de horários, aniversariantes do dia e encomendas para festas.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {companyLink && (
+              <a
+                href={companyLink}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              >
+                <LinkIcon className="w-3.5 h-3.5 text-amber-400" />
+                <span>Link da Empresa</span>
+                <ExternalLink className="w-3 h-3 text-slate-400" />
+              </a>
+            )}
+            <button
+              onClick={() => setActiveTab("empresa")}
+              className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Editar Logo & Link</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ALERTA DE ANIVERSARIANTES DE HOJE */}
+        {aniversariantesHoje.length > 0 && (
+          <div className="mt-5 p-3.5 bg-gradient-to-r from-pink-950/60 to-purple-950/60 border border-pink-500/30 rounded-2xl flex items-center justify-between gap-3 flex-wrap animate-pulse">
+            <div className="flex items-center gap-2 text-pink-300 text-xs font-black">
+              <PartyPopper className="w-4 h-4 text-pink-400" />
+              <span>
+                TEM ANIVERSARIANTE HOJE! 🎂 {aniversariantesHoje.map((a) => a.nome).join(", ")}
+              </span>
+            </div>
+            <button
+              onClick={() => setActiveTab("aniversarios")}
+              className="bg-pink-600 hover:bg-pink-500 text-white text-[10px] font-black uppercase px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Gift className="w-3.5 h-3.5" />
+              <span>Felicitar no WhatsApp</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ABAS DE NAVEGAÇÃO DO MÓDULO */}
+      <div className="flex bg-slate-900 border border-white/10 p-1.5 rounded-2xl gap-1.5 overflow-x-auto custom-scrollbar">
+        <button
+          onClick={() => setActiveTab("profissionais")}
+          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === "profissionais"
+              ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
+              : "text-slate-400 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Profissionais ({profissionais.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("agenda")}
+          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === "agenda"
+              ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
+              : "text-slate-400 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <CalendarIcon className="w-4 h-4" />
+          <span>Agenda Horários ({agendamentos.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("aniversarios")}
+          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === "aniversarios"
+              ? "bg-pink-600 text-white shadow-lg shadow-pink-600/20"
+              : "text-slate-400 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <Cake className="w-4 h-4" />
+          <span>Aniversários ({aniversariantesMes.length} no mês)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("encomendas")}
+          className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === "encomendas"
+              ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"
+              : "text-slate-400 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <PartyPopper className="w-4 h-4" />
+          <span>Encomendas Festas ({encomendas.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("empresa")}
+          className={`py-2.5 px-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === "empresa"
+              ? "bg-purple-600 text-white shadow-lg shadow-purple-600/20"
+              : "text-slate-400 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Empresa & Logo</span>
+        </button>
+      </div>
+
+      {/* CONTEÚDO DA ABA 1: PROFISSIONAIS COM DADOS SEPARADOS */}
+      {activeTab === "profissionais" && (
+        <div className="space-y-5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="text-white text-base font-black tracking-tight flex items-center gap-2">
+                <span>Equipe de Profissionais & Barbeiros</span>
+                <span className="text-xs text-amber-400 font-bold">
+                  (Dados e Faturamentos 100% Separados)
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400">
+                Cada funcionário possui sua foto, especialidade, comissão e histórico individual de atendimentos.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setIsAddProfissionalOpen(true)}
+              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-amber-500/20 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Cadastrar Novo Profissional</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {profissionais.map((prof) => {
+              const comissaoTotal = (prof.totalFaturado * prof.comissaoPct) / 100;
+              const repasseEmpresa = prof.totalFaturado - comissaoTotal;
+
+              return (
+                <div
+                  key={prof.id}
+                  className="bg-slate-900 border border-white/10 rounded-3xl p-5 space-y-4 hover:border-amber-500/40 transition-all shadow-xl"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <img
+                      src={prof.fotoUrl}
+                      alt={prof.nome}
+                      className="w-14 h-14 rounded-2xl object-cover border-2 border-amber-500/30 shadow-md shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <h4 className="text-white font-black text-sm truncate">
+                          {prof.nome}
+                        </h4>
+                        <span className="bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0">
+                          {prof.ativo ? "Ativo" : "Pausa"}
+                        </span>
+                      </div>
+                      {prof.apelido && (
+                        <p className="text-[11px] text-amber-300 font-bold truncate">
+                          "{prof.apelido}"
+                        </p>
+                      )}
+                      <p className="text-[11px] text-slate-400 truncate">
+                        {prof.especialidade}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Informações Separadas do Profissional */}
+                  <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-white/5 space-y-2 text-xs">
+                    <div className="flex justify-between items-center text-slate-400">
+                      <span>Comissão Acordada:</span>
+                      <strong className="text-white font-mono">{prof.comissaoPct}%</strong>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-400">
+                      <span>Total Atendimentos:</span>
+                      <strong className="text-amber-400 font-mono">{prof.totalAtendimentos} cortes/serviços</strong>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-400">
+                      <span>Total Faturado no Mês:</span>
+                      <strong className="text-emerald-400 font-mono">{formatCurrency(prof.totalFaturado)}</strong>
+                    </div>
+                    <div className="border-t border-white/5 pt-2 flex justify-between items-center">
+                      <span className="text-[10px] uppercase font-bold text-slate-400">Comissão do Profissional:</span>
+                      <strong className="text-purple-300 font-mono font-black">{formatCurrency(comissaoTotal)}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    {prof.telefone && (
+                      <a
+                        href={`https://wa.me/55${prof.telefone.replace(/\D/g, "")}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span>WhatsApp</span>
+                      </a>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setProfissionais((prev) => prev.filter((p) => p.id !== prof.id));
+                        showNotification(`Profissional ${prof.nome} removido.`, "info");
+                      }}
+                      className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all cursor-pointer ml-auto"
+                      title="Remover"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* CONTEÚDO DA ABA 2: AGENDA DE HORÁRIOS */}
+      {activeTab === "agenda" && (
+        <div className="space-y-5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="text-white text-base font-black tracking-tight">
+                Agenda de Atendimentos & Salão / Barbearia
+              </h3>
+              <p className="text-xs text-slate-400">
+                Horários marcados com envio de lembrete no WhatsApp e lançamento no caixa com 1 clique.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setIsAddAgendamentoOpen(true)}
+              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-amber-500/20 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Marcar Novo Horário</span>
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {agendamentos.map((ag) => (
+              <div
+                key={ag.id}
+                className="bg-slate-900 border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg"
+              >
+                <div className="flex items-start gap-3.5">
+                  <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex flex-col items-center justify-center font-mono shrink-0 border border-indigo-500/20">
+                    <span className="text-[10px] uppercase font-bold">Hora</span>
+                    <span className="text-xs font-black">{ag.horario}</span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-white font-black text-sm">{ag.clienteNome}</h4>
+                      <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md">
+                        {ag.servico}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
+                      <span>Data: <strong className="text-slate-200">{ag.data.split("-").reverse().join("/")}</strong></span>
+                      <span>•</span>
+                      <span>Profissional: <strong className="text-amber-300">{ag.profissionalNome}</strong></span>
+                      <span>•</span>
+                      <span>Valor: <strong className="text-emerald-400 font-mono">{formatCurrency(ag.valor)}</strong></span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {ag.clienteTelefone && (
+                    <button
+                      onClick={() => handleLembreteWhatsApp(ag)}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow cursor-pointer"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span>Lembrar no WhatsApp</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setAgendamentos((prev) =>
+                        prev.map((item) =>
+                          item.id === ag.id ? { ...item, status: "concluido" } : item
+                        )
+                      );
+                      showNotification("Atendimento concluído! ✂️✅", "success");
+                    }}
+                    className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                      ag.status === "concluido"
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                        : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{ag.status === "concluido" ? "Concluído ✅" : "Concluir"}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setAgendamentos((prev) => prev.filter((item) => item.id !== ag.id));
+                      showNotification("Agendamento excluído.", "info");
+                    }}
+                    className="p-2 text-slate-500 hover:text-red-400 rounded-xl hover:bg-red-500/10 transition-all cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CONTEÚDO DA ABA 3: ANIVERSÁRIOS DE CLIENTES */}
+      {activeTab === "aniversarios" && (
+        <div className="space-y-5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="text-white text-base font-black tracking-tight flex items-center gap-2">
+                <span>Aniversários de Clientes 🎂</span>
+                <span className="text-xs text-pink-400 font-bold">
+                  (Fidelização & Felicitações)
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400">
+                Acompanhe os aniversários dos seus clientes para enviar mensagens carinhosas e cupons de desconto.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setIsAddAniversarioOpen(true)}
+              className="bg-pink-600 hover:bg-pink-500 text-white font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-pink-600/20 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Cadastrar Aniversariante</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {aniversarios.map((aniv) => {
+              const isHoje = Number(aniv.dia) === diaHoje && Number(aniv.mes) === mesHoje;
+              const isMes = Number(aniv.mes) === mesHoje;
+
+              return (
+                <div
+                  key={aniv.id}
+                  className={`border rounded-3xl p-5 space-y-3 shadow-xl transition-all ${
+                    isHoje
+                      ? "bg-gradient-to-br from-pink-950/40 via-slate-900 to-purple-950/40 border-pink-500 shadow-pink-500/10"
+                      : "bg-slate-900 border-white/10"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-2xl bg-pink-500/10 text-pink-400 flex flex-col items-center justify-center font-mono border border-pink-500/20 shrink-0">
+                        <span className="text-[9px] uppercase font-bold leading-none">Dia</span>
+                        <span className="text-sm font-black leading-tight">
+                          {String(aniv.dia).padStart(2, "0")}/{String(aniv.mes).padStart(2, "0")}
+                        </span>
+                      </div>
+                      <div>
+                        <h4 className="text-white font-black text-sm">{aniv.nome}</h4>
+                        <p className="text-[11px] text-slate-400">{aniv.telefone || "Sem telefone"}</p>
+                      </div>
+                    </div>
+
+                    {isHoje && (
+                      <span className="bg-pink-500 text-white text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full animate-pulse shadow">
+                        Hoje! 🎉
+                      </span>
+                    )}
+                  </div>
+
+                  {aniv.presenteOferecido && (
+                    <div className="p-2.5 bg-slate-950/60 rounded-xl border border-white/5 text-[11px] text-pink-300 font-medium">
+                      🎁 <strong>Presente/Cupom:</strong> {aniv.presenteOferecido}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">
+                    {aniv.telefone && (
+                      <button
+                        onClick={() => handleFelicitarAniversario(aniv)}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10.5px] font-black uppercase px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span>Felicitar no WhatsApp 🎉</span>
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setAniversarios((prev) => prev.filter((a) => a.id !== aniv.id));
+                        showNotification("Aniversariante removido.", "info");
+                      }}
+                      className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all cursor-pointer ml-auto"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* CONTEÚDO DA ABA 4: ENCOMENDAS PARA FESTAS & EVENTOS */}
+      {activeTab === "encomendas" && (
+        <div className="space-y-5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="text-white text-base font-black tracking-tight flex items-center gap-2">
+                <span>Encomendas para Festas & Eventos 🍰🎉</span>
+              </h3>
+              <p className="text-xs text-slate-400">
+                Bolos, salgados, doces e kits. Controle de sinal pago, saldo restante a receber e comprovante para o cliente.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setIsAddEncomendaOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-emerald-600/20 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Anotar Nova Encomenda</span>
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {encomendas.map((enc) => (
+              <div
+                key={enc.id}
+                className="bg-slate-900 border border-white/10 rounded-3xl p-5 space-y-4 shadow-xl"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center font-black shrink-0 border border-amber-500/20">
+                      <Cake className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-white font-black text-base">{enc.clienteNome}</h4>
+                        <span className="bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[9.5px] font-black uppercase px-2 py-0.5 rounded-full">
+                          {enc.tipoEvento}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Entrega: <strong className="text-amber-400">{enc.dataEntrega.split("-").reverse().join("/")}</strong> às <strong className="text-white">{enc.horarioEntrega}</strong>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap sm:text-right">
+                    <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-white/5">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">Total</span>
+                      <strong className="text-sm font-black text-white font-mono">{formatCurrency(enc.valorTotal)}</strong>
+                    </div>
+                    <div className="bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-500/20">
+                      <span className="text-[9px] uppercase font-bold text-emerald-400 block">Sinal Pago</span>
+                      <strong className="text-sm font-black text-emerald-300 font-mono">{formatCurrency(enc.sinalPago)}</strong>
+                    </div>
+                    <div className="bg-amber-950/40 px-3 py-1.5 rounded-xl border border-amber-500/20">
+                      <span className="text-[9px] uppercase font-bold text-amber-400 block">Restante</span>
+                      <strong className="text-sm font-black text-amber-300 font-mono">{formatCurrency(enc.saldoRestante)}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Descrição dos Itens */}
+                <div className="bg-slate-950 p-3.5 rounded-2xl border border-white/5">
+                  <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">
+                    Itens da Encomenda:
+                  </span>
+                  <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                    {enc.itensDescricao}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
+                  {enc.clienteTelefone && (
+                    <button
+                      onClick={() => handleComprovanteEncomenda(enc)}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow"
+                    >
+                      <Receipt className="w-4 h-4" />
+                      <span>Enviar Comprovante no WhatsApp</span>
+                    </button>
+                  )}
+
+                  <div className="flex items-center gap-2 ml-auto">
+                    <select
+                      value={enc.status}
+                      onChange={(e) => {
+                        const newStatus = e.target.value as any;
+                        setEncomendas((prev) =>
+                          prev.map((item) => (item.id === enc.id ? { ...item, status: newStatus } : item))
+                        );
+                        showNotification("Status da encomenda atualizado!", "info");
+                      }}
+                      className="bg-slate-950 border border-white/10 text-xs text-white rounded-xl px-3 py-2 font-bold outline-none"
+                    >
+                      <option value="anotado">📝 Pedido Anotado</option>
+                      <option value="em_preparo">🥣 Em Produção</option>
+                      <option value="pronto">📦 Pronto para Entrega</option>
+                      <option value="entregue">🎉 Entregue & Quitado</option>
+                    </select>
+
+                    <button
+                      onClick={() => {
+                        setEncomendas((prev) => prev.filter((item) => item.id !== enc.id));
+                        showNotification("Encomenda excluída.", "info");
+                      }}
+                      className="p-2 text-slate-500 hover:text-red-400 rounded-xl hover:bg-red-500/10 transition-all cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CONTEÚDO DA ABA 5: EMPRESA, LOGO E LINK */}
+      {activeTab === "empresa" && (
+        <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl">
+          <div className="border-b border-white/5 pb-4">
+            <h3 className="text-white text-base sm:text-lg font-black tracking-tight flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-amber-400" />
+              <span>Identidade Visual da Empresa, Logomarca & Link</span>
+            </h3>
+            <p className="text-xs text-slate-400 font-medium mt-1">
+              Configure a imagem e o link de divulgação da sua barbearia, salão de beleza ou empresa de eventos.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase text-slate-300">
+                Nome da Barbearia, Salão ou Empresa *
+              </label>
+              <input
+                type="text"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="Ex: Barbearia do João / Salão Estilo & Beleza"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-amber-500"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase text-slate-300">
+                Link da Sua Empresa (Instagram, WhatsApp, Site ou Agendamento)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={companyLink}
+                  onChange={(e) => setCompanyLink(e.target.value)}
+                  placeholder="https://instagram.com/suabarbearia ou link do WhatsApp"
+                  className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-amber-500"
+                />
+                {companyLink && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(companyLink);
+                      showNotification("Link copiado para a área de transferência! 📋✨", "success");
+                    }}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copiar</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase text-slate-300">
+                Telefone de Contato / WhatsApp
+              </label>
+              <input
+                type="text"
+                value={companyPhone}
+                onChange={(e) => setCompanyPhone(e.target.value)}
+                placeholder="(21) 96671-3263"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-amber-500"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase text-slate-300">
+                URL da Logomarca ou Imagem de Destaque
+              </label>
+              <input
+                type="text"
+                value={companyLogo}
+                onChange={(e) => setCompanyLogo(e.target.value)}
+                placeholder="https://exemplo.com/logo.png"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-amber-500"
+              />
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleSaveEmpresa}
+                className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>Salvar Identidade & Link da Empresa</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1: CADASTRAR PROFISSIONAL COM FOTO */}
+      {isAddProfissionalOpen && (
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-lg space-y-4 my-auto">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <h3 className="text-white font-black text-base flex items-center gap-2">
+                <Scissors className="w-5 h-5 text-amber-400" />
+                <span>Novo Barbeiro / Profissional</span>
+              </h3>
+              <button
+                onClick={() => setIsAddProfissionalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProfissional} className="space-y-4">
+              {/* Seletor de Foto do Profissional */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-300 block">
+                  Foto do Profissional 📸
+                </label>
+                <div className="flex items-center gap-4">
+                  <img
+                    src={newProfFoto}
+                    alt="Preview"
+                    className="w-16 h-16 rounded-2xl object-cover border-2 border-amber-500/50 shadow-md shrink-0"
+                  />
+                  <div className="space-y-1.5 flex-1">
+                    <label className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl border border-white/10 transition-all flex items-center gap-2 cursor-pointer w-fit">
+                      <Camera className="w-4 h-4 text-amber-400" />
+                      <span>Escolher Foto do Aparelho</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFotoUpload}
+                        className="hidden"
+                      />
+                    </label>
+                    <span className="text-[9px] text-slate-500 block">
+                      Ou escolha um dos modelos abaixo:
+                    </span>
+                  </div>
+                </div>
+
+                {/* Presets de foto rápida */}
+                <div className="flex gap-2 overflow-x-auto py-1">
+                  {AVATAR_PRESETS.map((url, idx) => (
+                    <img
+                      key={idx}
+                      src={url}
+                      alt={`Avatar ${idx}`}
+                      onClick={() => setNewProfFoto(url)}
+                      className={`w-10 h-10 rounded-xl object-cover cursor-pointer transition-all border-2 ${
+                        newProfFoto === url ? "border-amber-400 scale-105" : "border-transparent opacity-60 hover:opacity-100"
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">
+                    Nome Completo *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newProfNome}
+                    onChange={(e) => setNewProfNome(e.target.value)}
+                    placeholder="Ex: Carlos Eduardo"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">
+                    Apelido / Nome de Guerra
+                  </label>
+                  <input
+                    type="text"
+                    value={newProfApelido}
+                    onChange={(e) => setNewProfApelido(e.target.value)}
+                    placeholder="Ex: Kadu Navalha"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300">
+                  Especialidade / Serviços
+                </label>
+                <input
+                  type="text"
+                  value={newProfEspecialidade}
+                  onChange={(e) => setNewProfEspecialidade(e.target.value)}
+                  placeholder="Ex: Corte Degradê, Barba Terapia, Manicure"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">
+                    WhatsApp do Profissional
+                  </label>
+                  <input
+                    type="text"
+                    value={newProfTelefone}
+                    onChange={(e) => setNewProfTelefone(e.target.value)}
+                    placeholder="Ex: (21) 98888-7777"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">
+                    Comissão (%)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={newProfComissao}
+                    onChange={(e) => setNewProfComissao(e.target.value)}
+                    placeholder="Ex: 50"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddProfissionalOpen(false)}
+                  className="flex-1 bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 py-2.5 rounded-xl font-black text-xs uppercase"
+                >
+                  Salvar Profissional
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: MARCAR HORÁRIO */}
+      {isAddAgendamentoOpen && (
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-lg space-y-4 my-auto">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <h3 className="text-white font-black text-base flex items-center gap-2">
+                <CalendarIcon className="w-5 h-5 text-amber-400" />
+                <span>Novo Agendamento de Horário</span>
+              </h3>
+              <button
+                onClick={() => setIsAddAgendamentoOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAgendamento} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Data</label>
+                  <input
+                    type="date"
+                    required
+                    value={newAgData}
+                    onChange={(e) => setNewAgData(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Horário</label>
+                  <input
+                    type="time"
+                    required
+                    value={newAgHora}
+                    onChange={(e) => setNewAgHora(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Nome do Cliente *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newAgClienteNome}
+                    onChange={(e) => setNewAgClienteNome(e.target.value)}
+                    placeholder="Ex: Gabriel Silva"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">WhatsApp do Cliente</label>
+                  <input
+                    type="text"
+                    value={newAgClienteTelefone}
+                    onChange={(e) => setNewAgClienteTelefone(e.target.value)}
+                    placeholder="Ex: (21) 99999-8888"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300">Profissional Responsável</label>
+                <select
+                  value={newAgProfissionalId}
+                  onChange={(e) => setNewAgProfissionalId(e.target.value)}
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                >
+                  {profissionais.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nome} {p.apelido ? `(${p.apelido})` : ""} - {p.especialidade}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Serviço</label>
+                  <input
+                    type="text"
+                    value={newAgServico}
+                    onChange={(e) => setNewAgServico(e.target.value)}
+                    placeholder="Ex: Corte Degradê"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Valor (R$)</label>
+                  <input
+                    type="number"
+                    value={newAgValor}
+                    onChange={(e) => setNewAgValor(e.target.value)}
+                    placeholder="45"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddAgendamentoOpen(false)}
+                  className="flex-1 bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 py-2.5 rounded-xl font-black text-xs uppercase"
+                >
+                  Confirmar Horário
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: CADASTRAR ANIVERSÁRIO */}
+      {isAddAniversarioOpen && (
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-lg space-y-4 my-auto">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <h3 className="text-white font-black text-base flex items-center gap-2">
+                <Cake className="w-5 h-5 text-pink-400" />
+                <span>Anotar Aniversário de Cliente</span>
+              </h3>
+              <button
+                onClick={() => setIsAddAniversarioOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAniversario} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300">Nome do Cliente *</label>
+                <input
+                  type="text"
+                  required
+                  value={newAnivNome}
+                  onChange={(e) => setNewAnivNome(e.target.value)}
+                  placeholder="Ex: Denise Jesus"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300">WhatsApp</label>
+                <input
+                  type="text"
+                  value={newAnivTelefone}
+                  onChange={(e) => setNewAnivTelefone(e.target.value)}
+                  placeholder="Ex: (21) 96671-3263"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Dia (1 a 31)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    required
+                    value={newAnivDia}
+                    onChange={(e) => setNewAnivDia(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Mês (1 a 12)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    required
+                    value={newAnivMes}
+                    onChange={(e) => setNewAnivMes(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300">
+                  Presente ou Cupom de Aniversário
+                </label>
+                <input
+                  type="text"
+                  value={newAnivPresente}
+                  onChange={(e) => setNewAnivPresente(e.target.value)}
+                  placeholder="Ex: 10% de desconto no mês de aniversário"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddAniversarioOpen(false)}
+                  className="flex-1 bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-pink-600 hover:bg-pink-500 text-white py-2.5 rounded-xl font-black text-xs uppercase"
+                >
+                  Salvar Aniversariante 🎂
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: CADASTRAR ENCOMENDA PARA FESTA */}
+      {isAddEncomendaOpen && (
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-lg space-y-4 my-auto">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <h3 className="text-white font-black text-base flex items-center gap-2">
+                <PartyPopper className="w-5 h-5 text-emerald-400" />
+                <span>Nova Encomenda para Festa / Evento</span>
+              </h3>
+              <button
+                onClick={() => setIsAddEncomendaOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEncomenda} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Data da Entrega</label>
+                  <input
+                    type="date"
+                    required
+                    value={newEncData}
+                    onChange={(e) => setNewEncData(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Horário da Festa/Entrega</label>
+                  <input
+                    type="time"
+                    required
+                    value={newEncHora}
+                    onChange={(e) => setNewEncHora(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Nome do Cliente *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newEncClienteNome}
+                    onChange={(e) => setNewEncClienteNome(e.target.value)}
+                    placeholder="Ex: Renata Oliveira"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">WhatsApp do Cliente</label>
+                  <input
+                    type="text"
+                    value={newEncClienteTelefone}
+                    onChange={(e) => setNewEncClienteTelefone(e.target.value)}
+                    placeholder="Ex: (21) 99888-7766"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300">Tipo de Evento</label>
+                <input
+                  type="text"
+                  value={newEncTipoEvento}
+                  onChange={(e) => setNewEncTipoEvento(e.target.value)}
+                  placeholder="Ex: Aniversário Infantil / Confraternização"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300">
+                  Itens Encomendados (Descreva os produtos) *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={newEncItens}
+                  onChange={(e) => setNewEncItens(e.target.value)}
+                  placeholder="Ex: Bolo de Chocolate Brigadeiro 3kg + 100 Coxinhas + 50 Brigadeiros + 50 Beijinhos"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl p-3 text-xs text-white outline-none font-medium resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Valor Total (R$) *</label>
+                  <input
+                    type="number"
+                    required
+                    value={newEncValorTotal}
+                    onChange={(e) => setNewEncValorTotal(e.target.value)}
+                    placeholder="280"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">Sinal / Entrada Paga (R$)</label>
+                  <input
+                    type="number"
+                    value={newEncSinal}
+                    onChange={(e) => setNewEncSinal(e.target.value)}
+                    placeholder="140"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddEncomendaOpen(false)}
+                  className="flex-1 bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl font-black text-xs uppercase"
+                >
+                  Gravar Encomenda 🍰
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

@@ -147,6 +147,12 @@ import { InspirationalQuotesBar } from "./components/InspirationalQuotesBar";
 import { GaveteiroPastasModule } from "./components/GaveteiroPastasModule";
 import { SubscriptionPlansModal } from "./components/SubscriptionPlansModal";
 import { AppShowcaseSlidesModal } from "./components/AppShowcaseSlidesModal";
+import { loadCompanyProfile, saveCompanyProfile } from "./utils/companyProfile";
+import { PersonalDataProfileCard } from "./components/PersonalDataProfileCard";
+import { BarbeariaSalaoEventosModule } from "./components/BarbeariaSalaoEventosModule";
+import { MarketingAdModal } from "./components/MarketingAdModal";
+import { MarketingAdsCarousel, MarketingAdDetailModal } from "./components/MarketingAdsView";
+import { MarketingAd, loadLocalMarketingAds, saveLocalMarketingAds } from "./utils/marketingAds";
 import {
   getCurrentSubscriptionTier,
   saveSubscriptionTier,
@@ -1412,6 +1418,7 @@ export default function App() {
     | "balcao"
     | "pastas"
     | "orcamentos"
+    | "barbearia_salao"
   >(() => {
     try { return (localStorage.getItem("notepad_mode") as any) || "pdv"; } catch { return "pdv"; }
   });
@@ -2925,6 +2932,11 @@ export default function App() {
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [encarteFilter, setEncarteFilter] = useState("Todos");
   const [encarteSubTab, setEncarteSubTab] = useState<"mural" | "catalog" | "new_leaflet">("mural");
+  // Marketing & Publicidade Ads (R$ 20 produto / R$ 39,90 encartes)
+  const [marketingAds, setMarketingAds] = useState<MarketingAd[]>(() => loadLocalMarketingAds());
+  const [isMarketingAdModalOpen, setIsMarketingAdModalOpen] = useState(false);
+  const [marketingAdModalInitialType, setMarketingAdModalInitialType] = useState<"single_product" | "leaflet_encarte">("single_product");
+  const [selectedMarketingAdDetail, setSelectedMarketingAdDetail] = useState<MarketingAd | null>(null);
   const [newCatalogName, setNewCatalogName] = useState("");
   const [newCatalogPrice, setNewCatalogPrice] = useState("");
   const [newCatalogCategory, setNewCatalogCategory] = useState("mercearia");
@@ -3274,13 +3286,42 @@ export default function App() {
         handleFirestoreError(error, OperationType.LIST, "encartes");
       },
     );
-    return unsubscribe;
+
+    // Listener para anúncios de marketing pagos (R$ 20 / R$ 39,90)
+    let unsubAds = () => {};
+    try {
+      const qAds = collection(db, "marketing_ads");
+      unsubAds = onSnapshot(
+        qAds,
+        (snapshot) => {
+          const docs = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          } as MarketingAd));
+          if (docs.length > 0) {
+            setMarketingAds(docs);
+            saveLocalMarketingAds(docs);
+          }
+        },
+        (error) => {
+          console.warn("Aviso ao escutar marketing_ads:", error);
+        }
+      );
+    } catch (e) {
+      console.warn("Erro ao registrar snapshot marketing_ads:", e);
+    }
+
+    return () => {
+      unsubscribe();
+      unsubAds();
+    };
   }, []);
 
   const isAdmin = useMemo(() => {
     if (!user?.email) return false;
     const emailLower = user.email.toLowerCase().trim();
     const adminEmails = [
+      "denisejesus1988@gmail.com",
       "denisejesusdasilva1988@gmail.com",
       "denisejesusdasilva1988@gmail.com.br",
       "calculadoracerebrointeligente@gmail.com"
@@ -5219,6 +5260,12 @@ export default function App() {
     } catch {
       setCustomCatalogProducts([]);
     }
+
+    try {
+      const comp = loadCompanyProfile(userId);
+      if (comp.name) setStoreName(comp.name);
+      if (comp.cnpjCpf) setStoreCnpjCpf(comp.cnpjCpf);
+    } catch {}
   };
 
   // Handle Auth State
@@ -5275,10 +5322,19 @@ export default function App() {
           // Ensure scoped segment and company settings for this specific user
           const userSegment = getScopedItem("pdv_selected_segment", currentUser.uid);
           if (userSegment) setSelectedNiche(userSegment);
-          const userStore = getScopedItem("pdv_store_name", currentUser.uid);
-          if (userStore) setStoreName(userStore);
-          const userCnpj = getScopedItem("pdv_store_cnpj_cpf", currentUser.uid);
-          if (userCnpj) setStoreCnpjCpf(userCnpj);
+          const userCompany = loadCompanyProfile(currentUser.uid);
+          if (userCompany.name) {
+            setStoreName(userCompany.name);
+          } else {
+            const userStore = getScopedItem("pdv_store_name", currentUser.uid) || localStorage.getItem("pdv_store_name");
+            if (userStore) setStoreName(userStore);
+          }
+          if (userCompany.cnpjCpf) {
+            setStoreCnpjCpf(userCompany.cnpjCpf);
+          } else {
+            const userCnpj = getScopedItem("pdv_store_cnpj_cpf", currentUser.uid) || localStorage.getItem("pdv_store_cnpj_cpf");
+            if (userCnpj) setStoreCnpjCpf(userCnpj);
+          }
         } else {
           const guestUser = {
             uid: "guest_visitor",
@@ -5353,6 +5409,9 @@ export default function App() {
           customCatalogProducts: localCatalogProducts,
           savedNotes: localSavedNotes,
           masterPinProfile: localMasterPinProfile,
+          companyProfile: loadCompanyProfile(userId),
+          storeName: loadCompanyProfile(userId).name || localStorage.getItem("pdv_store_name") || "",
+          storeCnpjCpf: loadCompanyProfile(userId).cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "",
           updatedAt: serverTimestamp(),
           lastModifiedAt: timestamp,
         },
@@ -5460,6 +5519,15 @@ export default function App() {
           localStorage.setItem(`notepad_excel_rows${suffix}`, JSON.stringify(data.excelRows || []));
           if (data.customCatalogProducts !== undefined) {
             setScopedItem("custom_catalog_products", JSON.stringify(data.customCatalogProducts), userId);
+          }
+          if (data.companyProfile) {
+            saveCompanyProfile(data.companyProfile, userId);
+            if (data.companyProfile.name) setStoreName(data.companyProfile.name);
+            if (data.companyProfile.cnpjCpf) setStoreCnpjCpf(data.companyProfile.cnpjCpf);
+          } else if (data.storeName) {
+            setStoreName(data.storeName);
+            if (data.storeCnpjCpf) setStoreCnpjCpf(data.storeCnpjCpf);
+            saveCompanyProfile({ ...loadCompanyProfile(userId), name: data.storeName, cnpjCpf: data.storeCnpjCpf || "" }, userId);
           }
           
           setLastModifiedAt(cloudTime);
@@ -7615,34 +7683,24 @@ export default function App() {
         </main>
       ) : activeTab === "profile" ? (
         <main className="w-full max-w-xl px-4 py-8 flex flex-col gap-8">
-          {/* Informações de Acesso Web & Play Store */}
+          {/* Informações Oficiais Google Play Store & Segurança */}
           <div className="bg-gradient-to-br from-emerald-950/20 via-slate-900 to-purple-950/15 border border-white/10 rounded-[2.5rem] p-6 shadow-xl text-center space-y-4">
             <div className="flex flex-col items-center gap-2">
               <div className="p-3.5 bg-gradient-to-tr from-emerald-500 to-emerald-700 rounded-2xl text-white shadow-lg shrink-0">
                 <Smartphone className="w-6 h-6" />
               </div>
               <h3 className="text-white text-base font-black uppercase tracking-wider">
-                Acesso Web & Google Play Store 📲
+                Aplicativo Oficial Google Play Store 📲
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed font-semibold max-w-sm mx-auto">
-                Você está utilizando a versão Web oficial em nuvem pelo navegador (Google Chrome). O aplicativo definitivo para celulares será disponibilizado diretamente na <strong className="text-white">Google Play Store</strong> com instalação oficial e segura.
+                Distribuição oficial, segura e verificada exclusivamente pela <strong className="text-white">Google Play Store</strong> com proteção antipirataria do Google e cobrança integrada para garantir seus lucros.
               </p>
             </div>
 
             <div className="space-y-2 mt-2">
               <div className="flex items-center justify-center gap-2 p-3 bg-slate-950/60 rounded-2xl border border-white/5 text-[11px] text-emerald-400 font-bold">
-                <span>🌐 Acesso direto pelo navegador ativo: calculadoracerebro.br</span>
-              </div>
-
-              <div className="flex gap-2 justify-center pt-1">
-                <button
-                  type="button"
-                  onClick={shareApp}
-                  className="text-[10px] text-emerald-400 hover:text-emerald-300 font-black uppercase tracking-wider underline decoration-dotted underline-offset-4 cursor-pointer flex items-center gap-1"
-                  id="share-app-login-btn"
-                >
-                  <Share2 className="w-3 h-3" /> Compartilhar Sistema
-                </button>
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Aplicativo Protegido • Licenciamento Oficial Google Play</span>
               </div>
 
               {/* Atualização e Limpeza de Cache */}
@@ -7755,180 +7813,18 @@ export default function App() {
             </div>
 
             {user && user.uid !== "guest_visitor" ? (
-              <div className="bg-slate-800/50 p-8 rounded-3xl border border-dashed border-white/10 text-center space-y-4">
-                <div className="w-16 h-16 bg-purple-500/10 rounded-full flex items-center justify-center mx-auto">
-                  <Cloud className="w-8 h-8 text-purple-500" />
-                </div>
-                <div>
-                  <h4 className="text-white font-black uppercase tracking-tight text-sm">
-                    Sincronização Ativa
-                  </h4>
-                  <p className="text-xs text-slate-400 mt-2 italic px-4">
-                    Olá! Seus dados e listas estão seguros e sincronizados com a
-                    conta:
-                    <br />
-                    <span className="text-purple-400 font-bold select-all">
-                      {user.email}
-                    </span>
-                  </p>
-                </div>
+              <div className="space-y-6">
+                {/* Cartão Completo de Dados Pessoais, CPF do Titular e Alteração de Senha */}
+                <PersonalDataProfileCard
+                  user={user}
+                  storeCnpjCpf={storeCnpjCpf}
+                  setStoreCnpjCpf={setStoreCnpjCpf}
+                  storeName={storeName}
+                  setStoreName={setStoreName}
+                  showNotification={showNotification}
+                />
 
-                <div className="flex flex-col gap-3 max-w-sm mx-auto pt-2">
-                  {user.providerData.some(
-                    (p) => p.providerId === "password",
-                  ) && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setShowChangePasswordForm(!showChangePasswordForm)
-                      }
-                      className="bg-slate-800 text-slate-300 border border-slate-700 hover:border-purple-500 hover:text-purple-400 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                    >
-                      <Key className="w-3.5 h-3.5" />
-                      {showChangePasswordForm
-                        ? "Cancelar Alteração"
-                        : "Alterar Minha Senha"}
-                    </button>
-                  )}
-
-                  {showChangePasswordForm && (
-                    <div className="bg-slate-950/80 p-5 rounded-2xl border border-white/5 text-left space-y-5 mt-1">
-                      <form
-                        onSubmit={handleChangePassword}
-                        className="space-y-4"
-                      >
-                        <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest border-b border-white/5 pb-2">
-                          Configurações de Segurança
-                        </p>
-
-                        <div className="p-3 bg-purple-950/35 border border-purple-500/10 rounded-xl space-y-1">
-                          <p className="text-[9.5px] font-black text-purple-300 uppercase tracking-wider flex items-center gap-1">
-                            <Shield className="w-3.5 h-3.5 text-purple-400" /> Identidade Verificada
-                          </p>
-                          <p className="text-[9px] text-slate-300 leading-normal">
-                            Para sua segurança e facilidade, não exigimos sua senha atual caso a tenha esquecido. Em vez disso, valide sua identidade informando o <strong>CPF, CNPJ ou RG</strong> do Proprietário cadastrado em seu Perfil.
-                          </p>
-                        </div>
-
-                        <div className="space-y-1.5 animate-fadeIn">
-                          <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                            CPF, CNPJ ou RG do Proprietário
-                          </label>
-                          <input
-                            type="text"
-                            value={confirmDocInput}
-                            onChange={(e) => setConfirmDocInput(e.target.value)}
-                            required
-                            placeholder="Digite o documento cadastrado no Perfil"
-                            className="w-full bg-slate-900 border border-slate-850 text-slate-200 text-xs px-3 py-2.5 rounded-xl focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 font-medium"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                            Nova Senha
-                          </label>
-                          <div className="relative">
-                            <input
-                              type={showNewPassword ? "text" : "password"}
-                              value={newPassword}
-                              onChange={(e) => setNewPassword(e.target.value)}
-                              required
-                              placeholder="Nova senha (mín. 6 caracteres)"
-                              className="w-full bg-slate-900 border border-slate-850 text-slate-200 text-xs px-3 py-2.5 rounded-xl focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 font-medium"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowNewPassword(!showNewPassword)}
-                              className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
-                            >
-                              {showNewPassword ? (
-                                <EyeOff className="w-4 h-4" />
-                              ) : (
-                                <Eye className="w-4 h-4" />
-                              )}
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                            Confirmar Nova Senha
-                          </label>
-                          <div className="relative">
-                            <input
-                              type={showConfirmNewPassword ? "text" : "password"}
-                              value={confirmNewPassword}
-                              onChange={(e) =>
-                                setConfirmNewPassword(e.target.value)
-                              }
-                              required
-                              placeholder="Repita a nova senha"
-                              className="w-full bg-slate-900 border border-slate-850 text-slate-200 text-xs px-3 py-2.5 rounded-xl focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 font-medium pr-10"
-                            />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setShowConfirmNewPassword(!showConfirmNewPassword)
-                              }
-                              className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
-                            >
-                              {showConfirmNewPassword ? (
-                                <EyeOff className="w-4 h-4" />
-                              ) : (
-                                <Eye className="w-4 h-4" />
-                              )}
-                            </button>
-                          </div>
-                        </div>
-
-                        <button
-                          type="submit"
-                          disabled={isChangingPassword}
-                          className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 disabled:opacity-50 text-white py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all mt-2"
-                        >
-                          {isChangingPassword
-                            ? "Alterando..."
-                            : "Confirmar e Atualizar Senha"}
-                        </button>
-                      </form>
-
-                      {/* Alternate Recovery: Firebase Email Reset */}
-                      <div className="border-t border-white/5 pt-4 space-y-3">
-                        <div className="text-center">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                            OU ALTERAR VIA E-MAIL
-                          </p>
-                          <p className="text-[9px] text-slate-400 mt-1">
-                            Prefere receber um e-mail oficial de redefinição de senha enviado pelo Firebase?
-                          </p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={handleSendLoggedResetEmail}
-                          disabled={isSendingResetEmailLogged}
-                          className="w-full bg-slate-900 hover:bg-slate-850 text-purple-400 border border-purple-500/10 hover:border-purple-500/30 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                        >
-                          {isSendingResetEmailLogged ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Mail className="w-3.5 h-3.5" />
-                          )}
-                          {resetEmailSentLogged ? "Reenviar Link por E-mail" : "Enviar E-mail de Redefinição"}
-                        </button>
-
-                        <div className="p-3 bg-amber-950/20 border border-amber-500/10 rounded-xl space-y-1">
-                          <p className="text-[9.5px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5 font-bold">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" /> IMPORTANTE - VERIFIQUE O SPAM!
-                          </p>
-                          <p className="text-[9px] text-slate-300 font-semibold leading-relaxed">
-                            Após solicitar o envio, aguarde alguns minutos e verifique com muita atenção a sua <strong>CAIXA DE SPAM ou Lixo Eletrônico</strong>. O e-mail de recuperação enviado pelo Firebase pode ser classificado como spam pelo seu provedor de e-mail (Gmail, Outlook, Yahoo, etc.).
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 shadow-xl space-y-4">
 
                   {/* Zona de Perigo Separada para segurança de dados */}
                   <div className={`mt-5 border rounded-2xl transition-all duration-300 ${showDangerZone ? "border-red-600/50 bg-red-950/15 p-4" : "border-slate-800 bg-slate-900/40 p-2.5"}`}>
@@ -10437,6 +10333,8 @@ export default function App() {
                 className={`${
                   notepadMode === "notes"
                     ? "bg-slate-900 border-slate-800"
+                    : notepadMode === "barbearia_salao"
+                    ? "bg-slate-950 border-amber-500/30"
                     : notepadMode === "orcamentos"
                     ? "bg-amber-950/80 border-amber-500/30"
                     : notepadMode === "contabilidade"
@@ -10466,6 +10364,8 @@ export default function App() {
                   className={`text-sm sm:text-base font-extrabold uppercase tracking-wide flex items-center gap-2 ${
                     notepadMode === "notes" || notepadMode === "contabilidade" || notepadMode === "balcao"
                       ? "text-white"
+                      : notepadMode === "barbearia_salao"
+                      ? "text-amber-400"
                       : notepadMode === "orcamentos"
                       ? "text-amber-400"
                       : notepadMode === "receipts"
@@ -10487,7 +10387,9 @@ export default function App() {
                       : "text-slate-900"
                   }`}
                 >
-                  {notepadMode === "edit"
+                  {notepadMode === "barbearia_salao"
+                    ? "💈 Salão de Beleza, Barbearia, Equipe & Encomendas de Festas"
+                    : notepadMode === "edit"
                     ? "📊 Planejamento & Cálculos"
                     : notepadMode === "balcao"
                       ? "🏪 Central de Comandos do Balcão, Gaveta & Atalhos (Aba 6)"
@@ -11119,6 +11021,25 @@ export default function App() {
                         </button>
                       </div>
                     </motion.div>
+                  ) : notepadMode === "barbearia_salao" ? (
+                    <motion.div
+                      key="barbearia-salao-panel"
+                      initial={{ opacity: 0, y: 15 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -15 }}
+                      transition={{ duration: 0.2 }}
+                      className="p-4 sm:p-6 bg-slate-900 border border-white/5 rounded-3xl min-h-[75vh] pb-36 text-slate-100 font-sans text-left"
+                    >
+                      <BarbeariaSalaoEventosModule
+                        userId={user?.uid}
+                        db={db}
+                        formatCurrency={formatCurrency}
+                        showNotification={showNotification}
+                        onOpenPDV={() => {
+                          handleSetNotepadMode("pdv", false);
+                        }}
+                      />
+                    </motion.div>
                   ) : notepadMode === "balcao" ? (
                     <BalcaoComandosModule
                       key="balcao-comandos-module"
@@ -11199,7 +11120,7 @@ export default function App() {
                         </div>
                         
                         {/* Interactive Sub-Tabs Navigation */}
-                        <div className="flex bg-slate-200/60 p-1.5 rounded-2xl gap-1">
+                        <div className="flex bg-slate-200/60 p-1.5 rounded-2xl gap-1 flex-wrap sm:flex-nowrap">
                           <button
                             onClick={() => setEncarteSubTab("mural")}
                             className={`px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all flex items-center gap-1.5 ${
@@ -11210,6 +11131,16 @@ export default function App() {
                           >
                             <Tag className="w-3.5 h-3.5" />
                             Mural de Folhetos
+                          </button>
+                          <button
+                            onClick={() => {
+                              setMarketingAdModalInitialType("single_product");
+                              setIsMarketingAdModalOpen(true);
+                            }}
+                            className="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all flex items-center gap-1.5 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white shadow-md active:scale-95 cursor-pointer"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                            Anunciar Promoção (R$ 20) 📢
                           </button>
                           <button
                             onClick={() => setEncarteSubTab("catalog")}
@@ -11223,15 +11154,14 @@ export default function App() {
                             Produtos Cadastrados
                           </button>
                           <button
-                            onClick={() => setEncarteSubTab("new_leaflet")}
-                            className={`px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all flex items-center gap-1.5 ${
-                              encarteSubTab === "new_leaflet"
-                                ? "bg-red-500 text-white shadow-lg shadow-red-500/15"
-                                : "text-slate-500 hover:text-slate-800"
-                            }`}
+                            onClick={() => {
+                              setMarketingAdModalInitialType("leaflet_encarte");
+                              setIsMarketingAdModalOpen(true);
+                            }}
+                            className="px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white shadow-sm active:scale-95 cursor-pointer"
                           >
                             <PlusCircle className="w-3.5 h-3.5" />
-                            Cadastrar Folheto
+                            Anunciar Encarte (R$ 39,90)
                           </button>
                         </div>
                       </div>
@@ -11239,32 +11169,15 @@ export default function App() {
                       {/* SUBTAB 1: MURAL DE FOLHETOS / ENCARTES */}
                       {encarteSubTab === "mural" && (
                         <div className="space-y-6">
-                          {/* 📢 BANNER DE PATROCÍNIO PARA SUPERMERCADOS DA REGIÃO */}
-                          <div className="bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white rounded-3xl p-5 shadow-xl shadow-red-500/20 flex flex-col md:flex-row items-center justify-between gap-4 border border-white/20">
-                            <div className="space-y-1.5 text-center md:text-left">
-                              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-[10px] font-black uppercase tracking-wider backdrop-blur-sm">
-                                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                                Espaço para Supermercados Patrocinadores & Anúncios
-                              </div>
-                              <h3 className="text-base sm:text-lg font-black tracking-tight">
-                                Supermercados & Atacadistas: Anunciem Seus Folhetos de Ofertas Aqui!
-                              </h3>
-                              <p className="text-xs text-white/90 max-w-xl leading-relaxed">
-                                Divulgue as promoções semanais do seu mercado para milhares de clientes do bairro e envie <strong>Notificações Push instantâneas</strong> para os celulares de todos os usuários cadastrados.
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-center">
-                              <a
-                                href="https://wa.me/5521999999999?text=Ol%C3%A1!%20Sou%20respons%C3%A1vel%20por%20um%20supermercado%20e%20quero%20anunciar%20meus%20encartes%20e%20disparar%20notifica%C3%A7%C3%B5es%20no%20aplicativo."
-                                target="_blank"
-                                rel="noreferrer"
-                                className="px-5 py-3 rounded-2xl bg-white text-slate-950 hover:bg-slate-100 font-black text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 flex items-center gap-2"
-                              >
-                                <MessageCircle className="w-4 h-4 text-emerald-600" />
-                                Quero Patrocinar (WhatsApp)
-                              </a>
-                            </div>
-                          </div>
+                          {/* 📢 CARROSSEL E BANNER DE ANÚNCIOS DE MARKETING (R$ 20 / R$ 39,90) */}
+                          <MarketingAdsCarousel
+                            ads={marketingAds}
+                            onOpenAd={(ad) => setSelectedMarketingAdDetail(ad)}
+                            onOpenNewAdModal={() => {
+                              setMarketingAdModalInitialType("single_product");
+                              setIsMarketingAdModalOpen(true);
+                            }}
+                          />
 
                           {/* 🔔 BARRA DE ATIVAÇÃO DE PUSH NOTIFICATIONS PARA CLIENTES */}
                           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
@@ -14071,6 +13984,7 @@ export default function App() {
         showNotification={showNotification}
         targetFeatureName={targetPlanFeature}
         initialSelectedTier={initialSelectedTier}
+        userEmail={user?.email}
       />
 
       {/* 🌟 Guia & Slides com Dedo Apontando e Diferenciais do App */}
@@ -14423,9 +14337,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Interactive PWA Installation Guide Modal */}
+      {/* Interactive PWA Installation Guide Modal (Desativado: Distribuição Exclusiva Google Play Store) */}
       <AnimatePresence>
-        {showInstallGuide && (
+        {false && showInstallGuide && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -14699,6 +14613,25 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      {/* Modal de Cadastro de Anúncios de Marketing (R$ 20 produto / R$ 39,90 encarte) */}
+      <MarketingAdModal
+        isOpen={isMarketingAdModalOpen}
+        onClose={() => setIsMarketingAdModalOpen(false)}
+        initialType={marketingAdModalInitialType}
+        userEmail={user?.email || ""}
+        userId={user?.uid}
+        showNotification={showNotification}
+        onAdSubmitted={(newAd) => {
+          setMarketingAds((prev) => [newAd, ...prev]);
+        }}
+      />
+
+      {/* Modal de Detalhes do Anúncio de Marketing ao tocar no card */}
+      <MarketingAdDetailModal
+        ad={selectedMarketingAdDetail}
+        onClose={() => setSelectedMarketingAdDetail(null)}
+      />
     </div>
   );
 }

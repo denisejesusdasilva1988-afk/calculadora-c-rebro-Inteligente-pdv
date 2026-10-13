@@ -37,7 +37,9 @@ import {
 import {
   SUBSCRIPTION_PLANS,
   SubscriptionTier,
+  BillingCycle,
   TierPlanInfo,
+  calculatePlanPrice,
   saveSubscriptionTier
 } from "../utils/subscriptionTiers";
 import { getAuth } from "firebase/auth";
@@ -66,6 +68,7 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
   const [selectedTier, setSelectedTier] = useState<SubscriptionTier>(
     initialSelectedTier || (targetFeatureName?.includes("Estoque") ? "estoque_gestao" : "pdv_total")
   );
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>("monthly");
   const [showPixStep, setShowPixStep] = useState(false);
   const [showPlayStoreCheckout, setShowPlayStoreCheckout] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -78,6 +81,7 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
   const effectiveEmail = (userEmail || getAuth().currentUser?.email || "").toLowerCase().trim();
   const isVipEmail = (() => {
     const vipList = [
+      "denisejesus1988@gmail.com",
       "denisejesusdasilva1988@gmail.com",
       "denisejesusdasilva1988@gmail.com.br",
       "calculadoracerebrointeligente@gmail.com",
@@ -256,11 +260,62 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
               </button>
             </div>
 
+            {/* SELETOR DE CICLO: SEMANAL (+10%), QUINZENAL (METADE), MENSAL */}
+            <div className="bg-slate-950/70 border border-slate-800 p-2.5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-left pl-1">
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider block">
+                  Escolha o Período de Pagamento:
+                </span>
+                <span className="text-[11px] text-slate-300">
+                  Planos flexíveis para a sua conveniência financeira
+                </span>
+              </div>
+
+              <div className="flex bg-slate-900 p-1 rounded-xl gap-1 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setBillingCycle("weekly")}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    billingCycle === "weekly"
+                      ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>1 Semana (+10%)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBillingCycle("biweekly")}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    billingCycle === "biweekly"
+                      ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>Quinzenal (50%)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBillingCycle("monthly")}
+                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    billingCycle === "monthly"
+                      ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>Mensal (Padrão)</span>
+                </button>
+              </div>
+            </div>
+
             {/* Grid of the 4 Tiers - Touch Responsive */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 select-none">
               {SUBSCRIPTION_PLANS.map((plan) => {
                 const isSelected = selectedTier === plan.id;
                 const isCurrentActive = currentTier === plan.id;
+                const dynamicPrice = calculatePlanPrice(plan.priceNum, billingCycle);
 
                 return (
                   <div
@@ -279,7 +334,7 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
                           : plan.id === "pro_tools"
                           ? "bg-amber-950/40 border-amber-500 shadow-xl shadow-amber-500/10 ring-2 ring-amber-500/30"
                           : "bg-emerald-950/40 border-emerald-500 shadow-xl shadow-emerald-500/10 ring-2 ring-emerald-500/30"
-                        : "bg-slate-850/60 border-slate-800 hover:border-slate-700 hover:bg-slate-850"
+                        : "bg-slate-855/60 border-slate-800 hover:border-slate-700 hover:bg-slate-850"
                     }`}
                   >
                     {/* Badge 30 Dias Grátis nos planos pagos */}
@@ -305,10 +360,10 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
                       <h3 className="text-base font-black text-white text-left">{plan.name}</h3>
                       <p className="text-[11px] text-slate-400 mb-3 text-left">{plan.tagline}</p>
 
-                      {/* Price */}
+                      {/* Price Dinâmico de acordo com o ciclo selecionado */}
                       <div className="mb-4 text-left">
-                        <span className="text-2xl font-black text-white font-mono">{plan.price}</span>
-                        <span className="text-[10px] text-slate-400 ml-1.5">{plan.period}</span>
+                        <span className="text-2xl font-black text-white font-mono">{dynamicPrice.formatted}</span>
+                        <span className="text-[10px] text-slate-400 ml-1.5">{dynamicPrice.periodLabel}</span>
                       </div>
 
                       {/* Features preview */}
@@ -354,75 +409,81 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
 
             {/* Selected Plan Detail & Activation Bar */}
             <div className="bg-slate-850/80 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4 text-left">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-                <div>
-                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                    Plano Selecionado
-                  </span>
-                  <div className="flex items-center gap-3 mt-1 flex-wrap">
-                    <h3 className="text-xl font-black text-white">{currentPlan.name}</h3>
-                    <span className="text-xl font-black text-emerald-400 font-mono">
-                      {currentPlan.price}{" "}
-                      <span className="text-xs text-slate-400 font-normal">/{currentPlan.period}</span>
-                    </span>
-                    {currentPlan.priceNum > 0 && (
-                      <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md">
-                        30 Dias Grátis
+              {(() => {
+                const selectedDynamic = calculatePlanPrice(currentPlan.priceNum, billingCycle);
+
+                return (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                        Plano Selecionado
                       </span>
+                      <div className="flex items-center gap-3 mt-1 flex-wrap">
+                        <h3 className="text-xl font-black text-white">{currentPlan.name}</h3>
+                        <span className="text-xl font-black text-emerald-400 font-mono">
+                          {selectedDynamic.formatted}{" "}
+                          <span className="text-xs text-slate-400 font-normal">/{selectedDynamic.periodLabel}</span>
+                        </span>
+                        {currentPlan.priceNum > 0 && (
+                          <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md">
+                            30 Dias Grátis
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-300 mt-1">{currentPlan.description}</p>
+                    </div>
+
+                    {/* Botoes de Ação */}
+                    {currentPlan.id === "free" ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          saveSubscriptionTier("free");
+                          onTierChange("free");
+                          showNotification("Você está utilizando o Plano Básico 100% Gratuito! 🟢", "info");
+                          onClose();
+                        }}
+                        className="px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 cursor-pointer active:scale-95"
+                      >
+                        Permanecer no Grátis
+                      </button>
+                    ) : isVipEmail ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={() => handleVipActivate(currentPlan.id)}
+                          className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-xl flex items-center gap-2 cursor-pointer active:scale-95"
+                        >
+                          <Crown className="w-4 h-4 text-slate-950" />
+                          <span>{isProcessing ? "Liberando..." : "Ativar no Modo Dono (VIP Ilimitado)"}</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => setShowPlayStoreCheckout(true)}
+                          className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-xl shadow-emerald-500/20 flex items-center gap-2 cursor-pointer active:scale-95"
+                        >
+                          <Smartphone className="w-4 h-4" />
+                          <span>Assinar via Google Play Store (30 Dias Grátis) 📲</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowPixStep(!showPixStep)}
+                          className="px-3.5 py-3 rounded-2xl bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer"
+                          title="Outras formas de pagamento"
+                        >
+                          <QrCode className="w-4 h-4 text-emerald-400" />
+                          <span>Pix</span>
+                        </button>
+                      </div>
                     )}
                   </div>
-                  <p className="text-xs text-slate-300 mt-1">{currentPlan.description}</p>
-                </div>
-
-                {/* Botoes de Ação */}
-                {currentPlan.id === "free" ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      saveSubscriptionTier("free");
-                      onTierChange("free");
-                      showNotification("Você está utilizando o Plano Básico 100% Gratuito! 🟢", "info");
-                      onClose();
-                    }}
-                    className="px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 cursor-pointer active:scale-95"
-                  >
-                    Permanecer no Grátis
-                  </button>
-                ) : isVipEmail ? (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      disabled={isProcessing}
-                      onClick={() => handleVipActivate(currentPlan.id)}
-                      className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-xl flex items-center gap-2 cursor-pointer active:scale-95"
-                    >
-                      <Crown className="w-4 h-4 text-slate-950" />
-                      <span>{isProcessing ? "Liberando..." : "Ativar no Modo Dono (VIP Ilimitado)"}</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => setShowPlayStoreCheckout(true)}
-                      className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-xl shadow-emerald-500/20 flex items-center gap-2 cursor-pointer active:scale-95"
-                    >
-                      <Smartphone className="w-4 h-4" />
-                      <span>Assinar via Google Play Store (30 Dias Grátis) 📲</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowPixStep(!showPixStep)}
-                      className="px-3.5 py-3 rounded-2xl bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer"
-                      title="Outras formas de pagamento"
-                    >
-                      <QrCode className="w-4 h-4 text-emerald-400" />
-                      <span>Pix</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                );
+              })()}
 
               {/* Full Features Checklist of Selected Plan */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
@@ -437,64 +498,68 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
               </div>
 
               {/* Modal de Checkout Oficial da Google Play Store */}
-              {showPlayStoreCheckout && currentPlan.priceNum > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  className="bg-slate-900 border-2 border-emerald-500/40 rounded-2xl p-5 mt-4 space-y-4 text-left"
-                >
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                        <Smartphone className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-black text-white uppercase tracking-wider">
-                          Google Play Store Billing API
-                        </h4>
-                        <span className="text-[10px] text-emerald-400 font-bold">
-                          Cobrança Oficial & Protegida com 30 Dias Grátis
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-sm font-mono font-black text-emerald-400">
-                      {currentPlan.price}/mês
-                    </span>
-                  </div>
+              {showPlayStoreCheckout && currentPlan.priceNum > 0 && (() => {
+                const checkoutDynamic = calculatePlanPrice(currentPlan.priceNum, billingCycle);
 
-                  <div className="bg-slate-950/80 p-3.5 rounded-xl border border-white/5 space-y-2 text-xs text-slate-300">
-                    <div className="flex items-center gap-2 text-emerald-400 font-black uppercase text-[11px]">
-                      <Gift className="w-4 h-4" />
-                      <span>Primeiros 30 Dias: R$ 0,00 (Gratuito)</span>
+                return (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    className="bg-slate-900 border-2 border-emerald-500/40 rounded-2xl p-5 mt-4 space-y-4 text-left"
+                  >
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                          <Smartphone className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                            Google Play Store Billing API
+                          </h4>
+                          <span className="text-[10px] text-emerald-400 font-bold">
+                            Cobrança Oficial & Protegida ({checkoutDynamic.periodLabel})
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-sm font-mono font-black text-emerald-400">
+                        {checkoutDynamic.formatted} {checkoutDynamic.periodLabel}
+                      </span>
                     </div>
-                    <p className="leading-relaxed text-[11.5px]">
-                      Você terá <strong>acesso completo e imediato por 30 dias grátis</strong> a todas as funcionalidades do plano <strong className="text-white">{currentPlan.name}</strong>. Após os 30 dias, a assinatura será processada de forma oficial pela sua conta do Google Play Store (cartão, saldo ou Mercado Pago) por <strong>{currentPlan.price} mensais</strong>.
-                    </p>
-                    <div className="text-[10.5px] text-slate-400 flex items-center gap-1.5 pt-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                      <span>Transação oficial protegida com repasse direto para a desenvolvedora na Play Store. Cancele quando quiser nas configurações da Play Store.</span>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center justify-end gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowPlayStoreCheckout(false)}
-                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase cursor-pointer"
-                    >
-                      Voltar
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isProcessing}
-                      onClick={() => handleConfirmPlayStoreSubscription(currentPlan.id)}
-                      className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95"
-                    >
-                      {isProcessing ? "Conectando à Play Store..." : "Confirmar e Ativar 30 Dias Grátis 📲"}
-                    </button>
-                  </div>
-                </motion.div>
-              )}
+                    <div className="bg-slate-950/80 p-3.5 rounded-xl border border-white/5 space-y-2 text-xs text-slate-300">
+                      <div className="flex items-center gap-2 text-emerald-400 font-black uppercase text-[11px]">
+                        <Gift className="w-4 h-4" />
+                        <span>Primeiros 30 Dias: R$ 0,00 (Gratuito)</span>
+                      </div>
+                      <p className="leading-relaxed text-[11.5px]">
+                        Você terá <strong>acesso completo e imediato por 30 dias grátis</strong> a todas as funcionalidades do plano <strong className="text-white">{currentPlan.name}</strong>. Após os 30 dias, a assinatura será processada com segurança pela sua conta Google Play Store (cartão de crédito, débito ou saldo) por <strong>{checkoutDynamic.formatted} {checkoutDynamic.periodLabel}</strong> com renovação automática.
+                      </p>
+                      <div className="text-[10.5px] text-slate-400 flex items-center gap-1.5 pt-1">
+                        <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                        <span>Transação oficial protegida com repasse direto para a desenvolvedora na Play Store. Cancele quando quiser nas configurações da Play Store.</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowPlayStoreCheckout(false)}
+                        className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase cursor-pointer"
+                      >
+                        Voltar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isProcessing}
+                        onClick={() => handleConfirmPlayStoreSubscription(currentPlan.id)}
+                        className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95"
+                      >
+                        {isProcessing ? "Conectando à Play Store..." : "Confirmar e Ativar 30 Dias Grátis 📲"}
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })()}
 
               {/* Pix Payment Drawer Simulation if clicked */}
               {showPixStep && currentPlan.priceNum > 0 && (

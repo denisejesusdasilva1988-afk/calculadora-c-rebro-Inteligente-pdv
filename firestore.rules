@@ -37,7 +37,7 @@ service cloud.firestore {
     }
 
     function isValidUserData(data) {
-      return (data.userId == request.auth.uid) || isAdmin();
+      return (data.get('userId', request.auth.uid) == request.auth.uid) || isAdmin();
     }
 
     function isValidAgendaEvent(data) {
@@ -141,6 +141,12 @@ service cloud.firestore {
       allow create: if isSignedIn() && userId == request.auth.uid && isValidUser(incoming());
       allow update: if isAdmin() || (isSignedIn() && userId == request.auth.uid && isValidUser(incoming()) && (!incoming().keys().hasAny(['isOwner']) || incoming().get('isOwner', false) == existing().get('isOwner', false)));
       allow delete: if isAdmin();
+    }
+
+    match /marketing_ads/{adId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
     }
 
     match /test/connection {

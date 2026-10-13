@@ -4,6 +4,7 @@
  */
 
 export type SubscriptionTier = "free" | "pro_tools" | "estoque_gestao" | "pdv_total";
+export type BillingCycle = "weekly" | "biweekly" | "monthly";
 
 export interface TierPlanInfo {
   id: SubscriptionTier;
@@ -20,6 +21,46 @@ export interface TierPlanInfo {
   description: string;
   features: string[];
   ctaLabel: string;
+}
+
+/**
+ * Calcula o preço dinâmico com base no ciclo:
+ * - Mensal: valor normal (100%)
+ * - Quinzenal: exatamente metade (50%)
+ * - Semanal: 1 semana proporcional mensal / 4 + 10% adicional
+ */
+export function calculatePlanPrice(baseMonthlyPrice: number, cycle: BillingCycle): { priceNum: number; formatted: string; periodLabel: string } {
+  if (baseMonthlyPrice <= 0) {
+    return { priceNum: 0, formatted: "R$ 0,00", periodLabel: "Sempre Grátis" };
+  }
+
+  if (cycle === "weekly") {
+    // 1 semana: metade da quinzena / 4 da mensal + 10% adicional
+    const weeklyBase = baseMonthlyPrice / 4;
+    const weeklyPrice = Math.round((weeklyBase * 1.10) * 100) / 100;
+    return {
+      priceNum: weeklyPrice,
+      formatted: `R$ ${weeklyPrice.toFixed(2).replace(".", ",")}`,
+      periodLabel: "por semana",
+    };
+  }
+
+  if (cycle === "biweekly") {
+    // Quinzenal: exatamente metade (50%)
+    const biweeklyPrice = Math.round((baseMonthlyPrice / 2) * 100) / 100;
+    return {
+      priceNum: biweeklyPrice,
+      formatted: `R$ ${biweeklyPrice.toFixed(2).replace(".", ",")}`,
+      periodLabel: "por 15 dias",
+    };
+  }
+
+  // Mensal
+  return {
+    priceNum: baseMonthlyPrice,
+    formatted: `R$ ${baseMonthlyPrice.toFixed(2).replace(".", ",")}`,
+    periodLabel: "por mês",
+  };
 }
 
 export const SUBSCRIPTION_PLANS: TierPlanInfo[] = [
