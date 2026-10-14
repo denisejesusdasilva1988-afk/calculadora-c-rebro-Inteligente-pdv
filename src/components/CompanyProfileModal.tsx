@@ -25,7 +25,11 @@ import {
   Eye,
   Sparkles,
   ShieldCheck,
-  Smartphone
+  Smartphone,
+  Camera,
+  Upload,
+  Trash2,
+  Image as ImageIcon
 } from "lucide-react";
 import {
   CompanyProfile,
@@ -74,6 +78,28 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
       ...prev,
       [field]: !prev[field]
     }));
+  };
+
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      showNotification("A imagem deve ter no máximo 5MB. Escolha uma foto menor.", "error");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        handleChange("logoUrl", reader.result);
+        showNotification("Logo carregada com sucesso! 🖼️ Lembre-se de clicar em 'Salvar Dados' ao final.", "success");
+      }
+    };
+    reader.onerror = () => {
+      showNotification("Erro ao processar imagem.", "error");
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSave = async () => {

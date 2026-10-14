@@ -120,7 +120,7 @@ export function saveCompanyProfile(profile: CompanyProfile, userId?: string | nu
     if (profile.ownerName) localStorage.setItem("pdv_owner_name", profile.ownerName);
     if (profile.ownerCpf) localStorage.setItem("pdv_owner_cpf", profile.ownerCpf);
     if (profile.pixKey) localStorage.setItem("pdv_pix_key", profile.pixKey);
-    if (profile.logoUrl) localStorage.setItem("pdv_company_logo", profile.logoUrl);
+    if (profile.logoUrl !== undefined) localStorage.setItem("pdv_company_logo", profile.logoUrl || "");
     if (profile.phone) localStorage.setItem("pdv_store_phone", profile.phone);
     if (profile.whatsapp) localStorage.setItem("pdv_store_whatsapp", profile.whatsapp);
     if (profile.address) localStorage.setItem("pdv_store_address", profile.address);
@@ -128,6 +128,11 @@ export function saveCompanyProfile(profile: CompanyProfile, userId?: string | nu
     if (profile.instagram) localStorage.setItem("pdv_store_instagram", profile.instagram);
     if (profile.facebook) localStorage.setItem("pdv_store_facebook", profile.facebook);
     if (profile.website) localStorage.setItem("pdv_store_website", profile.website);
+
+    // Disparar evento para atualizar toda a interface instantaneamente
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", { detail: profile }));
+    }
   } catch (e) {
     console.warn("Erro ao salvar company profile:", e);
   }

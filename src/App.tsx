@@ -149,7 +149,8 @@ import { SubscriptionPlansModal } from "./components/SubscriptionPlansModal";
 import { AppShowcaseSlidesModal } from "./components/AppShowcaseSlidesModal";
 import { loadCompanyProfile, saveCompanyProfile } from "./utils/companyProfile";
 import { PersonalDataProfileCard } from "./components/PersonalDataProfileCard";
-import { BarbeariaSalaoEventosModule } from "./components/BarbeariaSalaoEventosModule";
+import { BarbeariaSalaoEventosModule, AgendamentoServico } from "./components/BarbeariaSalaoEventosModule";
+import { ClientPublicAgendaPortal } from "./components/ClientPublicAgendaPortal";
 import { MarketingAdModal } from "./components/MarketingAdModal";
 import { MarketingAdsCarousel, MarketingAdDetailModal } from "./components/MarketingAdsView";
 import { MarketingAd, loadLocalMarketingAds, saveLocalMarketingAds } from "./utils/marketingAds";
@@ -2634,6 +2635,22 @@ export default function App() {
     null,
   );
   const [showLegal, setShowLegal] = useState<"terms" | "privacy" | null>(null);
+  const [showClientPublicAgendaPortal, setShowClientPublicAgendaPortal] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const hash = window.location.hash.toLowerCase();
+      return (
+        params.has("agendar") ||
+        params.get("portal") === "agenda" ||
+        params.get("marcar") === "true" ||
+        hash === "#agenda" ||
+        hash === "#agendar"
+      );
+    } catch {
+      return false;
+    }
+  });
   const [currentFolder, setCurrentFolder] = useState<string>("Geral");
   const [createdFolders, setCreatedFolders] = useState<string[]>(() => {
     try {
@@ -3912,26 +3929,147 @@ export default function App() {
 
   useEffect(() => {
     const checkUrlParams = () => {
-      const params = new URLSearchParams(window.location.search);
-      const page = params.get("page") || window.location.hash.replace("#", "");
-      if (
-        page === "privacy" ||
-        page === "politica" ||
-        page === "politica-de-privacidade"
-      ) {
-        setShowLegal("privacy");
-      } else if (
-        page === "terms" ||
-        page === "termos" ||
-        page === "termos-de-uso"
-      ) {
-        setShowLegal("terms");
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const hash = window.location.hash.toLowerCase();
+        const page = params.get("page") || window.location.hash.replace("#", "");
+
+        if (
+          params.has("agendar") ||
+          params.get("portal") === "agenda" ||
+          params.get("marcar") === "true" ||
+          hash === "#agenda" ||
+          hash === "#agendar"
+        ) {
+          setShowClientPublicAgendaPortal(true);
+        }
+
+        if (
+          page === "privacy" ||
+          page === "politica" ||
+          page === "politica-de-privacidade"
+        ) {
+          setShowLegal("privacy");
+        } else if (
+          page === "terms" ||
+          page === "termos" ||
+          page === "termos-de-uso"
+        ) {
+          setShowLegal("terms");
+        }
+      } catch (err) {
+        console.warn("Erro ao checar url params:", err);
       }
     };
     checkUrlParams();
     window.addEventListener("hashchange", checkUrlParams);
     return () => window.removeEventListener("hashchange", checkUrlParams);
   }, []);
+
+  const getClientPortalProfissionais = useCallback(() => {
+    try {
+      const key = user?.uid && user.uid !== "guest_visitor"
+        ? `barbearia_${user.uid}_profissionais`
+        : "barbearia_guest_profissionais";
+      const saved = localStorage.getItem(key);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        id: "prof_1",
+        nome: "Carlos Eduardo",
+        apelido: "Kadu Navalha",
+        fotoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
+        especialidade: "Corte Degradê & Barba",
+        telefone: "21988887777",
+        chavePix: "21988887777",
+        comissaoPct: 50,
+        horarioTrabalho: "Terça a Sábado, 09h às 19h",
+        totalAtendimentos: 42,
+        totalFaturado: 1470,
+        ativo: true
+      },
+      {
+        id: "prof_2",
+        nome: "Juliana Santos",
+        apelido: "Ju Hair",
+        fotoUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+        especialidade: "Escova, Coloração & Penteados",
+        telefone: "21977776666",
+        chavePix: "21977776666",
+        comissaoPct: 50,
+        horarioTrabalho: "Quarta a Domingo, 10h às 20h",
+        totalAtendimentos: 28,
+        totalFaturado: 1960,
+        ativo: true
+      }
+    ];
+  }, [user]);
+
+  const getClientPortalAgendamentos = useCallback((): AgendamentoServico[] => {
+    try {
+      const key = user?.uid && user.uid !== "guest_visitor"
+        ? `barbearia_${user.uid}_agendamentos`
+        : "barbearia_guest_agendamentos";
+      const saved = localStorage.getItem(key);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const today = new Date().toISOString().slice(0, 10);
+    return [
+      {
+        id: "ag_1",
+        data: today,
+        horario: "09:00",
+        horarioFim: "09:40",
+        clienteNome: "BRUNO VIEIRA DA SILVA",
+        clienteTelefone: "21999991111",
+        profissionalId: "prof_1",
+        profissionalNome: "Carlos Eduardo",
+        servico: "Máquina e Tesoura",
+        valor: 45,
+        status: "agendado",
+        criadoEm: new Date().toISOString()
+      },
+      {
+        id: "ag_2",
+        data: today,
+        horario: "10:40",
+        horarioFim: "12:00",
+        clienteNome: "Marcos Vinícius Lima",
+        clienteTelefone: "21999992222",
+        profissionalId: "prof_1",
+        profissionalNome: "Carlos Eduardo",
+        servico: "Comb 3 Cabelo + Barba + Sobrancelha",
+        valor: 75,
+        status: "agendado",
+        criadoEm: new Date().toISOString()
+      }
+    ];
+  }, [user]);
+
+  const handleClientSaveAgendamento = useCallback((ag: any) => {
+    try {
+      const key = user?.uid && user.uid !== "guest_visitor"
+        ? `barbearia_${user.uid}_agendamentos`
+        : "barbearia_guest_agendamentos";
+      const existing = JSON.parse(localStorage.getItem(key) || "[]");
+      localStorage.setItem(key, JSON.stringify([ag, ...existing]));
+    } catch (err) {
+      console.error("Erro ao salvar agendamento do cliente:", err);
+    }
+  }, [user]);
+
+  const handleClientSaveEncomenda = useCallback((enc: any) => {
+    try {
+      const key = user?.uid && user.uid !== "guest_visitor"
+        ? `barbearia_${user.uid}_encomendas`
+        : "barbearia_guest_encomendas";
+      const existing = JSON.parse(localStorage.getItem(key) || "[]");
+      localStorage.setItem(key, JSON.stringify([enc, ...existing]));
+    } catch (err) {
+      console.error("Erro ao salvar encomenda do cliente:", err);
+    }
+  }, [user]);
 
   const SHOPPING_CATEGORIES = [
     {
@@ -13593,6 +13731,50 @@ export default function App() {
           <InspirationalQuotesBar />
         </>
       )}
+
+      {/* Portal Público Exclusivo da Agenda de Clientes (Via WhatsApp ?agendar=true) */}
+      <AnimatePresence>
+        {showClientPublicAgendaPortal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-slate-950 overflow-y-auto"
+          >
+            <ClientPublicAgendaPortal
+              companyName={loadCompanyProfile(user?.uid).name || localStorage.getItem("pdv_store_name") || "Barbearia & Salão Cérebro PDV"}
+              companyLogo={loadCompanyProfile(user?.uid).logoUrl || localStorage.getItem("pdv_company_logo") || ""}
+              companyPhone={loadCompanyProfile(user?.uid).whatsapp || loadCompanyProfile(user?.uid).phone || localStorage.getItem("pdv_store_phone") || "(21) 96671-3263"}
+              profissionais={getClientPortalProfissionais()}
+              agendamentos={getClientPortalAgendamentos()}
+              isOnlineBookingActive={(() => {
+                try {
+                  const saved = localStorage.getItem("barbearia_link_publico_ativo");
+                  return saved !== null ? saved === "true" : true;
+                } catch {
+                  return true;
+                }
+              })()}
+              onSaveAgendamento={(ag) => {
+                handleClientSaveAgendamento(ag);
+                showNotification("Agendamento registrado com sucesso! ✂️📅", "success");
+              }}
+              onSaveEncomenda={(enc) => {
+                handleClientSaveEncomenda(enc);
+                showNotification("Encomenda de festa registrada com sucesso! 🍰🎉", "success");
+              }}
+              onClosePortal={() => {
+                setShowClientPublicAgendaPortal(false);
+                try {
+                  const newUrl = window.location.pathname;
+                  window.history.replaceState({}, document.title, newUrl);
+                } catch {}
+              }}
+              formatCurrency={formatCurrency}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Legal Overlay */}
       <AnimatePresence>

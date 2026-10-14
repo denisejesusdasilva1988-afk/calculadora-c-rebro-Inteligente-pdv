@@ -43,9 +43,24 @@ import {
   Receipt,
   AlertCircle,
   Save,
+  Lock,
+  Unlock,
+  Send,
   X
 } from "lucide-react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import { ClientPublicAgendaPortal } from "./ClientPublicAgendaPortal";
+import { BarbeariaTimelineAgenda } from "./BarbeariaTimelineAgenda";
+
+// Modelo de Bloqueio ou Horário Reservado do Profissional
+export interface HorarioBloqueadoProfissional {
+  id: string;
+  data?: string; // se vazio, vale recorrente para todos os dias
+  horarioInicio: string; // "12:00"
+  horarioFim: string; // "13:30"
+  motivo: string; // "Horário de Almoço", "Reservado", "Consulta Médica", "Indisponível"
+  tipo?: "almoco" | "reservado" | "indisponivel" | "folga";
+}
 
 // Modelo de Profissional / Barbeiro
 export interface ProfissionalBarbearia {
@@ -58,6 +73,13 @@ export interface ProfissionalBarbearia {
   chavePix?: string;
   comissaoPct: number; // Ex: 50%
   horarioTrabalho?: string;
+  horaInicio?: string; // Horário de abertura da agenda (Ex: "08:00" ou "09:00")
+  horaFim?: string; // Horário de fechamento da agenda (Ex: "19:00" ou "20:00")
+  diasSemana?: number[]; // Dias de atendimento [1, 2, 3, 4, 5, 6] (1=seg, 2=ter, 3=qua, 4=qui, 5=sex, 6=sáb, 0=dom)
+  intervaloInicio?: string; // Início do almoço/intervalo (Ex: "12:00")
+  intervaloFim?: string; // Fim do almoço/intervalo (Ex: "13:30" ou "14:00")
+  intervaloMotivo?: string; // Ex: "Horário de almoço"
+  bloqueiosPersonalizados?: HorarioBloqueadoProfissional[];
   totalAtendimentos: number;
   totalFaturado: number;
   ativo: boolean;
@@ -68,6 +90,7 @@ export interface AgendamentoServico {
   id: string;
   data: string; // YYYY-MM-DD
   horario: string; // HH:mm
+  horarioFim?: string; // HH:mm (ex: 09:40)
   clienteNome: string;
   clienteTelefone: string;
   profissionalId: string;
@@ -138,6 +161,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
 }) => {
   // Aba Ativa
   const [activeTab, setActiveTab] = useState<"profissionais" | "agenda" | "aniversarios" | "encomendas" | "empresa">("profissionais");
+  const [agendaViewMode, setAgendaViewMode] = useState<"timeline" | "lista">("timeline");
 
   // Armazenamento
   const storagePrefix = userId && userId !== "guest_visitor" ? `barbearia_${userId}_` : "barbearia_guest_";
@@ -287,6 +311,102 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   });
 
   // Salvar no localStorage sempre que mudar
+  const [allowCaixaAgendar, setAllowCaixaAgendar] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("barbearia_caixa_pode_agendar");
+      return saved !== null ? saved === "true" : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [allowCaixaEncomendar, setAllowCaixaEncomendar] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("barbearia_caixa_pode_encomendar");
+      return saved !== null ? saved === "true" : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [isPublicAgendaActive, setIsPublicAgendaActive] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("barbearia_link_publico_ativo");
+      return saved !== null ? saved === "true" : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [isPreviewClientPortalOpen, setIsPreviewClientPortalOpen] = useState(false);
+
+  // Role check
+  const gestaoRole = (() => {
+    try {
+      return localStorage.getItem("pdv_gestao_user_role") || "proprietario";
+    } catch {
+      return "proprietario";
+    }
+  })();
+  const isCaixa = gestaoRole === "caixa" || gestaoRole === "funcionario";
+
+  const clientAgendaUrl = typeof window !== "undefined"
+    ? `${window.location.origin}${window.location.pathname}?agendar=true`
+    : "";
+
+  const handleCopyClientAgendaLink = () => {
+    if (!isPublicAgendaActive) {
+      showNotification("Atenção: O link público está desativado (marcado como NÃO). Ative com SIM para os clientes conseguirem agendar!", "error");
+    }
+    navigator.clipboard.writeText(clientAgendaUrl);
+    showNotification("Link da Agenda copiado! 📋 Envie para seus clientes no WhatsApp.", "success");
+  };
+
+  const handleShareAgendaOnWhatsApp = () => {
+    if (!isPublicAgendaActive) {
+      showNotification("Atenção: O link público está desativado (marcado como NÃO). Ative com SIM para os clientes conseguirem agendar!", "error");
+    }
+    const msg = encodeURIComponent(
+      `Olá! 💈✂️ Agora você pode agendar seu horário na *${companyName}* ou solicitar sua encomenda de festa diretamente pelo nosso link exclusivo:\n\n` +
+      `👉 ${clientAgendaUrl}\n\n` +
+      `Escolha o profissional, o serviço e o melhor horário para você sem complicação! Esperamos por você! ✨`
+    );
+    window.open(`https://wa.me/?text=${msg}`, "_blank");
+  };
+
+  const handleToggleAllowCaixa = (permitir: boolean) => {
+    setAllowCaixaAgendar(permitir);
+    localStorage.setItem("barbearia_caixa_pode_agendar", String(permitir));
+    showNotification(
+      permitir
+        ? "Caixa de Marcar: SIM! Operadores do Caixa podem marcar horários na Agenda. ✅"
+        : "Caixa de Marcar: NÃO! Apenas o Proprietário ou clientes pelo WhatsApp podem marcar horários. 🔒",
+      permitir ? "success" : "info"
+    );
+  };
+
+  const handleToggleAllowCaixaEncomendar = (permitir: boolean) => {
+    setAllowCaixaEncomendar(permitir);
+    localStorage.setItem("barbearia_caixa_pode_encomendar", String(permitir));
+    showNotification(
+      permitir
+        ? "Caixa de Marcar Encomendas: SIM! O Caixa pode anotar encomendas de festas no balcão. ✅"
+        : "Caixa de Marcar Encomendas: NÃO! Bloqueado para o Caixa. Apenas o Proprietário anota encomendas. 🔒",
+      permitir ? "success" : "info"
+    );
+  };
+
+  const handleTogglePublicAgendaActive = (ativo: boolean) => {
+    setIsPublicAgendaActive(ativo);
+    localStorage.setItem("barbearia_link_publico_ativo", String(ativo));
+    showNotification(
+      ativo
+        ? "Link Público Ativo: SIM! Clientes agora podem marcar horários e festas pelo WhatsApp. 📲✅"
+        : "Link Público Desativado: NÃO! Clientes não conseguirão agendar pelo link até você reativar. ⏸️",
+      ativo ? "success" : "info"
+    );
+  };
+
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(profissionais));
   }, [profissionais, storagePrefix]);
@@ -784,26 +904,260 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       {/* CONTEÚDO DA ABA 2: AGENDA DE HORÁRIOS */}
       {activeTab === "agenda" && (
         <div className="space-y-5">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <h3 className="text-white text-base font-black tracking-tight">
-                Agenda de Atendimentos & Salão / Barbearia
-              </h3>
-              <p className="text-xs text-slate-400">
-                Horários marcados com envio de lembrete no WhatsApp e lançamento no caixa com 1 clique.
-              </p>
+          {/* BANNER 1: LINK EXCLUSIVO DA AGENDA PARA CLIENTES NO WHATSAPP */}
+          <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-indigo-950/80 border-2 border-emerald-500/50 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-left">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-start sm:items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-emerald-500/30 shrink-0">
+                  <MessageCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-white font-black text-sm sm:text-base tracking-tight">
+                      Link da Agenda para Enviar aos Clientes no WhatsApp
+                    </h4>
+                    <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                      Exclusivo para Clientes
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 font-medium mt-0.5 max-w-xl">
+                    O cliente acessa <strong>apenas a agenda limpa</strong> no celular dele (escolhe o profissional com foto, serviço e horário, ou encomenda para festas). <strong>Sem acesso ao seu caixa, valores ou faturamento!</strong>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleShareAgendaOnWhatsApp}
+                  className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/30"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Enviar no WhatsApp</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyClientAgendaLink}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-white/10"
+                >
+                  <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Copiar Link</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPreviewClientPortalOpen(true)}
+                  className="bg-indigo-600/40 hover:bg-indigo-600/60 text-indigo-300 border border-indigo-500/40 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Ver Como Cliente Enxerga 👁️</span>
+                </button>
+              </div>
             </div>
 
+            {/* Input com o link para visualização */}
+            <div className="bg-slate-950 p-3 rounded-2xl border border-white/10 flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-2 min-w-0 w-full">
+                <span className="text-[10px] uppercase font-mono font-bold text-slate-500 shrink-0">Link dos Clientes:</span>
+                <input
+                  type="text"
+                  readOnly
+                  value={clientAgendaUrl}
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                  className="bg-transparent text-xs text-emerald-400 font-mono font-bold w-full outline-none select-all truncate"
+                />
+              </div>
+
+              {/* Caixa de marcar se o link online está ativo */}
+              <div className="flex items-center gap-2 shrink-0 bg-slate-900 px-3 py-1.5 rounded-xl border border-white/5">
+                <span className="text-[11px] font-bold text-slate-300">Link Online Ativo:</span>
+                <button
+                  type="button"
+                  onClick={() => handleTogglePublicAgendaActive(true)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer ${
+                    isPublicAgendaActive
+                      ? "bg-emerald-500 text-slate-950 font-black shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>SIM</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTogglePublicAgendaActive(false)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer ${
+                    !isPublicAgendaActive
+                      ? "bg-red-600 text-white font-black shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <X className="w-3 h-3" />
+                  <span>NÃO</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* BANNER 2: CAIXA DE MARCAR - PERMISSÃO DO CAIXA MARCAR HORÁRIOS (SIM OU NÃO) */}
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 shadow-xl space-y-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                  allowCaixaAgendar ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                }`}>
+                  {allowCaixaAgendar ? <Unlock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h4 className="text-xs sm:text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+                    <span>Caixa de Marcar: O Caixa / Balcão pode marcar horários na Agenda?</span>
+                    <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md ${
+                      allowCaixaAgendar ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                    }`}>
+                      {allowCaixaAgendar ? "SIM (Habilitado)" : "NÃO (Bloqueado)"}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    Escolha abaixo na caixa de seleção se os operadores de caixa podem marcar horários ou se apenas o proprietário e clientes pelo WhatsApp podem:
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* SELEÇÃO DUAL COM CAIXAS DE MARCAR (CHECKBOXES / BOTÕES SIM OU NÃO) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div
+                onClick={() => handleToggleAllowCaixa(true)}
+                className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer flex items-center gap-3 ${
+                  allowCaixaAgendar
+                    ? "bg-emerald-500/15 border-emerald-500 shadow-md shadow-emerald-500/10 text-white"
+                    : "bg-slate-950 border-white/5 text-slate-400 hover:border-white/15 hover:text-white"
+                }`}
+              >
+                <div className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
+                  allowCaixaAgendar
+                    ? "bg-emerald-500 border-emerald-500 text-slate-950 font-black"
+                    : "border-white/20 bg-slate-900"
+                }`}>
+                  {allowCaixaAgendar && <CheckCircle2 className="w-4 h-4 text-slate-950 stroke-[3]" />}
+                </div>
+                <div>
+                  <span className="text-xs font-black uppercase tracking-wider block">
+                    [ X ] SIM - Caixa Pode Marcar
+                  </span>
+                  <span className="text-[10px] text-slate-400 block font-medium">
+                    Operadores e funcionários podem agendar horários no balcão.
+                  </span>
+                </div>
+              </div>
+
+              <div
+                onClick={() => handleToggleAllowCaixa(false)}
+                className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer flex items-center gap-3 ${
+                  !allowCaixaAgendar
+                    ? "bg-red-500/15 border-red-500 shadow-md shadow-red-500/10 text-white"
+                    : "bg-slate-950 border-white/5 text-slate-400 hover:border-white/15 hover:text-white"
+                }`}
+              >
+                <div className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
+                  !allowCaixaAgendar
+                    ? "bg-red-500 border-red-500 text-white font-black"
+                    : "border-white/20 bg-slate-900"
+                }`}>
+                  {!allowCaixaAgendar && <CheckCircle2 className="w-4 h-4 text-white stroke-[3]" />}
+                </div>
+                <div>
+                  <span className="text-xs font-black uppercase tracking-wider block">
+                    [ X ] NÃO - Bloquear Caixa
+                  </span>
+                  <span className="text-[10px] text-slate-400 block font-medium">
+                    Apenas o Proprietário ou clientes pelo link do WhatsApp podem agendar.
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* SELETOR DE MODO DE VISUALIZAÇÃO: GRADE DA AGENDA (TIMELINE DA FOTO) vs LISTA */}
+          <div className="flex bg-slate-900 border border-white/10 p-1.5 rounded-2xl gap-1.5">
             <button
-              onClick={() => setIsAddAgendamentoOpen(true)}
-              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-amber-500/20 cursor-pointer"
+              type="button"
+              onClick={() => setAgendaViewMode("timeline")}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                agendaViewMode === "timeline"
+                  ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black"
+                  : "text-slate-400 hover:text-white"
+              }`}
             >
-              <Plus className="w-4 h-4" />
-              <span>Marcar Novo Horário</span>
+              <CalendarIcon className="w-4 h-4" />
+              <span>Grade da Agenda (Visual da Foto) 📅</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAgendaViewMode("lista")}
+              className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                agendaViewMode === "lista"
+                  ? "bg-slate-800 text-white border border-white/10"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <span>Lista Resumida ({agendamentos.length})</span>
             </button>
           </div>
 
-          <div className="space-y-3">
+          {agendaViewMode === "timeline" ? (
+            /* GRADE DA AGENDA TIMELINE (EXATAMENTE COMO NA FOTO) */
+            <div className="space-y-4">
+              <BarbeariaTimelineAgenda
+                profissionais={profissionais}
+                agendamentos={agendamentos}
+                onAddAgendamento={(novoAg) => {
+                  setAgendamentos((prev) => [novoAg, ...prev]);
+                  showNotification("Agendamento marcado com sucesso na grade! ✂️📅", "success");
+                }}
+                onDeleteAgendamento={(id) => {
+                  setAgendamentos((prev) => prev.filter((a) => a.id !== id));
+                  showNotification("Agendamento excluído da grade.", "info");
+                }}
+                formatCurrency={formatCurrency}
+                isClientView={false}
+                companyPhone={companyPhone}
+                companyName={companyName}
+                allowCaixaAgendar={allowCaixaAgendar}
+                isCaixa={isCaixa}
+              />
+            </div>
+          ) : (
+            /* VISÃO EM LISTA RESUMIDA */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
+                <div>
+                  <h3 className="text-white text-base font-black tracking-tight">
+                    Horários Agendados ({agendamentos.length})
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Horários confirmados com envio de lembrete no WhatsApp e lançamento no caixa.
+                  </p>
+                </div>
+
+                {isCaixa && !allowCaixaAgendar ? (
+                  <div className="bg-red-500/10 border border-red-500/30 text-red-300 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-red-400" />
+                    <span>Agendamento desativado para o Caixa pelo Proprietário</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setIsAddAgendamentoOpen(true)}
+                    className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-amber-500/20 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Marcar Novo Horário</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-3">
             {agendamentos.map((ag) => (
               <div
                 key={ag.id}
@@ -873,7 +1227,9 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 </div>
               </div>
             ))}
-          </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -974,23 +1330,160 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       {/* CONTEÚDO DA ABA 4: ENCOMENDAS PARA FESTAS & EVENTOS */}
       {activeTab === "encomendas" && (
         <div className="space-y-5">
+          {/* BANNER ENCOMENDAS: LINK PARA CLIENTES NO WHATSAPP */}
+          <div className="bg-gradient-to-r from-pink-950/80 via-slate-900 to-purple-950/80 border-2 border-pink-500/50 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-left">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-start sm:items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-pink-600 text-white flex items-center justify-center font-black shadow-lg shadow-pink-600/30 shrink-0">
+                  <Cake className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-white font-black text-sm sm:text-base tracking-tight">
+                      Link de Encomendas de Festas para Clientes no WhatsApp
+                    </h4>
+                    <span className="bg-pink-500/20 text-pink-300 border border-pink-500/40 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                      Festas & Eventos
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 font-medium mt-0.5 max-w-xl">
+                    Envie o link para o cliente solicitar orçamentos de bolos, salgados e kits para festas pelo WhatsApp com praticidade e rapidez!
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const msg = encodeURIComponent(
+                      `Olá! 🍰🎉 Faça sua encomenda de bolos, salgados, doces e kits para festas na *${companyName}* pelo nosso link exclusivo:\n\n` +
+                      `👉 ${clientAgendaUrl}\n\n` +
+                      `Preencha a data da sua comemoração e o que deseja que entraremos em contato com seu orçamento! ✨`
+                    );
+                    window.open(`https://wa.me/?text=${msg}`, "_blank");
+                  }}
+                  className="bg-pink-600 hover:bg-pink-500 active:scale-95 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-pink-600/30"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Enviar no WhatsApp</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyClientAgendaLink}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-white/10"
+                >
+                  <Copy className="w-3.5 h-3.5 text-pink-400" />
+                  <span>Copiar Link</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* BANNER 2: CAIXA DE MARCAR - PERMISSÃO DO CAIXA ANOTAR ENCOMENDAS (SIM OU NÃO) */}
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 shadow-xl space-y-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                  allowCaixaEncomendar ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                }`}>
+                  {allowCaixaEncomendar ? <Unlock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h4 className="text-xs sm:text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+                    <span>Caixa de Marcar: O Caixa / Balcão pode anotar Encomendas de Festas?</span>
+                    <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md ${
+                      allowCaixaEncomendar ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                    }`}>
+                      {allowCaixaEncomendar ? "SIM (Habilitado)" : "NÃO (Bloqueado)"}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    Defina abaixo se os operadores de caixa podem receber pedidos de encomendas ou apenas o proprietário:
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* SELEÇÃO DUAL COM CAIXAS DE MARCAR (CHECKBOXES / BOTÕES SIM OU NÃO) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div
+                onClick={() => handleToggleAllowCaixaEncomendar(true)}
+                className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer flex items-center gap-3 ${
+                  allowCaixaEncomendar
+                    ? "bg-emerald-500/15 border-emerald-500 shadow-md shadow-emerald-500/10 text-white"
+                    : "bg-slate-950 border-white/5 text-slate-400 hover:border-white/15 hover:text-white"
+                }`}
+              >
+                <div className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
+                  allowCaixaEncomendar
+                    ? "bg-emerald-500 border-emerald-500 text-slate-950 font-black"
+                    : "border-white/20 bg-slate-900"
+                }`}>
+                  {allowCaixaEncomendar && <CheckCircle2 className="w-4 h-4 text-slate-950 stroke-[3]" />}
+                </div>
+                <div>
+                  <span className="text-xs font-black uppercase tracking-wider block">
+                    [ X ] SIM - Caixa Pode Anotar Encomendas
+                  </span>
+                  <span className="text-[10px] text-slate-400 block font-medium">
+                    Operadores podem registrar encomendas e sinais pagos no balcão.
+                  </span>
+                </div>
+              </div>
+
+              <div
+                onClick={() => handleToggleAllowCaixaEncomendar(false)}
+                className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer flex items-center gap-3 ${
+                  !allowCaixaEncomendar
+                    ? "bg-red-500/15 border-red-500 shadow-md shadow-red-500/10 text-white"
+                    : "bg-slate-950 border-white/5 text-slate-400 hover:border-white/15 hover:text-white"
+                }`}
+              >
+                <div className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
+                  !allowCaixaEncomendar
+                    ? "bg-red-500 border-red-500 text-white font-black"
+                    : "border-white/20 bg-slate-900"
+                }`}>
+                  {!allowCaixaEncomendar && <CheckCircle2 className="w-4 h-4 text-white stroke-[3]" />}
+                </div>
+                <div>
+                  <span className="text-xs font-black uppercase tracking-wider block">
+                    [ X ] NÃO - Bloquear Caixa para Encomendas
+                  </span>
+                  <span className="text-[10px] text-slate-400 block font-medium">
+                    Apenas o Proprietário ou clientes pelo WhatsApp podem registrar encomendas.
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h3 className="text-white text-base font-black tracking-tight flex items-center gap-2">
-                <span>Encomendas para Festas & Eventos 🍰🎉</span>
+                <span>Lista de Encomendas para Festas & Eventos ({encomendas.length})</span>
               </h3>
               <p className="text-xs text-slate-400">
                 Bolos, salgados, doces e kits. Controle de sinal pago, saldo restante a receber e comprovante para o cliente.
               </p>
             </div>
 
-            <button
-              onClick={() => setIsAddEncomendaOpen(true)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-emerald-600/20 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Anotar Nova Encomenda</span>
-            </button>
+            {isCaixa && !allowCaixaEncomendar ? (
+              <div className="bg-red-500/10 border border-red-500/30 text-red-300 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
+                <Lock className="w-4 h-4 text-red-400" />
+                <span>Anotação de encomendas desativada para o Caixa pelo Proprietário</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => setIsAddEncomendaOpen(true)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-emerald-600/20 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Anotar Nova Encomenda</span>
+              </button>
+            )}
           </div>
 
           <div className="space-y-4">
@@ -1693,6 +2186,30 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* MODAL 5: PREVIEW DO CLIENTE (COMO O CLIENTE ENXERGA O LINK DO WHATSAPP) */}
+      {isPreviewClientPortalOpen && (
+        <div className="fixed inset-0 z-[10030] bg-slate-950 overflow-y-auto">
+          <ClientPublicAgendaPortal
+            companyName={companyName}
+            companyLogo={companyLogo}
+            companyPhone={companyPhone}
+            profissionais={profissionais}
+            agendamentos={agendamentos}
+            isOnlineBookingActive={isPublicAgendaActive}
+            onSaveAgendamento={(ag) => {
+              setAgendamentos((prev) => [ag, ...prev]);
+              showNotification("Agendamento de teste criado com sucesso! ✂️✅", "success");
+            }}
+            onSaveEncomenda={(enc) => {
+              setEncomendas((prev) => [enc, ...prev]);
+              showNotification("Encomenda de festa criada com sucesso! 🍰🎉", "success");
+            }}
+            onClosePortal={() => setIsPreviewClientPortalOpen(false)}
+            formatCurrency={formatCurrency}
+          />
         </div>
       )}
     </div>

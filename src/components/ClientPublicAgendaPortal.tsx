@@ -1,0 +1,766 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 
+ * Portal Público de Autoatendimento do Cliente (Barbearia, Salão & Encomendas de Festas)
+ * 
+ * Esta tela é aberta quando o cliente acessa pelo link enviado pelo WhatsApp (?agendar=true).
+ * Não exibe dados sigilosos da empresa (caixa, faturamento ou lucros), apenas a tela amigável
+ * para o cliente escolher o profissional, o horário ou fazer sua encomenda para festas!
+ */
+
+import React, { useState } from "react";
+import {
+  Scissors,
+  Cake,
+  Calendar,
+  Clock,
+  User,
+  Phone,
+  CheckCircle2,
+  Sparkles,
+  MessageCircle,
+  Building2,
+  ArrowRight,
+  PartyPopper,
+  X
+} from "lucide-react";
+import { ProfissionalBarbearia, AgendamentoServico, EncomendaFesta } from "./BarbeariaSalaoEventosModule";
+import { BarbeariaTimelineAgenda } from "./BarbeariaTimelineAgenda";
+
+interface ClientPublicAgendaPortalProps {
+  companyName: string;
+  companyLogo?: string;
+  companyPhone: string;
+  profissionais: ProfissionalBarbearia[];
+  agendamentos?: AgendamentoServico[];
+  onSaveAgendamento: (ag: AgendamentoServico) => void;
+  onSaveEncomenda: (enc: EncomendaFesta) => void;
+  onClosePortal?: () => void;
+  formatCurrency?: (val: number) => string;
+  isOnlineBookingActive?: boolean;
+}
+
+export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> = ({
+  companyName,
+  companyLogo,
+  companyPhone,
+  profissionais,
+  agendamentos = [],
+  onSaveAgendamento,
+  onSaveEncomenda,
+  onClosePortal,
+  formatCurrency = (v) => `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`,
+  isOnlineBookingActive = true
+}) => {
+  const [selectedType, setSelectedType] = useState<"salao" | "encomenda">("salao");
+  const [viewModeSalao, setViewModeSalao] = useState<"timeline" | "form">("timeline");
+
+  // Form states agendamento
+  const [selectedProfId, setSelectedProfId] = useState<string>(profissionais[0]?.id || "");
+  const [selectedServico, setSelectedServico] = useState<string>("Corte Degradê / Tradicional");
+  const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [selectedTime, setSelectedTime] = useState<string>("14:00");
+  const [clientName, setClientName] = useState<string>("");
+  const [clientPhone, setClientPhone] = useState<string>("");
+  const [agendamentoSucesso, setAgendamentoSucesso] = useState(false);
+
+  // Form states encomenda festa
+  const [eventoData, setEventoData] = useState<string>(() => new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 10));
+  const [eventoHora, setEventoHora] = useState<string>("15:00");
+  const [eventoTipo, setEventoTipo] = useState<string>("Festa de Aniversário");
+  const [eventoDescricao, setEventoDescricao] = useState<string>("");
+  const [encomendaSucesso, setEncomendaSucesso] = useState(false);
+
+  // Serviços comuns pré-definidos
+  const SERVICOS_PREDEFINIDOS = [
+    { nome: "Corte Degradê / Navalhado", preco: 40 },
+    { nome: "Corte Tradicional na Tesoura", preco: 35 },
+    { nome: "Barba Terapia Completa com Toalha Quente", preco: 35 },
+    { nome: "Combo Cabelo + Barba", preco: 65 },
+    { nome: "Escova Modelada + Lavagem", preco: 50 },
+    { nome: "Coloração / Luzes / Mechas", preco: 120 },
+    { nome: "Manicure & Pedicure Completa", preco: 45 },
+    { nome: "Design de Sobrancelha", preco: 25 },
+    { nome: "Outro Atendimento Personalizado", preco: 50 }
+  ];
+
+  const selectedProf = profissionais.find((p) => p.id === selectedProfId) || profissionais[0];
+  const servicoObj = SERVICOS_PREDEFINIDOS.find((s) => s.nome === selectedServico);
+  const precoEstimado = servicoObj ? servicoObj.preco : 50;
+
+  // Horários e slots com detecção precisa de horários marcados, livres e bloqueados
+  const slotsStatus = useMemo(() => {
+    const startHour = selectedProf?.horaInicio ? parseInt(selectedProf.horaInicio.split(":")[0], 10) : 8;
+    const endHour = selectedProf?.horaFim ? parseInt(selectedProf.horaFim.split(":")[0], 10) : 20;
+
+    const baseTimes: string[] = [];
+    for (let h = startHour; h <= endHour; h++) {
+      const hStr = String(h).padStart(2, "0");
+      baseTimes.push(`${hStr}:00`);
+      if (h < endHour) {
+        baseTimes.push(`${hStr}:40`);
+      }
+    }
+
+    const lunchStart = selectedProf?.intervaloInicio || "12:00";
+    const lunchEnd = selectedProf?.intervaloFim || "13:30";
+
+    return baseTimes.map((slot) => {
+      // 1. Verificar se já existe agendamento ativo nessa data e horário
+      const agendado = agendamentos.find(
+        (a) =>
+          a.data === selectedDate &&
+          a.horario === slot &&
+          a.status !== "cancelado" &&
+          (!selectedProf?.id || selectedProf.id === "todos" || a.profissionalId === selectedProf.id)
+      );
+
+      // 2. Verificar intervalo de almoço
+      const isLunch = slot >= lunchStart && slot < lunchEnd;
+
+      // 3. Verificar bloqueios personalizados do profissional
+      const isBlocked = selectedProf?.bloqueiosPersonalizados?.some((b) => {
+        const matchDate = !b.data || b.data === selectedDate;
+        return matchDate && slot >= b.horarioInicio && slot < b.horarioFim;
+      });
+
+      const isUnavailable = !!agendado || isLunch || !!isBlocked;
+
+      let label = "Disponível ✅";
+      let statusType: "free" | "booked" | "lunch" | "blocked" = "free";
+
+      if (agendado) {
+        label = "Marcado / Ocupado 🔴";
+        statusType = "booked";
+      } else if (isLunch) {
+        label = "Horário de Almoço 🍽️";
+        statusType = "lunch";
+      } else if (isBlocked) {
+        label = "Horário Reservado 🔒";
+        statusType = "blocked";
+      }
+
+      return {
+        time: slot,
+        isUnavailable,
+        statusType,
+        label,
+        clientName: agendado ? agendado.clienteNome : undefined
+      };
+    });
+  }, [selectedProf, selectedDate, agendamentos]);
+
+  // Se o horário selecionado estiver indisponível ao trocar data/profissional, ajusta para o primeiro livre
+  useEffect(() => {
+    const currentSlot = slotsStatus.find((s) => s.time === selectedTime);
+    if (currentSlot?.isUnavailable) {
+      const firstFree = slotsStatus.find((s) => !s.isUnavailable);
+      if (firstFree) {
+        setSelectedTime(firstFree.time);
+      }
+    }
+  }, [slotsStatus, selectedTime]);
+
+  const handleConfirmarAgendamento = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clientName.trim() || !clientPhone.trim()) {
+      alert("Por favor, preencha seu nome e seu WhatsApp para confirmar o horário!");
+      return;
+    }
+
+    const novoAg: AgendamentoServico = {
+      id: "ag_cli_" + Date.now(),
+      data: selectedDate,
+      horario: selectedTime,
+      clienteNome: clientName.trim(),
+      clienteTelefone: clientPhone.trim(),
+      profissionalId: selectedProf?.id || "equipe",
+      profissionalNome: selectedProf?.nome || "Equipe",
+      servico: selectedServico,
+      valor: precoEstimado,
+      status: "agendado",
+      criadoEm: new Date().toISOString()
+    };
+
+    onSaveAgendamento(novoAg);
+    setAgendamentoSucesso(true);
+
+    // Enviar mensagem pronta no WhatsApp do estabelecimento
+    const cleanCompanyPhone = companyPhone.replace(/\D/g, "");
+    const dataFormatada = selectedDate.split("-").reverse().join("/");
+    const msg = encodeURIComponent(
+      `Olá! 💈✨ Acabei de agendar um horário pelo link:\n\n` +
+      `📅 *Data:* ${dataFormatada} às ${selectedTime}\n` +
+      `✂️ *Serviço:* ${selectedServico}\n` +
+      `👤 *Profissional:* ${selectedProf?.nome || "Qualquer Disponível"}\n` +
+      `💰 *Valor Estimado:* ${formatCurrency(precoEstimado)}\n\n` +
+      `*Meu Nome:* ${clientName.trim()}\n` +
+      `*Meu WhatsApp:* ${clientPhone.trim()}\n\n` +
+      `Por favor, me confirme este horário! Obrigado(a)!`
+    );
+
+    const waUrl = cleanCompanyPhone
+      ? `https://wa.me/55${cleanCompanyPhone}?text=${msg}`
+      : `https://wa.me/?text=${msg}`;
+
+    window.open(waUrl, "_blank");
+  };
+
+  const handleConfirmarEncomenda = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clientName.trim() || !clientPhone.trim() || !eventoDescricao.trim()) {
+      alert("Por favor, preencha seu nome, WhatsApp e os itens da encomenda!");
+      return;
+    }
+
+    const novaEnc: EncomendaFesta = {
+      id: "enc_cli_" + Date.now(),
+      dataEntrega: eventoData,
+      horarioEntrega: eventoHora,
+      clienteNome: clientName.trim(),
+      clienteTelefone: clientPhone.trim(),
+      tipoEvento: eventoTipo,
+      itensDescricao: eventoDescricao.trim(),
+      valorTotal: 0, // A combinar
+      sinalPago: 0,
+      saldoRestante: 0,
+      metodoPagamentoSinal: "A combinar",
+      status: "anotado",
+      criadoEm: new Date().toISOString()
+    };
+
+    onSaveEncomenda(novaEnc);
+    setEncomendaSucesso(true);
+
+    const cleanCompanyPhone = companyPhone.replace(/\D/g, "");
+    const dataFormatada = eventoData.split("-").reverse().join("/");
+    const msg = encodeURIComponent(
+      `Olá! 🍰🎉 Gostaria de solicitar um orçamento para encomenda de festa:\n\n` +
+      `📅 *Data da Festa/Entrega:* ${dataFormatada} às ${eventoHora}\n` +
+      `🎈 *Tipo de Evento:* ${eventoTipo}\n` +
+      `📦 *Itens Desejados:* ${eventoDescricao.trim()}\n\n` +
+      `*Meu Nome:* ${clientName.trim()}\n` +
+      `*Meu WhatsApp:* ${clientPhone.trim()}\n\n` +
+      `Aguardo seu retorno com os valores e disponibilidade! Obrigado(a)!`
+    );
+
+    const waUrl = cleanCompanyPhone
+      ? `https://wa.me/55${cleanCompanyPhone}?text=${msg}`
+      : `https://wa.me/?text=${msg}`;
+
+    window.open(waUrl, "_blank");
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-start p-4 sm:p-6 font-sans">
+      <div className="w-full max-w-xl space-y-6">
+        
+        {/* Top bar com fechar (se for modal ou preview do dono) */}
+        {onClosePortal && (
+          <div className="flex justify-between items-center bg-slate-900/80 px-4 py-2 rounded-2xl border border-white/10 text-xs">
+            <span className="text-amber-400 font-bold flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Modo Visualização do Cliente (Link do WhatsApp)</span>
+            </span>
+            <button
+              onClick={onClosePortal}
+              className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px] font-bold"
+            >
+              <X className="w-4 h-4" />
+              <span>Fechar</span>
+            </button>
+          </div>
+        )}
+
+        {/* CABEÇALHO DO ESTABELECIMENTO */}
+        <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-indigo-950/60 border border-white/10 rounded-3xl p-6 text-center shadow-2xl relative overflow-hidden space-y-4">
+          <div className="flex flex-col items-center">
+            {companyLogo ? (
+              <img
+                src={companyLogo}
+                alt={companyName}
+                className="w-20 h-20 rounded-2xl object-cover border-2 border-amber-500/50 shadow-xl mb-2"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-amber-500/30 mb-2">
+                <Scissors className="w-8 h-8" />
+              </div>
+            )}
+            <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+              {companyName || "Barbearia & Salão"}
+            </h1>
+            <p className="text-xs text-slate-300 font-medium max-w-sm mt-1">
+              Agende seu horário com nossos profissionais ou solicite sua encomenda para festas com rapidez e sem filas!
+            </p>
+          </div>
+
+          {/* Switch Salão vs Encomendas */}
+          <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-white/10 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSelectedType("salao")}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                selectedType === "salao"
+                  ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Scissors className="w-4 h-4" />
+              <span>Marcar Horário 💈</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedType("encomenda")}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                selectedType === "encomenda"
+                  ? "bg-pink-600 text-white shadow-lg shadow-pink-600/20"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Cake className="w-4 h-4" />
+              <span>Encomenda de Festas 🍰</span>
+            </button>
+          </div>
+        </div>
+
+        {/* AVISO SE O LINK PÚBLICO ESTIVER PAUSADO PELO PROPRIETÁRIO */}
+        {!isOnlineBookingActive ? (
+          <div className="bg-slate-900 border border-amber-500/30 rounded-3xl p-6 sm:p-8 text-center space-y-4 shadow-2xl animate-fadeIn">
+            <div className="w-16 h-16 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/40">
+              <Clock className="w-8 h-8" />
+            </div>
+            <h2 className="text-lg font-black text-white">
+              Agendamentos Online Temporariamente Pausados ⏸️
+            </h2>
+            <p className="text-xs text-slate-300 leading-relaxed font-medium max-w-md mx-auto">
+              O agendamento automático pelo link está em pausa no momento. Mas você pode falar diretamente com nossa equipe pelo WhatsApp para consultar horários disponíveis!
+            </p>
+            <div className="pt-2">
+              <a
+                href={
+                  companyPhone.replace(/\D/g, "")
+                    ? `https://wa.me/55${companyPhone.replace(/\D/g, "")}?text=${encodeURIComponent(`Olá! Gostaria de consultar horários disponíveis na ${companyName || "barbearia/salão"}!`)}`
+                    : `https://wa.me/?text=${encodeURIComponent(`Olá! Gostaria de consultar horários disponíveis!`)}`
+                }
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase px-6 py-3.5 rounded-2xl transition-all shadow-lg shadow-emerald-600/30"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>Conversar no WhatsApp</span>
+              </a>
+            </div>
+          </div>
+        ) : agendamentoSucesso ? (
+          <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-6 sm:p-8 text-center space-y-4 shadow-2xl animate-fadeIn">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/40">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <h2 className="text-lg font-black text-white">
+              Agendamento Enviado com Sucesso! 🎉
+            </h2>
+            <p className="text-xs text-slate-300 leading-relaxed font-medium">
+              Seu horário para <strong>{selectedServico}</strong> no dia{" "}
+              <strong>{selectedDate.split("-").reverse().join("/")}</strong> às{" "}
+              <strong>{selectedTime}</strong> foi enviado para o WhatsApp da equipe!
+            </p>
+            <button
+              onClick={() => setAgendamentoSucesso(false)}
+              className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-black uppercase px-6 py-3 rounded-2xl transition-all"
+            >
+              Fazer Outro Agendamento
+            </button>
+          </div>
+        ) : selectedType === "salao" ? (
+          <div className="space-y-4">
+            {/* Seletor de Modo: Ver Grade da Agenda (Foto) vs Formulário */}
+            <div className="flex bg-slate-900 border border-white/10 p-1.5 rounded-2xl gap-1.5">
+              <button
+                type="button"
+                onClick={() => setViewModeSalao("timeline")}
+                className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                  viewModeSalao === "timeline"
+                    ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Calendar className="w-4 h-4" />
+                <span>Grade da Agenda (Ver Horários Marcados) 📅</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewModeSalao("form")}
+                className={`py-2.5 px-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  viewModeSalao === "form"
+                    ? "bg-slate-800 text-white border border-white/10"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <span>Formulário Rápido</span>
+              </button>
+            </div>
+
+            {viewModeSalao === "timeline" ? (
+              /* GRADE DA AGENDA IGUAL À FOTO ENVIADA PELO USUÁRIO */
+              <div className="space-y-3">
+                <div className="bg-slate-900/90 border border-amber-500/30 p-3.5 rounded-2xl text-xs text-amber-300 font-medium flex items-center justify-between gap-2 flex-wrap shadow-lg">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Toque em qualquer <strong>Horário Disponível (Livre)</strong> para marcar sua vaga!</span>
+                  </div>
+                  <span className="text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full font-bold">
+                    [AGENDADO] = Ocupado
+                  </span>
+                </div>
+
+                <BarbeariaTimelineAgenda
+                  profissionais={profissionais}
+                  agendamentos={agendamentos}
+                  onAddAgendamento={(novoAg) => {
+                    onSaveAgendamento(novoAg);
+                    setAgendamentoSucesso(true);
+                  }}
+                  formatCurrency={formatCurrency}
+                  isClientView={true}
+                  companyPhone={companyPhone}
+                  companyName={companyName}
+                  onSelectSlotToBook={(slot) => {
+                    setSelectedDate(slot.data);
+                    setSelectedTime(slot.horario);
+                    setSelectedProfId(slot.profissionalId);
+                    setViewModeSalao("form");
+                  }}
+                />
+              </div>
+            ) : (
+              /* FORMULÁRIO 1: AGENDAR HORÁRIO SALÃO / BARBEARIA */
+              <form
+                onSubmit={handleConfirmarAgendamento}
+                className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-7 space-y-5 shadow-2xl text-left"
+              >
+                {/* 1. Escolha do Profissional */}
+                {profissionais.length > 0 && (
+                  <div className="space-y-2.5">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-amber-400" />
+                      <span>1. Escolha o Profissional / Barbeiro</span>
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {profissionais.map((prof) => {
+                        const isSelected = selectedProfId === prof.id;
+                        return (
+                          <div
+                            key={prof.id}
+                            onClick={() => setSelectedProfId(prof.id)}
+                            className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-2 ${
+                              isSelected
+                                ? "bg-amber-500/15 border-amber-500 shadow-md shadow-amber-500/10 scale-102"
+                                : "bg-slate-950 border-white/5 hover:border-white/15 opacity-80 hover:opacity-100"
+                            }`}
+                          >
+                            <img
+                              src={prof.fotoUrl}
+                              alt={prof.nome}
+                              className="w-12 h-12 rounded-xl object-cover border border-amber-500/30"
+                            />
+                            <div className="min-w-0 w-full">
+                              <p className="text-xs font-black text-white truncate">
+                                {prof.nome}
+                              </p>
+                              <p className="text-[9.5px] text-amber-300 font-bold truncate">
+                                {prof.apelido || prof.especialidade}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Escolha do Serviço */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                    <Scissors className="w-3.5 h-3.5 text-amber-400" />
+                    <span>2. Qual serviço você deseja fazer?</span>
+                  </label>
+                  <select
+                    value={selectedServico}
+                    onChange={(e) => setSelectedServico(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-3 text-xs text-white outline-none font-bold focus:border-amber-500"
+                  >
+                    {SERVICOS_PREDEFINIDOS.map((s, idx) => (
+                      <option key={idx} value={s.nome}>
+                        {s.nome} - {formatCurrency(s.preco)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. Data e Horário */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>3. Escolha o Dia</span>
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>4. Horários do Dia (Toque para Escolher)</span>
+                      </label>
+                      <div className="flex items-center gap-2 text-[9.5px] font-bold">
+                        <span className="text-emerald-400 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                          Livre
+                        </span>
+                        <span className="text-red-400 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+                          🔴 Marcado
+                        </span>
+                        <span className="text-amber-400 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                          ⛔ Almoço/Pausa
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Grade Visual Interativa de Horários */}
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 pt-1">
+                      {slotsStatus.map((slot) => {
+                        const isSelected = selectedTime === slot.time;
+                        const isBooked = slot.statusType === "booked";
+                        const isLunch = slot.statusType === "lunch";
+                        const isBlocked = slot.statusType === "blocked";
+                        const isUnavailable = slot.isUnavailable;
+
+                        return (
+                          <button
+                            key={slot.time}
+                            type="button"
+                            disabled={isUnavailable}
+                            onClick={() => setSelectedTime(slot.time)}
+                            className={`p-2 rounded-xl text-center transition-all flex flex-col items-center justify-center gap-0.5 border cursor-pointer ${
+                              isSelected
+                                ? "bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-lg shadow-emerald-500/30 scale-105 ring-2 ring-emerald-300"
+                                : isBooked
+                                ? "bg-red-950/40 border-red-500/30 text-red-400/80 cursor-not-allowed opacity-75"
+                                : isLunch
+                                ? "bg-amber-950/30 border-amber-500/20 text-amber-400/70 cursor-not-allowed opacity-60"
+                                : isBlocked
+                                ? "bg-slate-950 border-white/5 text-slate-500 cursor-not-allowed opacity-50"
+                                : "bg-slate-950 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-500 active:scale-95"
+                            }`}
+                            title={
+                              isBooked
+                                ? `Horário ${slot.time} já está agendado!`
+                                : isLunch
+                                ? `Horário ${slot.time} é intervalo de almoço.`
+                                : `Horário ${slot.time} livre para agendar!`
+                            }
+                          >
+                            <span className="font-mono text-xs font-bold leading-none">
+                              {slot.time}
+                            </span>
+                            <span className="text-[8px] font-black uppercase tracking-tight leading-none">
+                              {isSelected
+                                ? "Escolhido ✅"
+                                : isBooked
+                                ? "Marcado 🔴"
+                                : isLunch
+                                ? "Almoço 🍽️"
+                                : isBlocked
+                                ? "Reservado 🔒"
+                                : "Livre"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Resumo do Horário Selecionado */}
+                    <div className="bg-slate-950/80 border border-white/5 rounded-xl p-2.5 flex items-center justify-between text-xs mt-2">
+                      <span className="text-slate-400">Horário Escolhido:</span>
+                      <span className="font-mono font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">
+                        {selectedTime} ({slotsStatus.find((s) => s.time === selectedTime)?.label || "Disponível"})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Dados do Cliente */}
+                <div className="space-y-3 pt-2 border-t border-white/5">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Seu Nome Completo *</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={clientName}
+                      onChange={(e) => setClientName(e.target.value)}
+                      placeholder="Ex: João da Silva"
+                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Seu Celular / WhatsApp *</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={clientPhone}
+                      onChange={(e) => setClientPhone(e.target.value)}
+                      placeholder="Ex: (21) 99999-8888"
+                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold font-mono focus:border-emerald-500"
+                    />
+                    <span className="text-[9px] text-slate-400 block">
+                      Usaremos este número para enviar a confirmação do seu horário pelo WhatsApp.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.99] text-white py-3.5 px-4 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xl shadow-emerald-600/20 cursor-pointer"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    <span>Confirmar Agendamento no WhatsApp 💬</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        ) : (
+          /* FORMULÁRIO 2: ENCOMENDA DE FESTA */
+          <form
+            onSubmit={handleConfirmarEncomenda}
+            className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-7 space-y-5 shadow-2xl text-left"
+          >
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-pink-400 text-xs font-black uppercase">
+                <PartyPopper className="w-4 h-4" />
+                <span>Solicitação de Encomenda para Festas & Eventos</span>
+              </div>
+              <p className="text-[11px] text-slate-300 font-medium">
+                Faça sua encomenda de bolos, doces, salgados e kits para sua festa.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-300">
+                  Data da Festa / Entrega *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={eventoData}
+                  onChange={(e) => setEventoData(e.target.value)}
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-300">
+                  Horário Desejado *
+                </label>
+                <input
+                  type="time"
+                  required
+                  value={eventoHora}
+                  onChange={(e) => setEventoHora(e.target.value)}
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wider text-slate-300">
+                Tipo de Evento
+              </label>
+              <input
+                type="text"
+                value={eventoTipo}
+                onChange={(e) => setEventoTipo(e.target.value)}
+                placeholder="Ex: Aniversário Infantil, Casamento, Churrasco"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wider text-slate-300">
+                Itens que você deseja encomendar *
+              </label>
+              <textarea
+                required
+                rows={3}
+                value={eventoDescricao}
+                onChange={(e) => setEventoDescricao(e.target.value)}
+                placeholder="Ex: Bolo de Chocolate 2kg + 100 Salgadinhos (coxinhas e quibes) + 50 Brigadeiros"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl p-3 text-xs text-white outline-none font-medium resize-none focus:border-pink-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2 border-t border-white/5">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-300">
+                  Seu Nome Completo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder="Ex: Maria Fernandes"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-300">
+                  Seu WhatsApp *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={clientPhone}
+                  onChange={(e) => setClientPhone(e.target.value)}
+                  placeholder="Ex: (21) 99999-7777"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="submit"
+                className="w-full bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 active:scale-[0.99] text-white py-3.5 px-4 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xl shadow-pink-600/20 cursor-pointer"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>Solicitar Encomenda no WhatsApp 🍰</span>
+              </button>
+            </div>
+          </form>
+        )}
+
+      </div>
+    </div>
+  );
+};

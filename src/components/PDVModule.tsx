@@ -9207,8 +9207,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         { id: "allowDiscount", label: "Aplicar desconto" },
                         { id: "allowEditPrice", label: "Alterar preço unitário" },
                         { id: "allowVoidSale", label: "Estorno de vendas" },
-                        { id: "allowSuprimento", label: "Suprimento" },
-                        { id: "allowSangria", label: "Sangria" },
+                        { id: "allowSuprimento", label: "Colocar Troco no Caixa (Suprimento)" },
+                        { id: "allowSangria", label: "Tirar Dinheiro / Pagar Conta (Sangria)" },
                         { id: "allowCloseShift", label: "Fechamento de caixa" },
                         { id: "allowViewReports", label: "Relatórios & BI" },
                         { id: "allowOpenBalance", label: "Abertura de balancete" },
@@ -9359,8 +9359,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                               { id: "allowDiscount", label: "Aplicar desconto" },
                               { id: "allowEditPrice", label: "Alterar preço unitário" },
                               { id: "allowVoidSale", label: "Estorno de vendas" },
-                              { id: "allowSuprimento", label: "Suprimento" },
-                              { id: "allowSangria", label: "Sangria" },
+                              { id: "allowSuprimento", label: "Colocar Troco (Suprimento)" },
+                              { id: "allowSangria", label: "Tirar Dinheiro (Sangria)" },
                               { id: "allowCloseShift", label: "Fechamento de caixa" },
                               { id: "allowViewReports", label: "Relatório" },
                               { id: "allowOpenBalance", label: "Abertura de balancete" },
@@ -18996,14 +18996,14 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       >
                         {manualType === "entrada" ? (
                           <>
-                            <option value="suprimento">📥 Suprimento de Fundo</option>
+                            <option value="suprimento">📥 Colocar Dinheiro / Troco no Caixa (Suprimento)</option>
                             <option value="venda">🏷️ Venda Direta Avulsa</option>
-                            <option value="outros">🔍 Lançamento Adicional</option>
+                            <option value="outros">🔍 Entrada Adicional</option>
                           </>
                         ) : (
                           <>
-                            <option value="despesa">💸 Despesa Operacional</option>
-                            <option value="sangria">📤 Sangria (Retirar do Caixa)</option>
+                            <option value="despesa">💸 Pagar Despesa / Conta com Caixa</option>
+                            <option value="sangria">📤 Tirar Dinheiro da Gaveta (Sangria)</option>
                             <option value="troco">🪙 Fundo de Troco</option>
                             <option value="outros">🔍 Outras Saídas</option>
                           </>
@@ -20077,9 +20077,9 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
             >
               <option value="todas">🎯 Todas Categorias</option>
               <option value="venda">🏷️ Vendas Catalogadas</option>
-              <option value="suprimento">📥 Suprimentos</option>
-              <option value="sangria">📤 Sangrias de Caixa</option>
-              <option value="despesa">💸 Despesas Variadas</option>
+              <option value="suprimento">📥 Entradas de Troco (Suprimentos)</option>
+              <option value="sangria">📤 Retiradas de Dinheiro (Sangrias)</option>
+              <option value="despesa">💸 Pagamentos de Despesas</option>
               <option value="troco">🪙 Fundo Troco</option>
               <option value="outros">🔍 Outros Motivos</option>
               <option value="excluidos">🛡️ Lançamentos Estornados</option>
@@ -20167,9 +20167,9 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     className="w-full bg-slate-950 border border-white/5 text-[10.5px] px-2 py-1.5 rounded-lg text-white mt-1 outline-none font-bold"
                   >
                     <option value="venda">Venda</option>
-                    <option value="suprimento">Suprimento</option>
-                    <option value="sangria">Sangria</option>
-                    <option value="despesa">Despesa</option>
+                    <option value="suprimento">Colocar Troco no Caixa (Suprimento)</option>
+                    <option value="sangria">Tirar Dinheiro da Gaveta (Sangria)</option>
+                    <option value="despesa">Pagamento de Despesa / Conta</option>
                     <option value="troco">Fundo Troco</option>
                     <option value="outros">Outros</option>
                   </select>
@@ -20236,9 +20236,9 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
               const categoryLabels: Record<string, string> = {
                 venda: 'Venda de Caixa',
-                suprimento: 'Aporte de Fundo',
-                sangria: 'Sangria de Caixa',
-                despesa: 'Gasto / Despesa',
+                suprimento: 'Colocar Troco no Caixa (Suprimento)',
+                sangria: 'Tirar Dinheiro da Gaveta (Sangria)',
+                despesa: 'Pagamento de Despesa / Conta',
                 troco: 'Fundo de Troco',
                 outros: 'Lançamento Único'
               };

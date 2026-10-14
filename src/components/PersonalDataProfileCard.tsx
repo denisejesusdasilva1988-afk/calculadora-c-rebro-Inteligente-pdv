@@ -24,7 +24,10 @@ import {
   QrCode,
   ExternalLink,
   Loader2,
-  Lock
+  Lock,
+  Camera,
+  Trash2,
+  Image as ImageIcon
 } from "lucide-react";
 import {
   CompanyProfile,
@@ -64,6 +67,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
   const [phoneInput, setPhoneInput] = useState(profile.phone || profile.whatsapp || "21966713263");
   const [pixKeyInput, setPixKeyInput] = useState(profile.pixKey || "21966713263");
   const [companyNameInput, setCompanyNameInput] = useState(profile.name || storeName || "");
+  const [logoInput, setLogoInput] = useState(profile.logoUrl || "");
   const [isSavingData, setIsSavingData] = useState(false);
 
   // Senha States
@@ -92,7 +96,30 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
     if (!phoneInput && (loaded.phone || loaded.whatsapp)) setPhoneInput(loaded.phone || loaded.whatsapp);
     if (!pixKeyInput && loaded.pixKey) setPixKeyInput(loaded.pixKey);
     if (!companyNameInput && (loaded.name || storeName)) setCompanyNameInput(loaded.name || storeName);
+    if (!logoInput && loaded.logoUrl) setLogoInput(loaded.logoUrl);
   }, [user?.uid, storeCnpjCpf, storeName]);
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      showNotification("A imagem deve ter no máximo 5MB.", "error");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setLogoInput(reader.result);
+        showNotification("Foto da logo carregada com sucesso! 🖼️ Clique em 'Salvar Dados' para confirmar.", "success");
+      }
+    };
+    reader.onerror = () => {
+      showNotification("Erro ao carregar a imagem.", "error");
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Formatação de CPF
   const formatCPF = (val: string) => {
@@ -155,7 +182,8 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
         phone: phoneInput.trim(),
         whatsapp: phoneInput.trim(),
         pixKey: pixKeyInput.trim() || "21966713263",
-        name: companyNameInput.trim() || profile.name || "Calculadora Cérebro PDV"
+        name: companyNameInput.trim() || profile.name || "Calculadora Cérebro PDV",
+        logoUrl: logoInput.trim()
       };
 
       // Salva no localStorage e utilitário
@@ -165,6 +193,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
       // Atualiza estados do App
       if (cpfInput.trim()) setStoreCnpjCpf(cpfInput.trim());
       if (companyNameInput.trim()) setStoreName(companyNameInput.trim());
+      localStorage.setItem("pdv_company_logo", logoInput.trim());
 
       localStorage.setItem("pdv_owner_cpf", cpfInput.trim());
       localStorage.setItem("pdv_owner_name", ownerNameInput.trim());
@@ -414,6 +443,75 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
               <span className="text-[9px] text-slate-500 block">
                 Chave PIX usada para receber pagamentos de anúncios e marketing.
               </span>
+            </div>
+          </div>
+
+          {/* Logomarca / Foto da Empresa */}
+          <div className="bg-slate-950/70 p-4 rounded-2xl border border-white/5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[10px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
+                <span>Logomarca / Foto de Identidade do Negócio</span>
+              </label>
+              {logoInput && (
+                <button
+                  type="button"
+                  onClick={() => setLogoInput("")}
+                  className="text-[9.5px] font-bold text-red-400 hover:text-red-300 flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20 transition-all cursor-pointer"
+                  title="Remover Logo"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Remover</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-4 flex-wrap sm:flex-nowrap">
+              <div className="w-16 h-16 rounded-2xl bg-slate-900 border-2 border-amber-500/40 flex items-center justify-center overflow-hidden shrink-0 shadow-inner p-1">
+                {logoInput ? (
+                  <img
+                    src={logoInput}
+                    alt="Logo"
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <div className="text-center p-1 text-slate-500 flex flex-col items-center">
+                    <ImageIcon className="w-5 h-5 mb-0.5 text-slate-600" />
+                    <span className="text-[7.5px] font-bold uppercase">Sem Foto</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1 space-y-2 min-w-[200px]">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-amber-500/20 active:scale-95">
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Carregar Foto / Logo da Galeria</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  <span className="text-[9.5px] text-slate-400 font-medium">
+                    (PNG, JPG ou WEBP)
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[9px] font-bold uppercase text-slate-400 block">
+                    Ou cole o link da imagem (URL):
+                  </span>
+                  <input
+                    type="text"
+                    value={logoInput}
+                    onChange={(e) => setLogoInput(e.target.value)}
+                    placeholder="https://exemplo.com/logo.png"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none font-medium focus:border-amber-500"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 

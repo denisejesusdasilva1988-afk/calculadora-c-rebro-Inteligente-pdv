@@ -133,3 +133,157 @@ html[data-font-scale="extragrande"] [class*="text-sm"] {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* ==========================================================================
+   SISTEMA DE TEMAS E CORES - CALCULADORA CÉREBRO PDV
+   ========================================================================== */
+
+/* 1. MODO CLARO (LIGHT MODE) */
+html[data-theme="light"] body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+html[data-theme="light"] .bg-slate-900 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.06);
+}
+
+html[data-theme="light"] .bg-slate-850,
+html[data-theme="light"] .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .text-white {
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .text-slate-100 {
+  color: #1e293b !important;
+}
+
+html[data-theme="light"] .text-slate-200 {
+  color: #334155 !important;
+}
+
+html[data-theme="light"] .text-slate-300 {
+  color: #475569 !important;
+}
+
+html[data-theme="light"] .text-slate-400 {
+  color: #64748b !important;
+}
+
+html[data-theme="light"] .border-white\/10,
+html[data-theme="light"] .border-white\/5,
+html[data-theme="light"] .border-white\/15,
+html[data-theme="light"] .border-white\/20,
+html[data-theme="light"] .border-white\/30 {
+  border-color: #e2e8f0 !important;
+}
+
+html[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+html[data-theme="light"] select,
+html[data-theme="light"] textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html[data-theme="light"] input::placeholder,
+html[data-theme="light"] textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* 2. PALETAS DE CORES EXCLUSIVAS (MODO ESCURO / DARK) */
+
+/* Paleta Dourado & Âmbar (Barbearia / Gourmet) */
+html[data-theme="dark"][data-palette="amber"] body,
+html[data-theme="dark"][data-palette="amber"] .bg-slate-950 {
+  background-color: #140e06 !important;
+}
+html[data-theme="dark"][data-palette="amber"] .bg-slate-900 {
+  background-color: #21180d !important;
+  border-color: #452c0f !important;
+}
+html[data-theme="dark"][data-palette="amber"] .bg-slate-850,
+html[data-theme="dark"][data-palette="amber"] .bg-slate-800 {
+  background-color: #2e2012 !important;
+}
+
+/* Paleta Roxo & Ametista (Salão, Manicure & Beleza) */
+html[data-theme="dark"][data-palette="violet"] body,
+html[data-theme="dark"][data-palette="violet"] .bg-slate-950 {
+  background-color: #12081f !important;
+}
+html[data-theme="dark"][data-palette="violet"] .bg-slate-900 {
+  background-color: #211038 !important;
+  border-color: #431d68 !important;
+}
+html[data-theme="dark"][data-palette="violet"] .bg-slate-850,
+html[data-theme="dark"][data-palette="violet"] .bg-slate-800 {
+  background-color: #2d164c !important;
+}
+
+/* Paleta Azul Oceano & Tecnologia */
+html[data-theme="dark"][data-palette="ocean"] body,
+html[data-theme="dark"][data-palette="ocean"] .bg-slate-950 {
+  background-color: #061325 !important;
+}
+html[data-theme="dark"][data-palette="ocean"] .bg-slate-900 {
+  background-color: #0c2340 !important;
+  border-color: #164070 !important;
+}
+html[data-theme="dark"][data-palette="ocean"] .bg-slate-850,
+html[data-theme="dark"][data-palette="ocean"] .bg-slate-800 {
+  background-color: #113157 !important;
+}
+
+/* Paleta Verde Menta & Hortifruti */
+html[data-theme="dark"][data-palette="emerald"] body,
+html[data-theme="dark"][data-palette="emerald"] .bg-slate-950 {
+  background-color: #051610 !important;
+}
+html[data-theme="dark"][data-palette="emerald"] .bg-slate-900 {
+  background-color: #0c2b20 !important;
+  border-color: #14553e !important;
+}
+html[data-theme="dark"][data-palette="emerald"] .bg-slate-850,
+html[data-theme="dark"][data-palette="emerald"] .bg-slate-800 {
+  background-color: #113c2c !important;
+}
+
+/* Paleta Vermelho Rubi & Lanchonete */
+html[data-theme="dark"][data-palette="ruby"] body,
+html[data-theme="dark"][data-palette="ruby"] .bg-slate-950 {
+  background-color: #1c090d !important;
+}
+html[data-theme="dark"][data-palette="ruby"] .bg-slate-900 {
+  background-color: #301018 !important;
+  border-color: #5c1624 !important;
+}
+html[data-theme="dark"][data-palette="ruby"] .bg-slate-850,
+html[data-theme="dark"][data-palette="ruby"] .bg-slate-800 {
+  background-color: #421622 !important;
+}
+
+/* Paleta Preto Absoluto OLED */
+html[data-theme="dark"][data-palette="oled"] body,
+html[data-theme="dark"][data-palette="oled"] .bg-slate-950 {
+  background-color: #000000 !important;
+}
+html[data-theme="dark"][data-palette="oled"] .bg-slate-900 {
+  background-color: #0a0a0a !important;
+  border-color: #262626 !important;
+}
+html[data-theme="dark"][data-palette="oled"] .bg-slate-850,
+html[data-theme="dark"][data-palette="oled"] .bg-slate-800 {
+  background-color: #141414 !important;
+}
+

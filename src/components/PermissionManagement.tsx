@@ -358,14 +358,14 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({
         },
         {
           key: "allowSuprimento",
-          label: "Mexer no Fundo do Caixa (Suprimento)",
-          desc: "Permite colocar dinheiro inicial de troco ou reforço físico de notas na gaveta do caixa.",
+          label: "Colocar Troco no Caixa (Suprimento)",
+          desc: "Permite colocar moedas e notas na gaveta quando o troco estiver acabando ou na abertura.",
           icon: <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
         },
         {
           key: "allowSangria",
-          label: "Mexer no Fundo do Caixa (Sangria)",
-          desc: "Permite retirar dinheiro físico do caixa para pagamentos de despesas ou segurança.",
+          label: "Tirar Dinheiro / Pagar Conta (Sangria)",
+          desc: "Permite retirar dinheiro da gaveta para pagar despesas, compras, motoboy ou guardar no cofre/banco.",
           icon: <Sliders className="w-3.5 h-3.5 text-amber-500" />
         },
         {
