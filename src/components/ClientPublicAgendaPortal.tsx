@@ -9,7 +9,7 @@
  * para o cliente escolher o profissional, o horário ou fazer sua encomenda para festas!
  */
 
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Scissors,
   Cake,
@@ -28,6 +28,41 @@ import {
 import { ProfissionalBarbearia, AgendamentoServico, EncomendaFesta } from "./BarbeariaSalaoEventosModule";
 import { BarbeariaTimelineAgenda } from "./BarbeariaTimelineAgenda";
 
+export type CategoriaPortal = "barbearia" | "salao" | "manicure" | "encomendas";
+
+export const SERVICOS_POR_SEGMENTO: Record<"barbearia" | "salao" | "manicure", { nome: string; preco: number; duracao: string }[]> = {
+  barbearia: [
+    { nome: "Corte Degradê / Navalhado", preco: 40, duracao: "35 min" },
+    { nome: "Corte Tradicional na Tesoura", preco: 35, duracao: "30 min" },
+    { nome: "Barba Terapia com Toalha Quente", preco: 35, duracao: "30 min" },
+    { nome: "Combo Cabelo + Barba Completo", preco: 65, duracao: "50 min" },
+    { nome: "Pigmentação de Cabelo / Barba", preco: 30, duracao: "25 min" },
+    { nome: "Design de Sobrancelha Masculina", preco: 20, duracao: "15 min" },
+    { nome: "Pezinho / Acabamento", preco: 15, duracao: "15 min" },
+    { nome: "Corte Infantil Masculino", preco: 35, duracao: "30 min" }
+  ],
+  salao: [
+    { nome: "Corte Feminino & Modelagem", preco: 60, duracao: "45 min" },
+    { nome: "Escova Modelada + Lavagem Especial", preco: 50, duracao: "40 min" },
+    { nome: "Coloração / Tinta Raiz", preco: 90, duracao: "60 min" },
+    { nome: "Luzes / Mechas no Papel", preco: 180, duracao: "120 min" },
+    { nome: "Hidratação Profunda / Nutrição", preco: 70, duracao: "40 min" },
+    { nome: "Botox Capilar / Alinhamento", preco: 130, duracao: "90 min" },
+    { nome: "Penteado para Festas & Eventos", preco: 120, duracao: "60 min" },
+    { nome: "Maquiagem Social", preco: 110, duracao: "50 min" }
+  ],
+  manicure: [
+    { nome: "Manicure Simples (Cutilagem e Esmaltação)", preco: 25, duracao: "35 min" },
+    { nome: "Pedicure Completo", preco: 30, duracao: "40 min" },
+    { nome: "Combo Manicure + Pedicure", preco: 50, duracao: "70 min" },
+    { nome: "Alongamento em Fibra de Vidro", preco: 140, duracao: "120 min" },
+    { nome: "Alongamento em Gel", preco: 130, duracao: "110 min" },
+    { nome: "Manutenção de Alongamento (Fibra/Gel)", preco: 80, duracao: "60 min" },
+    { nome: "Esmaltação em Gel", preco: 55, duracao: "45 min" },
+    { nome: "Spa dos Pés / Plástica dos Pés", preco: 60, duracao: "45 min" }
+  ]
+};
+
 interface ClientPublicAgendaPortalProps {
   companyName: string;
   companyLogo?: string;
@@ -39,6 +74,7 @@ interface ClientPublicAgendaPortalProps {
   onClosePortal?: () => void;
   formatCurrency?: (val: number) => string;
   isOnlineBookingActive?: boolean;
+  businessSegment?: "barbearia" | "salao" | "manicure" | "encomendas" | "multi";
 }
 
 export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> = ({
@@ -51,19 +87,51 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
   onSaveEncomenda,
   onClosePortal,
   formatCurrency = (v) => `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`,
-  isOnlineBookingActive = true
+  isOnlineBookingActive = true,
+  businessSegment = "multi"
 }) => {
-  const [selectedType, setSelectedType] = useState<"salao" | "encomenda">("salao");
+  const [selectedSegment, setSelectedSegment] = useState<CategoriaPortal>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const seg = params.get("segmento") as CategoriaPortal;
+        if (seg === "barbearia" || seg === "salao" || seg === "manicure" || seg === "encomendas") {
+          return seg;
+        }
+      } catch {}
+    }
+    if (businessSegment && businessSegment !== "multi") {
+      return businessSegment;
+    }
+    const saved = localStorage.getItem("pdv_business_segment") as CategoriaPortal;
+    if (saved === "barbearia" || saved === "salao" || saved === "manicure" || saved === "encomendas") {
+      return saved;
+    }
+    return "barbearia";
+  });
+
   const [viewModeSalao, setViewModeSalao] = useState<"timeline" | "form">("timeline");
 
   // Form states agendamento
   const [selectedProfId, setSelectedProfId] = useState<string>(profissionais[0]?.id || "");
-  const [selectedServico, setSelectedServico] = useState<string>("Corte Degradê / Tradicional");
+  const [selectedServico, setSelectedServico] = useState<string>(
+    SERVICOS_POR_SEGMENTO.barbearia[0].nome
+  );
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [selectedTime, setSelectedTime] = useState<string>("14:00");
   const [clientName, setClientName] = useState<string>("");
   const [clientPhone, setClientPhone] = useState<string>("");
   const [agendamentoSucesso, setAgendamentoSucesso] = useState(false);
+
+  // Atualiza primeiro serviço quando o segmento muda
+  useEffect(() => {
+    if (selectedSegment !== "encomendas") {
+      const servicosDoSegmento = SERVICOS_POR_SEGMENTO[selectedSegment];
+      if (servicosDoSegmento && servicosDoSegmento.length > 0) {
+        setSelectedServico(servicosDoSegmento[0].nome);
+      }
+    }
+  }, [selectedSegment]);
 
   // Form states encomenda festa
   const [eventoData, setEventoData] = useState<string>(() => new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 10));
@@ -72,21 +140,11 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
   const [eventoDescricao, setEventoDescricao] = useState<string>("");
   const [encomendaSucesso, setEncomendaSucesso] = useState(false);
 
-  // Serviços comuns pré-definidos
-  const SERVICOS_PREDEFINIDOS = [
-    { nome: "Corte Degradê / Navalhado", preco: 40 },
-    { nome: "Corte Tradicional na Tesoura", preco: 35 },
-    { nome: "Barba Terapia Completa com Toalha Quente", preco: 35 },
-    { nome: "Combo Cabelo + Barba", preco: 65 },
-    { nome: "Escova Modelada + Lavagem", preco: 50 },
-    { nome: "Coloração / Luzes / Mechas", preco: 120 },
-    { nome: "Manicure & Pedicure Completa", preco: 45 },
-    { nome: "Design de Sobrancelha", preco: 25 },
-    { nome: "Outro Atendimento Personalizado", preco: 50 }
-  ];
-
   const selectedProf = profissionais.find((p) => p.id === selectedProfId) || profissionais[0];
-  const servicoObj = SERVICOS_PREDEFINIDOS.find((s) => s.nome === selectedServico);
+  const servicosAtuais = selectedSegment !== "encomendas"
+    ? SERVICOS_POR_SEGMENTO[selectedSegment]
+    : SERVICOS_POR_SEGMENTO.barbearia;
+  const servicoObj = servicosAtuais.find((s) => s.nome === selectedServico) || servicosAtuais[0];
   const precoEstimado = servicoObj ? servicoObj.preco : 50;
 
   // Horários e slots com detecção precisa de horários marcados, livres e bloqueados
@@ -105,6 +163,27 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
 
     const lunchStart = selectedProf?.intervaloInicio || "12:00";
     const lunchEnd = selectedProf?.intervaloFim || "13:30";
+
+    // Verificar folga do profissional no dia da semana selecionado
+    let isDiaDeFolga = false;
+    try {
+      const [ano, mes, dia] = selectedDate.split("-").map(Number);
+      const dataObj = new Date(ano, mes - 1, dia, 12, 0, 0);
+      const dayOfWeek = dataObj.getDay();
+      if (selectedProf?.diasSemana && selectedProf.diasSemana.length > 0) {
+        isDiaDeFolga = !selectedProf.diasSemana.includes(dayOfWeek);
+      }
+    } catch {}
+
+    if (isDiaDeFolga) {
+      return baseTimes.map((slot) => ({
+        time: slot,
+        isUnavailable: true,
+        statusType: "blocked" as const,
+        label: "Folga do Profissional ⛔",
+        clientName: undefined
+      }));
+    }
 
     return baseTimes.map((slot) => {
       // 1. Verificar se já existe agendamento ativo nessa data e horário

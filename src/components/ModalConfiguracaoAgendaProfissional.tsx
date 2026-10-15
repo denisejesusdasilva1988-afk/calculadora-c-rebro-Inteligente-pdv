@@ -2,524 +2,538 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * Modal Completo de Configuração da Agenda do Profissional
- * Dá autonomia total para o Barbeiro, Manicure, Salão, Proprietário, etc. configurarem:
- * 1. Dias de atendimento na semana em que vai abrir a agenda (Seg, Ter, Qua, Qui, Sex, Sáb, Dom)
- * 2. Horário de abertura e fechamento da agenda (Ex: 08:00 às 19:30)
- * 3. Horário de almoço e pausas fixas (Ex: 12:00 às 13:30)
- * 4. Horários reservados e horários não disponíveis (bloqueios personalizados pontuais ou recorrentes)
+ * Modal de Configuração Completa da Agenda do Profissional
+ * Permite ao proprietário ou ao próprio profissional (Barbeiro, Salão, Manicure, etc.)
+ * total autonomia e dependência para configurar:
+ * 1. Horário de abertura da agenda (hora início)
+ * 2. Horário de fechamento da agenda (hora fim)
+ * 3. Dias da semana de atendimento (Terça a Sábado, Segunda a Sexta, etc.)
+ * 4. Horário de almoço e pausas
+ * 5. Horários reservados e horários indisponíveis personalizados
  */
 
 import React, { useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import {
   X,
   Clock,
-  Calendar,
-  Save,
-  Check,
+  Calendar as CalendarIcon,
   Coffee,
+  Lock,
   Plus,
   Trash2,
-  Lock,
-  User,
+  Check,
+  Shield,
   Sparkles,
-  ShieldCheck,
+  Scissors,
+  CheckCircle2,
   AlertCircle
 } from "lucide-react";
-import { ProfissionalBarbearia, HorarioBloqueadoProfissional } from "./BarbeariaSalaoEventosModule";
+import {
+  ProfissionalBarbearia,
+  HorarioBloqueadoProfissional
+} from "./BarbeariaSalaoEventosModule";
 
 interface ModalConfiguracaoAgendaProfissionalProps {
   isOpen: boolean;
   onClose: () => void;
   profissional: ProfissionalBarbearia;
-  onSaveProfissional: (profAtualizado: ProfissionalBarbearia) => void;
-  showNotification?: (msg: string, type?: "success" | "error" | "info") => void;
+  onSave: (profissionalAtualizado: ProfissionalBarbearia) => void;
+  showNotification?: (msg: string, type: "success" | "error" | "info") => void;
 }
 
-// Dias da semana: 0 = Dom, 1 = Seg, 2 = Ter, 3 = Qua, 4 = Qui, 5 = Sex, 6 = Sáb
-const DIAS_SEMANA_NOMES = [
-  { id: 1, label: "Seg", full: "Segunda-feira" },
-  { id: 2, label: "Ter", full: "Terça-feira" },
-  { id: 3, label: "Qua", full: "Quarta-feira" },
-  { id: 4, label: "Qui", full: "Quinta-feira" },
-  { id: 5, label: "Sex", full: "Sexta-feira" },
-  { id: 6, label: "Sáb", full: "Sábado" },
-  { id: 0, label: "Dom", full: "Domingo" }
+const DIAS_NOMES = [
+  { dia: 1, label: "Seg", full: "Segunda-feira" },
+  { dia: 2, label: "Ter", full: "Terça-feira" },
+  { dia: 3, label: "Qua", full: "Quarta-feira" },
+  { dia: 4, label: "Qui", full: "Quinta-feira" },
+  { dia: 5, label: "Sex", full: "Sexta-feira" },
+  { dia: 6, label: "Sáb", full: "Sábado" },
+  { dia: 0, label: "Dom", full: "Domingo" }
+];
+
+const OPCOES_HORAS = [
+  "06:00", "06:30", "07:00", "07:30", "08:00", "08:30", "09:00", "09:30",
+  "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30",
+  "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30",
+  "18:00", "18:30", "19:00", "19:30", "20:00", "20:30", "21:00", "21:30",
+  "22:00", "22:30", "23:00"
 ];
 
 export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgendaProfissionalProps> = ({
   isOpen,
   onClose,
   profissional,
-  onSaveProfissional,
-  showNotification = () => {}
+  onSave,
+  showNotification = (_msg?: string, _type?: "success" | "error" | "info") => {}
 }) => {
-  if (!isOpen) return null;
-
-  // Dias de atendimento (padrão Seg a Sáb: [1, 2, 3, 4, 5, 6])
-  const [diasSemana, setDiasSemana] = useState<number[]>(
-    profissional.diasSemana && profissional.diasSemana.length > 0
-      ? profissional.diasSemana
-      : [1, 2, 3, 4, 5, 6]
-  );
-
-  // Horários de Abertura e Fechamento
+  // Horário de abertura e fechamento
   const [horaInicio, setHoraInicio] = useState(profissional.horaInicio || "08:00");
   const [horaFim, setHoraFim] = useState(profissional.horaFim || "20:00");
 
-  // Almoço / Intervalo fixo
-  const [temAlmoco, setTemAlmoco] = useState(!!profissional.intervaloInicio || true);
+  // Dias de atendimento (array de números: 0=dom, 1=seg, 2=ter, 3=qua, 4=qui, 5=sex, 6=sáb)
+  const [diasSemana, setDiasSemana] = useState<number[]>(
+    profissional.diasSemana && profissional.diasSemana.length > 0
+      ? profissional.diasSemana
+      : [1, 2, 3, 4, 5, 6] // Padrão Seg a Sáb
+  );
+
+  // Intervalo de Almoço
+  const [temAlmoco, setTemAlmoco] = useState<boolean>(
+    Boolean(profissional.intervaloInicio && profissional.intervaloFim)
+  );
   const [intervaloInicio, setIntervaloInicio] = useState(profissional.intervaloInicio || "12:00");
   const [intervaloFim, setIntervaloFim] = useState(profissional.intervaloFim || "13:30");
-  const [intervaloMotivo, setIntervaloMotivo] = useState(profissional.intervaloMotivo || "Horário de Almoço");
+  const [intervaloMotivo, setIntervaloMotivo] = useState(profissional.intervaloMotivo || "Horário de almoço");
 
-  // Bloqueios personalizados (Horários Reservados e Indisponíveis)
+  // Bloqueios personalizados (Horários Reservados / Indisponíveis)
   const [bloqueios, setBloqueios] = useState<HorarioBloqueadoProfissional[]>(
     profissional.bloqueiosPersonalizados || []
   );
 
-  // Form para adicionar novo bloqueio
-  const [novoBloqueioData, setNovoBloqueioData] = useState("");
-  const [novoBloqueioInicio, setNovoBloqueioInicio] = useState("14:00");
-  const [novoBloqueioFim, setNovoBloqueioFim] = useState("15:00");
-  const [novoBloqueioMotivo, setNovoBloqueioMotivo] = useState("Horário Reservado Particular");
-  const [novoBloqueioTipo, setNovoBloqueioTipo] = useState<"reservado" | "indisponivel" | "folga">("reservado");
+  // Estado do formulário de novo bloqueio
+  const [novoInicio, setNovoInicio] = useState("14:00");
+  const [novoFim, setNovoFim] = useState("15:00");
+  const [novoMotivo, setNovoMotivo] = useState("Horário Reservado");
+  const [novaData, setNovaData] = useState("");
+  const [novoTipo, setNovoTipo] = useState<"reservado" | "indisponivel" | "almoco" | "folga">("reservado");
 
-  // Alternar dia de atendimento
-  const toggleDia = (diaId: number) => {
+  if (!isOpen) return null;
+
+  const toggleDia = (diaNum: number) => {
     setDiasSemana((prev) => {
-      if (prev.includes(diaId)) {
+      if (prev.includes(diaNum)) {
         if (prev.length === 1) {
-          showNotification("Atenção: A agenda precisa ter ao menos 1 dia de atendimento ativo!", "info");
+          showNotification("O profissional precisa atender ao menos 1 dia por semana!", "error");
           return prev;
         }
-        return prev.filter((d) => d !== diaId);
+        return prev.filter((d) => d !== diaNum);
       } else {
-        return [...prev, diaId].sort();
+        return [...prev, diaNum].sort((a, b) => a - b);
       }
     });
   };
 
-  // Presets rápidos de dias
-  const setPresetDias = (preset: "seg-sab" | "seg-sex" | "ter-dom" | "todos") => {
-    if (preset === "seg-sab") setDiasSemana([1, 2, 3, 4, 5, 6]);
-    if (preset === "seg-sex") setDiasSemana([1, 2, 3, 4, 5]);
-    if (preset === "ter-dom") setDiasSemana([2, 3, 4, 5, 6, 0]);
-    if (preset === "todos") setDiasSemana([0, 1, 2, 3, 4, 5, 6]);
+  const setPresetDias = (preset: "ter-sab" | "seg-sab" | "seg-sex" | "todos") => {
+    switch (preset) {
+      case "ter-sab":
+        setDiasSemana([2, 3, 4, 5, 6]);
+        break;
+      case "seg-sab":
+        setDiasSemana([1, 2, 3, 4, 5, 6]);
+        break;
+      case "seg-sex":
+        setDiasSemana([1, 2, 3, 4, 5]);
+        break;
+      case "todos":
+        setDiasSemana([0, 1, 2, 3, 4, 5, 6]);
+        break;
+    }
   };
 
-  // Adicionar Bloqueio / Horário Reservado
   const handleAddBloqueio = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!novoBloqueioInicio || !novoBloqueioFim) {
-      showNotification("Informe o horário de início e fim do bloqueio.", "error");
+    if (!novoInicio || !novoFim) {
+      showNotification("Selecione os horários de início e fim do bloqueio.", "error");
+      return;
+    }
+    if (novoInicio >= novoFim) {
+      showNotification("O horário de início deve ser menor que o de término.", "error");
       return;
     }
 
-    if (novoBloqueioInicio >= novoBloqueioFim) {
-      showNotification("O horário de início deve ser menor que o horário de término.", "error");
-      return;
-    }
-
-    const novoItem: HorarioBloqueadoProfissional = {
+    const novo: HorarioBloqueadoProfissional = {
       id: "blq_" + Date.now(),
-      data: novoBloqueioData || undefined,
-      horarioInicio: novoBloqueioInicio,
-      horarioFim: novoBloqueioFim,
-      motivo: novoBloqueioMotivo.trim() || "Horário Não Disponível",
-      tipo: novoBloqueioTipo
+      horarioInicio: novoInicio,
+      horarioFim: novoFim,
+      motivo: novoMotivo.trim() || "Horário Indisponível",
+      data: novaData.trim() || undefined,
+      tipo: novoTipo
     };
 
-    setBloqueios((prev) => [...prev, novoItem]);
-    showNotification("Horário reservado / bloqueado adicionado! 🔒", "success");
-    setNovoBloqueioMotivo("Horário Reservado Particular");
+    setBloqueios((prev) => [...prev, novo]);
+    setNovoMotivo("Horário Reservado");
+    setNovaData("");
+    showNotification("Bloqueio adicionado à sua agenda! ✅", "success");
   };
 
   const handleRemoveBloqueio = (id: string) => {
     setBloqueios((prev) => prev.filter((b) => b.id !== id));
-    showNotification("Bloqueio de horário removido.", "info");
+    showNotification("Bloqueio removido com sucesso.", "info");
   };
 
-  // Salvar tudo
-  const handleSave = () => {
-    const profAtualizado: ProfissionalBarbearia = {
+  const handleSalvarTudo = () => {
+    if (horaInicio >= horaFim) {
+      showNotification("O horário de abertura precisa ser mais cedo que o de fechamento!", "error");
+      return;
+    }
+
+    const atualizado: ProfissionalBarbearia = {
       ...profissional,
-      diasSemana,
       horaInicio,
       horaFim,
+      diasSemana,
       intervaloInicio: temAlmoco ? intervaloInicio : undefined,
       intervaloFim: temAlmoco ? intervaloFim : undefined,
       intervaloMotivo: temAlmoco ? intervaloMotivo : undefined,
       bloqueiosPersonalizados: bloqueios
     };
 
-    onSaveProfissional(profAtualizado);
-    showNotification(`Agenda de ${profissional.nome} configurada e atualizada com sucesso! 💈📅✅`, "success");
+    onSave(atualizado);
+    showNotification(`Agenda de ${profissional.nome} salva com sucesso! ✂️📅`, "success");
     onClose();
   };
 
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-[10030] flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-        {/* Backdrop */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-slate-950/85 backdrop-blur-md"
-          onClick={onClose}
-        />
-
-        {/* Modal Window */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 15 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 15 }}
-          className="relative bg-slate-900 border border-white/10 text-white w-full max-w-2xl rounded-3xl sm:rounded-[2.5rem] shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col"
-        >
-          {/* Header com foto do profissional */}
-          <div className="p-4 sm:p-6 border-b border-white/10 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 flex items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-3">
-              <img
-                src={profissional.fotoUrl}
-                alt={profissional.nome}
-                className="w-12 h-12 rounded-2xl object-cover border-2 border-amber-500/50 shadow-md shrink-0"
-              />
-              <div className="text-left">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
-                    Configurar Agenda de {profissional.nome}
-                  </h3>
-                  <span className="bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                    {profissional.especialidade}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-400 font-medium">
-                  Controle total dos seus horários, abertura, dias de atendimento e pausas!
-                </p>
-              </div>
+    <div className="fixed inset-0 z-[10050] flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
+      <div className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto">
+        {/* Header */}
+        <div className="p-4 sm:p-5 border-b border-white/10 bg-slate-950/90 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center justify-center shrink-0">
+              <Clock className="w-5 h-5 text-amber-400" />
             </div>
-
-            <button
-              onClick={onClose}
-              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer shrink-0"
-              title="Fechar"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-white font-black text-sm sm:text-base tracking-tight">
+                  Configurar Agenda & Horários
+                </h3>
+                <span className="bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                  Autonomia Total
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 truncate">
+                Profissional: <strong className="text-amber-300">{profissional.nome}</strong> ({profissional.especialidade})
+              </p>
+            </div>
           </div>
 
-          {/* Modal Body */}
-          <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar text-left">
-            {/* SEÇÃO 1: DIAS EM QUE VAI ABRIR A AGENDA */}
-            <div className="bg-slate-950/70 p-4 sm:p-5 rounded-2xl border border-white/5 space-y-3">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <label className="text-[10.5px] font-extrabold uppercase text-amber-300 tracking-wider flex items-center gap-1.5">
-                  <Calendar className="w-4 h-4 text-amber-400" />
-                  <span>1. Dias em que a Agenda vai Abrir (Atendimento)</span>
-                </label>
-                <div className="flex items-center gap-1 text-[9px]">
-                  <button
-                    type="button"
-                    onClick={() => setPresetDias("seg-sab")}
-                    className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-slate-300 font-bold"
-                  >
-                    Seg a Sáb
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPresetDias("seg-sex")}
-                    className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-slate-300 font-bold"
-                  >
-                    Seg a Sex
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPresetDias("ter-dom")}
-                    className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-slate-300 font-bold"
-                  >
-                    Ter a Dom
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPresetDias("todos")}
-                    className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-slate-300 font-bold"
-                  >
-                    Todos
-                  </button>
-                </div>
-              </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
 
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Toque nos dias da semana abaixo para marcar onde você atende ou folga:
-              </p>
+        {/* Scrollable Body */}
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 text-left custom-scrollbar">
+          {/* Card Explicativo de Dependência & Autonomia */}
+          <div className="bg-gradient-to-r from-amber-500/10 via-slate-900 to-indigo-500/10 p-3.5 rounded-2xl border border-amber-500/30 text-xs text-slate-300 space-y-1">
+            <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" /> Liberdade Total para o Profissional
+            </span>
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              Aqui o barbeiro, manicure ou profissional define exatamente seus dias de trabalho, horários de abertura e fechamento, pausas para almoço e horários bloqueados. Tudo o que configurar aqui reflete instantaneamente no portal de agendamento dos clientes!
+            </p>
+          </div>
 
-              {/* Botões dos 7 dias da semana */}
-              <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
-                {DIAS_SEMANA_NOMES.map((d) => {
-                  const isAtivo = diasSemana.includes(d.id);
-                  return (
-                    <button
-                      key={d.id}
-                      type="button"
-                      onClick={() => toggleDia(d.id)}
-                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1 ${
-                        isAtivo
-                          ? "bg-emerald-500/20 border-emerald-500 text-white shadow-md shadow-emerald-500/10 font-black"
-                          : "bg-slate-900 border-white/5 text-slate-500 hover:text-slate-300 opacity-60"
-                      }`}
-                      title={`${d.full}: ${isAtivo ? "Atende (Aberto)" : "Folga (Fechado)"}`}
-                    >
-                      <span className="text-xs font-black">{d.label}</span>
-                      <span className={`text-[8.5px] font-bold uppercase ${isAtivo ? "text-emerald-400" : "text-slate-600"}`}>
-                        {isAtivo ? "Abre ✅" : "Folga"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* SEÇÃO 2: HORÁRIO DE ABERTURA E FECHAMENTO */}
-            <div className="bg-slate-950/70 p-4 sm:p-5 rounded-2xl border border-white/5 space-y-3">
-              <label className="text-[10.5px] font-extrabold uppercase text-indigo-300 tracking-wider flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-indigo-400" />
-                <span>2. Horário de Expediente (Abertura e Fechamento)</span>
+          {/* 1. DIAS DA SEMANA QUE O PROFISSIONAL ATENDE */}
+          <div className="bg-slate-950/70 p-4 rounded-2xl border border-white/5 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="text-xs font-black uppercase text-slate-200 tracking-wider flex items-center gap-2">
+                <CalendarIcon className="w-4 h-4 text-emerald-400" />
+                <span>Dias da Semana em que Abre a Agenda</span>
               </label>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                    Horário que vai abrir a agenda (Início):
-                  </span>
-                  <input
-                    type="time"
-                    value={horaInicio}
-                    onChange={(e) => setHoraInicio(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-indigo-500"
-                  />
-                  <span className="text-[9px] text-slate-500 block">
-                    Clientes só poderão agendar a partir deste horário.
-                  </span>
-                </div>
-
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                    Horário de encerramento (Fechamento):
-                  </span>
-                  <input
-                    type="time"
-                    value={horaFim}
-                    onChange={(e) => setHoraFim(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-indigo-500"
-                  />
-                  <span className="text-[9px] text-slate-500 block">
-                    Último horário de atendimento do dia.
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* SEÇÃO 3: HORÁRIO DE ALMOÇO / INTERVALO FIXO */}
-            <div className="bg-slate-950/70 p-4 sm:p-5 rounded-2xl border border-white/5 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-[10.5px] font-extrabold uppercase text-amber-300 tracking-wider flex items-center gap-1.5">
-                  <Coffee className="w-4 h-4 text-amber-400" />
-                  <span>3. Horário de Almoço / Pausa Fixa</span>
-                </label>
+              {/* Botões Rápidos */}
+              <div className="flex items-center gap-1 text-[10px]">
                 <button
                   type="button"
-                  onClick={() => setTemAlmoco(!temAlmoco)}
-                  className={`px-2.5 py-1 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer ${
-                    temAlmoco
-                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                      : "bg-slate-800 text-slate-500 border border-white/5"
-                  }`}
+                  onClick={() => setPresetDias("ter-sab")}
+                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-all"
                 >
-                  {temAlmoco ? "Ativado ✅" : "Sem Pausa ❌"}
+                  Ter-Sáb
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetDias("seg-sab")}
+                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-all"
+                >
+                  Seg-Sáb
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetDias("todos")}
+                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-all"
+                >
+                  Todos
                 </button>
               </div>
-
-              {temAlmoco && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                      Início do Almoço / Pausa:
-                    </span>
-                    <input
-                      type="time"
-                      value={intervaloInicio}
-                      onChange={(e) => setIntervaloInicio(e.target.value)}
-                      className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-amber-500"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                      Retorno do Almoço:
-                    </span>
-                    <input
-                      type="time"
-                      value={intervaloFim}
-                      onChange={(e) => setIntervaloFim(e.target.value)}
-                      className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold outline-none focus:border-amber-500"
-                    />
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* SEÇÃO 4: HORÁRIOS RESERVADOS E HORÁRIOS NÃO DISPONÍVEIS */}
-            <div className="bg-slate-950/70 p-4 sm:p-5 rounded-2xl border border-white/5 space-y-4">
-              <div>
-                <label className="text-[10.5px] font-extrabold uppercase text-purple-300 tracking-wider flex items-center gap-1.5">
-                  <Lock className="w-4 h-4 text-purple-400" />
-                  <span>4. Horários Reservados & Horários Não Disponíveis</span>
-                </label>
-                <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
-                  Bloqueie horários específicos para clientes particulares, compromissos médicos, reuniões ou manutenção.
-                </p>
+            <div className="grid grid-cols-7 gap-1.5 sm:gap-2 pt-1">
+              {DIAS_NOMES.map((d) => {
+                const ativo = diasSemana.includes(d.dia);
+                return (
+                  <button
+                    key={d.dia}
+                    type="button"
+                    onClick={() => toggleDia(d.dia)}
+                    className={`p-2.5 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer border ${
+                      ativo
+                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-md shadow-emerald-950/50"
+                        : "bg-slate-900/80 text-slate-500 border-white/5 hover:border-white/10 opacity-60"
+                    }`}
+                    title={d.full}
+                  >
+                    <span className="text-xs font-black uppercase tracking-tight">{d.label}</span>
+                    <span className="text-[9px] font-bold">
+                      {ativo ? "Abre ✅" : "Folga ⛔"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-slate-400">
+              Nos dias marcados como <strong>Folga</strong>, os clientes verão que o profissional não atende nessa data.
+            </p>
+          </div>
+
+          {/* 2. HORÁRIO DE ABERTURA E FECHAMENTO */}
+          <div className="bg-slate-950/70 p-4 rounded-2xl border border-white/5 space-y-3">
+            <label className="text-xs font-black uppercase text-slate-200 tracking-wider flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-400" />
+              <span>Horário de Funcionamento da Agenda</span>
+            </label>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-bold text-slate-400">
+                  ⏰ Hora que Abre a Agenda (Primeiro Horário):
+                </span>
+                <select
+                  value={horaInicio}
+                  onChange={(e) => setHoraInicio(e.target.value)}
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-amber-500"
+                >
+                  {OPCOES_HORAS.map((h) => (
+                    <option key={`ini_${h}`} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {/* Lista dos bloqueios já cadastrados */}
-              {bloqueios.length > 0 ? (
-                <div className="space-y-2">
-                  <span className="text-[9.5px] font-black uppercase text-slate-400 block">
-                    Horários Bloqueados Atualmente ({bloqueios.length}):
-                  </span>
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-                    {bloqueios.map((b) => (
-                      <div
-                        key={b.id}
-                        className="bg-slate-900 border border-white/10 rounded-xl p-2.5 flex items-center justify-between gap-3 text-xs"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-purple-400" />
-                          <span className="font-mono font-bold text-purple-300">
-                            {b.horarioInicio} às {b.horarioFim}
-                          </span>
-                          <span className="text-white font-bold truncate">
-                            {b.motivo}
-                          </span>
-                          {b.data ? (
-                            <span className="text-[9.5px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">
-                              {b.data.split("-").reverse().join("/")}
-                            </span>
-                          ) : (
-                            <span className="text-[9.5px] bg-purple-500/10 text-purple-300 px-2 py-0.5 rounded">
-                              Recorrente
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-bold text-slate-400">
+                  🛑 Hora que Fecha a Agenda (Último Horário):
+                </span>
+                <select
+                  value={horaFim}
+                  onChange={(e) => setHoraFim(e.target.value)}
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-amber-500"
+                >
+                  {OPCOES_HORAS.map((h) => (
+                    <option key={`fim_${h}`} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400">
+              Horários antes de <strong>{horaInicio}</strong> e após <strong>{horaFim}</strong> aparecerão como <em>Indisponíveis</em> para agendamento.
+            </p>
+          </div>
+
+          {/* 3. INTERVALO DE ALMOÇO / PAUSA */}
+          <div className="bg-slate-950/70 p-4 rounded-2xl border border-white/5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-black uppercase text-slate-200 tracking-wider flex items-center gap-2">
+                <Coffee className="w-4 h-4 text-orange-400" />
+                <span>Pausa para Almoço / Refeição</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setTemAlmoco(!temAlmoco)}
+                className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer ${
+                  temAlmoco
+                    ? "bg-orange-500/20 text-orange-300 border border-orange-500/40"
+                    : "bg-slate-800 text-slate-400 border border-white/5"
+                }`}
+              >
+                {temAlmoco ? "Almoço Ativo ✅" : "Sem Pausa Fixa ❌"}
+              </button>
+            </div>
+
+            {temAlmoco && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1">
+                  <span className="text-[10.5px] font-bold text-slate-400">Início do Almoço:</span>
+                  <select
+                    value={intervaloInicio}
+                    onChange={(e) => setIntervaloInicio(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-orange-500"
+                  >
+                    {OPCOES_HORAS.map((h) => (
+                      <option key={`alm_ini_${h}`} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[10.5px] font-bold text-slate-400">Fim do Almoço:</span>
+                  <select
+                    value={intervaloFim}
+                    onChange={(e) => setIntervaloFim(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-orange-500"
+                  >
+                    {OPCOES_HORAS.map((h) => (
+                      <option key={`alm_fim_${h}`} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 4. HORÁRIOS RESERVADOS E HORÁRIOS NÃO DISPONÍVEIS (BLOQUEIOS) */}
+          <div className="bg-slate-950/70 p-4 rounded-2xl border border-white/5 space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-black uppercase text-slate-200 tracking-wider flex items-center gap-2">
+                <Lock className="w-4 h-4 text-purple-400" />
+                <span>Horários Reservados & Bloqueios Específicos</span>
+              </label>
+              <span className="text-[10px] text-purple-300 font-bold bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20">
+                {bloqueios.length} cadastrados
+              </span>
+            </div>
+
+            {/* Lista de Bloqueios Existentes */}
+            {bloqueios.length > 0 ? (
+              <div className="space-y-2">
+                {bloqueios.map((b) => (
+                  <div
+                    key={b.id}
+                    className="bg-slate-900 p-3 rounded-xl border border-white/5 flex items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-purple-500/20 text-purple-300 flex items-center justify-center shrink-0">
+                        <Lock className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-white flex items-center gap-2">
+                          <span>{b.horarioInicio} às {b.horarioFim}</span>
+                          {b.data && (
+                            <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded font-mono">
+                              Dia: {b.data.split("-").reverse().join("/")}
                             </span>
                           )}
                         </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveBloqueio(b.id)}
-                          className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-red-500/10 transition-all cursor-pointer"
-                          title="Remover Bloqueio"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <span className="text-[11px] text-purple-300/80">{b.motivo}</span>
                       </div>
-                    ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveBloqueio(b.id)}
+                      className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                      title="Excluir bloqueio"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                </div>
-              ) : (
-                <div className="bg-slate-900/60 p-3 rounded-xl border border-dashed border-white/10 text-center text-xs text-slate-500">
-                  Nenhum horário reservado ou bloqueado no momento.
-                </div>
-              )}
+                ))}
+              </div>
+            ) : (
+              <div className="text-center p-3 rounded-xl bg-slate-900/40 border border-dashed border-white/5 text-slate-500 text-[11px]">
+                Nenhum horário bloqueado adicional. A agenda funcionará normalmente nos horários livres.
+              </div>
+            )}
 
-              {/* Formulário para Adicionar Novo Bloqueio */}
-              <form onSubmit={handleAddBloqueio} className="bg-slate-900/90 border border-white/10 rounded-2xl p-3.5 space-y-3">
-                <span className="text-[10px] font-black uppercase text-amber-300 flex items-center gap-1.5">
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Adicionar Novo Horário Reservado / Indisponível</span>
-                </span>
+            {/* Formulário para Adicionar Novo Bloqueio */}
+            <form onSubmit={handleAddBloqueio} className="bg-slate-900/90 p-3.5 rounded-2xl border border-white/10 space-y-3">
+              <span className="text-[10px] font-black uppercase text-purple-300 tracking-wider flex items-center gap-1.5">
+                <Plus className="w-3 h-3" /> Bloquear Novo Horário:
+              </span>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <div className="space-y-1">
-                    <span className="text-[9px] font-bold uppercase text-slate-400 block">
-                      Data (Opcional):
-                    </span>
-                    <input
-                      type="date"
-                      value={novoBloqueioData}
-                      onChange={(e) => setNovoBloqueioData(e.target.value)}
-                      placeholder="Todos os dias"
-                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white outline-none font-bold"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[9px] font-bold uppercase text-slate-400 block">
-                      Horário Início:
-                    </span>
-                    <input
-                      type="time"
-                      required
-                      value={novoBloqueioInicio}
-                      onChange={(e) => setNovoBloqueioInicio(e.target.value)}
-                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono font-bold outline-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[9px] font-bold uppercase text-slate-400 block">
-                      Horário Fim:
-                    </span>
-                    <input
-                      type="time"
-                      required
-                      value={novoBloqueioFim}
-                      onChange={(e) => setNovoBloqueioFim(e.target.value)}
-                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono font-bold outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                  <input
-                    type="text"
-                    required
-                    value={novoBloqueioMotivo}
-                    onChange={(e) => setNovoBloqueioMotivo(e.target.value)}
-                    placeholder="Motivo (Ex: Horário Reservado, Consulta Médica, Folga)"
-                    className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-purple-500"
-                  />
-                  <button
-                    type="submit"
-                    className="bg-purple-600 hover:bg-purple-500 text-white font-black text-xs uppercase px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shrink-0 shadow-md shadow-purple-600/20 cursor-pointer"
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div>
+                  <span className="text-[9.5px] font-bold text-slate-400 block mb-1">Início:</span>
+                  <select
+                    value={novoInicio}
+                    onChange={(e) => setNovoInicio(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Bloquear Horário</span>
-                  </button>
+                    {OPCOES_HORAS.map((h) => (
+                      <option key={`nv_ini_${h}`} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              </form>
-            </div>
-          </div>
 
-          {/* Footer com Salvar */}
-          <div className="p-4 sm:p-5 border-t border-white/10 bg-slate-950/60 flex items-center justify-between gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-bold transition-all"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase px-6 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-emerald-600/20 cursor-pointer active:scale-98"
-            >
-              <Save className="w-4 h-4" />
-              <span>Salvar Minha Agenda 💾</span>
-            </button>
+                <div>
+                  <span className="text-[9.5px] font-bold text-slate-400 block mb-1">Término:</span>
+                  <select
+                    value={novoFim}
+                    onChange={(e) => setNovoFim(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold"
+                  >
+                    {OPCOES_HORAS.map((h) => (
+                      <option key={`nv_fim_${h}`} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="col-span-2">
+                  <span className="text-[9.5px] font-bold text-slate-400 block mb-1">Data Específica (Opcional):</span>
+                  <input
+                    type="date"
+                    value={novaData}
+                    onChange={(e) => setNovaData(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={novoMotivo}
+                  onChange={(e) => setNovoMotivo(e.target.value)}
+                  placeholder="Motivo (Ex: Consulta Médica, Horário Reservado VIP, Curso)"
+                  className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-purple-500"
+                />
+                <button
+                  type="submit"
+                  className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shrink-0 shadow cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Bloquear</span>
+                </button>
+              </div>
+            </form>
           </div>
-        </motion.div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 sm:p-5 border-t border-white/10 bg-slate-950/90 flex items-center justify-end gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2.5 rounded-xl border border-white/10 text-slate-300 hover:text-white hover:bg-white/5 text-xs font-bold transition-all cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleSalvarTudo}
+            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 text-xs font-black uppercase tracking-wider shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Salvar Configuração da Agenda</span>
+          </button>
+        </div>
       </div>
-    </AnimatePresence>
+    </div>
   );
 };

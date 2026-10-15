@@ -22,6 +22,7 @@ export interface CompanyProfile {
   address: string;
   
   // Opções de impressão na notinha / cupom (Sim ou Não)
+  showLogoOnReceipt?: boolean;
   showNameOnReceipt: boolean;
   showCnpjOnReceipt: boolean;
   showPhoneOnReceipt: boolean;
@@ -48,6 +49,7 @@ export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
   email: "",
   address: "",
   
+  showLogoOnReceipt: true,
   showNameOnReceipt: true,
   showCnpjOnReceipt: true,
   showPhoneOnReceipt: true,

@@ -46,11 +46,20 @@ import {
   Lock,
   Unlock,
   Send,
-  X
+  X,
+  Megaphone,
+  Heart,
+  Palette
 } from "lucide-react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { ClientPublicAgendaPortal } from "./ClientPublicAgendaPortal";
 import { BarbeariaTimelineAgenda } from "./BarbeariaTimelineAgenda";
+import { ModalConfiguracaoAgendaProfissional } from "./ModalConfiguracaoAgendaProfissional";
+import { ModalPersonalizarParabens, MODELOS_PARABENS_PRONTOS } from "./ModalPersonalizarParabens";
+import { ModalComunicadosAgenda } from "./ModalComunicadosAgenda";
+
+// Segmentos suportados no módulo
+export type NegocioSegmento = "barbearia" | "salao" | "manicure" | "festas";
 
 // Modelo de Bloqueio ou Horário Reservado do Profissional
 export interface HorarioBloqueadoProfissional {
@@ -62,11 +71,12 @@ export interface HorarioBloqueadoProfissional {
   tipo?: "almoco" | "reservado" | "indisponivel" | "folga";
 }
 
-// Modelo de Profissional / Barbeiro
+// Modelo de Profissional / Barbeiro / Manicure / Confeiteira
 export interface ProfissionalBarbearia {
   id: string;
   nome: string;
   apelido?: string;
+  categoria?: NegocioSegmento; // "barbearia" | "salao" | "manicure" | "festas"
   fotoUrl: string;
   especialidade: string; // Ex: Corte Degradê, Barba Terapia, Manicure, Doces
   telefone: string;
@@ -95,6 +105,7 @@ export interface AgendamentoServico {
   clienteTelefone: string;
   profissionalId: string;
   profissionalNome: string;
+  categoria?: NegocioSegmento;
   servico: string;
   valor: number;
   status: "agendado" | "em_atendimento" | "concluido" | "cancelado";
@@ -123,6 +134,7 @@ export interface EncomendaFesta {
   clienteTelefone: string;
   tipoEvento: string; // Aniversário, Casamento, Confraternização, Festa Infantil
   itensDescricao: string; // Ex: Bolo Chocolate 3kg + 100 Salgados + 50 Brigadeiros
+  categoriaFesta?: "bolo" | "salgados" | "doces" | "kit_completo" | "buffet" | "outro";
   valorTotal: number;
   sinalPago: number;
   saldoRestante: number;
@@ -163,10 +175,25 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   const [activeTab, setActiveTab] = useState<"profissionais" | "agenda" | "aniversarios" | "encomendas" | "empresa">("profissionais");
   const [agendaViewMode, setAgendaViewMode] = useState<"timeline" | "lista">("timeline");
 
+  // Filtro de Segmento Selecionado: "todos" | "barbearia" | "salao" | "manicure" | "festas"
+  const [segmentFilter, setSegmentFilter] = useState<"todos" | NegocioSegmento>(() => {
+    try {
+      const saved = localStorage.getItem("barbearia_selected_segment");
+      if (saved && ["todos", "barbearia", "salao", "manicure", "festas"].includes(saved)) {
+        return saved as any;
+      }
+    } catch {}
+    return "todos";
+  });
+
+  // Modais de Mensagens WhatsApp
+  const [isPersonalizarParabensOpen, setIsPersonalizarParabensOpen] = useState(false);
+  const [isComunicadosAgendaOpen, setIsComunicadosAgendaOpen] = useState(false);
+
   // Armazenamento
   const storagePrefix = userId && userId !== "guest_visitor" ? `barbearia_${userId}_` : "barbearia_guest_";
 
-  // 1. Profissionais State
+  // 1. Profissionais State com todos os 4 segmentos separados
   const [profissionais, setProfissionais] = useState<ProfissionalBarbearia[]>(() => {
     try {
       const saved = localStorage.getItem(`${storagePrefix}profissionais`);
@@ -177,8 +204,9 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         id: "prof_1",
         nome: "Carlos Eduardo",
         apelido: "Kadu Navalha",
+        categoria: "barbearia",
         fotoUrl: AVATAR_PRESETS[0],
-        especialidade: "Corte Degradê & Barba",
+        especialidade: "Corte Degradê & Barba Terapia",
         telefone: "21988887777",
         chavePix: "21988887777",
         comissaoPct: 50,
@@ -191,14 +219,45 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         id: "prof_2",
         nome: "Juliana Santos",
         apelido: "Ju Hair",
+        categoria: "salao",
         fotoUrl: AVATAR_PRESETS[2],
-        especialidade: "Escova, Coloração & Penteados",
+        especialidade: "Escova, Mechas & Penteados",
         telefone: "21977776666",
         chavePix: "21977776666",
         comissaoPct: 50,
         horarioTrabalho: "Quarta a Domingo, 10h às 20h",
         totalAtendimentos: 28,
         totalFaturado: 1960,
+        ativo: true
+      },
+      {
+        id: "prof_3",
+        nome: "Larissa Silveira",
+        apelido: "Larissa Nails",
+        categoria: "manicure",
+        fotoUrl: AVATAR_PRESETS[1],
+        especialidade: "Manicure, Pedicure & Alongamento em Gel",
+        telefone: "21966665555",
+        chavePix: "21966665555",
+        comissaoPct: 60,
+        horarioTrabalho: "Segunda a Sábado, 09h às 18h",
+        totalAtendimentos: 36,
+        totalFaturado: 2160,
+        ativo: true
+      },
+      {
+        id: "prof_4",
+        nome: "Chef Renata Festas",
+        apelido: "Renata Doces & Bolos",
+        categoria: "festas",
+        fotoUrl: AVATAR_PRESETS[3],
+        especialidade: "Bolos Confeitados, Salgados Cento & Kits Festa",
+        telefone: "21955554444",
+        chavePix: "21955554444",
+        comissaoPct: 100,
+        horarioTrabalho: "Segunda a Domingo (Sob Encomenda)",
+        totalAtendimentos: 19,
+        totalFaturado: 3890,
         ativo: true
       }
     ];
@@ -220,6 +279,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         clienteTelefone: "21999991111",
         profissionalId: "prof_1",
         profissionalNome: "Carlos Eduardo",
+        categoria: "barbearia",
         servico: "Corte Degradê + Barba Terapia",
         valor: 55,
         status: "agendado",
@@ -233,8 +293,23 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         clienteTelefone: "21999992222",
         profissionalId: "prof_2",
         profissionalNome: "Juliana Santos",
+        categoria: "salao",
         servico: "Escova Modelada + Hidratação",
         valor: 75,
+        status: "agendado",
+        criadoEm: new Date().toISOString()
+      },
+      {
+        id: "ag_3",
+        data: today,
+        horario: "11:00",
+        clienteNome: "Camila Ribeiro",
+        clienteTelefone: "21999993333",
+        profissionalId: "prof_3",
+        profissionalNome: "Larissa Silveira",
+        categoria: "manicure",
+        servico: "Alongamento em Gel + Esmaltação",
+        valor: 130,
         status: "agendado",
         criadoEm: new Date().toISOString()
       }
@@ -270,13 +345,14 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     ];
   });
 
-  // 4. Encomendas para Festas State
+  // 4. Encomendas para Festas & Eventos State
   const [encomendas, setEncomendas] = useState<EncomendaFesta[]>(() => {
     try {
       const saved = localStorage.getItem(`${storagePrefix}encomendas`);
       if (saved) return JSON.parse(saved);
     } catch {}
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const inThreeDays = new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 10);
     return [
       {
         id: "enc_1",
@@ -285,12 +361,29 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         clienteNome: "Renata Oliveira",
         clienteTelefone: "21998887766",
         tipoEvento: "Aniversário Infantil",
-        itensDescricao: "Bolo de Chocolate Brigadeiro 3kg + 100 Coxinhas + 50 Brigadeiros",
-        valorTotal: 280,
-        sinalPago: 140,
-        saldoRestante: 140,
+        categoriaFesta: "kit_completo",
+        itensDescricao: "Bolo de Chocolate Brigadeiro 3kg + 100 Coxinhas + 50 Brigadeiros + 50 Beijinhos + 2 Refris 2L",
+        valorTotal: 340,
+        sinalPago: 170,
+        saldoRestante: 170,
         metodoPagamentoSinal: "PIX",
         status: "em_preparo",
+        criadoEm: new Date().toISOString()
+      },
+      {
+        id: "enc_2",
+        dataEntrega: inThreeDays,
+        horarioEntrega: "18:00",
+        clienteNome: "Mariana & Carlos",
+        clienteTelefone: "21977778899",
+        tipoEvento: "Festa de Noivado / Casamento",
+        categoriaFesta: "bolo",
+        itensDescricao: "Bolo de Andar Flores Brancas (Massa Nozes com Doce de Leite) + 150 Doces Finos",
+        valorTotal: 520,
+        sinalPago: 260,
+        saldoRestante: 260,
+        metodoPagamentoSinal: "Cartão de Crédito",
+        status: "anotado",
         criadoEm: new Date().toISOString()
       }
     ];
@@ -298,7 +391,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
 
   // 5. Dados da Empresa e Link
   const [companyName, setCompanyName] = useState(() => {
-    return localStorage.getItem("pdv_store_name") || "Barbearia & Salão Cérebro PDV";
+    return localStorage.getItem("pdv_store_name") || "Barbearia, Salão & Festas PDV";
   });
   const [companyLogo, setCompanyLogo] = useState(() => {
     return localStorage.getItem("pdv_company_logo") || "";
@@ -339,6 +432,36 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   });
 
   const [isPreviewClientPortalOpen, setIsPreviewClientPortalOpen] = useState(false);
+  const [editingScheduleProf, setEditingScheduleProf] = useState<ProfissionalBarbearia | null>(null);
+
+  const handleUpdateProfissional = (profAtualizado: ProfissionalBarbearia) => {
+    setProfissionais((prev) =>
+      prev.map((p) => (p.id === profAtualizado.id ? profAtualizado : p))
+    );
+    showNotification(`Agenda de ${profAtualizado.nome} atualizada com sucesso! ✂️📅`, "success");
+  };
+
+  const handleCompanyLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        showNotification("A imagem da logo deve ter no máximo 5MB.", "error");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setCompanyLogo(reader.result);
+          localStorage.setItem("pdv_company_logo", reader.result);
+          window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", {
+            detail: { logoUrl: reader.result }
+          }));
+          showNotification("Logomarca carregada com sucesso! 🖼️ Clique em 'Salvar Identidade' para confirmar.", "success");
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Role check
   const gestaoRole = (() => {
@@ -427,6 +550,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   const [isAddProfissionalOpen, setIsAddProfissionalOpen] = useState(false);
   const [newProfNome, setNewProfNome] = useState("");
   const [newProfApelido, setNewProfApelido] = useState("");
+  const [newProfCategoria, setNewProfCategoria] = useState<NegocioSegmento>("barbearia");
   const [newProfEspecialidade, setNewProfEspecialidade] = useState("");
   const [newProfTelefone, setNewProfTelefone] = useState("");
   const [newProfPix, setNewProfPix] = useState("");
@@ -455,10 +579,26 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   const [newEncClienteNome, setNewEncClienteNome] = useState("");
   const [newEncClienteTelefone, setNewEncClienteTelefone] = useState("");
   const [newEncTipoEvento, setNewEncTipoEvento] = useState("Festa de Aniversário");
+  const [newEncCategoriaFesta, setNewEncCategoriaFesta] = useState<"kit_completo" | "bolo" | "salgados" | "doces" | "buffet" | "outro">("kit_completo");
   const [newEncItens, setNewEncItens] = useState("");
   const [newEncValorTotal, setNewEncValorTotal] = useState("");
   const [newEncSinal, setNewEncSinal] = useState("");
   const [newEncMetodo, setNewEncMetodo] = useState("PIX");
+
+  // Profissionais e Agendamentos Filtrados pelo Segmento Ativo (Barbeiro, Salão, Manicure, Festas)
+  const filteredProfissionais = useMemo(() => {
+    if (segmentFilter === "todos") return profissionais;
+    return profissionais.filter((p) => (p.categoria || "barbearia") === segmentFilter);
+  }, [profissionais, segmentFilter]);
+
+  const filteredAgendamentos = useMemo(() => {
+    if (segmentFilter === "todos") return agendamentos;
+    return agendamentos.filter((a) => {
+      if (a.categoria) return a.categoria === segmentFilter;
+      const prof = profissionais.find((p) => p.id === a.profissionalId);
+      return (prof?.categoria || "barbearia") === segmentFilter;
+    });
+  }, [agendamentos, profissionais, segmentFilter]);
 
   // Análise de Aniversários
   const hoje = new Date();
@@ -481,12 +621,22 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       return;
     }
 
+    const defaultEspec =
+      newProfCategoria === "manicure"
+        ? "Manicure, Pedicure & Gel"
+        : newProfCategoria === "festas"
+        ? "Bolos Confeitados & Kits Festa"
+        : newProfCategoria === "salao"
+        ? "Escova, Mechas & Cortes"
+        : "Corte Degradê & Barba Terapia";
+
     const novoProf: ProfissionalBarbearia = {
       id: "prof_" + Date.now(),
       nome: newProfNome.trim(),
       apelido: newProfApelido.trim() || undefined,
+      categoria: newProfCategoria,
       fotoUrl: newProfFoto,
-      especialidade: newProfEspecialidade.trim() || "Corte e Barba",
+      especialidade: newProfEspecialidade.trim() || defaultEspec,
       telefone: newProfTelefone.trim(),
       chavePix: newProfPix.trim() || undefined,
       comissaoPct: Number(newProfComissao) || 50,
@@ -496,7 +646,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     };
 
     setProfissionais((prev) => [novoProf, ...prev]);
-    showNotification(`Profissional ${novoProf.nome} cadastrado com sucesso! 💈✨`, "success");
+    showNotification(`Profissional ${novoProf.nome} cadastrado com sucesso! ✨`, "success");
     setIsAddProfissionalOpen(false);
     setNewProfNome("");
     setNewProfApelido("");
@@ -539,6 +689,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       clienteTelefone: newAgClienteTelefone.trim(),
       profissionalId: prof?.id || "geral",
       profissionalNome: prof?.nome || "Equipe",
+      categoria: prof?.categoria || "barbearia",
       servico: newAgServico.trim() || "Atendimento",
       valor: valorNum,
       status: "agendado",
@@ -596,6 +747,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       clienteNome: newEncClienteNome.trim(),
       clienteTelefone: newEncClienteTelefone.trim(),
       tipoEvento: newEncTipoEvento,
+      categoriaFesta: newEncCategoriaFesta,
       itensDescricao: newEncItens.trim(),
       valorTotal: totalNum,
       sinalPago: sinalNum,
@@ -615,12 +767,20 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     setNewEncSinal("");
   };
 
-  // WhatsApp Mensagem de Aniversário
+  // WhatsApp Mensagem de Aniversário (utiliza modelo personalizado salvo ou pronto)
   const handleFelicitarAniversario = (cliente: AniversarioCliente) => {
     const limpo = cliente.telefone.replace(/\D/g, "");
-    const msg = encodeURIComponent(
-      `Olá ${cliente.nome}! 🎂🎈\n\nA equipe da ${companyName} deseja a você um FELIZ ANIVERSÁRIO repleto de saúde, paz e conquistas! 🎉✨\n\nComo presente especial pelo seu dia, você ganhou: *${cliente.presenteOferecido || "10% de desconto"}*!\n\nVenha comemorar conosco! Agende seu horário ou faça sua encomenda: ${companyPhone} 🥳`
-    );
+    const customTemplate = localStorage.getItem("pdv_msg_parabens_custom");
+    let msgTexto = customTemplate || MODELOS_PARABENS_PRONTOS[0].texto;
+
+    msgTexto = msgTexto
+      .replace(/{cliente}/g, cliente.nome)
+      .replace(/{empresa}/g, companyName || "Nossa Empresa")
+      .replace(/{telefone}/g, companyPhone || "(21) 96671-3263")
+      .replace(/{desconto}/g, cliente.presenteOferecido || "15% de desconto")
+      .replace(/{presente}/g, cliente.presenteOferecido || "Brinde Especial Cortesia");
+
+    const msg = encodeURIComponent(msgTexto);
     window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
   };
 
@@ -656,7 +816,10 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     localStorage.setItem("pdv_company_logo", companyLogo);
     localStorage.setItem("pdv_company_link", companyLink);
     localStorage.setItem("pdv_store_phone", companyPhone);
-    showNotification("Dados e link da empresa salvos com sucesso! 🏢✅", "success");
+    window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", {
+      detail: { name: companyName, logoUrl: companyLogo, phone: companyPhone }
+    }));
+    showNotification("Dados e logomarca da empresa salvos com sucesso! 🏢✅", "success");
   };
 
   return (
@@ -726,6 +889,125 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         )}
       </div>
 
+      {/* SELETOR DE SEGMENTOS: BARBEIRO, SALÃO DE BELEZA, MANICURE, FESTAS & ENCOMENDAS */}
+      <div className="bg-slate-950/80 border border-white/10 p-3 sm:p-4 rounded-3xl shadow-xl space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+              <Filter className="w-4 h-4 text-amber-400" />
+              <span>Separar por Negócio / Atuação:</span>
+            </span>
+            <span className="text-[10px] text-slate-400 hidden sm:inline">
+              (Barbeiro, Salão, Manicure ou Festas & Encomendas de Eventos)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Botão Comunicados da Agenda */}
+            <button
+              type="button"
+              onClick={() => setIsComunicadosAgendaOpen(true)}
+              className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+            >
+              <Megaphone className="w-3.5 h-3.5 text-amber-400" />
+              <span>Comunicado de Agendas 📢</span>
+            </button>
+
+            {/* Botão Personalizar Parabéns */}
+            <button
+              type="button"
+              onClick={() => setIsPersonalizarParabensOpen(true)}
+              className="bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 border border-pink-500/40 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+            >
+              <Cake className="w-3.5 h-3.5 text-pink-400" />
+              <span>Personalizar Parabéns 🎂</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Botões dos 4 Segmentos + Todos */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setSegmentFilter("todos");
+              localStorage.setItem("barbearia_selected_segment", "todos");
+            }}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              segmentFilter === "todos"
+                ? "bg-slate-800 text-white border-white/30 shadow-md ring-2 ring-white/10"
+                : "bg-slate-900/60 text-slate-400 border-white/5 hover:bg-slate-800/60 hover:text-white"
+            }`}
+          >
+            <span>✨ Todos</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSegmentFilter("barbearia");
+              localStorage.setItem("barbearia_selected_segment", "barbearia");
+              if (activeTab === "encomendas") setActiveTab("profissionais");
+            }}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              segmentFilter === "barbearia"
+                ? "bg-amber-500 text-slate-950 border-amber-400 font-black shadow-lg shadow-amber-500/20 ring-2 ring-amber-400/30"
+                : "bg-slate-900/60 text-amber-300/80 border-amber-500/20 hover:bg-amber-500/10 hover:text-amber-300"
+            }`}
+          >
+            <span>💈 Barbeiro</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSegmentFilter("salao");
+              localStorage.setItem("barbearia_selected_segment", "salao");
+              if (activeTab === "encomendas") setActiveTab("profissionais");
+            }}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              segmentFilter === "salao"
+                ? "bg-purple-600 text-white border-purple-400 font-black shadow-lg shadow-purple-600/20 ring-2 ring-purple-400/30"
+                : "bg-slate-900/60 text-purple-300/80 border-purple-500/20 hover:bg-purple-500/10 hover:text-purple-300"
+            }`}
+          >
+            <span>💇‍♀️ Salão de Beleza</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSegmentFilter("manicure");
+              localStorage.setItem("barbearia_selected_segment", "manicure");
+              if (activeTab === "encomendas") setActiveTab("profissionais");
+            }}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              segmentFilter === "manicure"
+                ? "bg-pink-600 text-white border-pink-400 font-black shadow-lg shadow-pink-600/20 ring-2 ring-pink-400/30"
+                : "bg-slate-900/60 text-pink-300/80 border-pink-500/20 hover:bg-pink-500/10 hover:text-pink-300"
+            }`}
+          >
+            <span>💅 Manicure</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSegmentFilter("festas");
+              localStorage.setItem("barbearia_selected_segment", "festas");
+              setActiveTab("encomendas");
+            }}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer col-span-2 sm:col-span-1 ${
+              segmentFilter === "festas"
+                ? "bg-emerald-600 text-white border-emerald-400 font-black shadow-lg shadow-emerald-600/20 ring-2 ring-emerald-400/30"
+                : "bg-slate-900/60 text-emerald-300/80 border-emerald-500/20 hover:bg-emerald-500/10 hover:text-emerald-300"
+            }`}
+          >
+            <span>🎂 Festas & Eventos</span>
+          </button>
+        </div>
+      </div>
+
       {/* ABAS DE NAVEGAÇÃO DO MÓDULO */}
       <div className="flex bg-slate-900 border border-white/10 p-1.5 rounded-2xl gap-1.5 overflow-x-auto custom-scrollbar">
         <button
@@ -737,7 +1019,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Profissionais ({profissionais.length})</span>
+          <span>Equipe ({filteredProfissionais.length})</span>
         </button>
 
         <button
@@ -749,7 +1031,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           }`}
         >
           <CalendarIcon className="w-4 h-4" />
-          <span>Agenda Horários ({agendamentos.length})</span>
+          <span>Agenda Horários ({filteredAgendamentos.length})</span>
         </button>
 
         <button
@@ -761,7 +1043,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           }`}
         >
           <Cake className="w-4 h-4" />
-          <span>Aniversários ({aniversariantesMes.length} no mês)</span>
+          <span>Aniversários ({aniversariantesMes.length})</span>
         </button>
 
         <button
@@ -773,7 +1055,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           }`}
         >
           <PartyPopper className="w-4 h-4" />
-          <span>Encomendas Festas ({encomendas.length})</span>
+          <span>Festas & Encomendas ({encomendas.length})</span>
         </button>
 
         <button
@@ -870,29 +1152,41 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-1">
-                    {prof.telefone && (
-                      <a
-                        href={`https://wa.me/55${prof.telefone.replace(/\D/g, "")}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        <span>WhatsApp</span>
-                      </a>
-                    )}
-
+                  <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
                     <button
-                      onClick={() => {
-                        setProfissionais((prev) => prev.filter((p) => p.id !== prof.id));
-                        showNotification(`Profissional ${prof.nome} removido.`, "info");
-                      }}
-                      className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all cursor-pointer ml-auto"
-                      title="Remover"
+                      type="button"
+                      onClick={() => setEditingScheduleProf(prof)}
+                      className="bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-[10px] font-black px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      title="Configurar horários que vai abrir a agenda, dias de atendimento, almoço e bloqueios"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Configurar Agenda ⚙️</span>
                     </button>
+
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      {prof.telefone && (
+                        <a
+                          href={`https://wa.me/55${prof.telefone.replace(/\D/g, "")}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>WhatsApp</span>
+                        </a>
+                      )}
+
+                      <button
+                        onClick={() => {
+                          setProfissionais((prev) => prev.filter((p) => p.id !== prof.id));
+                          showNotification(`Profissional ${prof.nome} removido.`, "info");
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all cursor-pointer"
+                        title="Remover"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -1126,6 +1420,8 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 companyName={companyName}
                 allowCaixaAgendar={allowCaixaAgendar}
                 isCaixa={isCaixa}
+                onUpdateProfissional={handleUpdateProfissional}
+                showNotification={showNotification}
               />
             </div>
           ) : (
@@ -1650,17 +1946,91 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-300">
-                URL da Logomarca ou Imagem de Destaque
+            {/* Logomarca / Imagem de Destaque com Upload e Prévia */}
+            <div className="space-y-2 bg-slate-950/70 p-4 rounded-2xl border border-white/5">
+              <label className="text-[10.5px] font-black uppercase text-slate-300 flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5 text-pink-400" />
+                <span>Logomarca ou Foto de Destaque do Negócio</span>
               </label>
-              <input
-                type="text"
-                value={companyLogo}
-                onChange={(e) => setCompanyLogo(e.target.value)}
-                placeholder="https://exemplo.com/logo.png"
-                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-amber-500"
-              />
+
+              <div className="flex flex-col sm:flex-row items-center gap-3.5">
+                {/* Quadrado de prévia */}
+                <div className="w-20 h-20 rounded-2xl border-2 border-dashed border-white/15 bg-slate-950 flex items-center justify-center overflow-hidden flex-shrink-0 group relative shadow-inner">
+                  {companyLogo ? (
+                    <>
+                      <img
+                        src={companyLogo}
+                        alt="Logomarca da Empresa"
+                        className="w-full h-full object-contain p-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCompanyLogo("");
+                          localStorage.setItem("pdv_company_logo", "");
+                          window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", {
+                            detail: { logoUrl: "" }
+                          }));
+                          showNotification("Logomarca removida.", "info");
+                        }}
+                        className="absolute inset-0 bg-red-950/80 text-red-200 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-black cursor-pointer"
+                        title="Remover logotipo"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-400 mb-0.5" />
+                        Remover
+                      </button>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-slate-600 text-center p-2">
+                      <Camera className="w-6 h-6 stroke-1 mb-1 text-slate-500" />
+                      <span className="text-[8px] font-bold">Sem Logo</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Botões de Ação & Link Alternativo */}
+                <div className="flex-1 w-full space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white rounded-xl text-xs font-black shadow-lg shadow-pink-900/30 transition-all active:scale-95">
+                      <Camera className="w-4 h-4" />
+                      <span>Carregar Foto / Imagem</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleCompanyLogoUpload}
+                        className="hidden"
+                      />
+                    </label>
+                    {companyLogo && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCompanyLogo("");
+                          localStorage.setItem("pdv_company_logo", "");
+                          window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", {
+                            detail: { logoUrl: "" }
+                          }));
+                          showNotification("Logomarca removida.", "info");
+                        }}
+                        className="px-3 py-2 bg-red-900/30 hover:bg-red-800/50 text-red-300 border border-red-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                      >
+                        Remover
+                      </button>
+                    )}
+                  </div>
+
+                  <input
+                    type="text"
+                    value={companyLogo}
+                    onChange={(e) => setCompanyLogo(e.target.value)}
+                    placeholder="Ou cole o link direto da imagem (https://...)"
+                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-1.5 text-[11px] text-white outline-none focus:border-amber-500 font-bold"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    PNG, JPG ou WebP de até 5MB. Aparece nos cupons, no link da agenda e no WhatsApp.
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="pt-2">
@@ -2211,6 +2581,20 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             formatCurrency={formatCurrency}
           />
         </div>
+      )}
+
+      {/* MODAL: CONFIGURAÇÃO DE AGENDA DO PROFISSIONAL (ABERTURA, FOLGAS, ALMOÇO E BLOQUEIOS) */}
+      {editingScheduleProf && (
+        <ModalConfiguracaoAgendaProfissional
+          isOpen={!!editingScheduleProf}
+          onClose={() => setEditingScheduleProf(null)}
+          profissional={editingScheduleProf}
+          onSave={(atualizado) => {
+            handleUpdateProfissional(atualizado);
+            setEditingScheduleProf(null);
+          }}
+          showNotification={showNotification}
+        />
       )}
     </div>
   );

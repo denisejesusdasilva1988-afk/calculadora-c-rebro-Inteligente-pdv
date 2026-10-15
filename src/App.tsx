@@ -82,6 +82,7 @@ import {
   HelpCircle,
   Scale,
   AlertCircle,
+  Palette,
   Table as TableIcon,
   CreditCard,
   Zap,
@@ -151,6 +152,7 @@ import { loadCompanyProfile, saveCompanyProfile } from "./utils/companyProfile";
 import { PersonalDataProfileCard } from "./components/PersonalDataProfileCard";
 import { BarbeariaSalaoEventosModule, AgendamentoServico } from "./components/BarbeariaSalaoEventosModule";
 import { ClientPublicAgendaPortal } from "./components/ClientPublicAgendaPortal";
+import { ThemeSelectorModal, ThemeMode, ColorPalette } from "./components/ThemeSelectorModal";
 import { MarketingAdModal } from "./components/MarketingAdModal";
 import { MarketingAdsCarousel, MarketingAdDetailModal } from "./components/MarketingAdsView";
 import { MarketingAd, loadLocalMarketingAds, saveLocalMarketingAds } from "./utils/marketingAds";
@@ -928,6 +930,38 @@ export default function App() {
       localStorage.setItem("app_font_scale", fontScale);
     } catch (_) {}
   }, [fontScale]);
+
+  // Modos de Cores & Temas da Calculadora Cérebro PDV (Claro, Escuro e Paletas)
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    try {
+      const saved = localStorage.getItem("app_theme_mode");
+      if (saved === "light" || saved === "dark") return saved;
+      return "dark";
+    } catch {
+      return "dark";
+    }
+  });
+
+  const [colorPalette, setColorPalette] = useState<ColorPalette>(() => {
+    try {
+      const saved = localStorage.getItem("app_color_palette") as ColorPalette;
+      if (["slate", "amber", "ocean", "violet", "emerald", "ruby", "oled"].includes(saved)) return saved;
+      return "slate";
+    } catch {
+      return "slate";
+    }
+  });
+
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      document.documentElement.dataset.theme = themeMode;
+      document.documentElement.dataset.palette = colorPalette;
+      localStorage.setItem("app_theme_mode", themeMode);
+      localStorage.setItem("app_color_palette", colorPalette);
+    } catch (_) {}
+  }, [themeMode, colorPalette]);
 
   // Unified login card states
   const [loginStoreName, setLoginStoreName] = useState(() => {
@@ -7559,6 +7593,19 @@ export default function App() {
               </span>
               <span className="text-[10px] font-black uppercase tracking-tight">
                 {fontScale === "extragrande" ? "Letras Máximas" : fontScale === "grande" ? "Letras Grandes" : "Letras Padrão"}
+              </span>
+            </button>
+
+            {/* Botão de Modos de Cores & Temas da Calculadora Cérebro PDV */}
+            <button
+              type="button"
+              onClick={() => setIsThemeModalOpen(true)}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-black bg-gradient-to-r from-purple-500/20 via-pink-500/20 to-indigo-500/20 hover:from-purple-500/30 hover:to-pink-500/30 text-purple-200 border border-purple-500/40 shadow-md shadow-purple-500/10 active:scale-95"
+              title="Escolher Modo Claro, Modo Escuro e Cores da Calculadora Cérebro PDV"
+            >
+              <Palette className="w-3.5 h-3.5 text-pink-400" />
+              <span className="text-[10px] font-black uppercase tracking-tight">
+                {themeMode === "light" ? "☀️ Modo Claro" : "🎨 Cores & Temas"}
               </span>
             </button>
             {user && isAdmin && (
@@ -14813,6 +14860,19 @@ export default function App() {
       <MarketingAdDetailModal
         ad={selectedMarketingAdDetail}
         onClose={() => setSelectedMarketingAdDetail(null)}
+      />
+
+      {/* Modal Seletor de Cores & Temas (Claro, Escuro e Paletas de Cores Cérebro PDV) */}
+      <ThemeSelectorModal
+        isOpen={isThemeModalOpen}
+        onClose={() => setIsThemeModalOpen(false)}
+        themeMode={themeMode}
+        colorPalette={colorPalette}
+        onChangeThemeMode={setThemeMode}
+        onChangeColorPalette={setColorPalette}
+        fontScale={fontScale}
+        onCycleFontScale={cycleFontScale}
+        showNotification={showNotification}
       />
     </div>
   );

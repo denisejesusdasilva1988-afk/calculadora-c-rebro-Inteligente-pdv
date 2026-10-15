@@ -151,7 +151,7 @@ export const ThemeSelectorModal: React.FC<ThemeSelectorModalProps> = ({
   onChangeColorPalette,
   fontScale = "normal",
   onCycleFontScale,
-  showNotification = () => {}
+  showNotification = (_msg?: string, _type?: "success" | "info" | "error") => {}
 }) => {
   if (!isOpen) return null;
 

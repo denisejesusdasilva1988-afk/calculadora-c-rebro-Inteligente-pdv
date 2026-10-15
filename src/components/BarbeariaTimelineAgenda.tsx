@@ -32,9 +32,13 @@ import {
   X,
   Phone,
   Sparkles,
-  ChevronDown
+  ChevronDown,
+  Settings,
+  AlertTriangle,
+  Megaphone
 } from "lucide-react";
 import { ProfissionalBarbearia, AgendamentoServico } from "./BarbeariaSalaoEventosModule";
+import { ModalConfiguracaoAgendaProfissional } from "./ModalConfiguracaoAgendaProfissional";
 
 export interface BloqueioHorario {
   id: string;
@@ -51,6 +55,9 @@ interface BarbeariaTimelineAgendaProps {
   onAddAgendamento: (ag: AgendamentoServico) => void;
   onUpdateAgendamento?: (ag: AgendamentoServico) => void;
   onDeleteAgendamento?: (id: string) => void;
+  onUpdateProfissional?: (prof: ProfissionalBarbearia) => void;
+  onOpenComunicados?: () => void;
+  showNotification?: (msg: string, type: "success" | "error" | "info") => void;
   formatCurrency?: (val: number) => string;
   isClientView?: boolean;
   companyPhone?: string;
@@ -102,7 +109,10 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
   companyName = "Barbearia & Salão Cérebro PDV",
   allowCaixaAgendar = true,
   isCaixa = false,
-  onSelectSlotToBook
+  onSelectSlotToBook,
+  onUpdateProfissional,
+  onOpenComunicados,
+  showNotification = () => {}
 }) => {
   // Data selecionada (padrão hoje)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
@@ -113,6 +123,9 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
   const [selectedProfId, setSelectedProfId] = useState<string>(() => {
     return profissionais[0]?.id || "todos";
   });
+
+  // Modal de Configuração da Agenda do Profissional
+  const [isConfigAgendaModalOpen, setIsConfigAgendaModalOpen] = useState(false);
 
   // Modal para adicionar agendamento rápido ao clicar em horário livre ou no botão (+)
   const [isQuickAddModalOpen, setIsQuickAddModalOpen] = useState(false);
@@ -157,6 +170,19 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
   const activeProf = useMemo(() => {
     return profissionais.find((p) => p.id === selectedProfId) || profissionais[0];
   }, [profissionais, selectedProfId]);
+
+  // Verificar se o profissional ativo está de folga na data selecionada
+  const isDiaDeFolga = useMemo(() => {
+    if (!activeProf || !activeProf.diasSemana || activeProf.diasSemana.length === 0) return false;
+    try {
+      const [ano, mes, dia] = selectedDate.split("-").map(Number);
+      const dataObj = new Date(ano, mes - 1, dia, 12, 0, 0);
+      const dayOfWeek = dataObj.getDay(); // 0 a 6
+      return !activeProf.diasSemana.includes(dayOfWeek);
+    } catch {
+      return false;
+    }
+  }, [activeProf, selectedDate]);
 
   // Filtrar agendamentos do dia selecionado e do profissional ativo
   const agendamentosDoDia = useMemo(() => {
@@ -288,6 +314,18 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
         </div>
 
         <div className="flex items-center gap-2">
+          {onOpenComunicados && !isClientView && (
+            <button
+              type="button"
+              onClick={onOpenComunicados}
+              className="bg-amber-500/20 hover:bg-amber-500/30 active:scale-95 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+              title="Abrir Comunicados & Lembretes da Agenda para WhatsApp"
+            >
+              <Megaphone className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Comunicados WhatsApp 📢</span>
+              <span className="sm:hidden">Avisos 📢</span>
+            </button>
+          )}
           {isClientView && (
             <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black uppercase px-2.5 py-1 rounded-full">
               Visão dos Clientes
@@ -392,12 +430,50 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
             <span className="text-[11px] font-black">Todos</span>
           </button>
         )}
+
+        {/* Botão de Configurar Horários e Folgas da Agenda */}
+        {!isClientView && onUpdateProfissional && activeProf && (
+          <button
+            type="button"
+            onClick={() => setIsConfigAgendaModalOpen(true)}
+            className="flex flex-col items-center justify-center gap-1.5 p-2 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/60 text-amber-300 transition-all cursor-pointer min-w-[82px] shrink-0"
+            title={`Configurar horário de abertura, almoço e folgas de ${activeProf.nome}`}
+          >
+            <div className="w-12 h-12 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/40 shadow">
+              <Settings className="w-5 h-5 text-amber-400" />
+            </div>
+            <span className="text-[10px] font-black uppercase text-amber-300">
+              ⚙️ Horários
+            </span>
+          </button>
+        )}
       </div>
+
+      {/* ALERTA DE FOLGA CASO O PROFISSIONAL NÃO ATENDA NESTE DIA */}
+      {isDiaDeFolga && (
+        <div className="m-3 sm:m-4 p-3.5 bg-red-950/40 border border-red-500/30 rounded-2xl flex items-center justify-between gap-3 text-xs text-red-200 shadow-md">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+            <div>
+              <span className="font-black text-white">{activeProf?.nome}</span> está de folga hoje ({formattedDateLabel}).
+            </div>
+          </div>
+          {!isClientView && onUpdateProfissional && (
+            <button
+              type="button"
+              onClick={() => setIsConfigAgendaModalOpen(true)}
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0 cursor-pointer"
+            >
+              Ajustar Folgas
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 4. GRADE VERTICAL DA AGENDA DE HORÁRIOS (TIMELINE DA FOTO) */}
       <div className="p-3 sm:p-5 space-y-1 bg-slate-950/40 min-h-[480px]">
         {SLOTS_HORARIOS.map((slotHora) => {
-          // Verificar se há agendamento para este horário ou que cobre este horário
+          // 1. Verificar se há agendamento para este horário ou que cobre este horário
           const agendamentoDoSlot = agendamentosDoDia.find((ag) => {
             if (ag.horario === slotHora) return true;
             // Se tiver duração/horarioFim
@@ -415,8 +491,49 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
             return null;
           }
 
-          // Verificar se há bloqueio fixo (ex: 08:00 Indisponível ou 12:00 Almoço)
-          const bloqueio = BLOQUEIOS_PADRAO.find((b) => b.horarioInicio === slotHora);
+          // 2. Se o profissional estiver de folga hoje, todos os slots ficam bloqueados
+          if (isDiaDeFolga) {
+            return (
+              <div key={slotHora} className="flex items-start gap-2.5 sm:gap-4 py-1 group">
+                <div className="w-12 sm:w-14 text-right pt-2 shrink-0">
+                  <span className="text-xs font-mono font-bold text-slate-600">{slotHora}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-2.5 sm:p-3 text-slate-500 flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 font-bold">
+                      <Lock className="w-3.5 h-3.5 text-slate-500" />
+                      <span>⛔ Folga / Não Atende neste dia</span>
+                    </span>
+                    <span className="text-[10px] text-slate-600 font-mono">Indisponível</span>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          // 3. Verificar horário de abertura da agenda (horaInicio)
+          const profHoraInicio = activeProf?.horaInicio || "08:00";
+          const isAntesAbertura = slotHora < profHoraInicio;
+
+          // 4. Verificar horário de fechamento da agenda (horaFim)
+          const profHoraFim = activeProf?.horaFim || "20:00";
+          const isAposFechamento = slotHora >= profHoraFim;
+
+          // 5. Verificar intervalo de almoço
+          const lunchStart = activeProf?.intervaloInicio;
+          const lunchEnd = activeProf?.intervaloFim;
+          const isAlmoco = lunchStart && lunchEnd && slotHora >= lunchStart && slotHora < lunchEnd;
+
+          // 6. Verificar bloqueios personalizados (Horários Reservados / Indisponíveis)
+          const customBlock = activeProf?.bloqueiosPersonalizados?.find((b) => {
+            const matchDate = !b.data || b.data === selectedDate;
+            return matchDate && slotHora >= b.horarioInicio && slotHora < b.horarioFim;
+          });
+
+          // 7. Bloqueio padrão legado caso o profissional não tenha horários configurados
+          const bloqueioPadrao = !activeProf?.horaInicio && !activeProf?.intervaloInicio
+            ? BLOQUEIOS_PADRAO.find((b) => b.horarioInicio === slotHora)
+            : null;
 
           return (
             <div key={slotHora} className="flex items-start gap-2.5 sm:gap-4 py-1 group">
@@ -471,19 +588,73 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
                       )}
                     </div>
                   </div>
-                ) : bloqueio ? (
-                  /* CASO 2: BLOQUEIO FIXO (INDISPONÍVEL / ALMOÇO COMO NA FOTO) */
+                ) : isAntesAbertura ? (
+                  /* CASO 2A: ANTES DO HORÁRIO DE ABERTURA */
+                  <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-2.5 sm:p-3 text-slate-500 space-y-0.5 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-slate-500" />
+                      <span>⛔ Indisponível (Abre às {profHoraInicio})</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono">Antes da Abertura</span>
+                  </div>
+                ) : isAposFechamento ? (
+                  /* CASO 2B: APÓS O HORÁRIO DE FECHAMENTO */
+                  <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-2.5 sm:p-3 text-slate-500 space-y-0.5 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-slate-500" />
+                      <span>⛔ Indisponível (Fecha às {profHoraFim})</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono">Fechado</span>
+                  </div>
+                ) : isAlmoco ? (
+                  /* CASO 2C: HORÁRIO DE ALMOÇO DO PROFISSIONAL */
+                  <div className="bg-amber-950/20 border border-amber-500/20 rounded-2xl p-3 text-amber-200/80 space-y-0.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Coffee className="w-4 h-4 text-amber-400 shrink-0" />
+                      <div>
+                        <span className="text-xs font-black text-amber-300 block">
+                          {activeProf?.intervaloMotivo || "Horário de Almoço"}
+                        </span>
+                        <span className="text-[10px] font-mono text-amber-400/70">
+                          {lunchStart} às {lunchEnd}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-black uppercase bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                      Pausa
+                    </span>
+                  </div>
+                ) : customBlock ? (
+                  /* CASO 2D: BLOQUEIO PERSONALIZADO / HORÁRIO RESERVADO */
+                  <div className="bg-purple-950/20 border border-purple-500/20 rounded-2xl p-3 text-purple-200/80 space-y-0.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-4 h-4 text-purple-400 shrink-0" />
+                      <div>
+                        <span className="text-xs font-black text-purple-300 block">
+                          🔒 {customBlock.motivo || "Horário Reservado"}
+                        </span>
+                        <span className="text-[10px] font-mono text-purple-400/70">
+                          {customBlock.horarioInicio} às {customBlock.horarioFim}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-black uppercase bg-purple-500/10 text-purple-300 border border-purple-500/20 px-2 py-0.5 rounded-full">
+                      Reservado
+                    </span>
+                  </div>
+                ) : bloqueioPadrao ? (
+                  /* CASO 2E: BLOQUEIO PADRÃO LEGADO */
                   <div className="bg-slate-900/90 border border-white/5 rounded-2xl p-3 text-slate-400 space-y-0.5">
                     <span className="text-[11px] font-mono font-bold text-slate-500 block">
-                      {bloqueio.horarioInicio} às {bloqueio.horarioFim}
+                      {bloqueioPadrao.horarioInicio} às {bloqueioPadrao.horarioFim}
                     </span>
                     <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                      {bloqueio.tipo === "almoco" ? (
+                      {bloqueioPadrao.tipo === "almoco" ? (
                         <Coffee className="w-3.5 h-3.5 text-amber-400" />
                       ) : (
                         <Lock className="w-3.5 h-3.5 text-slate-400" />
                       )}
-                      <span>{bloqueio.motivo}</span>
+                      <span>{bloqueioPadrao.motivo}</span>
                     </span>
                   </div>
                 ) : (
@@ -747,6 +918,20 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL DE CONFIGURAÇÃO DA AGENDA DO PROFISSIONAL */}
+      {isConfigAgendaModalOpen && activeProf && onUpdateProfissional && (
+        <ModalConfiguracaoAgendaProfissional
+          isOpen={isConfigAgendaModalOpen}
+          onClose={() => setIsConfigAgendaModalOpen(false)}
+          profissional={activeProf}
+          onSave={(atualizado) => {
+            onUpdateProfissional(atualizado);
+            setIsConfigAgendaModalOpen(false);
+          }}
+          showNotification={showNotification}
+        />
       )}
     </div>
   );
