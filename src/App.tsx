@@ -5584,6 +5584,30 @@ export default function App() {
           companyProfile: loadCompanyProfile(userId),
           storeName: loadCompanyProfile(userId).name || localStorage.getItem("pdv_store_name") || "",
           storeCnpjCpf: loadCompanyProfile(userId).cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "",
+          barbeariaProfissionais: (() => {
+            try {
+              const saved = localStorage.getItem(`barbearia_${userId}_profissionais`) || localStorage.getItem("barbearia_guest_profissionais");
+              return saved ? JSON.parse(saved) : undefined;
+            } catch { return undefined; }
+          })(),
+          barbeariaAgendamentos: (() => {
+            try {
+              const saved = localStorage.getItem(`barbearia_${userId}_agendamentos`) || localStorage.getItem("barbearia_guest_agendamentos");
+              return saved ? JSON.parse(saved) : undefined;
+            } catch { return undefined; }
+          })(),
+          barbeariaEncomendas: (() => {
+            try {
+              const saved = localStorage.getItem(`barbearia_${userId}_encomendas`) || localStorage.getItem("barbearia_guest_encomendas");
+              return saved ? JSON.parse(saved) : undefined;
+            } catch { return undefined; }
+          })(),
+          barbeariaAniversarios: (() => {
+            try {
+              const saved = localStorage.getItem(`barbearia_${userId}_aniversarios`) || localStorage.getItem("barbearia_guest_aniversarios");
+              return saved ? JSON.parse(saved) : undefined;
+            } catch { return undefined; }
+          })(),
           updatedAt: serverTimestamp(),
           lastModifiedAt: timestamp,
         },
@@ -5700,6 +5724,19 @@ export default function App() {
             setStoreName(data.storeName);
             if (data.storeCnpjCpf) setStoreCnpjCpf(data.storeCnpjCpf);
             saveCompanyProfile({ ...loadCompanyProfile(userId), name: data.storeName, cnpjCpf: data.storeCnpjCpf || "" }, userId);
+          }
+
+          if (Array.isArray(data.barbeariaProfissionais)) {
+            localStorage.setItem(`barbearia_${userId}_profissionais`, JSON.stringify(data.barbeariaProfissionais));
+          }
+          if (Array.isArray(data.barbeariaAgendamentos)) {
+            localStorage.setItem(`barbearia_${userId}_agendamentos`, JSON.stringify(data.barbeariaAgendamentos));
+          }
+          if (Array.isArray(data.barbeariaEncomendas)) {
+            localStorage.setItem(`barbearia_${userId}_encomendas`, JSON.stringify(data.barbeariaEncomendas));
+          }
+          if (Array.isArray(data.barbeariaAniversarios)) {
+            localStorage.setItem(`barbearia_${userId}_aniversarios`, JSON.stringify(data.barbeariaAniversarios));
           }
           
           setLastModifiedAt(cloudTime);
@@ -13789,9 +13826,9 @@ export default function App() {
             className="fixed inset-0 z-[100] bg-slate-950 overflow-y-auto"
           >
             <ClientPublicAgendaPortal
-              companyName={loadCompanyProfile(user?.uid).name || localStorage.getItem("pdv_store_name") || "Barbearia & Salão Cérebro PDV"}
+              companyName={loadCompanyProfile(user?.uid).name || localStorage.getItem("pdv_store_name") || "Barbearia, Salão & Festas"}
               companyLogo={loadCompanyProfile(user?.uid).logoUrl || localStorage.getItem("pdv_company_logo") || ""}
-              companyPhone={loadCompanyProfile(user?.uid).whatsapp || loadCompanyProfile(user?.uid).phone || localStorage.getItem("pdv_store_phone") || "(21) 96671-3263"}
+              companyPhone={loadCompanyProfile(user?.uid).whatsapp || loadCompanyProfile(user?.uid).phone || localStorage.getItem("pdv_store_phone") || ""}
               profissionais={getClientPortalProfissionais()}
               agendamentos={getClientPortalAgendamentos()}
               isOnlineBookingActive={(() => {

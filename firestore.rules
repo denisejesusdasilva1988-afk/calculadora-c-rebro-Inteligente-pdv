@@ -149,6 +149,24 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Portal Público da Agenda de Clientes & Perfil Público da Empresa
+    match /agendas_publicas/{agendaId} {
+      allow read: if true;
+      allow write: if true;
+
+      match /agendamentos/{agId} {
+        allow read, write: if true;
+      }
+      match /encomendas/{encId} {
+        allow read, write: if true;
+      }
+    }
+
+    match /company_profiles/{profileId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     match /test/connection {
       allow read: if true;
     }

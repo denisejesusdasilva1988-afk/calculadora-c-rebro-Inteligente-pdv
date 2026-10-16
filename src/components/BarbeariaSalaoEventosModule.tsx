@@ -57,6 +57,7 @@ import { BarbeariaTimelineAgenda } from "./BarbeariaTimelineAgenda";
 import { ModalConfiguracaoAgendaProfissional } from "./ModalConfiguracaoAgendaProfissional";
 import { ModalPersonalizarParabens, MODELOS_PARABENS_PRONTOS } from "./ModalPersonalizarParabens";
 import { ModalComunicadosAgenda } from "./ModalComunicadosAgenda";
+import { loadCompanyProfile, saveCompanyProfile } from "../utils/companyProfile";
 
 // Segmentos suportados no módulo
 export type NegocioSegmento = "barbearia" | "salao" | "manicure" | "festas";
@@ -389,18 +390,27 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     ];
   });
 
-  // 5. Dados da Empresa e Link
+  // 5. Dados da Empresa e Redes Sociais (Deixados em branco por padrão para cada negócio preencher o seu)
   const [companyName, setCompanyName] = useState(() => {
-    return localStorage.getItem("pdv_store_name") || "Barbearia, Salão & Festas PDV";
+    return loadCompanyProfile(userId).name || localStorage.getItem("pdv_store_name") || "Barbearia, Salão & Festas";
   });
   const [companyLogo, setCompanyLogo] = useState(() => {
-    return localStorage.getItem("pdv_company_logo") || "";
-  });
-  const [companyLink, setCompanyLink] = useState(() => {
-    return localStorage.getItem("pdv_company_link") || "https://instagram.com/calculadoracerebro";
+    return loadCompanyProfile(userId).logoUrl || localStorage.getItem("pdv_company_logo") || "";
   });
   const [companyPhone, setCompanyPhone] = useState(() => {
-    return localStorage.getItem("pdv_store_phone") || "(21) 96671-3263";
+    return loadCompanyProfile(userId).whatsapp || loadCompanyProfile(userId).phone || localStorage.getItem("pdv_store_phone") || "";
+  });
+  const [companyInstagram, setCompanyInstagram] = useState(() => {
+    return loadCompanyProfile(userId).instagram || localStorage.getItem("pdv_store_instagram") || "";
+  });
+  const [companyFacebook, setCompanyFacebook] = useState(() => {
+    return loadCompanyProfile(userId).facebook || localStorage.getItem("pdv_store_facebook") || "";
+  });
+  const [companyWebsite, setCompanyWebsite] = useState(() => {
+    return loadCompanyProfile(userId).website || localStorage.getItem("pdv_store_website") || "";
+  });
+  const [companyLink, setCompanyLink] = useState(() => {
+    return localStorage.getItem("pdv_company_link") || "";
   });
 
   // Salvar no localStorage sempre que mudar
@@ -530,21 +540,76 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     );
   };
 
+  // 1. Sincronizar dados do Firestore ao carregar para não perder cadastros
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCloudData = async () => {
+      if (!userId || userId === "guest_visitor" || !db) return;
+      try {
+        const snap = await getDoc(doc(db, "userData", userId));
+        if (snap.exists() && isMounted) {
+          const d = snap.data();
+          if (Array.isArray(d.barbeariaProfissionais) && d.barbeariaProfissionais.length > 0) {
+            setProfissionais(d.barbeariaProfissionais);
+            localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(d.barbeariaProfissionais));
+          }
+          if (Array.isArray(d.barbeariaAgendamentos)) {
+            setAgendamentos(d.barbeariaAgendamentos);
+            localStorage.setItem(`${storagePrefix}agendamentos`, JSON.stringify(d.barbeariaAgendamentos));
+          }
+          if (Array.isArray(d.barbeariaAniversarios)) {
+            setAniversarios(d.barbeariaAniversarios);
+            localStorage.setItem(`${storagePrefix}aniversarios`, JSON.stringify(d.barbeariaAniversarios));
+          }
+          if (Array.isArray(d.barbeariaEncomendas)) {
+            setEncomendas(d.barbeariaEncomendas);
+            localStorage.setItem(`${storagePrefix}encomendas`, JSON.stringify(d.barbeariaEncomendas));
+          }
+          if (d.companyProfile) {
+            const cp = d.companyProfile;
+            if (cp.name) setCompanyName(cp.name);
+            if (cp.logoUrl !== undefined) setCompanyLogo(cp.logoUrl);
+            if (cp.phone || cp.whatsapp) setCompanyPhone(cp.phone || cp.whatsapp);
+            if (cp.instagram) setCompanyInstagram(cp.instagram);
+            if (cp.facebook) setCompanyFacebook(cp.facebook);
+            if (cp.website) setCompanyWebsite(cp.website);
+          }
+        }
+      } catch (err) {
+        console.warn("Aviso ao ler dados da barbearia/salão da nuvem:", err);
+      }
+    };
+    fetchCloudData();
+    return () => { isMounted = false; };
+  }, [userId, db, storagePrefix]);
+
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(profissionais));
-  }, [profissionais, storagePrefix]);
+    if (userId && userId !== "guest_visitor" && db) {
+      setDoc(doc(db, "userData", userId), { barbeariaProfissionais: profissionais }, { merge: true }).catch(() => {});
+    }
+  }, [profissionais, storagePrefix, userId, db]);
 
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}agendamentos`, JSON.stringify(agendamentos));
-  }, [agendamentos, storagePrefix]);
+    if (userId && userId !== "guest_visitor" && db) {
+      setDoc(doc(db, "userData", userId), { barbeariaAgendamentos: agendamentos }, { merge: true }).catch(() => {});
+    }
+  }, [agendamentos, storagePrefix, userId, db]);
 
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}aniversarios`, JSON.stringify(aniversarios));
-  }, [aniversarios, storagePrefix]);
+    if (userId && userId !== "guest_visitor" && db) {
+      setDoc(doc(db, "userData", userId), { barbeariaAniversarios: aniversarios }, { merge: true }).catch(() => {});
+    }
+  }, [aniversarios, storagePrefix, userId, db]);
 
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}encomendas`, JSON.stringify(encomendas));
-  }, [encomendas, storagePrefix]);
+    if (userId && userId !== "guest_visitor" && db) {
+      setDoc(doc(db, "userData", userId), { barbeariaEncomendas: encomendas }, { merge: true }).catch(() => {});
+    }
+  }, [encomendas, storagePrefix, userId, db]);
 
   // Modal States
   const [isAddProfissionalOpen, setIsAddProfissionalOpen] = useState(false);
@@ -776,12 +841,25 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     msgTexto = msgTexto
       .replace(/{cliente}/g, cliente.nome)
       .replace(/{empresa}/g, companyName || "Nossa Empresa")
-      .replace(/{telefone}/g, companyPhone || "(21) 96671-3263")
+      .replace(/{telefone}/g, companyPhone || "")
+      .replace(/{link_agenda}/g, clientAgendaUrl)
       .replace(/{desconto}/g, cliente.presenteOferecido || "15% de desconto")
       .replace(/{presente}/g, cliente.presenteOferecido || "Brinde Especial Cortesia");
 
     const msg = encodeURIComponent(msgTexto);
-    window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
+    const waUrl = limpo ? `https://wa.me/55${limpo}?text=${msg}` : `https://wa.me/?text=${msg}`;
+    try {
+      const a = document.createElement("a");
+      a.href = waUrl;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {
+      window.open(waUrl, "_blank");
+    }
+    showNotification("Mensagem de aniversário enviada ao WhatsApp! 🎂🎉", "success");
   };
 
   // WhatsApp Lembrete de Horário
@@ -810,16 +888,40 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
   };
 
-  // Salvar Identidade da Empresa
-  const handleSaveEmpresa = () => {
-    localStorage.setItem("pdv_store_name", companyName);
-    localStorage.setItem("pdv_company_logo", companyLogo);
-    localStorage.setItem("pdv_company_link", companyLink);
-    localStorage.setItem("pdv_store_phone", companyPhone);
-    window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", {
-      detail: { name: companyName, logoUrl: companyLogo, phone: companyPhone }
-    }));
-    showNotification("Dados e logomarca da empresa salvos com sucesso! 🏢✅", "success");
+  // Salvar Identidade da Empresa e Redes Sociais
+  const handleSaveEmpresa = async () => {
+    const current = loadCompanyProfile(userId);
+    const updated = {
+      ...current,
+      name: companyName,
+      logoUrl: companyLogo,
+      phone: companyPhone,
+      whatsapp: companyPhone,
+      instagram: companyInstagram,
+      facebook: companyFacebook,
+      website: companyWebsite
+    };
+    saveCompanyProfile(updated, userId);
+    localStorage.setItem("pdv_company_link", companyInstagram || companyWebsite || companyFacebook || "");
+    
+    // Salvar no Firestore se logado
+    if (userId && userId !== "guest_visitor" && db) {
+      try {
+        await setDoc(doc(db, "userData", userId), {
+          companyProfile: updated,
+          storeName: companyName,
+          barbeariaProfissionais: profissionais,
+          barbeariaAgendamentos: agendamentos,
+          barbeariaEncomendas: encomendas,
+          barbeariaAniversarios: aniversarios,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      } catch (err) {
+        console.warn("Erro ao salvar dados no Firestore:", err);
+      }
+    }
+
+    showNotification("Dados e redes sociais da empresa gravados com sucesso na memória do app e nuvem! 🏢💾✅", "success");
   };
 
   return (
@@ -1152,6 +1254,21 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                     </div>
                   </div>
 
+                  {/* Link Único e Pessoal da Agenda deste Profissional para Redes Sociais */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const profUrl = `${clientAgendaUrl}&segmento=${prof.categoria || "barbearia"}&prof=${prof.id}`;
+                      navigator.clipboard.writeText(profUrl);
+                      showNotification(`Link único da agenda de ${prof.nome} copiado! 📋 Deixe no Instagram ou WhatsApp do profissional.`, "success");
+                    }}
+                    className="w-full bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 text-[10.5px] font-bold py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    title="Copiar link único deste profissional para colocar na bio do Instagram ou WhatsApp dele"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Copiar Link da Agenda de {prof.nome.split(" ")[0]} 🔗</span>
+                  </button>
+
                   <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
                     <button
                       type="button"
@@ -1223,6 +1340,15 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
+                  onClick={() => setIsComunicadosAgendaOpen(true)}
+                  className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-amber-500/10"
+                >
+                  <Megaphone className="w-4 h-4 text-amber-400" />
+                  <span>Comunicados & Lembretes (10 Modelos WhatsApp) 📢</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={handleShareAgendaOnWhatsApp}
                   className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/30"
                 >
@@ -1237,6 +1363,20 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 >
                   <Copy className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Copiar Link</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const bioText = `💈 Agende seu horário online pelo nosso link exclusivo:\n👉 ${clientAgendaUrl}\n✂️ Sem filas e com confirmação rápida pelo WhatsApp!`;
+                    navigator.clipboard.writeText(bioText);
+                    showNotification("Texto pronto para Bio do Instagram copiado! 📋 Cole no seu perfil.", "success");
+                  }}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-white/10"
+                  title="Copiar texto pronto para colar na Bio do Instagram ou redes sociais"
+                >
+                  <Copy className="w-3.5 h-3.5 text-pink-400" />
+                  <span>Texto para Bio Instagram</span>
                 </button>
 
                 <button
@@ -1289,6 +1429,62 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 >
                   <X className="w-3 h-3" />
                   <span>NÃO</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Links Diretos por Segmento para Redes Sociais */}
+            <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-white/5 space-y-2">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                Links Diretos por Segmento (Copie e cole na Bio do Instagram / WhatsApp de cada serviço):
+              </span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${clientAgendaUrl}&segmento=barbearia`);
+                    showNotification("Link exclusivo de Barbearia copiado! 💈", "success");
+                  }}
+                  className="bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>💈 Link Só Barbearia</span>
+                  <Copy className="w-3 h-3 opacity-70" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${clientAgendaUrl}&segmento=salao`);
+                    showNotification("Link exclusivo de Salão de Beleza copiado! 💇‍♀️", "success");
+                  }}
+                  className="bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>💇‍♀️ Link Só Salão</span>
+                  <Copy className="w-3 h-3 opacity-70" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${clientAgendaUrl}&segmento=manicure`);
+                    showNotification("Link exclusivo de Manicure & Unhas copiado! 💅", "success");
+                  }}
+                  className="bg-pink-500/15 hover:bg-pink-500/25 text-pink-300 border border-pink-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>💅 Link Só Manicure</span>
+                  <Copy className="w-3 h-3 opacity-70" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${clientAgendaUrl}&segmento=festas`);
+                    showNotification("Link exclusivo de Festas & Encomendas copiado! 🍰", "success");
+                  }}
+                  className="bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>🍰 Link Só Festas & Encomendas</span>
+                  <Copy className="w-3 h-3 opacity-70" />
                 </button>
               </div>
             </div>
@@ -1545,13 +1741,24 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               </p>
             </div>
 
-            <button
-              onClick={() => setIsAddAniversarioOpen(true)}
-              className="bg-pink-600 hover:bg-pink-500 text-white font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-pink-600/20 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Cadastrar Aniversariante</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setIsPersonalizarParabensOpen(true)}
+                className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-amber-500/10 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>Personalizar Mensagens de Parabéns (10 Modelos WhatsApp) 🎂🎨</span>
+              </button>
+
+              <button
+                onClick={() => setIsAddAniversarioOpen(true)}
+                className="bg-pink-600 hover:bg-pink-500 text-white font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-pink-600/20 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Cadastrar Aniversariante</span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1905,44 +2112,84 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-300">
-                Link da Sua Empresa (Instagram, WhatsApp, Site ou Agendamento)
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={companyLink}
-                  onChange={(e) => setCompanyLink(e.target.value)}
-                  placeholder="https://instagram.com/suabarbearia ou link do WhatsApp"
-                  className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-amber-500"
-                />
-                {companyLink && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(companyLink);
-                      showNotification("Link copiado para a área de transferência! 📋✨", "success");
-                    }}
-                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copiar</span>
-                  </button>
-                )}
+            {/* Aviso de Privacidade e Dados Pessoais Protegidos */}
+            <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-4 flex items-start gap-3">
+              <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl shrink-0">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div className="space-y-0.5 text-xs">
+                <strong className="text-white font-black block">
+                  Segurança & Proteção de Dados Pessoais 🔒
+                </strong>
+                <p className="text-slate-300 leading-relaxed font-medium">
+                  Deixamos os campos de contato e redes sociais em branco por padrão para que você preencha apenas os dados comerciais da sua empresa. Os dados da agenda pública dos clientes nunca expõem caixas, senhas ou informações particulares.
+                </p>
               </div>
             </div>
 
+            {/* WhatsApp Comercial */}
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-300">
-                Telefone de Contato / WhatsApp
+              <label className="text-[10.5px] font-black uppercase text-slate-300 flex items-center gap-1.5">
+                <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
+                <span>WhatsApp / Celular Comercial da Empresa</span>
               </label>
               <input
                 type="text"
                 value={companyPhone}
                 onChange={(e) => setCompanyPhone(e.target.value)}
-                placeholder="(21) 96671-3263"
-                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-amber-500"
+                placeholder="Ex: (11) 99999-8888 (Deixar em branco se preferir)"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold font-mono focus:border-amber-500"
+              />
+              <span className="text-[10px] text-slate-400 block">
+                É para este número que os clientes enviarão a confirmação dos agendamentos e encomendas.
+              </span>
+            </div>
+
+            {/* Instagram da Empresa */}
+            <div className="space-y-1.5">
+              <label className="text-[10.5px] font-black uppercase text-slate-300 flex items-center gap-1.5">
+                <span className="text-pink-400 font-bold">@</span>
+                <span>Instagram da Empresa / Salão / Barbearia</span>
+              </label>
+              <input
+                type="text"
+                value={companyInstagram}
+                onChange={(e) => {
+                  setCompanyInstagram(e.target.value);
+                  setCompanyLink(e.target.value);
+                }}
+                placeholder="Ex: @minhabarbearia ou https://instagram.com/minhabarbearia"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-pink-500"
+              />
+            </div>
+
+            {/* Facebook da Empresa */}
+            <div className="space-y-1.5">
+              <label className="text-[10.5px] font-black uppercase text-slate-300 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-blue-400" />
+                <span>Página do Facebook</span>
+              </label>
+              <input
+                type="text"
+                value={companyFacebook}
+                onChange={(e) => setCompanyFacebook(e.target.value)}
+                placeholder="Ex: https://facebook.com/minhapagina"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-blue-500"
+              />
+            </div>
+
+            {/* Site / Página Web / Portfólio Pessoal */}
+            <div className="space-y-1.5">
+              <label className="text-[10.5px] font-black uppercase text-slate-300 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Site Pessoal, Portfólio ou Página Web da Empresa</span>
+              </label>
+              <input
+                type="text"
+                value={companyWebsite}
+                onChange={(e) => setCompanyWebsite(e.target.value)}
+                placeholder="Ex: https://minhaempresa.com.br"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-indigo-500"
               />
             </div>
 
@@ -2596,6 +2843,28 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           showNotification={showNotification}
         />
       )}
+
+      {/* MODAL: PERSONALIZAR PARABÉNS DOS ANIVERSARIANTES (ATÉ 10 MODELOS) */}
+      <ModalPersonalizarParabens
+        isOpen={isPersonalizarParabensOpen}
+        onClose={() => setIsPersonalizarParabensOpen(false)}
+        companyName={companyName}
+        companyPhone={companyPhone}
+        clientAgendaUrl={clientAgendaUrl}
+        showNotification={showNotification}
+      />
+
+      {/* MODAL: COMUNICADOS & LEMBRETES DA AGENDA (ATÉ 10 MODELOS) */}
+      <ModalComunicadosAgenda
+        isOpen={isComunicadosAgendaOpen}
+        onClose={() => setIsComunicadosAgendaOpen(false)}
+        companyName={companyName}
+        companyPhone={companyPhone}
+        clientAgendaUrl={clientAgendaUrl}
+        agendamentos={agendamentos}
+        formatCurrency={formatCurrency}
+        showNotification={showNotification}
+      />
     </div>
   );
 };

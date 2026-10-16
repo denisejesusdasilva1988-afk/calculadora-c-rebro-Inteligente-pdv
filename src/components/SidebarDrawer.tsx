@@ -1228,22 +1228,70 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   </button>
 
                   {/* 6. Salão, Barbearia, Equipe & Encomendas de Festas */}
-                  <button
-                    onClick={() => handleNavigate("barbearia_salao")}
-                    className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
-                      notepadMode === "barbearia_salao"
-                        ? "bg-amber-500/20 border border-amber-500/40 text-amber-300 font-extrabold shadow-[0_0_15px_rgba(245,158,11,0.2)]"
-                        : "hover:bg-white/5 border border-transparent text-slate-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <Scissors className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span className="text-[11.5px] uppercase font-bold tracking-wide">
-                        Salão, Barbearia & Festas 💈🍰
-                      </span>
+                  <div className="space-y-1">
+                    <button
+                      onClick={() => {
+                        localStorage.setItem("barbearia_selected_segment", "todos");
+                        handleNavigate("barbearia_salao");
+                      }}
+                      className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
+                        notepadMode === "barbearia_salao"
+                          ? "bg-amber-500/20 border border-amber-500/40 text-amber-300 font-extrabold shadow-[0_0_15px_rgba(245,158,11,0.2)]"
+                          : "hover:bg-white/5 border border-transparent text-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Scissors className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span className="text-[11.5px] uppercase font-bold tracking-wide">
+                          Barbearia, Salão & Festas 💈🍰
+                        </span>
+                      </div>
+                      <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black">COMPLETO</span>
+                    </button>
+
+                    {/* Atalhos Diretos por Categoria Separada */}
+                    <div className="grid grid-cols-2 gap-1 pl-2 pt-0.5">
+                      <button
+                        onClick={() => {
+                          localStorage.setItem("barbearia_selected_segment", "barbearia");
+                          handleNavigate("barbearia_salao");
+                        }}
+                        className="py-1 px-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/20 text-left truncate flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>💈 Barbeiro</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          localStorage.setItem("barbearia_selected_segment", "salao");
+                          handleNavigate("barbearia_salao");
+                        }}
+                        className="py-1 px-2 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 text-[10px] font-bold border border-purple-500/20 text-left truncate flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>💇‍♀️ Salão Beleza</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          localStorage.setItem("barbearia_selected_segment", "manicure");
+                          handleNavigate("barbearia_salao");
+                        }}
+                        className="py-1 px-2 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 text-pink-300 text-[10px] font-bold border border-pink-500/20 text-left truncate flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>💅 Manicure</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          localStorage.setItem("barbearia_selected_segment", "festas");
+                          handleNavigate("barbearia_salao");
+                        }}
+                        className="py-1 px-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/20 text-left truncate flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>🍰 Festas/Encomendas</span>
+                      </button>
                     </div>
-                    <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black">NOVO</span>
-                  </button>
+                  </div>
                 </div>
 
                 {/* 🌟 ACESSO DIRETO: PERMISSÕES DOS FUNCIONÁRIOS (PRINT DA TELA) */}

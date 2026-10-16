@@ -82,10 +82,13 @@ export function loadCompanyProfile(userId?: string | null): CompanyProfile {
         cnpjCpf: parsed.cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "",
         ownerName: parsed.ownerName || localStorage.getItem("pdv_owner_name") || "",
         ownerCpf: parsed.ownerCpf || parsed.cnpjCpf || localStorage.getItem("pdv_owner_cpf") || localStorage.getItem("pdv_store_cnpj_cpf") || "",
-        pixKey: parsed.pixKey || localStorage.getItem("pdv_pix_key") || "21966713263",
+        pixKey: parsed.pixKey || localStorage.getItem("pdv_pix_key") || "",
         logoUrl: parsed.logoUrl || localStorage.getItem("pdv_company_logo") || "",
         phone: parsed.phone || localStorage.getItem("pdv_store_phone") || "",
         whatsapp: parsed.whatsapp || localStorage.getItem("pdv_store_whatsapp") || "",
+        instagram: parsed.instagram || localStorage.getItem("pdv_store_instagram") || "",
+        facebook: parsed.facebook || localStorage.getItem("pdv_store_facebook") || "",
+        website: parsed.website || localStorage.getItem("pdv_store_website") || "",
         address: parsed.address || localStorage.getItem("pdv_store_address") || "",
       };
     }
@@ -100,10 +103,13 @@ export function loadCompanyProfile(userId?: string | null): CompanyProfile {
     cnpjCpf: localStorage.getItem("pdv_store_cnpj_cpf") || "",
     ownerName: localStorage.getItem("pdv_owner_name") || "",
     ownerCpf: localStorage.getItem("pdv_owner_cpf") || localStorage.getItem("pdv_store_cnpj_cpf") || "",
-    pixKey: localStorage.getItem("pdv_pix_key") || "21966713263",
+    pixKey: localStorage.getItem("pdv_pix_key") || "",
     logoUrl: localStorage.getItem("pdv_company_logo") || "",
     phone: localStorage.getItem("pdv_store_phone") || "",
     whatsapp: localStorage.getItem("pdv_store_whatsapp") || "",
+    instagram: localStorage.getItem("pdv_store_instagram") || "",
+    facebook: localStorage.getItem("pdv_store_facebook") || "",
+    website: localStorage.getItem("pdv_store_website") || "",
     address: localStorage.getItem("pdv_store_address") || "",
   };
 }

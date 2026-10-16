@@ -2,15 +2,16 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * Modal de Personalização da Mensagem de Parabéns aos Aniversariantes
+ * Modal de Personalização de Mensagens de Parabéns aos Aniversariantes
  * Permite ao proprietário ou profissional:
- * 1. Escolher entre vários modelos prontos (Desconto, Presente, Barbearia, Salão, Manicure, Festas)
- * 2. Personalizar o texto livremente com tags dinâmicas ({cliente}, {empresa}, {presente}, {desconto}, {telefone})
- * 3. Pré-visualizar em tempo real como a mensagem chegará no WhatsApp
- * 4. Salvar permanentemente para uso em 1 clique
+ * 1. Gerenciar até 10 mensagens personalizadas gravadas na memória do app (localStorage + Firestore)
+ * 2. Modelos prontos separados para Barbearia, Salão de Beleza, Manicure, Festas/Encomendas e Cupons
+ * 3. Criar novas mensagens, editar livremente e apagar modelos que não deseja mais
+ * 4. Inserir tags automáticas: {cliente}, {empresa}, {desconto}, {presente}, {telefone}, {link_agenda}
+ * 5. Prévia em tempo real no WhatsApp e envio com 1 clique
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   X,
   Cake,
@@ -22,35 +23,25 @@ import {
   Scissors,
   Heart,
   Gift,
-  Percent,
-  Copy
+  Copy,
+  Plus,
+  Trash2,
+  Edit3,
+  Send,
+  Building2,
+  AlertCircle
 } from "lucide-react";
 
 export interface ModeloParabens {
   id: string;
   nome: string;
-  categoria: "desconto" | "presente" | "barbearia" | "salao" | "manicure" | "festas" | "carinhoso";
+  categoria: "barbearia" | "salao" | "manicure" | "festas" | "desconto" | "presente" | "carinhoso";
   icone: string;
   texto: string;
+  isCustom?: boolean;
 }
 
 export const MODELOS_PARABENS_PRONTOS: ModeloParabens[] = [
-  {
-    id: "mod_desconto",
-    nome: "Desconto Especial de Aniversário",
-    categoria: "desconto",
-    icone: "🎁",
-    texto:
-      "Olá, {cliente}! 🎂🎈\n\nA equipe da *{empresa}* deseja a você um FELIZ ANIVERSÁRIO repleto de saúde, paz e muitas alegrias! 🎉✨\n\nComo presente especial pelo seu dia, você ganhou *{desconto}* em qualquer serviço ou atendimento!\n\nVenha comemorar conosco e garantir seu desconto! Agende seu horário: {telefone} 🥳"
-  },
-  {
-    id: "mod_presente",
-    nome: "Presente / Brinde VIP Exclusivo",
-    categoria: "presente",
-    icone: "⭐",
-    texto:
-      "Parabéns pelo seu aniversário, {cliente}! 🥳🎂\n\nNós da *{empresa}* preparamos um mimo muito especial para comemorar essa data tão marcante com você: você ganhou *{presente}*!\n\nVenha nos visitar e retirar seu presente da semana! Agende ou fale conosco no WhatsApp: {telefone} ❤️"
-  },
   {
     id: "mod_barbearia",
     nome: "Barbearia — Trato no Visual de Respeito",
@@ -77,11 +68,27 @@ export const MODELOS_PARABENS_PRONTOS: ModeloParabens[] = [
   },
   {
     id: "mod_festas",
-    nome: "Festas & Confeitaria — Dia Doce & Comemoração",
+    nome: "Festas & Encomendas — Bolo & Doces com Desconto",
     categoria: "festas",
     icone: "🍰",
     texto:
       "Viva, {cliente}! Parabéns pelo seu aniversário! 🍰🎈🎉\n\nA equipe da *{empresa}* deseja que seu dia seja repleto de doces surpresas e boas memórias!\n\nPara a sua festa ficar ainda mais saborosa, você ganhou *{desconto}* na encomenda do seu bolo de aniversário ou kit de salgados e docinhos!\n\nFaça seu pedido conosco e celebre com muito sabor: {telefone} 🎂✨"
+  },
+  {
+    id: "mod_desconto",
+    nome: "Cupom de Desconto Especial de Aniversário",
+    categoria: "desconto",
+    icone: "🎁",
+    texto:
+      "Olá, {cliente}! 🎂🎈\n\nA equipe da *{empresa}* deseja a você um FELIZ ANIVERSÁRIO repleto de saúde, paz e muitas alegrias! 🎉✨\n\nComo presente especial pelo seu dia, você ganhou *{desconto}* em qualquer serviço ou atendimento!\n\nVenha comemorar conosco e garantir seu desconto! Agende seu horário: {telefone} 🥳"
+  },
+  {
+    id: "mod_presente",
+    nome: "Presente / Brinde VIP Exclusivo",
+    categoria: "presente",
+    icone: "⭐",
+    texto:
+      "Parabéns pelo seu aniversário, {cliente}! 🥳🎂\n\nNós da *{empresa}* preparamos um mimo muito especial para comemorar essa data tão marcante com você: você ganhou *{presente}*!\n\nVenha nos visitar e retirar seu presente da semana! Agende ou fale conosco no WhatsApp: {telefone} ❤️"
   },
   {
     id: "mod_carinhoso",
@@ -93,13 +100,38 @@ export const MODELOS_PARABENS_PRONTOS: ModeloParabens[] = [
   }
 ];
 
+const STORAGE_KEY_LIST = "pdv_msg_parabens_lista_v2";
+
+export function loadModelosParabens(): ModeloParabens[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_LIST);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.slice(0, 10);
+      }
+    }
+  } catch {}
+  return [...MODELOS_PARABENS_PRONTOS];
+}
+
+export function saveModelosParabens(lista: ModeloParabens[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_LIST, JSON.stringify(lista.slice(0, 10)));
+  } catch (e) {
+    console.warn("Erro ao salvar modelos de parabéns:", e);
+  }
+}
+
 interface ModalPersonalizarParabensProps {
   isOpen: boolean;
   onClose: () => void;
   companyName: string;
   companyPhone: string;
-  onSaveMensagemPadrao: (novaMensagem: string) => void;
-  mensagemAtual?: string;
+  clientAgendaUrl?: string;
+  destinatarioNome?: string;
+  destinatarioTelefone?: string;
+  onSaveMensagemPadrao?: (novaMensagem: string) => void;
   showNotification?: (msg: string, type: "success" | "error" | "info") => void;
 }
 
@@ -108,62 +140,141 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
   onClose,
   companyName,
   companyPhone,
+  clientAgendaUrl,
+  destinatarioNome = "Ana Clara",
+  destinatarioTelefone = "",
   onSaveMensagemPadrao,
-  mensagemAtual,
-  showNotification = () => {}
+  showNotification = (_msg?: string, _type?: "success" | "error" | "info") => {}
 }) => {
-  const [mensagemTexto, setMensagemTexto] = useState<string>(() => {
-    return (
-      mensagemAtual ||
-      localStorage.getItem("pdv_msg_parabens_custom") ||
-      MODELOS_PARABENS_PRONTOS[0].texto
-    );
+  const [modelos, setModelos] = useState<ModeloParabens[]>(() => loadModelosParabens());
+  const [selectedModeloId, setSelectedModeloId] = useState<string>(() => {
+    const list = loadModelosParabens();
+    return list[0]?.id || "mod_barbearia";
   });
+
+  // Mensagem sendo editada
+  const modeloAtual = modelos.find((m) => m.id === selectedModeloId) || modelos[0];
+  const [nomeEdit, setNomeEdit] = useState<string>(modeloAtual?.nome || "Modelo de Parabéns");
+  const [categoriaEdit, setCategoriaEdit] = useState<ModeloParabens["categoria"]>(modeloAtual?.categoria || "barbearia");
+  const [iconeEdit, setIconeEdit] = useState<string>(modeloAtual?.icone || "🎂");
+  const [textoEdit, setTextoEdit] = useState<string>(modeloAtual?.texto || "");
+
+  // Atualizar inputs quando mudar o modelo selecionado
+  useEffect(() => {
+    if (modeloAtual) {
+      setNomeEdit(modeloAtual.nome);
+      setCategoriaEdit(modeloAtual.categoria);
+      setIconeEdit(modeloAtual.icone);
+      setTextoEdit(modeloAtual.texto);
+    }
+  }, [selectedModeloId]);
 
   const [descontoExemplo, setDescontoExemplo] = useState("15% de desconto");
   const [presenteExemplo, setPresenteExemplo] = useState("Hidratação Capilar Grátis");
-  const [clienteExemplo, setClienteExemplo] = useState("Ana Clara");
+  const [clienteExemplo, setClienteExemplo] = useState(destinatarioNome || "Cliente");
 
   if (!isOpen) return null;
 
   // Substituição de tags para prévia
-  const previewFormatado = mensagemTexto
-    .replace(/{cliente}/g, clienteExemplo)
+  const previewFormatado = textoEdit
+    .replace(/{cliente}/g, destinatarioNome || clienteExemplo)
     .replace(/{empresa}/g, companyName || "Nossa Empresa")
-    .replace(/{telefone}/g, companyPhone || "(21) 96671-3263")
+    .replace(/{telefone}/g, companyPhone || "WhatsApp da Empresa")
+    .replace(/{link_agenda}/g, clientAgendaUrl || "Link da Agenda")
     .replace(/{desconto}/g, descontoExemplo)
     .replace(/{presente}/g, presenteExemplo);
 
-  const handleAplicarModelo = (modelo: ModeloParabens) => {
-    setMensagemTexto(modelo.texto);
-    showNotification(`Modelo "${modelo.nome}" carregado no editor! 🎂✨`, "info");
-  };
-
-  const handleSalvar = () => {
-    if (!mensagemTexto.trim()) {
-      showNotification("A mensagem não pode ficar vazia!", "error");
+  // 1. Salvar alterações no modelo atual
+  const handleSalvarModeloAtual = () => {
+    if (!textoEdit.trim()) {
+      showNotification("O texto da mensagem não pode ficar vazio!", "error");
       return;
     }
-    localStorage.setItem("pdv_msg_parabens_custom", mensagemTexto.trim());
-    onSaveMensagemPadrao(mensagemTexto.trim());
-    showNotification("Mensagem de aniversário personalizada salva com sucesso! 🎂✅", "success");
-    onClose();
+    const updated = modelos.map((m) =>
+      m.id === selectedModeloId
+        ? {
+            ...m,
+            nome: nomeEdit.trim() || "Modelo Personalizado",
+            categoria: categoriaEdit,
+            icone: iconeEdit || "🎂",
+            texto: textoEdit.trim()
+          }
+        : m
+    );
+    setModelos(updated);
+    saveModelosParabens(updated);
+    localStorage.setItem("pdv_msg_parabens_custom", textoEdit.trim());
+    if (onSaveMensagemPadrao) onSaveMensagemPadrao(textoEdit.trim());
+    showNotification("Mensagem gravada com sucesso na memória do app! 💾✅", "success");
   };
 
+  // 2. Criar Nova Mensagem (Máximo 10)
+  const handleCriarNovaMensagem = () => {
+    if (modelos.length >= 10) {
+      showNotification("Limite máximo de 10 mensagens atingido! Apague uma para cadastrar outra.", "error");
+      return;
+    }
+    const novoId = `custom_parabens_${Date.now()}`;
+    const novoModelo: ModeloParabens = {
+      id: novoId,
+      nome: `Minha Mensagem #${modelos.length + 1}`,
+      categoria: "barbearia",
+      icone: "🎂",
+      texto:
+        "Parabéns pelo seu dia, {cliente}! 🎂🎉\n\nA equipe da *{empresa}* te deseja muitas felicidades e saúde!\n\nVocê ganhou *{desconto}* de presente de aniversário! Venha comemorar conosco: {telefone} ❤️",
+      isCustom: true
+    };
+    const updated = [...modelos, novoModelo];
+    setModelos(updated);
+    saveModelosParabens(updated);
+    setSelectedModeloId(novoId);
+    showNotification("Novo modelo de parabéns criado! Agora você pode personalizar o texto.", "success");
+  };
+
+  // 3. Apagar Modelo Selecionado
+  const handleApagarModelo = (idParaApagar: string) => {
+    if (modelos.length <= 1) {
+      showNotification("Você precisa manter pelo menos 1 mensagem de parabéns cadastrada!", "error");
+      return;
+    }
+    const mod = modelos.find((m) => m.id === idParaApagar);
+    const updated = modelos.filter((m) => m.id !== idParaApagar);
+    setModelos(updated);
+    saveModelosParabens(updated);
+    setSelectedModeloId(updated[0].id);
+    showNotification(`Mensagem "${mod?.nome || "Modelo"}" apagada da memória! 🗑️`, "info");
+  };
+
+  // 4. Restaurar modelos originais de fábrica
   const handleRestaurarPadrao = () => {
-    const padrao = MODELOS_PARABENS_PRONTOS[0].texto;
-    setMensagemTexto(padrao);
-    localStorage.removeItem("pdv_msg_parabens_custom");
-    showNotification("Restaurado para o modelo padrão! 🔄", "info");
+    setModelos([...MODELOS_PARABENS_PRONTOS]);
+    saveModelosParabens(MODELOS_PARABENS_PRONTOS);
+    setSelectedModeloId(MODELOS_PARABENS_PRONTOS[0].id);
+    showNotification("Modelos originais de parabéns restaurados com sucesso! 🔄", "success");
   };
 
+  // 5. Inserir Tag
   const handleInserirTag = (tag: string) => {
-    setMensagemTexto((prev) => prev + ` ${tag} `);
+    setTextoEdit((prev) => prev + ` ${tag} `);
+  };
+
+  // 6. Enviar no WhatsApp
+  const handleEnviarWhatsApp = () => {
+    const tel = destinatarioTelefone.replace(/\D/g, "");
+    const msg = encodeURIComponent(previewFormatado);
+    const waUrl = tel ? `https://wa.me/55${tel}?text=${msg}` : `https://wa.me/?text=${msg}`;
+    window.open(waUrl, "_blank");
+  };
+
+  // 7. Copiar Texto
+  const handleCopiarTexto = () => {
+    navigator.clipboard.writeText(previewFormatado);
+    showNotification("Mensagem copiada para a área de transferência! 📋 Cole no WhatsApp ou Instagram.", "success");
   };
 
   return (
-    <div className="fixed inset-0 z-[10060] flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
-      <div className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-3xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto text-left">
+    <div className="fixed inset-0 z-[10060] flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
+      <div className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto text-left">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-white/10 bg-slate-950/90 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
@@ -171,16 +282,16 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
               <Cake className="w-5 h-5 text-pink-400" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-white font-black text-sm sm:text-base tracking-tight">
-                  Personalizar Mensagem de Parabéns (WhatsApp)
+                  Parabéns Personalizados (Até 10 Mensagens)
                 </h3>
-                <span className="bg-pink-500/20 text-pink-300 border border-pink-500/40 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                  Fidelização
+                <span className="bg-pink-500/20 text-pink-300 border border-pink-500/40 text-[9.5px] font-black uppercase px-2 py-0.5 rounded-full">
+                  {modelos.length} de 10 Cadastrados
                 </span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Escolha um modelo pronto ou escreva sua própria mensagem com tags automáticas.
+                Personalize para Barbearia, Salão, Manicure e Festas. Grave na memória e apague quando quiser.
               </p>
             </div>
           </div>
@@ -195,122 +306,239 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
         </div>
 
         {/* Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
-          {/* 1. SELEÇÃO DE MODELOS PRONTOS */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1 custom-scrollbar">
+          {/* 1. SELETOR E GERENCIADOR DE MENSAGENS (ATÉ 10) */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <span className="text-xs font-black uppercase tracking-wider text-pink-300 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-pink-400" /> Modelos Prontos por Nicho (Toque para Carregar):
+                <Sparkles className="w-4 h-4 text-pink-400" /> Selecione a Mensagem para Editar ou Enviar:
               </span>
-              <button
-                type="button"
-                onClick={handleRestaurarPadrao}
-                className="text-[10px] text-slate-400 hover:text-white flex items-center gap-1 hover:underline cursor-pointer"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>Restaurar Padrão</span>
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCriarNovaMensagem}
+                  disabled={modelos.length >= 10}
+                  className={`text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+                    modelos.length >= 10
+                      ? "bg-slate-800 text-slate-500 cursor-not-allowed opacity-60"
+                      : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-950/40"
+                  }`}
+                  title={modelos.length >= 10 ? "Limite máximo de 10 mensagens" : "Criar nova mensagem"}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Nova Mensagem ({modelos.length}/10)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRestaurarPadrao}
+                  className="text-[10px] text-slate-400 hover:text-white flex items-center gap-1 hover:underline cursor-pointer"
+                  title="Restaurar mensagens de fábrica"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Padrões</span>
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-              {MODELOS_PARABENS_PRONTOS.map((mod) => (
-                <button
+            {/* Grid dos Modelos */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {modelos.map((mod) => (
+                <div
                   key={mod.id}
-                  type="button"
-                  onClick={() => handleAplicarModelo(mod)}
-                  className="p-3 rounded-2xl bg-slate-950/70 hover:bg-slate-800/80 border border-white/5 hover:border-pink-500/40 transition-all text-left flex items-start gap-2.5 cursor-pointer group"
+                  onClick={() => setSelectedModeloId(mod.id)}
+                  className={`p-3 rounded-2xl border text-left flex items-start justify-between gap-2 transition-all cursor-pointer relative ${
+                    selectedModeloId === mod.id
+                      ? "bg-pink-600/20 border-pink-500 shadow-lg shadow-pink-950/40 ring-1 ring-pink-500/50"
+                      : "bg-slate-950/70 border-white/5 hover:bg-slate-800/80 hover:border-white/15"
+                  }`}
                 >
-                  <span className="text-xl shrink-0 group-hover:scale-110 transition-transform">
-                    {mod.icone}
-                  </span>
-                  <div className="min-w-0">
-                    <span className="text-xs font-black text-white group-hover:text-pink-300 transition-colors block truncate">
-                      {mod.nome}
-                    </span>
-                    <span className="text-[10px] text-slate-400 line-clamp-2 mt-0.5">
-                      {mod.texto.split("\n")[0]}
-                    </span>
+                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                    <span className="text-xl shrink-0 mt-0.5">{mod.icone || "🎂"}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-xs font-black truncate block ${
+                          selectedModeloId === mod.id ? "text-pink-300" : "text-white"
+                        }`}>
+                          {mod.nome}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 line-clamp-1 mt-0.5 block">
+                        {mod.texto.split("\n")[0]}
+                      </span>
+                    </div>
                   </div>
-                </button>
+
+                  {modelos.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleApagarModelo(mod.id);
+                      }}
+                      className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer shrink-0"
+                      title="Apagar esta mensagem da memória"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>
 
-          {/* 2. TAGS DINÂMICAS PARA INSERIR */}
-          <div className="bg-slate-950/70 p-3.5 rounded-2xl border border-white/5 space-y-2">
-            <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-              🏷️ Clique nas etiquetas para inserir na sua mensagem:
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{cliente}")}
-                className="px-2.5 py-1 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 text-pink-300 border border-pink-500/30 text-xs font-bold transition-all cursor-pointer"
-                title="Nome do aniversariante"
-              >
-                + &#123;cliente&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{empresa}")}
-                className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer"
-                title="Nome da empresa"
-              >
-                + &#123;empresa&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{desconto}")}
-                className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
-                title="Desconto oferecido"
-              >
-                + &#123;desconto&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{presente}")}
-                className="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all cursor-pointer"
-                title="Brinde ou presente"
-              >
-                + &#123;presente&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{telefone}")}
-                className="px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-bold transition-all cursor-pointer"
-                title="WhatsApp da sua empresa"
-              >
-                + &#123;telefone&#125;
-              </button>
-            </div>
-          </div>
-
-          {/* 3. EDITOR DE TEXTO DA MENSAGEM */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-black uppercase text-slate-200 tracking-wider flex items-center justify-between">
-              <span>Mensagem de Aniversário (Texto do WhatsApp)</span>
-              <span className="text-[10px] text-slate-400 font-mono">
-                {mensagemTexto.length} caracteres
+          {/* 2. CAMPOS DE EDIÇÃO DO MODELO SELECIONADO */}
+          <div className="bg-slate-950/70 p-4 rounded-2xl border border-white/10 space-y-3">
+            <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2">
+              <span className="text-xs font-black uppercase text-pink-300 flex items-center gap-1.5">
+                <Edit3 className="w-3.5 h-3.5 text-pink-400" />
+                <span>Editando: {nomeEdit}</span>
               </span>
-            </label>
-            <textarea
-              rows={6}
-              value={mensagemTexto}
-              onChange={(e) => setMensagemTexto(e.target.value)}
-              className="w-full bg-slate-950 border border-white/10 rounded-2xl p-3.5 text-xs text-white leading-relaxed outline-none focus:border-pink-500 font-sans"
-              placeholder="Escreva a mensagem que será enviada aos aniversariantes..."
-            />
+              <span className="text-[10px] text-slate-400 font-mono">
+                {textoEdit.length} caracteres
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-[10px] font-black uppercase text-slate-300">
+                  Nome do Modelo / Título
+                </label>
+                <input
+                  type="text"
+                  value={nomeEdit}
+                  onChange={(e) => setNomeEdit(e.target.value)}
+                  placeholder="Ex: Barbearia - Aniversário VIP"
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-pink-500 font-bold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300">
+                  Segmento / Categoria
+                </label>
+                <select
+                  value={categoriaEdit}
+                  onChange={(e) => setCategoriaEdit(e.target.value as any)}
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-pink-500 font-bold"
+                >
+                  <option value="barbearia">💈 Barbearia</option>
+                  <option value="salao">💇‍♀️ Salão de Beleza</option>
+                  <option value="manicure">💅 Manicure</option>
+                  <option value="festas">🎂 Festas & Encomendas</option>
+                  <option value="desconto">🎁 Desconto / Cupom</option>
+                  <option value="presente">⭐ Presente / Brinde</option>
+                  <option value="carinhoso">❤️ Carinhoso</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 3. TAGS DINÂMICAS */}
+            <div className="space-y-1.5 pt-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
+                🏷️ Clique para inserir tags automáticas no texto:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{cliente}")}
+                  className="px-2.5 py-1 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 text-pink-300 border border-pink-500/30 text-xs font-bold transition-all cursor-pointer"
+                  title="Nome do aniversariante"
+                >
+                  + &#123;cliente&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{empresa}")}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer"
+                  title="Nome da sua empresa"
+                >
+                  + &#123;empresa&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{desconto}")}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
+                  title="Cupom ou desconto oferecido"
+                >
+                  + &#123;desconto&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{presente}")}
+                  className="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all cursor-pointer"
+                  title="Brinde especial"
+                >
+                  + &#123;presente&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{telefone}")}
+                  className="px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-bold transition-all cursor-pointer"
+                  title="WhatsApp da sua empresa"
+                >
+                  + &#123;telefone&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{link_agenda}")}
+                  className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
+                  title="Link direto da agenda do cliente"
+                >
+                  + &#123;link_agenda&#125;
+                </button>
+              </div>
+            </div>
+
+            {/* Textarea */}
+            <div className="space-y-1">
+              <textarea
+                rows={5}
+                value={textoEdit}
+                onChange={(e) => setTextoEdit(e.target.value)}
+                className="w-full bg-slate-900 border border-white/10 rounded-2xl p-3.5 text-xs text-white leading-relaxed outline-none focus:border-pink-500 font-sans"
+                placeholder="Escreva a mensagem personalizada de aniversário..."
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+              <button
+                type="button"
+                onClick={handleSalvarModeloAtual}
+                className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md shadow-pink-900/30 cursor-pointer active:scale-95"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>Salvar Esta Mensagem na Memória 💾</span>
+              </button>
+
+              {modelos.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => handleApagarModelo(selectedModeloId)}
+                  className="px-3 py-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Apagar Mensagem</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 4. PRÉVIA EM TEMPO REAL NO WHATSAPP */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1.5">
-                <MessageCircle className="w-4 h-4 text-emerald-400" /> Prévia da Mensagem no WhatsApp:
+                <MessageCircle className="w-4 h-4 text-emerald-400" /> Prévia da Mensagem Pronta:
               </span>
-              <span className="text-[10px] text-slate-400">
-                Simulação com cliente <strong>{clienteExemplo}</strong>
-              </span>
+              <button
+                type="button"
+                onClick={handleCopiarTexto}
+                className="text-[10px] text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold cursor-pointer"
+              >
+                <Copy className="w-3 h-3" />
+                <span>Copiar Texto</span>
+              </button>
             </div>
 
             <div className="bg-[#0b141a] p-4 rounded-2xl border border-white/10 relative overflow-hidden shadow-inner">
@@ -326,22 +554,34 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
         </div>
 
         {/* Footer */}
-        <div className="p-4 sm:p-5 border-t border-white/10 bg-slate-950/90 flex items-center justify-end gap-3 shrink-0">
+        <div className="p-4 sm:p-5 border-t border-white/10 bg-slate-950/90 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <button
             type="button"
             onClick={onClose}
             className="px-4 py-2.5 rounded-xl border border-white/10 text-slate-300 hover:text-white hover:bg-white/5 text-xs font-bold transition-all cursor-pointer"
           >
-            Cancelar
+            Fechar
           </button>
-          <button
-            type="button"
-            onClick={handleSalvar}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-pink-900/30 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
-          >
-            <Save className="w-4 h-4" />
-            <span>Salvar Mensagem Padrão 🎂</span>
-          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCopiarTexto}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Copy className="w-4 h-4" />
+              <span>Copiar Mensagem</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleEnviarWhatsApp}
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-950/40 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+            >
+              <Send className="w-4 h-4" />
+              <span>Enviar no WhatsApp 🎉</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

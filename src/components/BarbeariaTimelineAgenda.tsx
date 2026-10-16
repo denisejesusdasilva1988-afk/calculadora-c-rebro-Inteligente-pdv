@@ -105,14 +105,14 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
   onDeleteAgendamento,
   formatCurrency = (v) => `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`,
   isClientView = false,
-  companyPhone = "(21) 96671-3263",
-  companyName = "Barbearia & Salão Cérebro PDV",
+  companyPhone = "",
+  companyName = "Nossa Empresa",
   allowCaixaAgendar = true,
   isCaixa = false,
   onSelectSlotToBook,
   onUpdateProfissional,
   onOpenComunicados,
-  showNotification = () => {}
+  showNotification = (_msg?: string, _type?: "success" | "error" | "info") => {}
 }) => {
   // Data selecionada (padrão hoje)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
@@ -276,7 +276,18 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
       const waUrl = cleanCompanyPhone
         ? `https://wa.me/55${cleanCompanyPhone}?text=${msg}`
         : `https://wa.me/?text=${msg}`;
-      window.open(waUrl, "_blank");
+      try {
+        const link = document.createElement("a");
+        link.href = waUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch {
+        window.open(waUrl, "_blank");
+      }
+      showNotification("Agendamento registrado! Abrindo WhatsApp para confirmação... 📲✅", "success");
     }
   };
 
@@ -285,19 +296,30 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
     const cleanPhone = (ag.clienteTelefone || "").replace(/\D/g, "");
     const dataFormatada = ag.data.split("-").reverse().join("/");
     const horaFimStr = ag.horarioFim ? ` às ${ag.horarioFim}` : "";
-    const msg = encodeURIComponent(
+    const rawMsg =
       `Olá, *${ag.clienteNome}*! 💈✂️\n\n` +
       `Lembramos do seu agendamento na *${companyName}*:\n` +
       `📅 *Dia:* ${dataFormatada}\n` +
       `⏰ *Horário:* ${ag.horario}${horaFimStr}\n` +
       `👤 *Profissional:* ${ag.profissionalNome}\n` +
       `✂️ *Serviço:* ${ag.servico}\n\n` +
-      `Estamos te esperando! Caso precise reagendar, avise-nos com antecedência.`
-    );
+      `Estamos te esperando! Caso precise reagendar, avise-nos com antecedência.`;
+    const msg = encodeURIComponent(rawMsg);
     const waUrl = cleanPhone
       ? `https://wa.me/55${cleanPhone}?text=${msg}`
       : `https://wa.me/?text=${msg}`;
-    window.open(waUrl, "_blank");
+    try {
+      const link = document.createElement("a");
+      link.href = waUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      window.open(waUrl, "_blank");
+    }
+    showNotification("Lembrete enviado para o WhatsApp do cliente! 📲", "success");
   };
 
   return (

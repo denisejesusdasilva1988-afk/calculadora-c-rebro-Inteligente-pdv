@@ -23,7 +23,10 @@ import {
   Building2,
   ArrowRight,
   PartyPopper,
-  X
+  X,
+  Copy,
+  ExternalLink,
+  AlertCircle
 } from "lucide-react";
 import { ProfissionalBarbearia, AgendamentoServico, EncomendaFesta } from "./BarbeariaSalaoEventosModule";
 import { BarbeariaTimelineAgenda } from "./BarbeariaTimelineAgenda";
@@ -122,6 +125,31 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
   const [clientName, setClientName] = useState<string>("");
   const [clientPhone, setClientPhone] = useState<string>("");
   const [agendamentoSucesso, setAgendamentoSucesso] = useState(false);
+
+  // Estados de envio WhatsApp e feedback
+  const [lastWhatsAppUrl, setLastWhatsAppUrl] = useState<string>("");
+  const [lastWhatsAppMessage, setLastWhatsAppMessage] = useState<string>("");
+  const [formError, setFormError] = useState<string>("");
+  const [copiedMessage, setCopiedMessage] = useState<boolean>(false);
+
+  // Ler profissional do link público (?prof=id ou ?segmento=...)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const pId = params.get("prof");
+        if (pId) {
+          const match = profissionais.find((p) => p.id === pId);
+          if (match) {
+            setSelectedProfId(match.id);
+            if (match.categoria && match.categoria !== "todos") {
+              setSelectedSegment(match.categoria as any);
+            }
+          }
+        }
+      } catch {}
+    }
+  }, [profissionais]);
 
   // Atualiza primeiro serviço quando o segmento muda
   useEffect(() => {
@@ -243,8 +271,9 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
 
   const handleConfirmarAgendamento = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError("");
     if (!clientName.trim() || !clientPhone.trim()) {
-      alert("Por favor, preencha seu nome e seu WhatsApp para confirmar o horário!");
+      setFormError("Por favor, preencha seu Nome e seu WhatsApp para confirmar o horário!");
       return;
     }
 
@@ -263,33 +292,47 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
     };
 
     onSaveAgendamento(novoAg);
-    setAgendamentoSucesso(true);
 
     // Enviar mensagem pronta no WhatsApp do estabelecimento
-    const cleanCompanyPhone = companyPhone.replace(/\D/g, "");
+    const cleanCompanyPhone = (companyPhone || "").replace(/\D/g, "");
     const dataFormatada = selectedDate.split("-").reverse().join("/");
-    const msg = encodeURIComponent(
-      `Olá! 💈✨ Acabei de agendar um horário pelo link:\n\n` +
+    const rawMsg =
+      `Olá! 💈✨ Acabei de agendar um horário pelo link da agenda:\n\n` +
       `📅 *Data:* ${dataFormatada} às ${selectedTime}\n` +
       `✂️ *Serviço:* ${selectedServico}\n` +
       `👤 *Profissional:* ${selectedProf?.nome || "Qualquer Disponível"}\n` +
       `💰 *Valor Estimado:* ${formatCurrency(precoEstimado)}\n\n` +
       `*Meu Nome:* ${clientName.trim()}\n` +
       `*Meu WhatsApp:* ${clientPhone.trim()}\n\n` +
-      `Por favor, me confirme este horário! Obrigado(a)!`
-    );
+      `Por favor, me confirme este horário! Obrigado(a)!`;
 
+    const encodedMsg = encodeURIComponent(rawMsg);
     const waUrl = cleanCompanyPhone
-      ? `https://wa.me/55${cleanCompanyPhone}?text=${msg}`
-      : `https://wa.me/?text=${msg}`;
+      ? `https://wa.me/55${cleanCompanyPhone}?text=${encodedMsg}`
+      : `https://wa.me/?text=${encodedMsg}`;
 
-    window.open(waUrl, "_blank");
+    setLastWhatsAppUrl(waUrl);
+    setLastWhatsAppMessage(rawMsg);
+    setAgendamentoSucesso(true);
+
+    try {
+      const a = document.createElement("a");
+      a.href = waUrl;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {
+      window.open(waUrl, "_blank");
+    }
   };
 
   const handleConfirmarEncomenda = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError("");
     if (!clientName.trim() || !clientPhone.trim() || !eventoDescricao.trim()) {
-      alert("Por favor, preencha seu nome, WhatsApp e os itens da encomenda!");
+      setFormError("Por favor, preencha seu Nome, WhatsApp e a descrição dos itens da encomenda!");
       return;
     }
 
@@ -310,25 +353,38 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
     };
 
     onSaveEncomenda(novaEnc);
-    setEncomendaSucesso(true);
 
-    const cleanCompanyPhone = companyPhone.replace(/\D/g, "");
+    const cleanCompanyPhone = (companyPhone || "").replace(/\D/g, "");
     const dataFormatada = eventoData.split("-").reverse().join("/");
-    const msg = encodeURIComponent(
+    const rawMsg =
       `Olá! 🍰🎉 Gostaria de solicitar um orçamento para encomenda de festa:\n\n` +
       `📅 *Data da Festa/Entrega:* ${dataFormatada} às ${eventoHora}\n` +
       `🎈 *Tipo de Evento:* ${eventoTipo}\n` +
       `📦 *Itens Desejados:* ${eventoDescricao.trim()}\n\n` +
       `*Meu Nome:* ${clientName.trim()}\n` +
       `*Meu WhatsApp:* ${clientPhone.trim()}\n\n` +
-      `Aguardo seu retorno com os valores e disponibilidade! Obrigado(a)!`
-    );
+      `Aguardo seu retorno com os valores e disponibilidade! Obrigado(a)!`;
 
+    const encodedMsg = encodeURIComponent(rawMsg);
     const waUrl = cleanCompanyPhone
-      ? `https://wa.me/55${cleanCompanyPhone}?text=${msg}`
-      : `https://wa.me/?text=${msg}`;
+      ? `https://wa.me/55${cleanCompanyPhone}?text=${encodedMsg}`
+      : `https://wa.me/?text=${encodedMsg}`;
 
-    window.open(waUrl, "_blank");
+    setLastWhatsAppUrl(waUrl);
+    setLastWhatsAppMessage(rawMsg);
+    setEncomendaSucesso(true);
+
+    try {
+      const a = document.createElement("a");
+      a.href = waUrl;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {
+      window.open(waUrl, "_blank");
+    }
   };
 
   return (
@@ -374,31 +430,54 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
             </p>
           </div>
 
-          {/* Switch Salão vs Encomendas */}
-          <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-white/10 gap-1.5">
+          {/* Segmentos Separados: Barbeiro, Salão de Beleza, Manicure, Festas e Encomendas */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 bg-slate-950 p-1.5 rounded-2xl border border-white/10 gap-1.5">
             <button
               type="button"
-              onClick={() => setSelectedType("salao")}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
-                selectedType === "salao"
+              onClick={() => setSelectedSegment("barbearia")}
+              className={`py-2 px-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                selectedSegment === "barbearia"
                   ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
                   : "text-slate-400 hover:text-white"
               }`}
             >
-              <Scissors className="w-4 h-4" />
-              <span>Marcar Horário 💈</span>
+              <span>💈 Barbearia</span>
             </button>
+
             <button
               type="button"
-              onClick={() => setSelectedType("encomenda")}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
-                selectedType === "encomenda"
+              onClick={() => setSelectedSegment("salao")}
+              className={`py-2 px-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                selectedSegment === "salao"
+                  ? "bg-purple-600 text-white shadow-lg shadow-purple-600/20"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <span>💇‍♀️ Salão</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedSegment("manicure")}
+              className={`py-2 px-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                selectedSegment === "manicure"
                   ? "bg-pink-600 text-white shadow-lg shadow-pink-600/20"
                   : "text-slate-400 hover:text-white"
               }`}
             >
-              <Cake className="w-4 h-4" />
-              <span>Encomenda de Festas 🍰</span>
+              <span>💅 Manicure</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedSegment("encomendas")}
+              className={`py-2 px-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                selectedSegment === "encomendas"
+                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <span>🍰 Festas</span>
             </button>
           </div>
         </div>
@@ -432,26 +511,119 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
             </div>
           </div>
         ) : agendamentoSucesso ? (
-          <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-6 sm:p-8 text-center space-y-4 shadow-2xl animate-fadeIn">
-            <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/40">
-              <CheckCircle2 className="w-8 h-8" />
+          <div className="bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-6 sm:p-8 text-center space-y-5 shadow-2xl animate-fadeIn">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border-2 border-emerald-500/40 shadow-lg shadow-emerald-500/20">
+              <CheckCircle2 className="w-9 h-9" />
             </div>
-            <h2 className="text-lg font-black text-white">
-              Agendamento Enviado com Sucesso! 🎉
-            </h2>
-            <p className="text-xs text-slate-300 leading-relaxed font-medium">
-              Seu horário para <strong>{selectedServico}</strong> no dia{" "}
-              <strong>{selectedDate.split("-").reverse().join("/")}</strong> às{" "}
-              <strong>{selectedTime}</strong> foi enviado para o WhatsApp da equipe!
-            </p>
-            <button
-              onClick={() => setAgendamentoSucesso(false)}
-              className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-black uppercase px-6 py-3 rounded-2xl transition-all"
-            >
-              Fazer Outro Agendamento
-            </button>
+            <div className="space-y-1.5">
+              <h2 className="text-xl font-black text-white">
+                Agendamento Reservado com Sucesso! 🎉
+              </h2>
+              <p className="text-xs text-slate-300 leading-relaxed font-medium">
+                Seu horário para <strong>{selectedServico}</strong> no dia{" "}
+                <strong className="text-amber-400">{selectedDate.split("-").reverse().join("/")}</strong> às{" "}
+                <strong className="text-amber-400">{selectedTime}</strong> com{" "}
+                <strong>{selectedProf?.nome || "Equipe"}</strong> está pronto para envio!
+              </p>
+            </div>
+
+            {/* BOTÃO PRINCIPAL DE ENVIO AO WHATSAPP */}
+            <div className="space-y-2 pt-2">
+              <a
+                href={lastWhatsAppUrl || `https://wa.me/?text=${encodeURIComponent(lastWhatsAppMessage)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-4 px-6 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-2xl font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2.5 shadow-xl shadow-emerald-600/30 transition-all active:scale-98"
+              >
+                <MessageCircle className="w-5 h-5" />
+                <span>Abrir WhatsApp do Estabelecimento 📲</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(lastWhatsAppMessage);
+                  setCopiedMessage(true);
+                  setTimeout(() => setCopiedMessage(false), 3000);
+                }}
+                className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-white/10 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <Copy className="w-4 h-4 text-emerald-400" />
+                <span>
+                  {copiedMessage ? "Mensagem Copiada! Cole no WhatsApp ✅" : "Copiar Texto da Mensagem"}
+                </span>
+              </button>
+            </div>
+
+            <div className="pt-2">
+              <button
+                onClick={() => {
+                  setAgendamentoSucesso(false);
+                  setClientName("");
+                }}
+                className="text-slate-400 hover:text-white text-xs font-bold underline transition-all cursor-pointer"
+              >
+                ← Fazer Outro Agendamento
+              </button>
+            </div>
           </div>
-        ) : selectedType === "salao" ? (
+        ) : encomendaSucesso ? (
+          <div className="bg-slate-900 border-2 border-pink-500/50 rounded-3xl p-6 sm:p-8 text-center space-y-5 shadow-2xl animate-fadeIn">
+            <div className="w-16 h-16 rounded-full bg-pink-500/20 text-pink-400 flex items-center justify-center mx-auto border-2 border-pink-500/40 shadow-lg shadow-pink-500/20">
+              <PartyPopper className="w-9 h-9" />
+            </div>
+            <div className="space-y-1.5">
+              <h2 className="text-xl font-black text-white">
+                Pedido de Encomenda Registrado! 🍰🎉
+              </h2>
+              <p className="text-xs text-slate-300 leading-relaxed font-medium">
+                Sua solicitação de encomenda para a festa no dia{" "}
+                <strong className="text-pink-400">{eventoData.split("-").reverse().join("/")}</strong> às{" "}
+                <strong className="text-pink-400">{eventoHora}</strong> está pronta para envio ao WhatsApp!
+              </p>
+            </div>
+
+            {/* BOTÃO PRINCIPAL DE ENVIO AO WHATSAPP */}
+            <div className="space-y-2 pt-2">
+              <a
+                href={lastWhatsAppUrl || `https://wa.me/?text=${encodeURIComponent(lastWhatsAppMessage)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-4 px-6 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white rounded-2xl font-black text-sm uppercase tracking-wide flex items-center justify-center gap-2.5 shadow-xl shadow-pink-600/30 transition-all active:scale-98"
+              >
+                <MessageCircle className="w-5 h-5" />
+                <span>Abrir WhatsApp para Enviar Encomenda 🍰📲</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(lastWhatsAppMessage);
+                  setCopiedMessage(true);
+                  setTimeout(() => setCopiedMessage(false), 3000);
+                }}
+                className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-white/10 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <Copy className="w-4 h-4 text-pink-400" />
+                <span>
+                  {copiedMessage ? "Mensagem Copiada! Cole no WhatsApp ✅" : "Copiar Texto da Encomenda"}
+                </span>
+              </button>
+            </div>
+
+            <div className="pt-2">
+              <button
+                onClick={() => {
+                  setEncomendaSucesso(false);
+                  setEventoDescricao("");
+                }}
+                className="text-slate-400 hover:text-white text-xs font-bold underline transition-all cursor-pointer"
+              >
+                ← Fazer Outra Solicitação
+              </button>
+            </div>
+          </div>
+        ) : selectedSegment !== "encomendas" ? (
           <div className="space-y-4">
             {/* Seletor de Modo: Ver Grade da Agenda (Foto) vs Formulário */}
             <div className="flex bg-slate-900 border border-white/10 p-1.5 rounded-2xl gap-1.5">
@@ -569,7 +741,7 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
                     onChange={(e) => setSelectedServico(e.target.value)}
                     className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-3 text-xs text-white outline-none font-bold focus:border-amber-500"
                   >
-                    {SERVICOS_PREDEFINIDOS.map((s, idx) => (
+                    {servicosAtuais.map((s, idx) => (
                       <option key={idx} value={s.nome}>
                         {s.nome} - {formatCurrency(s.preco)}
                       </option>
@@ -714,6 +886,13 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
                   </div>
                 </div>
 
+                {formError && (
+                  <div className="p-3 bg-red-950/80 border border-red-500/50 rounded-xl text-red-200 text-xs font-bold flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <span>{formError}</span>
+                  </div>
+                )}
+
                 <div className="pt-2">
                   <button
                     type="submit"
@@ -826,6 +1005,13 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
                 />
               </div>
             </div>
+
+            {formError && (
+              <div className="p-3 bg-red-950/80 border border-red-500/50 rounded-xl text-red-200 text-xs font-bold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
 
             <div className="pt-2">
               <button

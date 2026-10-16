@@ -4,13 +4,14 @@
  * 
  * Modal de Comunicados & Lembretes da Agenda (WhatsApp)
  * Permite ao proprietário ou profissional:
- * 1. Escolher comunicados prontos (Lembrete, Confirmação, Agenda Aberta, Vagas de Hoje, Feriado, Agradecimento)
- * 2. Personalizar o texto livremente com tags dinâmicas ({cliente}, {empresa}, {data}, {horario}, {profissional}, {servico}, {telefone}, {link_agenda})
- * 3. Enviar direto no WhatsApp com 1 clique ou Copiar texto pronto para colar em grupos e status
- * 4. Salvar modelos personalizados permanentemente
+ * 1. Gerenciar até 10 comunicados personalizados gravados na memória do app (localStorage + Firestore)
+ * 2. Modelos prontos separados para Barbearia, Salão de Beleza, Manicure, Festas/Encomendas, Lembretes e Vagas
+ * 3. Criar novos comunicados, editar e apagar os que não deseja mais
+ * 4. Inserir tags automáticas: {cliente}, {empresa}, {data}, {horario}, {profissional}, {servico}, {valor}, {telefone}, {link_agenda}
+ * 5. Prévia em tempo real no WhatsApp, envio em 1 clique e cópia de texto pronto para colar em redes sociais
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   X,
   Megaphone,
@@ -23,9 +24,13 @@ import {
   RotateCcw,
   Check,
   MessageCircle,
+  Plus,
+  Trash2,
+  Edit3,
+  Scissors,
+  PartyPopper,
   Zap,
-  Star,
-  Users
+  Building2
 } from "lucide-react";
 import { AgendamentoServico } from "./BarbeariaSalaoEventosModule";
 
@@ -33,18 +38,9 @@ export interface ModeloComunicado {
   id: string;
   nome: string;
   icone: string;
-  tipo:
-    | "lembrete"
-    | "confirmacao"
-    | "agenda_aberta"
-    | "vagas_hoje"
-    | "feriado"
-    | "pos_atendimento"
-    | "festas_encomendas"
-    | "manicure_unhas"
-    | "barbearia_fds"
-    | "salao_beleza";
+  categoria: "barbearia" | "salao" | "manicure" | "festas" | "lembrete" | "geral";
   texto: string;
+  isCustom?: boolean;
 }
 
 export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
@@ -52,7 +48,7 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     id: "com_lembrete",
     nome: "Lembrete de Horário Marcado",
     icone: "⏰",
-    tipo: "lembrete",
+    categoria: "lembrete",
     texto:
       "Olá, {cliente}! ⏰💈\n\nPassando para lembrar do seu horário marcado na *{empresa}*:\n\n📅 *Data:* {data}\n🕒 *Horário:* {horario}\n✂️ *Serviço:* {servico}\n👤 *Profissional:* {profissional}\n💰 *Valor:* {valor}\n\nEstamos te esperando! Caso precise reagendar ou cancelar, avise-nos com antecedência por aqui: {telefone}. 👍"
   },
@@ -60,7 +56,7 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     id: "com_confirmacao",
     nome: "Confirmação Imediata de Agendamento",
     icone: "✅",
-    tipo: "confirmacao",
+    categoria: "lembrete",
     texto:
       "Tudo certo, {cliente}! 🎉\n\nSeu agendamento na *{empresa}* foi confirmado com sucesso!\n\n📅 *Dia:* {data} às {horario}\n👤 *Com:* {profissional}\n✂️ *Serviço:* {servico}\n\nMuito obrigado pela confiança! Qualquer dúvida, estamos à disposição: {telefone}. Até breve! ✨"
   },
@@ -68,15 +64,15 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     id: "com_festas_encomendas",
     nome: "Festas & Encomendas — Antecipe seu Pedido",
     icone: "🎂",
-    tipo: "festas_encomendas",
+    categoria: "festas",
     texto:
-      "🎂🎉 *COMUNICADO DE ENCOMENDAS DE FESTAS — {empresa}* 🍰🎈\n\nVai comemorar aniversário, casamento ou evento nos próximos dias? Nossa agenda de encomendas está a todo vapor!\n\n✨ *Opções Disponíveis:*\n• Bolos confeitados e decorados artesanais 🎂\n• Centos de salgadinhos fritos e assados crocantes 🥟\n• Docinhos tradicionais e gourmets 🍫\n• Kits Festa Completos com refrigerante e descartáveis 🥳\n\n👉 *Antecipe seu pedido pelo link:* {link_agenda}\n📲 Ou faça seu orçamento direto aqui no WhatsApp: {telefone}!\n\nGaranta sua data e garanta os melhores sabores para a sua comemoração! ❤️"
+      "🎂🎉 *COMUNICADO DE ENCOMENDAS DE FESTAS — {empresa}* 🍰🎈\n\nVai comemorar aniversário, casamento ou evento nos próximos dias? Nossa agenda de encomendas está a todo vapor!\n\n✨ *Opções Disponíveis:*\n• Bolos confeitados e decorados artesanais 🎂\n• Centos de salgadinhos fritos e assados crocantes 🥟\n• Docinhos tradicionais e gourmets 🍫\n• Kits Festa Completos com refrigerante e descartáveis 🥳\n\n👉 *Antecipe seu pedido pelo link da nossa agenda:* {link_agenda}\n📲 Ou faça seu orçamento direto aqui no WhatsApp: {telefone}!\n\nGaranta sua data e garanta os melhores sabores para a sua comemoração! ❤️"
   },
   {
     id: "com_manicure_unhas",
     nome: "Manicure & Esmalteria — Vagas da Semana",
     icone: "💅",
-    tipo: "manicure_unhas",
+    categoria: "manicure",
     texto:
       "💅✨ *HORÁRIOS DE MANICURE & NAILS NA {empresa}!* 💖\n\nSexta e sábado chegando e você não vai ficar sem fazer as unhas, né? As vagas para esmaltação, manicure, pedicure e alongamento em gel estão disputadas!\n\n👉 *Escolha seu melhor horário no link:* {link_agenda}\n📲 Ou responda esta mensagem para agendar: {telefone}\n\nVenha brilhar com unhas impecáveis para o fim de semana! 🥂🌸"
   },
@@ -84,7 +80,7 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     id: "com_barbearia_fds",
     nome: "Barbearia — Trato no Visual de Fim de Semana",
     icone: "💈",
-    tipo: "barbearia_fds",
+    categoria: "barbearia",
     texto:
       "💈👊 *AGENDA DA BARBEARIA LIBERADA NA {empresa}!* ✂️🔥\n\nSextou ou sábado chegando? Não deixe para cortar o cabelo e fazer a barba de última hora! Garanta já o seu degradê, barba terapia ou corte na régua:\n\n👉 *Reserve seu horário online:* {link_agenda}\n📲 Ou mande seu nome no WhatsApp: {telefone}\n\nTrato no visual de respeito te esperando aqui! 🚀"
   },
@@ -92,7 +88,7 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     id: "com_salao_beleza",
     nome: "Salão de Beleza — Cuidado, Escova & Mechas",
     icone: "💇‍♀️",
-    tipo: "salao_beleza",
+    categoria: "salao",
     texto:
       "🌸✨ *COMUNICADO DE ATENDIMENTO — {empresa}* 💇‍♀️💖\n\nQuer renovar o visual, fazer aquela escova perfeita, hidratação profunda ou realçar a cor dos seus cabelos?\n\nNossa equipe está com horários abertos para esta semana! Agende seu momento especial de autocuidado:\n\n👉 *Agende online:* {link_agenda}\n📲 WhatsApp de atendimento: {telefone}\n\nVocê merece se sentir radiante todos os dias! Venha nos visitar! ✨"
   },
@@ -100,7 +96,7 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     id: "com_agenda_aberta",
     nome: "Aviso de Agenda da Semana Aberta",
     icone: "📅",
-    tipo: "agenda_aberta",
+    categoria: "geral",
     texto:
       "📢 *AGENDA DA SEMANA ABERTA NA {empresa}!* 📅✨\n\nNossos horários de atendimento para esta semana já estão disponíveis! Garanta sua vaga com seu profissional favorito antes que esgote:\n\n👉 *Agende online pelo link:* {link_agenda}\n📲 Ou mande uma mensagem aqui no WhatsApp: {telefone}!\n\nEsperamos por você! 🔥"
   },
@@ -108,7 +104,7 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     id: "com_vagas_hoje",
     nome: "Vagas de Hoje / Horários Livres de Última Hora",
     icone: "⚡",
-    tipo: "vagas_hoje",
+    categoria: "geral",
     texto:
       "⚡ *VAGAS DE ÚLTIMA HORA DISPONÍVEIS HOJE NA {empresa}!* 💈✂️\n\nAbriram horários livres para atendimento no dia de hoje! Quem quiser aproveitar para dar aquele trato no visual ou cuidar da beleza:\n\n👉 *Veja os horários livres e reserve:* {link_agenda}\n💬 Ou mande seu nome aqui no WhatsApp: {telefone}!\n\nCorra que as vagas são limitadas! 🚀"
   },
@@ -116,7 +112,7 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     id: "com_feriado",
     nome: "Comunicado de Feriado / Horário Especial",
     icone: "🏖️",
-    tipo: "feriado",
+    categoria: "geral",
     texto:
       "📢 *COMUNICADO IMPORTANTE — {empresa}* 🗓️\n\nInformamos a todos os nossos clientes e amigos que neste feriado/fim de semana atenderemos em *horário especial*!\n\nAntecipe seu agendamento para garantir seu horário com tranquilidade:\n👉 *Link de agendamento:* {link_agenda}\n📲 Dúvidas: {telefone}!\n\nAgradecemos a todos pela preferência! ❤️"
   },
@@ -124,11 +120,34 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     id: "com_pos_atendimento",
     nome: "Agradecimento Pós-Atendimento & Avaliação",
     icone: "⭐",
-    tipo: "pos_atendimento",
+    categoria: "geral",
     texto:
       "Olá, {cliente}! Muito obrigado pela visita hoje na *{empresa}*! ❤️\n\nEsperamos que tenha gostado do seu atendimento com {profissional} ({servico})!\n\nSua satisfação é a nossa maior prioridade. Se puder nos avaliar ou indicar para os amigos, ficaremos muito felizes! Até o próximo corte/cuidado! 🌟✂️"
   }
 ];
+
+const STORAGE_KEY_LIST_COMUNICADOS = "pdv_msg_comunicados_lista_v2";
+
+export function loadModelosComunicados(): ModeloComunicado[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_LIST_COMUNICADOS);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.slice(0, 10);
+      }
+    }
+  } catch {}
+  return [...MODELOS_COMUNICADOS_PRONTOS];
+}
+
+export function saveModelosComunicados(lista: ModeloComunicado[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_LIST_COMUNICADOS, JSON.stringify(lista.slice(0, 10)));
+  } catch (e) {
+    console.warn("Erro ao salvar comunicados:", e);
+  }
+}
 
 interface ModalComunicadosAgendaProps {
   isOpen: boolean;
@@ -149,48 +168,130 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
   clientAgendaUrl,
   agendamentos = [],
   formatCurrency = (v) => `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`,
-  showNotification = () => {}
+  showNotification = (_msg?: string, _type?: "success" | "error" | "info") => {}
 }) => {
-  const [selectedModeloId, setSelectedModeloId] = useState<string>("com_lembrete");
-  const [comunicadoTexto, setComunicadoTexto] = useState<string>(() => {
-    return (
-      localStorage.getItem("pdv_msg_comunicado_custom") ||
-      MODELOS_COMUNICADOS_PRONTOS[0].texto
-    );
+  const [modelos, setModelos] = useState<ModeloComunicado[]>(() => loadModelosComunicados());
+  const [selectedModeloId, setSelectedModeloId] = useState<string>(() => {
+    const list = loadModelosComunicados();
+    return list[0]?.id || "com_lembrete";
   });
+
+  const modeloAtual = modelos.find((m) => m.id === selectedModeloId) || modelos[0];
+  const [nomeEdit, setNomeEdit] = useState<string>(modeloAtual?.nome || "Comunicado");
+  const [categoriaEdit, setCategoriaEdit] = useState<ModeloComunicado["categoria"]>(modeloAtual?.categoria || "geral");
+  const [iconeEdit, setIconeEdit] = useState<string>(modeloAtual?.icone || "📢");
+  const [textoEdit, setTextoEdit] = useState<string>(modeloAtual?.texto || "");
 
   // Telefone e dados do destinatário teste/específico
   const [destinatarioNome, setDestinatarioNome] = useState("Cliente");
   const [destinatarioTelefone, setDestinatarioTelefone] = useState("");
   const [selectedAgendamentoId, setSelectedAgendamentoId] = useState<string>("");
 
+  useEffect(() => {
+    if (modeloAtual) {
+      setNomeEdit(modeloAtual.nome);
+      setCategoriaEdit(modeloAtual.categoria);
+      setIconeEdit(modeloAtual.icone);
+      setTextoEdit(modeloAtual.texto);
+    }
+  }, [selectedModeloId]);
+
   if (!isOpen) return null;
 
   // Se selecionou um agendamento da lista, preenche os dados automaticamente
   const agendamentoAlvo = agendamentos.find((a) => a.id === selectedAgendamentoId);
 
-  const previewFormatado = comunicadoTexto
+  const previewFormatado = textoEdit
     .replace(/{cliente}/g, agendamentoAlvo ? agendamentoAlvo.clienteNome : destinatarioNome)
     .replace(/{empresa}/g, companyName || "Nossa Empresa")
-    .replace(/{telefone}/g, companyPhone || "(21) 96671-3263")
-    .replace(/{link_agenda}/g, clientAgendaUrl || "https://wa.me/5521966713263")
+    .replace(/{telefone}/g, companyPhone || "WhatsApp da Empresa")
+    .replace(/{link_agenda}/g, clientAgendaUrl || "Link da Agenda")
     .replace(/{data}/g, agendamentoAlvo ? agendamentoAlvo.data.split("-").reverse().join("/") : "Hoje")
     .replace(/{horario}/g, agendamentoAlvo ? agendamentoAlvo.horario : "14:00")
     .replace(/{profissional}/g, agendamentoAlvo ? agendamentoAlvo.profissionalNome : "Equipe")
     .replace(/{servico}/g, agendamentoAlvo ? agendamentoAlvo.servico : "Atendimento")
     .replace(/{valor}/g, agendamentoAlvo ? formatCurrency(agendamentoAlvo.valor) : "R$ 45,00");
 
-  const handleCarregarModelo = (mod: ModeloComunicado) => {
-    setSelectedModeloId(mod.id);
-    setComunicadoTexto(mod.texto);
-    showNotification(`Comunicado "${mod.nome}" carregado! 📢`, "info");
+  // 1. Salvar Comunicado Atual
+  const handleSalvarModeloAtual = () => {
+    if (!textoEdit.trim()) {
+      showNotification("O texto do comunicado não pode ficar vazio!", "error");
+      return;
+    }
+    const updated = modelos.map((m) =>
+      m.id === selectedModeloId
+        ? {
+            ...m,
+            nome: nomeEdit.trim() || "Comunicado Personalizado",
+            categoria: categoriaEdit,
+            icone: iconeEdit || "📢",
+            texto: textoEdit.trim()
+          }
+        : m
+    );
+    setModelos(updated);
+    saveModelosComunicados(updated);
+    localStorage.setItem("pdv_msg_comunicado_custom", textoEdit.trim());
+    showNotification("Comunicado gravado com sucesso na memória do app! 💾✅", "success");
   };
 
+  // 2. Criar Novo Comunicado (Máximo 10)
+  const handleCriarNovoComunicado = () => {
+    if (modelos.length >= 10) {
+      showNotification("Limite máximo de 10 comunicados atingido! Apague um para cadastrar outro.", "error");
+      return;
+    }
+    const novoId = `custom_comunicado_${Date.now()}`;
+    const novoModelo: ModeloComunicado = {
+      id: novoId,
+      nome: `Novo Comunicado #${modelos.length + 1}`,
+      categoria: "geral",
+      icone: "📢",
+      texto:
+        "📢 *COMUNICADO — {empresa}* ✨\n\nOlá, {cliente}! Temos novidades e horários disponíveis para você!\n\n👉 *Acesse nossa agenda online:* {link_agenda}\n📲 Fale conosco no WhatsApp: {telefone}!",
+      isCustom: true
+    };
+    const updated = [...modelos, novoModelo];
+    setModelos(updated);
+    saveModelosComunicados(updated);
+    setSelectedModeloId(novoId);
+    showNotification("Novo comunicado criado! Agora você pode personalizar o texto.", "success");
+  };
+
+  // 3. Apagar Comunicado
+  const handleApagarModelo = (idParaApagar: string) => {
+    if (modelos.length <= 1) {
+      showNotification("Você precisa manter pelo menos 1 comunicado cadastrado!", "error");
+      return;
+    }
+    const mod = modelos.find((m) => m.id === idParaApagar);
+    const updated = modelos.filter((m) => m.id !== idParaApagar);
+    setModelos(updated);
+    saveModelosComunicados(updated);
+    setSelectedModeloId(updated[0].id);
+    showNotification(`Comunicado "${mod?.nome || "Modelo"}" apagado da memória! 🗑️`, "info");
+  };
+
+  // 4. Restaurar modelos de fábrica
+  const handleRestaurarPadrao = () => {
+    setModelos([...MODELOS_COMUNICADOS_PRONTOS]);
+    saveModelosComunicados(MODELOS_COMUNICADOS_PRONTOS);
+    setSelectedModeloId(MODELOS_COMUNICADOS_PRONTOS[0].id);
+    showNotification("Comunicados originais restaurados com sucesso! 🔄", "success");
+  };
+
+  // 5. Inserir Tag
+  const handleInserirTag = (tag: string) => {
+    setTextoEdit((prev) => prev + ` ${tag} `);
+  };
+
+  // 6. Copiar Texto
   const handleCopiarTexto = () => {
     navigator.clipboard.writeText(previewFormatado);
-    showNotification("Comunicado copiado com sucesso! 📋 Cole no Status ou no grupo do WhatsApp.", "success");
+    showNotification("Comunicado copiado com sucesso! 📋 Cole no Status, WhatsApp ou Instagram.", "success");
   };
 
+  // 7. Enviar no WhatsApp
   const handleEnviarWhatsApp = () => {
     const telAlvo = agendamentoAlvo
       ? agendamentoAlvo.clienteTelefone.replace(/\D/g, "")
@@ -204,18 +305,9 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
     window.open(waUrl, "_blank");
   };
 
-  const handleSalvarComoPadrao = () => {
-    localStorage.setItem("pdv_msg_comunicado_custom", comunicadoTexto.trim());
-    showNotification("Texto do comunicado salvo como modelo padrão! 💾✅", "success");
-  };
-
-  const handleInserirTag = (tag: string) => {
-    setComunicadoTexto((prev) => prev + ` ${tag} `);
-  };
-
   return (
-    <div className="fixed inset-0 z-[10060] flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
-      <div className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-3xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto text-left">
+    <div className="fixed inset-0 z-[10060] flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
+      <div className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto text-left">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-white/10 bg-slate-950/90 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
@@ -223,16 +315,16 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
               <Megaphone className="w-5 h-5 text-amber-400" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-white font-black text-sm sm:text-base tracking-tight">
-                  Comunicados & Lembretes da Agenda
+                  Comunicados & Lembretes da Agenda (Até 10 Mensagens)
                 </h3>
-                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                  Prontos & Personalizáveis
+                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9.5px] font-black uppercase px-2 py-0.5 rounded-full">
+                  {modelos.length} de 10 Cadastrados
                 </span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Envie lembretes de horários, avise sobre vagas abertas na semana ou envie mensagens personalizadas no WhatsApp.
+                Lembretes, agenda aberta, feriados e encomendas. Grave na memória e apague quando desejar.
               </p>
             </div>
           </div>
@@ -247,46 +339,88 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
         </div>
 
         {/* Scrollable Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
-          {/* 1. SELETOR DE MODELOS PRONTOS */}
-          <div className="space-y-3">
-            <span className="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-amber-400" /> Modelos Prontos de Comunicado:
-            </span>
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1 custom-scrollbar">
+          {/* 1. SELETOR DE MODELOS (ATÉ 10) */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-amber-400" /> Selecione o Comunicado para Usar ou Editar:
+              </span>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-              {MODELOS_COMUNICADOS_PRONTOS.map((mod) => (
+              <div className="flex items-center gap-2">
                 <button
-                  key={mod.id}
                   type="button"
-                  onClick={() => handleCarregarModelo(mod)}
-                  className={`p-3 rounded-2xl border text-left flex items-start gap-2.5 transition-all cursor-pointer group ${
+                  onClick={handleCriarNovoComunicado}
+                  disabled={modelos.length >= 10}
+                  className={`text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+                    modelos.length >= 10
+                      ? "bg-slate-800 text-slate-500 cursor-not-allowed opacity-60"
+                      : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-950/40"
+                  }`}
+                  title={modelos.length >= 10 ? "Limite máximo de 10 comunicados" : "Criar novo comunicado"}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Novo Comunicado ({modelos.length}/10)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRestaurarPadrao}
+                  className="text-[10px] text-slate-400 hover:text-white flex items-center gap-1 hover:underline cursor-pointer"
+                  title="Restaurar comunicados de fábrica"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Padrões</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {modelos.map((mod) => (
+                <div
+                  key={mod.id}
+                  onClick={() => setSelectedModeloId(mod.id)}
+                  className={`p-3 rounded-2xl border text-left flex items-start justify-between gap-2 transition-all cursor-pointer relative ${
                     selectedModeloId === mod.id
-                      ? "bg-amber-500/20 border-amber-500/60 shadow-md shadow-amber-950/50"
+                      ? "bg-amber-500/20 border-amber-500 shadow-lg shadow-amber-950/40 ring-1 ring-amber-500/50"
                       : "bg-slate-950/70 border-white/5 hover:bg-slate-800/80 hover:border-white/15"
                   }`}
                 >
-                  <span className="text-xl shrink-0 group-hover:scale-110 transition-transform">
-                    {mod.icone}
-                  </span>
-                  <div className="min-w-0">
-                    <span className={`text-xs font-black block truncate ${
-                      selectedModeloId === mod.id ? "text-amber-300" : "text-white"
-                    }`}>
-                      {mod.nome}
-                    </span>
-                    <span className="text-[10px] text-slate-400 line-clamp-2 mt-0.5">
-                      {mod.texto.split("\n")[0]}
-                    </span>
+                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                    <span className="text-xl shrink-0 mt-0.5">{mod.icone || "📢"}</span>
+                    <div className="min-w-0 flex-1">
+                      <span className={`text-xs font-black truncate block ${
+                        selectedModeloId === mod.id ? "text-amber-300" : "text-white"
+                      }`}>
+                        {mod.nome}
+                      </span>
+                      <span className="text-[10px] text-slate-400 line-clamp-1 mt-0.5 block">
+                        {mod.texto.split("\n")[0]}
+                      </span>
+                    </div>
                   </div>
-                </button>
+
+                  {modelos.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleApagarModelo(mod.id);
+                      }}
+                      className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer shrink-0"
+                      title="Apagar este comunicado da memória"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>
 
           {/* 2. ESCOLHER AGENDAMENTO ALVO (OPCIONAL) */}
           {agendamentos.length > 0 && (
-            <div className="bg-slate-950/70 p-3.5 rounded-2xl border border-white/5 space-y-2">
+            <div className="bg-slate-950/70 p-3.5 rounded-2xl border border-white/10 space-y-2">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-blue-400" />
                 Preencher com dados de um agendamento existente:
@@ -313,96 +447,158 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
             </div>
           )}
 
-          {/* 3. TAGS DINÂMICAS PARA INSERÇÃO */}
-          <div className="bg-slate-950/70 p-3.5 rounded-2xl border border-white/5 space-y-2">
-            <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-              🏷️ Inserir dados dinâmicos no texto:
-            </span>
-            <div className="flex flex-wrap gap-1.5">
+          {/* 3. CAMPOS DE EDIÇÃO DO COMUNICADO */}
+          <div className="bg-slate-950/70 p-4 rounded-2xl border border-white/10 space-y-3">
+            <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2">
+              <span className="text-xs font-black uppercase text-amber-300 flex items-center gap-1.5">
+                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                <span>Editando: {nomeEdit}</span>
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {textoEdit.length} caracteres
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-[10px] font-black uppercase text-slate-300">
+                  Título do Comunicado
+                </label>
+                <input
+                  type="text"
+                  value={nomeEdit}
+                  onChange={(e) => setNomeEdit(e.target.value)}
+                  placeholder="Ex: Lembrete de Horário"
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-amber-500 font-bold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300">
+                  Categoria
+                </label>
+                <select
+                  value={categoriaEdit}
+                  onChange={(e) => setCategoriaEdit(e.target.value as any)}
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-amber-500 font-bold"
+                >
+                  <option value="barbearia">💈 Barbearia</option>
+                  <option value="salao">💇‍♀️ Salão de Beleza</option>
+                  <option value="manicure">💅 Manicure</option>
+                  <option value="festas">🎂 Festas & Encomendas</option>
+                  <option value="lembrete">⏰ Lembretes</option>
+                  <option value="geral">📢 Geral</option>
+                </select>
+              </div>
+            </div>
+
+            {/* TAGS DINÂMICAS */}
+            <div className="space-y-1.5 pt-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
+                🏷️ Clique para inserir tags dinâmicas:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{cliente}")}
+                  className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  + &#123;cliente&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{empresa}")}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  + &#123;empresa&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{data}")}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  + &#123;data&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{horario}")}
+                  className="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  + &#123;horario&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{profissional}")}
+                  className="px-2.5 py-1 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 border border-orange-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  + &#123;profissional&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{servico}")}
+                  className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  + &#123;servico&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{valor}")}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  + &#123;valor&#125;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{link_agenda}")}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black transition-all cursor-pointer"
+                >
+                  + &#123;link_agenda&#125; 🔗
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleInserirTag("{telefone}")}
+                  className="px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  + &#123;telefone&#125;
+                </button>
+              </div>
+            </div>
+
+            {/* Textarea */}
+            <div className="space-y-1">
+              <textarea
+                rows={6}
+                value={textoEdit}
+                onChange={(e) => setTextoEdit(e.target.value)}
+                className="w-full bg-slate-900 border border-white/10 rounded-2xl p-3.5 text-xs text-white leading-relaxed outline-none focus:border-amber-500 font-sans"
+                placeholder="Escreva ou ajuste seu comunicado da agenda..."
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
               <button
                 type="button"
-                onClick={() => handleInserirTag("{cliente}")}
-                className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all cursor-pointer"
+                onClick={handleSalvarModeloAtual}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer active:scale-95"
               >
-                + &#123;cliente&#125;
+                <Save className="w-3.5 h-3.5" />
+                <span>Salvar Este Comunicado na Memória 💾</span>
               </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{empresa}")}
-                className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer"
-              >
-                + &#123;empresa&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{data}")}
-                className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
-              >
-                + &#123;data&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{horario}")}
-                className="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all cursor-pointer"
-              >
-                + &#123;horario&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{profissional}")}
-                className="px-2.5 py-1 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 border border-orange-500/30 text-xs font-bold transition-all cursor-pointer"
-              >
-                + &#123;profissional&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{servico}")}
-                className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
-              >
-                + &#123;servico&#125;
-              </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{link_agenda}")}
-                className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black transition-all cursor-pointer"
-              >
-                + &#123;link_agenda&#125; 🔗
-              </button>
-              <button
-                type="button"
-                onClick={() => handleInserirTag("{telefone}")}
-                className="px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-bold transition-all cursor-pointer"
-              >
-                + &#123;telefone&#125;
-              </button>
+
+              {modelos.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => handleApagarModelo(selectedModeloId)}
+                  className="px-3 py-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Apagar Comunicado</span>
+                </button>
+              )}
             </div>
           </div>
 
-          {/* 4. EDITOR DE TEXTO DO COMUNICADO */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-black uppercase text-slate-200 tracking-wider">
-                Texto do Comunicado / Mensagem
-              </label>
-              <button
-                type="button"
-                onClick={handleSalvarComoPadrao}
-                className="text-[10px] text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <Save className="w-3 h-3" />
-                <span>Salvar como meu modelo favorito</span>
-              </button>
-            </div>
-            <textarea
-              rows={7}
-              value={comunicadoTexto}
-              onChange={(e) => setComunicadoTexto(e.target.value)}
-              className="w-full bg-slate-950 border border-white/10 rounded-2xl p-3.5 text-xs text-white leading-relaxed outline-none focus:border-amber-500 font-sans"
-              placeholder="Escreva ou ajuste seu comunicado da agenda..."
-            />
-          </div>
-
-          {/* 5. PRÉVIA EM TEMPO REAL NO WHATSAPP */}
+          {/* 4. PRÉVIA EM TEMPO REAL NO WHATSAPP */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1.5">
