@@ -31,9 +31,20 @@ import {
 import { ProfissionalBarbearia, AgendamentoServico, EncomendaFesta } from "./BarbeariaSalaoEventosModule";
 import { BarbeariaTimelineAgenda } from "./BarbeariaTimelineAgenda";
 
-export type CategoriaPortal = "barbearia" | "salao" | "manicure" | "encomendas";
+export type CategoriaPortal =
+  | "barbearia"
+  | "salao"
+  | "manicure"
+  | "podologia"
+  | "terapia_ocupacional"
+  | "psicologia"
+  | "nutricionista"
+  | "encomendas";
 
-export const SERVICOS_POR_SEGMENTO: Record<"barbearia" | "salao" | "manicure", { nome: string; preco: number; duracao: string }[]> = {
+export const SERVICOS_POR_SEGMENTO: Record<
+  "barbearia" | "salao" | "manicure" | "podologia" | "terapia_ocupacional" | "psicologia" | "nutricionista",
+  { nome: string; preco: number; duracao: string }[]
+> = {
   barbearia: [
     { nome: "Corte Degradê / Navalhado", preco: 40, duracao: "35 min" },
     { nome: "Corte Tradicional na Tesoura", preco: 35, duracao: "30 min" },
@@ -63,7 +74,115 @@ export const SERVICOS_POR_SEGMENTO: Record<"barbearia" | "salao" | "manicure", {
     { nome: "Manutenção de Alongamento (Fibra/Gel)", preco: 80, duracao: "60 min" },
     { nome: "Esmaltação em Gel", preco: 55, duracao: "45 min" },
     { nome: "Spa dos Pés / Plástica dos Pés", preco: 60, duracao: "45 min" }
+  ],
+  podologia: [
+    { nome: "Podologia Tradicional (Higienização, Corte & Calosidades)", preco: 80, duracao: "50 min" },
+    { nome: "Tratamento de Unha Encravada (Espícula)", preco: 70, duracao: "40 min" },
+    { nome: "Desbaste de Calos e Calosidades Plantares", preco: 60, duracao: "35 min" },
+    { nome: "Podologia Preventiva & Hidratação com Ozônio", preco: 90, duracao: "50 min" },
+    { nome: "Tratamento de Fissuras e Rachaduras nos Calcanhares", preco: 65, duracao: "40 min" },
+    { nome: "Correção de Curvatura de Unha (Órtese)", preco: 85, duracao: "45 min" },
+    { nome: "Reflexologia Podal Relaxante", preco: 75, duracao: "45 min" },
+    { nome: "Podologia Geriátrica / Pés Diabéticos", preco: 100, duracao: "60 min" }
+  ],
+  terapia_ocupacional: [
+    { nome: "Avaliação de Terapia Ocupacional Inicial", preco: 180, duracao: "60 min" },
+    { nome: "Sessão de T.O. (Desenvolvimento Motor & Cognitivo)", preco: 140, duracao: "50 min" },
+    { nome: "Reabilitação de Atividades da Vida Diária (AVD)", preco: 130, duracao: "50 min" },
+    { nome: "Integração Sensorial & Estimulação Psicomotora", preco: 150, duracao: "50 min" },
+    { nome: "Terapia Ocupacional Infantil / Neurodesenvolvimento", preco: 160, duracao: "50 min" },
+    { nome: "Terapia Ocupacional Geriátrica e Estimulação Cognitiva", preco: 140, duracao: "50 min" },
+    { nome: "Orientação e Treino para Cuidadores e Familiares", preco: 120, duracao: "45 min" },
+    { nome: "Adaptação de Recursos e Tecnologia Assistiva", preco: 150, duracao: "60 min" }
+  ],
+  psicologia: [
+    { nome: "Sessão de Psicoterapia Individual (Adulto)", preco: 150, duracao: "50 min" },
+    { nome: "Primeira Consulta / Acolhimento Psicológico", preco: 160, duracao: "60 min" },
+    { nome: "Psicoterapia para Adolescentes e Jovens", preco: 140, duracao: "50 min" },
+    { nome: "Ludoterapia e Psicoterapia Infantil", preco: 150, duracao: "50 min" },
+    { nome: "Terapia de Casal e Mediação de Conflitos", preco: 220, duracao: "75 min" },
+    { nome: "Orientação Vocacional e Transição de Carreira", preco: 140, duracao: "50 min" },
+    { nome: "Atendimento Psicológico Online (Vídeo)", preco: 130, duracao: "50 min" },
+    { nome: "Terapia Cognitivo-Comportamental (Foco em Ansiedade)", preco: 150, duracao: "50 min" }
+  ],
+  nutricionista: [
+    { nome: "Consulta Nutricional Completa + Bioimpedância", preco: 180, duracao: "60 min" },
+    { nome: "Retorno, Avaliação de Metas & Ajuste do Cardápio", preco: 100, duracao: "30 min" },
+    { nome: "Plano Alimentar para Emagrecimento Saudável", preco: 160, duracao: "50 min" },
+    { nome: "Nutrição Esportiva, Performance & Ganho de Massa", preco: 170, duracao: "50 min" },
+    { nome: "Reeducação Alimentar e Saúde Digestiva / Intestinal", preco: 150, duracao: "50 min" },
+    { nome: "Nutrição Clínica (Diabetes, Colesterol e Hipertensão)", preco: 160, duracao: "50 min" },
+    { nome: "Acompanhamento Nutricional Materno-Infantil / Gestantes", preco: 170, duracao: "50 min" },
+    { nome: "Consultoria para Alergias e Intolerâncias Alimentares", preco: 160, duracao: "50 min" }
   ]
+};
+
+export const SEGMENTO_INFO: Record<
+  CategoriaPortal,
+  {
+    nomeCurto: string;
+    nomeCompleto: string;
+    icone: string;
+    descricao: string;
+    cor: string;
+  }
+> = {
+  barbearia: {
+    nomeCurto: "Barbeiro",
+    nomeCompleto: "Barbearia Tradicional",
+    icone: "💈",
+    descricao: "Agende seu corte degradê, barba terapia e visual masculino com nossos barbeiros!",
+    cor: "amber"
+  },
+  salao: {
+    nomeCurto: "Salão de Beleza",
+    nomeCompleto: "Salão de Beleza & Cabeleireiras(os)",
+    icone: "💇‍♀️",
+    descricao: "Cortes femininos, escovas, mechas, hidratação e cuidados capilares especiais!",
+    cor: "purple"
+  },
+  manicure: {
+    nomeCurto: "Manicure & Pedicure",
+    nomeCompleto: "Esmalteria & Cuidados com as Unhas",
+    icone: "💅",
+    descricao: "Alongamento em gel, fibra, esmaltação perfeita, cutilagem e spa dos pés!",
+    cor: "pink"
+  },
+  podologia: {
+    nomeCurto: "Podologia",
+    nomeCompleto: "Podologia Clínica & Saúde dos Pés",
+    icone: "🦶",
+    descricao: "Tratamentos para unhas encravadas, calosidades, ozônio e conforto para os pés!",
+    cor: "teal"
+  },
+  terapia_ocupacional: {
+    nomeCurto: "Terapia Ocupacional",
+    nomeCompleto: "Terapia Ocupacional & Reabilitação",
+    icone: "🧩",
+    descricao: "Desenvolvimento motor, autonomia, integração sensorial e reabilitação de AVDs!",
+    cor: "cyan"
+  },
+  psicologia: {
+    nomeCurto: "Psicologia",
+    nomeCompleto: "Psicologia Clínica & Psicoterapia",
+    icone: "🧠",
+    descricao: "Espaço acolhedor e sigiloso para psicoterapia, cuidados emocionais e saúde mental!",
+    cor: "indigo"
+  },
+  nutricionista: {
+    nomeCurto: "Nutricionista",
+    nomeCompleto: "Nutrição Clínica & Consultório",
+    icone: "🥗",
+    descricao: "Consulta nutricional completa, bioimpedância, reeducação alimentar e emagrecimento!",
+    cor: "emerald"
+  },
+  encomendas: {
+    nomeCurto: "Festas & Encomendas",
+    nomeCompleto: "Encomendas para Festas & Eventos",
+    icone: "🎂",
+    descricao: "Bolos confeitados, salgadinhos artesanais, docinhos gourmet e kits para festa!",
+    cor: "rose"
+  }
 };
 
 interface ClientPublicAgendaPortalProps {
@@ -77,7 +196,7 @@ interface ClientPublicAgendaPortalProps {
   onClosePortal?: () => void;
   formatCurrency?: (val: number) => string;
   isOnlineBookingActive?: boolean;
-  businessSegment?: "barbearia" | "salao" | "manicure" | "encomendas" | "multi";
+  businessSegment?: CategoriaPortal | "multi";
 }
 
 export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> = ({
@@ -98,7 +217,16 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       try {
         const params = new URLSearchParams(window.location.search);
         const seg = params.get("segmento") as CategoriaPortal;
-        if (seg === "barbearia" || seg === "salao" || seg === "manicure" || seg === "encomendas") {
+        if (
+          seg === "barbearia" ||
+          seg === "salao" ||
+          seg === "manicure" ||
+          seg === "podologia" ||
+          seg === "terapia_ocupacional" ||
+          seg === "psicologia" ||
+          seg === "nutricionista" ||
+          seg === "encomendas"
+        ) {
           return seg;
         }
       } catch {}
@@ -107,7 +235,16 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       return businessSegment;
     }
     const saved = localStorage.getItem("pdv_business_segment") as CategoriaPortal;
-    if (saved === "barbearia" || saved === "salao" || saved === "manicure" || saved === "encomendas") {
+    if (
+      saved === "barbearia" ||
+      saved === "salao" ||
+      saved === "manicure" ||
+      saved === "podologia" ||
+      saved === "terapia_ocupacional" ||
+      saved === "psicologia" ||
+      saved === "nutricionista" ||
+      saved === "encomendas"
+    ) {
       return saved;
     }
     return "barbearia";
@@ -168,15 +305,59 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
   const [eventoDescricao, setEventoDescricao] = useState<string>("");
   const [encomendaSucesso, setEncomendaSucesso] = useState(false);
 
-  const selectedProf = profissionais.find((p) => p.id === selectedProfId) || profissionais[0];
+  // Segmento travado no link exclusivo enviado para o cliente (impede misturar com outros negócios)
+  const isSegmentLocked = useMemo(() => {
+    if (businessSegment && businessSegment !== "multi") return true;
+    if (typeof window !== "undefined") {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const seg = params.get("segmento");
+        if (seg && seg !== "todos" && seg !== "multi") return true;
+      } catch {}
+    }
+    return false;
+  }, [businessSegment]);
+
+  const infoSegmento = SEGMENTO_INFO[selectedSegment] || SEGMENTO_INFO.barbearia;
+
+  // Profissionais 100% isolados pelo segmento do negócio (sem misturar barbearia com psicólogo ou manicure)
+  const profissionaisDoSegmento = useMemo(() => {
+    if (selectedSegment === "encomendas") return [];
+    return profissionais.filter((p) => (p.categoria || "barbearia") === selectedSegment);
+  }, [profissionais, selectedSegment]);
+
+  // Agendamentos 100% isolados pelo segmento do negócio
+  const agendamentosDoSegmento = useMemo(() => {
+    return agendamentos.filter((a) => {
+      if (a.categoria) return a.categoria === selectedSegment;
+      const prof = profissionais.find((p) => p.id === a.profissionalId);
+      return (prof?.categoria || "barbearia") === selectedSegment;
+    });
+  }, [agendamentos, profissionais, selectedSegment]);
+
+  // Mantém profissional selecionado válido dentro do segmento atual
+  useEffect(() => {
+    if (profissionaisDoSegmento.length > 0) {
+      const match = profissionaisDoSegmento.some((p) => p.id === selectedProfId);
+      if (!match) {
+        setSelectedProfId(profissionaisDoSegmento[0].id);
+      }
+    } else {
+      setSelectedProfId("");
+    }
+  }, [profissionaisDoSegmento, selectedProfId]);
+
+  const selectedProf = profissionaisDoSegmento.find((p) => p.id === selectedProfId) || (profissionaisDoSegmento.length > 0 ? profissionaisDoSegmento[0] : null);
   const servicosAtuais = selectedSegment !== "encomendas"
-    ? SERVICOS_POR_SEGMENTO[selectedSegment]
+    ? (SERVICOS_POR_SEGMENTO[selectedSegment] || SERVICOS_POR_SEGMENTO.barbearia)
     : SERVICOS_POR_SEGMENTO.barbearia;
   const servicoObj = servicosAtuais.find((s) => s.nome === selectedServico) || servicosAtuais[0];
   const precoEstimado = servicoObj ? servicoObj.preco : 50;
 
   // Horários e slots com detecção precisa de horários marcados, livres e bloqueados
   const slotsStatus = useMemo(() => {
+    if (!selectedProf) return [];
+
     const startHour = selectedProf?.horaInicio ? parseInt(selectedProf.horaInicio.split(":")[0], 10) : 8;
     const endHour = selectedProf?.horaFim ? parseInt(selectedProf.horaFim.split(":")[0], 10) : 20;
 
@@ -189,8 +370,20 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       }
     }
 
-    const lunchStart = selectedProf?.intervaloInicio || "12:00";
-    const lunchEnd = selectedProf?.intervaloFim || "13:30";
+    // Se o profissional estiver desativado / em pausa, não pode receber agendamentos
+    if (selectedProf.ativo === false) {
+      return baseTimes.map((slot) => ({
+        time: slot,
+        isUnavailable: true,
+        statusType: "blocked" as const,
+        label: "Profissional Indisponível / Em Pausa ⏸️",
+        clientName: undefined
+      }));
+    }
+
+    const lunchStart = selectedProf?.intervaloInicio || "";
+    const lunchEnd = selectedProf?.intervaloFim || "";
+    const hasLunch = Boolean(lunchStart && lunchEnd && lunchStart < lunchEnd);
 
     // Verificar folga do profissional no dia da semana selecionado
     let isDiaDeFolga = false;
@@ -224,12 +417,14 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       );
 
       // 2. Verificar intervalo de almoço
-      const isLunch = slot >= lunchStart && slot < lunchEnd;
+      const isLunch = hasLunch && slot >= lunchStart && slot < lunchEnd;
 
       // 3. Verificar bloqueios personalizados do profissional
       const isBlocked = selectedProf?.bloqueiosPersonalizados?.some((b) => {
         const matchDate = !b.data || b.data === selectedDate;
-        return matchDate && slot >= b.horarioInicio && slot < b.horarioFim;
+        if (!matchDate) return false;
+        if (b.horarioInicio === b.horarioFim) return slot === b.horarioInicio;
+        return slot >= b.horarioInicio && slot < b.horarioFim;
       });
 
       const isUnavailable = !!agendado || isLunch || !!isBlocked;
@@ -274,6 +469,16 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
     setFormError("");
     if (!clientName.trim() || !clientPhone.trim()) {
       setFormError("Por favor, preencha seu Nome e seu WhatsApp para confirmar o horário!");
+      return;
+    }
+
+    const currentSlot = slotsStatus.find((s) => s.time === selectedTime);
+    if (currentSlot?.isUnavailable) {
+      setFormError("Este horário está indisponível! Por favor escolha um horário livre na lista abaixo.");
+      return;
+    }
+    if (selectedProf && selectedProf.ativo === false) {
+      setFormError("Este profissional está indisponível no momento para novos agendamentos!");
       return;
     }
 
@@ -430,56 +635,124 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
             </p>
           </div>
 
-          {/* Segmentos Separados: Barbeiro, Salão de Beleza, Manicure, Festas e Encomendas */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 bg-slate-950 p-1.5 rounded-2xl border border-white/10 gap-1.5">
-            <button
-              type="button"
-              onClick={() => setSelectedSegment("barbearia")}
-              className={`py-2 px-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                selectedSegment === "barbearia"
-                  ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <span>💈 Barbearia</span>
-            </button>
+          {/* Se o link for exclusivo do segmento (enviado pelo WhatsApp da barbearia, psicologia, etc.), exibe APENAS esse negócio */}
+          {isExclusiveSegment ? (
+            <div className="bg-slate-950/90 border border-amber-500/30 rounded-2xl p-4 flex items-center justify-center gap-3 shadow-lg">
+              <span className="text-3xl shrink-0">{infoSegmento.icone}</span>
+              <div className="text-left min-w-0">
+                <span className="text-xs sm:text-sm font-black uppercase text-amber-300 tracking-wider block truncate">
+                  {infoSegmento.nomeCompleto}
+                </span>
+                <span className="text-[11px] text-slate-300 block line-clamp-2">
+                  {infoSegmento.descricao}
+                </span>
+              </div>
+            </div>
+          ) : (
+            /* Se for portal geral sem segmento na URL, permite escolher */
+            <div className="space-y-1.5 text-left">
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
+                Escolha o Atendimento Desejado:
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setSelectedSegment("barbearia")}
+                  className={`py-2 px-2 rounded-xl text-[10.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    selectedSegment === "barbearia"
+                      ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>💈 Barbeiro</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setSelectedSegment("salao")}
-              className={`py-2 px-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                selectedSegment === "salao"
-                  ? "bg-purple-600 text-white shadow-lg shadow-purple-600/20"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <span>💇‍♀️ Salão</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSegment("salao")}
+                  className={`py-2 px-2 rounded-xl text-[10.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    selectedSegment === "salao"
+                      ? "bg-purple-600 text-white shadow-lg shadow-purple-600/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>💇‍♀️ Salão Beleza</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setSelectedSegment("manicure")}
-              className={`py-2 px-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                selectedSegment === "manicure"
-                  ? "bg-pink-600 text-white shadow-lg shadow-pink-600/20"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <span>💅 Manicure</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSegment("manicure")}
+                  className={`py-2 px-2 rounded-xl text-[10.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    selectedSegment === "manicure"
+                      ? "bg-pink-600 text-white shadow-lg shadow-pink-600/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>💅 Manicure</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setSelectedSegment("encomendas")}
-              className={`py-2 px-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                selectedSegment === "encomendas"
-                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <span>🍰 Festas</span>
-            </button>
-          </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSegment("podologia")}
+                  className={`py-2 px-2 rounded-xl text-[10.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    selectedSegment === "podologia"
+                      ? "bg-teal-600 text-white shadow-lg shadow-teal-600/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>🦶 Podologia</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedSegment("terapia_ocupacional")}
+                  className={`py-2 px-2 rounded-xl text-[10.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    selectedSegment === "terapia_ocupacional"
+                      ? "bg-cyan-600 text-white shadow-lg shadow-cyan-600/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>🧩 T. Ocupacional</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedSegment("psicologia")}
+                  className={`py-2 px-2 rounded-xl text-[10.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    selectedSegment === "psicologia"
+                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>🧠 Psicologia</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedSegment("nutricionista")}
+                  className={`py-2 px-2 rounded-xl text-[10.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    selectedSegment === "nutricionista"
+                      ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>🥗 Nutricionista</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedSegment("encomendas")}
+                  className={`py-2 px-2 rounded-xl text-[10.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    selectedSegment === "encomendas"
+                      ? "bg-rose-600 text-white shadow-lg shadow-rose-600/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>🍰 Festas</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* AVISO SE O LINK PÚBLICO ESTIVER PAUSADO PELO PROPRIETÁRIO */}
@@ -666,8 +939,8 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
                 </div>
 
                 <BarbeariaTimelineAgenda
-                  profissionais={profissionais}
-                  agendamentos={agendamentos}
+                  profissionais={profissionaisDoSegmento}
+                  agendamentos={agendamentosDoSegmento}
                   onAddAgendamento={(novoAg) => {
                     onSaveAgendamento(novoAg);
                     setAgendamentoSucesso(true);
@@ -691,44 +964,70 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
                 className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-7 space-y-5 shadow-2xl text-left"
               >
                 {/* 1. Escolha do Profissional */}
-                {profissionais.length > 0 && (
-                  <div className="space-y-2.5">
-                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5 text-amber-400" />
-                      <span>1. Escolha o Profissional / Barbeiro</span>
-                    </label>
+                <div className="space-y-2.5">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-amber-400" />
+                    <span>1. Escolha o Profissional ({infoSegmento.nomeCurto})</span>
+                  </label>
+                  {profissionaisDoSegmento.length === 0 ? (
+                    <div className="p-4 bg-slate-950/80 rounded-2xl border border-white/5 text-center text-xs text-slate-400">
+                      Nenhum profissional de {infoSegmento.nomeCurto} cadastrado no momento.
+                    </div>
+                  ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                      {profissionais.map((prof) => {
+                      {profissionaisDoSegmento.map((prof) => {
                         const isSelected = selectedProfId === prof.id;
+                        const isAtivo = prof.ativo !== false;
                         return (
                           <div
                             key={prof.id}
-                            onClick={() => setSelectedProfId(prof.id)}
-                            className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-2 ${
-                              isSelected
-                                ? "bg-amber-500/15 border-amber-500 shadow-md shadow-amber-500/10 scale-102"
-                                : "bg-slate-950 border-white/5 hover:border-white/15 opacity-80 hover:opacity-100"
+                            onClick={() => {
+                              if (!isAtivo) return;
+                              setSelectedProfId(prof.id);
+                            }}
+                            className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center gap-2 ${
+                              !isAtivo
+                                ? "bg-slate-950/50 border-red-500/20 opacity-50 cursor-not-allowed"
+                                : isSelected
+                                ? "bg-amber-500/15 border-amber-500 shadow-md shadow-amber-500/10 scale-102 cursor-pointer"
+                                : "bg-slate-950 border-white/5 hover:border-white/15 opacity-80 hover:opacity-100 cursor-pointer"
                             }`}
                           >
-                            <img
-                              src={prof.fotoUrl}
-                              alt={prof.nome}
-                              className="w-12 h-12 rounded-xl object-cover border border-amber-500/30"
-                            />
+                            {prof.fotoUrl ? (
+                              <img
+                                src={prof.fotoUrl}
+                                alt={prof.nome}
+                                className="w-12 h-12 rounded-xl object-cover border border-amber-500/30"
+                              />
+                            ) : (
+                              <div className="w-12 h-12 rounded-xl bg-amber-500/20 text-amber-300 font-black text-sm flex items-center justify-center border border-amber-500/40">
+                                {prof.nome.slice(0, 2).toUpperCase()}
+                              </div>
+                            )}
                             <div className="min-w-0 w-full">
                               <p className="text-xs font-black text-white truncate">
                                 {prof.nome}
                               </p>
-                              <p className="text-[9.5px] text-amber-300 font-bold truncate">
-                                {prof.apelido || prof.especialidade}
+                              {prof.apelido && (
+                                <p className="text-[10px] text-amber-300 font-bold truncate">
+                                  "{prof.apelido}"
+                                </p>
+                              )}
+                              <p className="text-[9px] text-slate-400 truncate">
+                                {prof.especialidade}
                               </p>
+                              {!isAtivo && (
+                                <span className="inline-block mt-1 text-[8.5px] font-black uppercase text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">
+                                  Pausa
+                                </span>
+                              )}
                             </div>
                           </div>
                         );
                       })}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* 2. Escolha do Serviço */}
                 <div className="space-y-1.5">

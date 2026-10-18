@@ -71,24 +71,6 @@ interface BarbeariaTimelineAgendaProps {
 const DIAS_SEMANA_ABREV = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 const MESES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
-// Bloqueios padrão de intervalo e almoço caso não configurados
-const BLOQUEIOS_PADRAO: BloqueioHorario[] = [
-  {
-    id: "blq_1",
-    horarioInicio: "08:00",
-    horarioFim: "09:00",
-    motivo: "Indisponível",
-    tipo: "indisponivel"
-  },
-  {
-    id: "blq_2",
-    horarioInicio: "12:00",
-    horarioFim: "14:00",
-    motivo: "Horário de almoço",
-    tipo: "almoco"
-  }
-];
-
 // Grade de horários padrão de 30 em 30 minutos (08:00 às 20:00)
 const SLOTS_HORARIOS = [
   "08:00", "08:30", "09:00", "09:30", "10:00", "10:30",
@@ -134,10 +116,14 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
   const [quickClientTelefone, setQuickClientTelefone] = useState("");
   const [quickServico, setQuickServico] = useState("Máquina e Tesoura (Corte)");
   const [quickValor, setQuickValor] = useState("45");
-  const [quickDuracaoMin, setQuickDuracaoMin] = useState("40"); // 40 minutos padrão como na foto
+  const [quickDuracaoMin, setQuickDuracaoMin] = useState("40"); // minutos livres editáveis
 
   // Modal de detalhes do agendamento ao clicar em um card
   const [selectedAgendamentoDetail, setSelectedAgendamentoDetail] = useState<AgendamentoServico | null>(null);
+  const [isEditingAgendamentoTime, setIsEditingAgendamentoTime] = useState(false);
+  const [editHorarioInicio, setEditHorarioInicio] = useState("09:00");
+  const [editHorarioFim, setEditHorarioFim] = useState("09:40");
+  const [editDuracaoMin, setEditDuracaoMin] = useState("40");
 
   // Formatação de data amigável: "ter, 13/10/2026"
   const formattedDateLabel = useMemo(() => {
@@ -184,6 +170,16 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
     }
   }, [activeProf, selectedDate]);
 
+  // Manter selectedProfId sincronizado se a lista de profissionais mudar (ex: troca de segmento)
+  useEffect(() => {
+    if (profissionais.length > 0 && selectedProfId !== "todos") {
+      const exists = profissionais.some((p) => p.id === selectedProfId);
+      if (!exists) {
+        setSelectedProfId(profissionais[0].id);
+      }
+    }
+  }, [profissionais, selectedProfId]);
+
   // Filtrar agendamentos do dia selecionado e do profissional ativo
   const agendamentosDoDia = useMemo(() => {
     return agendamentos.filter((ag) => {
@@ -218,8 +214,13 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
       return;
     }
 
+    if (activeProf && activeProf.ativo === false) {
+      showNotification(`${activeProf.nome} está marcado como Indisponível / Pausado no momento!`, "error");
+      return;
+    }
+
     if (isCaixa && !allowCaixaAgendar) {
-      alert("Aviso: O caixa não tem permissão para marcar novos horários na agenda.");
+      showNotification("Aviso: O caixa não tem permissão para marcar novos horários na agenda.", "error");
       return;
     }
 
@@ -231,7 +232,7 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
   const handleSaveQuickAgendamento = (e: React.FormEvent) => {
     e.preventDefault();
     if (!quickClientNome.trim()) {
-      alert("Por favor, digite o nome do cliente.");
+      showNotification("Por favor, digite o nome do cliente.", "error");
       return;
     }
 
@@ -513,6 +514,28 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
             return null;
           }
 
+          // 1B. Se o profissional estiver desativado / em pausa, todos os slots ficam indisponíveis
+          if (activeProf && activeProf.ativo === false) {
+            return (
+              <div key={slotHora} className="flex items-start gap-2.5 sm:gap-4 py-1 group">
+                <div className="w-12 sm:w-14 text-right pt-2 shrink-0">
+                  <span className="text-xs font-mono font-bold text-slate-600">{slotHora}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="bg-red-950/20 border border-red-500/20 rounded-2xl p-2.5 sm:p-3 text-red-300 flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 font-bold">
+                      <Lock className="w-3.5 h-3.5 text-red-400" />
+                      <span>⛔ Profissional Indisponível (Pausado para agendamentos)</span>
+                    </span>
+                    <span className="text-[10px] text-red-400 font-mono font-bold uppercase bg-red-500/10 px-2 py-0.5 rounded-full">
+                      Pausa
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
           // 2. Se o profissional estiver de folga hoje, todos os slots ficam bloqueados
           if (isDiaDeFolga) {
             return (
@@ -544,18 +567,17 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
           // 5. Verificar intervalo de almoço
           const lunchStart = activeProf?.intervaloInicio;
           const lunchEnd = activeProf?.intervaloFim;
-          const isAlmoco = lunchStart && lunchEnd && slotHora >= lunchStart && slotHora < lunchEnd;
+          const isAlmoco = lunchStart && lunchEnd && lunchStart < lunchEnd && slotHora >= lunchStart && slotHora < lunchEnd;
 
           // 6. Verificar bloqueios personalizados (Horários Reservados / Indisponíveis)
           const customBlock = activeProf?.bloqueiosPersonalizados?.find((b) => {
             const matchDate = !b.data || b.data === selectedDate;
-            return matchDate && slotHora >= b.horarioInicio && slotHora < b.horarioFim;
+            if (!matchDate) return false;
+            if (b.horarioInicio === b.horarioFim) {
+              return slotHora === b.horarioInicio;
+            }
+            return slotHora >= b.horarioInicio && slotHora < b.horarioFim;
           });
-
-          // 7. Bloqueio padrão legado caso o profissional não tenha horários configurados
-          const bloqueioPadrao = !activeProf?.horaInicio && !activeProf?.intervaloInicio
-            ? BLOQUEIOS_PADRAO.find((b) => b.horarioInicio === slotHora)
-            : null;
 
           return (
             <div key={slotHora} className="flex items-start gap-2.5 sm:gap-4 py-1 group">
@@ -661,22 +683,7 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
                       </div>
                     </div>
                     <span className="text-[9px] font-black uppercase bg-purple-500/10 text-purple-300 border border-purple-500/20 px-2 py-0.5 rounded-full">
-                      Reservado
-                    </span>
-                  </div>
-                ) : bloqueioPadrao ? (
-                  /* CASO 2E: BLOQUEIO PADRÃO LEGADO */
-                  <div className="bg-slate-900/90 border border-white/5 rounded-2xl p-3 text-slate-400 space-y-0.5">
-                    <span className="text-[11px] font-mono font-bold text-slate-500 block">
-                      {bloqueioPadrao.horarioInicio} às {bloqueioPadrao.horarioFim}
-                    </span>
-                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                      {bloqueioPadrao.tipo === "almoco" ? (
-                        <Coffee className="w-3.5 h-3.5 text-amber-400" />
-                      ) : (
-                        <Lock className="w-3.5 h-3.5 text-slate-400" />
-                      )}
-                      <span>{bloqueioPadrao.motivo}</span>
+                      Indisponível
                     </span>
                   </div>
                 ) : (
@@ -806,21 +813,48 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-300">
-                    Duração Estimada
-                  </label>
-                  <select
-                    value={quickDuracaoMin}
-                    onChange={(e) => setQuickDuracaoMin(e.target.value)}
-                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
-                  >
-                    <option value="30">30 min</option>
-                    <option value="40">40 min (padrão)</option>
-                    <option value="50">50 min</option>
-                    <option value="60">1 hora</option>
-                    <option value="90">1h30</option>
-                  </select>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase text-cyan-300 flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      <span>Quanto Tempo Para Este Cliente? (Duração Livre)</span>
+                    </label>
+                    <span className="text-[10px] text-cyan-400 font-mono font-bold">
+                      {selectedSlotTime} às {calculateEndTime(selectedSlotTime, Number(quickDuracaoMin) || 40)} ({quickDuracaoMin} min)
+                    </span>
+                  </div>
+
+                  {/* Presets Rápidos */}
+                  <div className="flex flex-wrap gap-1">
+                    {[15, 20, 30, 40, 45, 50, 60, 75, 90, 120].map((min) => (
+                      <button
+                        key={min}
+                        type="button"
+                        onClick={() => setQuickDuracaoMin(String(min))}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                          Number(quickDuracaoMin) === min
+                            ? "bg-cyan-500 text-slate-950 font-black shadow"
+                            : "bg-slate-900 text-slate-400 hover:text-white border border-white/5"
+                        }`}
+                      >
+                        {min}m
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Input livre de minutos */}
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <input
+                      type="number"
+                      min="5"
+                      max="480"
+                      value={quickDuracaoMin}
+                      onChange={(e) => setQuickDuracaoMin(e.target.value)}
+                      placeholder="40"
+                      className="w-20 bg-slate-950 border border-cyan-500/40 rounded-xl px-2.5 py-1 text-xs text-cyan-300 font-bold font-mono outline-none text-center"
+                    />
+                    <span className="text-[10px] text-slate-400 font-bold">minutos livres (o profissional define quanto tempo quiser)</span>
+                  </div>
                 </div>
               </div>
 
@@ -841,13 +875,13 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
                 <button
                   type="button"
                   onClick={() => setIsQuickAddModalOpen(false)}
-                  className="flex-1 bg-slate-800 text-slate-300 py-3 rounded-xl font-bold text-xs"
+                  className="flex-1 bg-slate-800 text-slate-300 py-3 rounded-xl font-bold text-xs cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 py-3 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20"
+                  className="flex-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 py-3 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 cursor-pointer"
                 >
                   {isClientView ? "Confirmar no WhatsApp 💬" : "Salvar Horário ✅"}
                 </button>
@@ -877,8 +911,11 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedAgendamentoDetail(null)}
-                className="p-1.5 text-slate-400 hover:text-white"
+                onClick={() => {
+                  setSelectedAgendamentoDetail(null);
+                  setIsEditingAgendamentoTime(false);
+                }}
+                className="p-1.5 text-slate-400 hover:text-white cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -909,13 +946,131 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
               </div>
             </div>
 
+            {/* SEÇÃO LIVRE: EDITAR QUANTO TEMPO PARA ESTE CLIENTE */}
+            {!isClientView && (
+              <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-cyan-500/20 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black uppercase text-cyan-300 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Tempo Livre Deste Atendimento</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingAgendamentoTime(!isEditingAgendamentoTime);
+                      setEditHorarioInicio(selectedAgendamentoDetail.horario);
+                      setEditHorarioFim(selectedAgendamentoDetail.horarioFim || calculateEndTime(selectedAgendamentoDetail.horario, 40));
+                    }}
+                    className="text-[10px] font-black uppercase px-2 py-0.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition-all cursor-pointer"
+                  >
+                    {isEditingAgendamentoTime ? "Fechar Edição 🔼" : "Editar Duração ⏱️"}
+                  </button>
+                </div>
+
+                {isEditingAgendamentoTime && (
+                  <div className="space-y-2 pt-1 border-t border-white/5">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] font-bold text-slate-400">Hora Início:</label>
+                        <input
+                          type="time"
+                          value={editHorarioInicio}
+                          onChange={(e) => {
+                            setEditHorarioInicio(e.target.value);
+                            setEditHorarioFim(calculateEndTime(e.target.value, Number(editDuracaoMin) || 40));
+                          }}
+                          className="w-full bg-slate-900 border border-white/10 rounded-xl px-2 py-1.5 text-xs text-white font-mono font-bold outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold text-slate-400">Hora Término:</label>
+                        <input
+                          type="time"
+                          value={editHorarioFim}
+                          onChange={(e) => setEditHorarioFim(e.target.value)}
+                          className="w-full bg-slate-900 border border-white/10 rounded-xl px-2 py-1.5 text-xs text-white font-mono font-bold outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-slate-400 block mb-1">
+                        Ajustar Duração Rápida:
+                      </label>
+                      <div className="flex flex-wrap gap-1">
+                        {[15, 20, 30, 40, 45, 50, 60, 75, 90, 120].map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => {
+                              setEditDuracaoMin(String(m));
+                              setEditHorarioFim(calculateEndTime(editHorarioInicio, m));
+                            }}
+                            className={`px-2 py-0.5 rounded-lg text-[9px] font-black cursor-pointer ${
+                              Number(editDuracaoMin) === m
+                                ? "bg-cyan-500 text-slate-950"
+                                : "bg-slate-900 text-slate-400 hover:text-white border border-white/5"
+                            }`}
+                          >
+                            {m}m
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <input
+                        type="number"
+                        min="5"
+                        max="480"
+                        value={editDuracaoMin}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEditDuracaoMin(val);
+                          setEditHorarioFim(calculateEndTime(editHorarioInicio, Number(val) || 40));
+                        }}
+                        placeholder="Minutos"
+                        className="w-20 bg-slate-900 border border-cyan-500/30 rounded-xl px-2 py-1 text-xs text-cyan-300 font-mono font-bold outline-none text-center"
+                      />
+                      <span className="text-[10px] text-slate-400 font-bold">minutos livres</span>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const duracaoNum = Number(editDuracaoMin) || 40;
+                          const fimCalculado = editHorarioFim || calculateEndTime(editHorarioInicio, duracaoNum);
+                          const atualizado: AgendamentoServico = {
+                            ...selectedAgendamentoDetail,
+                            horario: editHorarioInicio,
+                            horarioFim: fimCalculado,
+                            duracaoMinutos: duracaoNum
+                          };
+                          if (onUpdateAgendamento) {
+                            onUpdateAgendamento(atualizado);
+                          } else {
+                            onAddAgendamento(atualizado);
+                          }
+                          setSelectedAgendamentoDetail(atualizado);
+                          setIsEditingAgendamentoTime(false);
+                          showNotification("Tempo e horário do cliente alterados com sucesso! ⏱️✅", "success");
+                        }}
+                        className="ml-auto px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-black uppercase rounded-xl transition-all shadow cursor-pointer"
+                      >
+                        Salvar Tempo ✅
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Ações (WhatsApp, Concluir, Excluir) */}
             <div className="flex flex-col gap-2 pt-1">
               {selectedAgendamentoDetail.clienteTelefone && (
                 <button
                   type="button"
                   onClick={() => handleSendWhatsAppReminder(selectedAgendamentoDetail)}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 px-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 shadow"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 px-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 shadow cursor-pointer"
                 >
                   <MessageCircle className="w-4 h-4" />
                   <span>Lembrar Cliente no WhatsApp</span>
@@ -931,7 +1086,7 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
                       setSelectedAgendamentoDetail(null);
                     }
                   }}
-                  className="w-full bg-slate-800 hover:bg-red-950/60 text-slate-300 hover:text-red-400 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors border border-white/5"
+                  className="w-full bg-slate-800 hover:bg-red-950/60 text-slate-300 hover:text-red-400 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors border border-white/5 cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4" />
                   <span>Cancelar Agendamento</span>

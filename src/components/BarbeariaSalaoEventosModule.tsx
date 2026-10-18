@@ -59,8 +59,174 @@ import { ModalPersonalizarParabens, MODELOS_PARABENS_PRONTOS } from "./ModalPers
 import { ModalComunicadosAgenda } from "./ModalComunicadosAgenda";
 import { loadCompanyProfile, saveCompanyProfile } from "../utils/companyProfile";
 
+// Helper para remover recursivamente valores undefined antes de enviar ao Firestore
+export const cleanUndefinedForFirestore = (obj: any): any => {
+  if (obj === undefined) return null;
+  if (obj === null) return null;
+  if (typeof obj !== "object") return obj;
+  if (obj instanceof Date) return obj.toISOString();
+  if (Array.isArray(obj)) {
+    return obj.map((item) => (item === undefined ? null : cleanUndefinedForFirestore(item)));
+  }
+  const cleaned: any = {};
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    cleaned[key] = val === undefined ? null : cleanUndefinedForFirestore(val);
+  }
+  return cleaned;
+};
+
+// Wrapper seguro para evitar que erros de validação síncrona do Firestore quebrem o React
+export const safeFirestoreSetDoc = async (docRef: any, data: any, options = { merge: true }) => {
+  try {
+    const cleaned = cleanUndefinedForFirestore(data);
+    await setDoc(docRef, cleaned, options);
+  } catch (err) {
+    console.warn("Aviso ao persistir dados da barbearia/salão na nuvem Firestore:", err);
+  }
+};
+
 // Segmentos suportados no módulo
-export type NegocioSegmento = "barbearia" | "salao" | "manicure" | "festas";
+export type NegocioSegmento =
+  | "barbearia"
+  | "salao"
+  | "manicure"
+  | "podologia"
+  | "terapia_ocupacional"
+  | "psicologia"
+  | "nutricionista"
+  | "festas";
+
+// Metadados ricos de cada segmento para separação completa de negócios
+export interface NegocioSegmentoInfo {
+  id: NegocioSegmento;
+  nomeCurto: string;
+  nomeCompleto: string;
+  subtitulo: string;
+  icone: string;
+  corTheme: string;
+  corText: string;
+  corBorder: string;
+  corBg: string;
+  duracaoSugeridaMin: number;
+  bioInstagramPadrao: string;
+  conviteWhatsAppPadrao: string;
+}
+
+export const NEGOCIOS_SEGMENTOS_CONFIG: Record<NegocioSegmento, NegocioSegmentoInfo> = {
+  barbearia: {
+    id: "barbearia",
+    nomeCurto: "Barbeiro",
+    nomeCompleto: "Barbearia & Barbearia Tradicional",
+    subtitulo: "Degradê, Barba Terapia, Navalhado & Visual Masculino",
+    icone: "💈",
+    corTheme: "amber",
+    corText: "text-amber-300",
+    corBorder: "border-amber-500/30",
+    corBg: "bg-amber-500/10",
+    duracaoSugeridaMin: 40,
+    bioInstagramPadrao: "💈 O melhor corte degradê e barba da região! Agende seu horário online no link da bio 👇",
+    conviteWhatsAppPadrao: "💈 Fala, meu amigo! Já garantiu o trato no visual desta semana? Escolha o melhor dia e horário pelo nosso link:"
+  },
+  salao: {
+    id: "salao",
+    nomeCurto: "Salão de Beleza",
+    nomeCompleto: "Salão de Beleza & Cabeleireiras(os)",
+    subtitulo: "Cortes, Escovas, Mechas, Hidratação & Penteados",
+    icone: "💇‍♀️",
+    corTheme: "purple",
+    corText: "text-purple-300",
+    corBorder: "border-purple-500/30",
+    corBg: "bg-purple-500/10",
+    duracaoSugeridaMin: 50,
+    bioInstagramPadrao: "💇‍♀️ Realçando a sua beleza com amor e cuidado! Escovas, mechas, cortes e hidratação. Reserve seu horário no link 👇",
+    conviteWhatsAppPadrao: "🌸 Olá! Venha ter um momento especial de autocuidado em nosso salão! Confira os horários livres e reserve:"
+  },
+  manicure: {
+    id: "manicure",
+    nomeCurto: "Manicure & Pedicure",
+    nomeCompleto: "Manicure & Pedicure / Esmalteria",
+    subtitulo: "Cutilagem, Alongamento em Gel/Fibra, Esmaltação & Spa dos Pés",
+    icone: "💅",
+    corTheme: "pink",
+    corText: "text-pink-300",
+    corBorder: "border-pink-500/30",
+    corBg: "bg-pink-500/10",
+    duracaoSugeridaMin: 45,
+    bioInstagramPadrao: "💅 Unhas impecáveis, alongamentos em gel e fibra, cutilagem perfeita. Marque seu horário pelo link 👇",
+    conviteWhatsAppPadrao: "💅 Olá, linda! Sexta e sábado chegando! As vagas para manicure e pedicure estão abertas. Reserve no link:"
+  },
+  podologia: {
+    id: "podologia",
+    nomeCurto: "Podologia",
+    nomeCompleto: "Podologia Clínica & Especialistas",
+    subtitulo: "Saúde dos Pés, Unhas Encravadas, Calosidades, Ozônio & Conforto",
+    icone: "🦶",
+    corTheme: "teal",
+    corText: "text-teal-300",
+    corBorder: "border-teal-500/30",
+    corBg: "bg-teal-500/10",
+    duracaoSugeridaMin: 50,
+    bioInstagramPadrao: "🦶 Cuide de quem te sustenta todos os dias! Podologia preventiva e curativa sem dor. Agende sua consulta no link 👇",
+    conviteWhatsAppPadrao: "🦶 Olá! Chega de dores e desconfortos nos pés! Agende sua avaliação de podologia com horário reservado no link:"
+  },
+  terapia_ocupacional: {
+    id: "terapia_ocupacional",
+    nomeCurto: "Terapia Ocupacional",
+    nomeCompleto: "Terapia Ocupacional & Reabilitação",
+    subtitulo: "Autonomia, Desenvolvimento Motor, Sensorial & Atividades da Vida Diária",
+    icone: "🧩",
+    corTheme: "cyan",
+    corText: "text-cyan-300",
+    corBorder: "border-cyan-500/30",
+    corBg: "bg-cyan-500/10",
+    duracaoSugeridaMin: 50,
+    bioInstagramPadrao: "🧩 Promovendo autonomia, desenvolvimento e qualidade de vida em todas as idades. Agende sua sessão no link 👇",
+    conviteWhatsAppPadrao: "🧩 Olá! Nossos atendimentos e avaliações em Terapia Ocupacional estão com horários abertos. Consulte no link:"
+  },
+  psicologia: {
+    id: "psicologia",
+    nomeCurto: "Psicologia",
+    nomeCompleto: "Psicologia Clínica & Psicoterapia",
+    subtitulo: "Saúde Emocional, Psicoterapia, TCC, Autoconhecimento & Acolhimento",
+    icone: "🧠",
+    corTheme: "indigo",
+    corText: "text-indigo-300",
+    corBorder: "border-indigo-500/30",
+    corBg: "bg-indigo-500/10",
+    duracaoSugeridaMin: 50,
+    bioInstagramPadrao: "🧠 Espaço acolhedor e seguro para cuidar da sua mente e das suas emoções. Atendimento presencial e online. Agende 👇",
+    conviteWhatsAppPadrao: "🧠 Olá! Priorizar sua saúde mental é o maior ato de amor próprio. Veja horários disponíveis para psicoterapia no link:"
+  },
+  nutricionista: {
+    id: "nutricionista",
+    nomeCurto: "Nutricionista",
+    nomeCompleto: "Nutricionista Clínica & Consultórios",
+    subtitulo: "Bioimpedância, Emagrecimento, Reeducação Alimentar & Nutrição Esportiva",
+    icone: "🥗",
+    corTheme: "emerald",
+    corText: "text-emerald-300",
+    corBorder: "border-emerald-500/30",
+    corBg: "bg-emerald-500/10",
+    duracaoSugeridaMin: 60,
+    bioInstagramPadrao: "🥗 Conquiste mais saúde, disposição e o corpo que deseja sem dietas restritivas! Agende sua consulta nutricional no link 👇",
+    conviteWhatsAppPadrao: "🥗 Olá! Que tal começar hoje a transformar sua alimentação e atingir seus objetivos? Agende sua consulta no link:"
+  },
+  festas: {
+    id: "festas",
+    nomeCurto: "Festas & Encomendas",
+    nomeCompleto: "Festas, Eventos & Encomendas",
+    subtitulo: "Bolos Confeitados, Salgadinhos no Cento, Docinhos & Kits Festa",
+    icone: "🍰",
+    corTheme: "rose",
+    corText: "text-rose-300",
+    corBorder: "border-rose-500/30",
+    corBg: "bg-rose-500/10",
+    duracaoSugeridaMin: 30,
+    bioInstagramPadrao: "🍰 Os bolos e doces mais saborosos para sua festa inesquecível! Antecipe sua encomenda online no link da bio 👇",
+    conviteWhatsAppPadrao: "🎂 Olá! Vai comemorar aniversário ou evento especial? Nossa agenda de encomendas está aberta! Faça seu pedido no link:"
+  }
+};
 
 // Modelo de Bloqueio ou Horário Reservado do Profissional
 export interface HorarioBloqueadoProfissional {
@@ -77,19 +243,20 @@ export interface ProfissionalBarbearia {
   id: string;
   nome: string;
   apelido?: string;
-  categoria?: NegocioSegmento; // "barbearia" | "salao" | "manicure" | "festas"
+  categoria?: NegocioSegmento; // Barbearia, Salão, Manicure, Podologia, etc.
   fotoUrl: string;
-  especialidade: string; // Ex: Corte Degradê, Barba Terapia, Manicure, Doces
+  especialidade: string; // Ex: Corte Degradê, Podologia Clínica, Psicoterapia
   telefone: string;
   chavePix?: string;
   comissaoPct: number; // Ex: 50%
   horarioTrabalho?: string;
-  horaInicio?: string; // Horário de abertura da agenda (Ex: "08:00" ou "09:00")
-  horaFim?: string; // Horário de fechamento da agenda (Ex: "19:00" ou "20:00")
-  diasSemana?: number[]; // Dias de atendimento [1, 2, 3, 4, 5, 6] (1=seg, 2=ter, 3=qua, 4=qui, 5=sex, 6=sáb, 0=dom)
-  intervaloInicio?: string; // Início do almoço/intervalo (Ex: "12:00")
-  intervaloFim?: string; // Fim do almoço/intervalo (Ex: "13:30" ou "14:00")
-  intervaloMotivo?: string; // Ex: "Horário de almoço"
+  horaInicio?: string; // Horário de abertura da agenda (Ex: "08:00")
+  horaFim?: string; // Horário de fechamento da agenda (Ex: "19:00")
+  duracaoPadraoMinutos?: number; // Duração livre de atendimento (minutos por cliente)
+  diasSemana?: number[]; // Dias de atendimento [1, 2, 3, 4, 5, 6]
+  intervaloInicio?: string;
+  intervaloFim?: string;
+  intervaloMotivo?: string;
   bloqueiosPersonalizados?: HorarioBloqueadoProfissional[];
   totalAtendimentos: number;
   totalFaturado: number;
@@ -102,6 +269,7 @@ export interface AgendamentoServico {
   data: string; // YYYY-MM-DD
   horario: string; // HH:mm
   horarioFim?: string; // HH:mm (ex: 09:40)
+  duracaoMinutos?: number; // Duração livre para este cliente
   clienteNome: string;
   clienteTelefone: string;
   profissionalId: string;
@@ -194,11 +362,17 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   // Armazenamento
   const storagePrefix = userId && userId !== "guest_visitor" ? `barbearia_${userId}_` : "barbearia_guest_";
 
-  // 1. Profissionais State com todos os 4 segmentos separados
+  // 1. Profissionais State com todos os segmentos separados
   const [profissionais, setProfissionais] = useState<ProfissionalBarbearia[]>(() => {
     try {
+      const isCustomized = localStorage.getItem(`${storagePrefix}profissionais_customized`);
       const saved = localStorage.getItem(`${storagePrefix}profissionais`);
-      if (saved) return JSON.parse(saved);
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && (parsed.length > 0 || isCustomized === "true")) {
+          return parsed;
+        }
+      }
     } catch {}
     return [
       {
@@ -211,6 +385,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         telefone: "21988887777",
         chavePix: "21988887777",
         comissaoPct: 50,
+        duracaoPadraoMinutos: 40,
         horarioTrabalho: "Terça a Sábado, 09h às 19h",
         totalAtendimentos: 42,
         totalFaturado: 1470,
@@ -226,6 +401,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         telefone: "21977776666",
         chavePix: "21977776666",
         comissaoPct: 50,
+        duracaoPadraoMinutos: 50,
         horarioTrabalho: "Quarta a Domingo, 10h às 20h",
         totalAtendimentos: 28,
         totalFaturado: 1960,
@@ -241,6 +417,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         telefone: "21966665555",
         chavePix: "21966665555",
         comissaoPct: 60,
+        duracaoPadraoMinutos: 45,
         horarioTrabalho: "Segunda a Sábado, 09h às 18h",
         totalAtendimentos: 36,
         totalFaturado: 2160,
@@ -248,6 +425,70 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       },
       {
         id: "prof_4",
+        nome: "Dra. Camila Rocha",
+        apelido: "Camila Podóloga",
+        categoria: "podologia",
+        fotoUrl: AVATAR_PRESETS[2],
+        especialidade: "Podologia Clínica, Unhas Encravadas & Ozônio",
+        telefone: "21944443333",
+        chavePix: "21944443333",
+        comissaoPct: 70,
+        duracaoPadraoMinutos: 50,
+        horarioTrabalho: "Segunda a Sexta, 08h às 18h",
+        totalAtendimentos: 31,
+        totalFaturado: 2480,
+        ativo: true
+      },
+      {
+        id: "prof_5",
+        nome: "Paula Vasconcelos",
+        apelido: "Paula T.O.",
+        categoria: "terapia_ocupacional",
+        fotoUrl: AVATAR_PRESETS[1],
+        especialidade: "Terapia Ocupacional, Autonomia & Reabilitação",
+        telefone: "21933332222",
+        chavePix: "21933332222",
+        comissaoPct: 80,
+        duracaoPadraoMinutos: 50,
+        horarioTrabalho: "Segunda a Sexta, 08h às 17h",
+        totalAtendimentos: 24,
+        totalFaturado: 3360,
+        ativo: true
+      },
+      {
+        id: "prof_6",
+        nome: "Dr. Felipe Moreira",
+        apelido: "Felipe Psicólogo",
+        categoria: "psicologia",
+        fotoUrl: AVATAR_PRESETS[0],
+        especialidade: "Psicoterapia Clínica, TCC & Saúde Mental",
+        telefone: "21922221111",
+        chavePix: "21922221111",
+        comissaoPct: 80,
+        duracaoPadraoMinutos: 50,
+        horarioTrabalho: "Segunda a Sábado, 08h às 19h",
+        totalAtendimentos: 38,
+        totalFaturado: 5700,
+        ativo: true
+      },
+      {
+        id: "prof_7",
+        nome: "Dra. Beatriz Nogueira",
+        apelido: "Bia Nutri",
+        categoria: "nutricionista",
+        fotoUrl: AVATAR_PRESETS[2],
+        especialidade: "Nutrição Clínica, Bioimpedância & Esportiva",
+        telefone: "21911110000",
+        chavePix: "21911110000",
+        comissaoPct: 80,
+        duracaoPadraoMinutos: 60,
+        horarioTrabalho: "Terça a Sábado, 08h às 18h",
+        totalAtendimentos: 29,
+        totalFaturado: 4640,
+        ativo: true
+      },
+      {
+        id: "prof_8",
         nome: "Chef Renata Festas",
         apelido: "Renata Doces & Bolos",
         categoria: "festas",
@@ -256,6 +497,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         telefone: "21955554444",
         chavePix: "21955554444",
         comissaoPct: 100,
+        duracaoPadraoMinutos: 30,
         horarioTrabalho: "Segunda a Domingo (Sob Encomenda)",
         totalAtendimentos: 19,
         totalFaturado: 3890,
@@ -540,18 +782,27 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     );
   };
 
+  // Flag para aguardar carregamento dos dados da nuvem antes de sincronizar
+  const [isCloudLoaded, setIsCloudLoaded] = useState(false);
+
   // 1. Sincronizar dados do Firestore ao carregar para não perder cadastros
   useEffect(() => {
     let isMounted = true;
     const fetchCloudData = async () => {
-      if (!userId || userId === "guest_visitor" || !db) return;
+      if (!userId || userId === "guest_visitor" || !db) {
+        setIsCloudLoaded(true);
+        return;
+      }
       try {
         const snap = await getDoc(doc(db, "userData", userId));
         if (snap.exists() && isMounted) {
           const d = snap.data();
-          if (Array.isArray(d.barbeariaProfissionais) && d.barbeariaProfissionais.length > 0) {
-            setProfissionais(d.barbeariaProfissionais);
-            localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(d.barbeariaProfissionais));
+          if (Array.isArray(d.barbeariaProfissionais)) {
+            const isCustomized = localStorage.getItem(`${storagePrefix}profissionais_customized`);
+            if (d.barbeariaProfissionais.length > 0 || isCustomized === "true") {
+              setProfissionais(d.barbeariaProfissionais);
+              localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(d.barbeariaProfissionais));
+            }
           }
           if (Array.isArray(d.barbeariaAgendamentos)) {
             setAgendamentos(d.barbeariaAgendamentos);
@@ -577,6 +828,10 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         }
       } catch (err) {
         console.warn("Aviso ao ler dados da barbearia/salão da nuvem:", err);
+      } finally {
+        if (isMounted) {
+          setIsCloudLoaded(true);
+        }
       }
     };
     fetchCloudData();
@@ -585,34 +840,37 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
 
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(profissionais));
-    if (userId && userId !== "guest_visitor" && db) {
-      setDoc(doc(db, "userData", userId), { barbeariaProfissionais: profissionais }, { merge: true }).catch(() => {});
+    if (isCloudLoaded && userId && userId !== "guest_visitor" && db) {
+      safeFirestoreSetDoc(doc(db, "userData", userId), { barbeariaProfissionais: profissionais });
     }
-  }, [profissionais, storagePrefix, userId, db]);
+  }, [profissionais, storagePrefix, userId, db, isCloudLoaded]);
 
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}agendamentos`, JSON.stringify(agendamentos));
-    if (userId && userId !== "guest_visitor" && db) {
-      setDoc(doc(db, "userData", userId), { barbeariaAgendamentos: agendamentos }, { merge: true }).catch(() => {});
+    if (isCloudLoaded && userId && userId !== "guest_visitor" && db) {
+      safeFirestoreSetDoc(doc(db, "userData", userId), { barbeariaAgendamentos: agendamentos });
     }
-  }, [agendamentos, storagePrefix, userId, db]);
+  }, [agendamentos, storagePrefix, userId, db, isCloudLoaded]);
 
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}aniversarios`, JSON.stringify(aniversarios));
-    if (userId && userId !== "guest_visitor" && db) {
-      setDoc(doc(db, "userData", userId), { barbeariaAniversarios: aniversarios }, { merge: true }).catch(() => {});
+    if (isCloudLoaded && userId && userId !== "guest_visitor" && db) {
+      safeFirestoreSetDoc(doc(db, "userData", userId), { barbeariaAniversarios: aniversarios });
     }
-  }, [aniversarios, storagePrefix, userId, db]);
+  }, [aniversarios, storagePrefix, userId, db, isCloudLoaded]);
 
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}encomendas`, JSON.stringify(encomendas));
-    if (userId && userId !== "guest_visitor" && db) {
-      setDoc(doc(db, "userData", userId), { barbeariaEncomendas: encomendas }, { merge: true }).catch(() => {});
+    if (isCloudLoaded && userId && userId !== "guest_visitor" && db) {
+      safeFirestoreSetDoc(doc(db, "userData", userId), { barbeariaEncomendas: encomendas });
     }
-  }, [encomendas, storagePrefix, userId, db]);
+  }, [encomendas, storagePrefix, userId, db, isCloudLoaded]);
 
   // Modal States
   const [isAddProfissionalOpen, setIsAddProfissionalOpen] = useState(false);
+  const [editingProf, setEditingProf] = useState<ProfissionalBarbearia | null>(null);
+  const [deleteConfirmProf, setDeleteConfirmProf] = useState<ProfissionalBarbearia | null>(null);
+
   const [newProfNome, setNewProfNome] = useState("");
   const [newProfApelido, setNewProfApelido] = useState("");
   const [newProfCategoria, setNewProfCategoria] = useState<NegocioSegmento>("barbearia");
@@ -620,7 +878,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   const [newProfTelefone, setNewProfTelefone] = useState("");
   const [newProfPix, setNewProfPix] = useState("");
   const [newProfComissao, setNewProfComissao] = useState("50");
-  const [newProfFoto, setNewProfFoto] = useState(AVATAR_PRESETS[0]);
+  const [newProfFoto, setNewProfFoto] = useState("");
 
   const [isAddAgendamentoOpen, setIsAddAgendamentoOpen] = useState(false);
   const [newAgData, setNewAgData] = useState(() => new Date().toISOString().slice(0, 10));
@@ -693,24 +951,37 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         ? "Bolos Confeitados & Kits Festa"
         : newProfCategoria === "salao"
         ? "Escova, Mechas & Cortes"
+        : newProfCategoria === "podologia"
+        ? "Podologia Clínica & Cuidados"
+        : newProfCategoria === "psicologia"
+        ? "Psicologia Clínica & Acolhimento"
+        : newProfCategoria === "terapia_ocupacional"
+        ? "Terapia Ocupacional & Autonomia"
+        : newProfCategoria === "nutricionista"
+        ? "Nutrição Clínica & Consultoria"
         : "Corte Degradê & Barba Terapia";
 
     const novoProf: ProfissionalBarbearia = {
       id: "prof_" + Date.now(),
       nome: newProfNome.trim(),
-      apelido: newProfApelido.trim() || undefined,
+      apelido: newProfApelido.trim() || "",
       categoria: newProfCategoria,
-      fotoUrl: newProfFoto,
+      fotoUrl: newProfFoto || "",
       especialidade: newProfEspecialidade.trim() || defaultEspec,
-      telefone: newProfTelefone.trim(),
-      chavePix: newProfPix.trim() || undefined,
+      telefone: newProfTelefone.trim() || "",
+      chavePix: newProfPix.trim() || "",
       comissaoPct: Number(newProfComissao) || 50,
       totalAtendimentos: 0,
       totalFaturado: 0,
       ativo: true
     };
 
-    setProfissionais((prev) => [novoProf, ...prev]);
+    setProfissionais((prev) => {
+      const next = [novoProf, ...prev];
+      localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+      return next;
+    });
+
     showNotification(`Profissional ${novoProf.nome} cadastrado com sucesso! ✨`, "success");
     setIsAddProfissionalOpen(false);
     setNewProfNome("");
@@ -718,16 +989,92 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     setNewProfEspecialidade("");
     setNewProfTelefone("");
     setNewProfPix("");
+    setNewProfFoto("");
   };
 
-  // Handler para Upload de Foto do Profissional
-  const handleFotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handler para Atualizar Profissional Existente (Editar Perfil & Foto)
+  const handleUpdateProfissional = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProf) return;
+    if (!editingProf.nome.trim()) {
+      showNotification("Informe o nome do profissional! 👤", "error");
+      return;
+    }
+
+    const atualizado: ProfissionalBarbearia = {
+      ...editingProf,
+      nome: editingProf.nome.trim(),
+      apelido: (editingProf.apelido || "").trim(),
+      categoria: editingProf.categoria || "barbearia",
+      especialidade: (editingProf.especialidade || "").trim(),
+      telefone: (editingProf.telefone || "").trim(),
+      chavePix: (editingProf.chavePix || "").trim(),
+      comissaoPct: Number(editingProf.comissaoPct) || 0,
+      duracaoPadraoMinutos: Number(editingProf.duracaoPadraoMinutos) || 40,
+      fotoUrl: editingProf.fotoUrl || "",
+      ativo: editingProf.ativo !== false
+    };
+
+    setProfissionais((prev) => {
+      const next = prev.map((p) => (p.id === atualizado.id ? atualizado : p));
+      localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+      return next;
+    });
+
+    showNotification(`Perfil de ${atualizado.nome} atualizado com sucesso! ✨`, "success");
+    setEditingProf(null);
+  };
+
+  // Handler para Excluir Profissional Definitivamente
+  const handleDeleteProfissional = (profId: string) => {
+    const prof = profissionais.find((p) => p.id === profId);
+    setProfissionais((prev) => {
+      const next = prev.filter((p) => p.id !== profId);
+      localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+      return next;
+    });
+    setDeleteConfirmProf(null);
+    if (editingProf?.id === profId) setEditingProf(null);
+    showNotification(`Profissional ${prof?.nome || ""} excluído com sucesso! 🗑️`, "info");
+  };
+
+  // Handler para Alternar Disponibilidade (Disponível vs Não Disponível)
+  const handleToggleProfissionalAtivo = (profId: string) => {
+    setProfissionais((prev) => {
+      const next = prev.map((p) => {
+        if (p.id === profId) {
+          const novoStatus = !p.ativo;
+          showNotification(
+            novoStatus
+              ? `${p.nome} agora está DISPONÍVEL para receber agendamentos! ✅`
+              : `${p.nome} agora está INDISPONÍVEL / EM PAUSA! Agenda bloqueada. ⏸️`,
+            novoStatus ? "success" : "info"
+          );
+          return { ...p, ativo: novoStatus };
+        }
+        return p;
+      });
+      localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+      return next;
+    });
+  };
+
+  // Handler para Upload de Foto do Profissional (Novo ou Editando)
+  const handleFotoUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        showNotification("A foto deve ter no máximo 2MB!", "error");
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === "string") {
-          setNewProfFoto(reader.result);
+          if (isEdit && editingProf) {
+            setEditingProf({ ...editingProf, fotoUrl: reader.result });
+          } else {
+            setNewProfFoto(reader.result);
+          }
           showNotification("Foto carregada com sucesso! 📸", "success");
         }
       };
@@ -906,19 +1253,15 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     
     // Salvar no Firestore se logado
     if (userId && userId !== "guest_visitor" && db) {
-      try {
-        await setDoc(doc(db, "userData", userId), {
-          companyProfile: updated,
-          storeName: companyName,
-          barbeariaProfissionais: profissionais,
-          barbeariaAgendamentos: agendamentos,
-          barbeariaEncomendas: encomendas,
-          barbeariaAniversarios: aniversarios,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-      } catch (err) {
-        console.warn("Erro ao salvar dados no Firestore:", err);
-      }
+      await safeFirestoreSetDoc(doc(db, "userData", userId), {
+        companyProfile: updated,
+        storeName: companyName,
+        barbeariaProfissionais: profissionais,
+        barbeariaAgendamentos: agendamentos,
+        barbeariaEncomendas: encomendas,
+        barbeariaAniversarios: aniversarios,
+        updatedAt: new Date().toISOString()
+      });
     }
 
     showNotification("Dados e redes sociais da empresa gravados com sucesso na memória do app e nuvem! 🏢💾✅", "success");
@@ -1028,14 +1371,15 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         </div>
 
         {/* Botões dos 4 Segmentos + Todos */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        {/* Botões dos 8 Segmentos Separados + Todos */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
           <button
             type="button"
             onClick={() => {
               setSegmentFilter("todos");
               localStorage.setItem("barbearia_selected_segment", "todos");
             }}
-            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "todos"
                 ? "bg-slate-800 text-white border-white/30 shadow-md ring-2 ring-white/10"
                 : "bg-slate-900/60 text-slate-400 border-white/5 hover:bg-slate-800/60 hover:text-white"
@@ -1051,7 +1395,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               localStorage.setItem("barbearia_selected_segment", "barbearia");
               if (activeTab === "encomendas") setActiveTab("profissionais");
             }}
-            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "barbearia"
                 ? "bg-amber-500 text-slate-950 border-amber-400 font-black shadow-lg shadow-amber-500/20 ring-2 ring-amber-400/30"
                 : "bg-slate-900/60 text-amber-300/80 border-amber-500/20 hover:bg-amber-500/10 hover:text-amber-300"
@@ -1067,13 +1411,13 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               localStorage.setItem("barbearia_selected_segment", "salao");
               if (activeTab === "encomendas") setActiveTab("profissionais");
             }}
-            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "salao"
                 ? "bg-purple-600 text-white border-purple-400 font-black shadow-lg shadow-purple-600/20 ring-2 ring-purple-400/30"
                 : "bg-slate-900/60 text-purple-300/80 border-purple-500/20 hover:bg-purple-500/10 hover:text-purple-300"
             }`}
           >
-            <span>💇‍♀️ Salão de Beleza</span>
+            <span>💇‍♀️ Salão Beleza</span>
           </button>
 
           <button
@@ -1083,7 +1427,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               localStorage.setItem("barbearia_selected_segment", "manicure");
               if (activeTab === "encomendas") setActiveTab("profissionais");
             }}
-            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "manicure"
                 ? "bg-pink-600 text-white border-pink-400 font-black shadow-lg shadow-pink-600/20 ring-2 ring-pink-400/30"
                 : "bg-slate-900/60 text-pink-300/80 border-pink-500/20 hover:bg-pink-500/10 hover:text-pink-300"
@@ -1095,14 +1439,78 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           <button
             type="button"
             onClick={() => {
+              setSegmentFilter("podologia");
+              localStorage.setItem("barbearia_selected_segment", "podologia");
+              if (activeTab === "encomendas") setActiveTab("profissionais");
+            }}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              segmentFilter === "podologia"
+                ? "bg-teal-600 text-white border-teal-400 font-black shadow-lg shadow-teal-600/20 ring-2 ring-teal-400/30"
+                : "bg-slate-900/60 text-teal-300/80 border-teal-500/20 hover:bg-teal-500/10 hover:text-teal-300"
+            }`}
+          >
+            <span>🦶 Podologia</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSegmentFilter("terapia_ocupacional");
+              localStorage.setItem("barbearia_selected_segment", "terapia_ocupacional");
+              if (activeTab === "encomendas") setActiveTab("profissionais");
+            }}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              segmentFilter === "terapia_ocupacional"
+                ? "bg-cyan-600 text-white border-cyan-400 font-black shadow-lg shadow-cyan-600/20 ring-2 ring-cyan-400/30"
+                : "bg-slate-900/60 text-cyan-300/80 border-cyan-500/20 hover:bg-cyan-500/10 hover:text-cyan-300"
+            }`}
+          >
+            <span>🧩 T. Ocupacional</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSegmentFilter("psicologia");
+              localStorage.setItem("barbearia_selected_segment", "psicologia");
+              if (activeTab === "encomendas") setActiveTab("profissionais");
+            }}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              segmentFilter === "psicologia"
+                ? "bg-indigo-600 text-white border-indigo-400 font-black shadow-lg shadow-indigo-600/20 ring-2 ring-indigo-400/30"
+                : "bg-slate-900/60 text-indigo-300/80 border-indigo-500/20 hover:bg-indigo-500/10 hover:text-indigo-300"
+            }`}
+          >
+            <span>🧠 Psicologia</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSegmentFilter("nutricionista");
+              localStorage.setItem("barbearia_selected_segment", "nutricionista");
+              if (activeTab === "encomendas") setActiveTab("profissionais");
+            }}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              segmentFilter === "nutricionista"
+                ? "bg-emerald-600 text-white border-emerald-400 font-black shadow-lg shadow-emerald-600/20 ring-2 ring-emerald-400/30"
+                : "bg-slate-900/60 text-emerald-300/80 border-emerald-500/20 hover:bg-emerald-500/10 hover:text-emerald-300"
+            }`}
+          >
+            <span>🥗 Nutricionista</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
               setSegmentFilter("festas");
               localStorage.setItem("barbearia_selected_segment", "festas");
               setActiveTab("encomendas");
             }}
-            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer col-span-2 sm:col-span-1 ${
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer col-span-2 sm:col-span-1 ${
               segmentFilter === "festas"
-                ? "bg-emerald-600 text-white border-emerald-400 font-black shadow-lg shadow-emerald-600/20 ring-2 ring-emerald-400/30"
-                : "bg-slate-900/60 text-emerald-300/80 border-emerald-500/20 hover:bg-emerald-500/10 hover:text-emerald-300"
+                ? "bg-rose-600 text-white border-rose-400 font-black shadow-lg shadow-rose-600/20 ring-2 ring-rose-400/30"
+                : "bg-slate-900/60 text-rose-300/80 border-rose-500/20 hover:bg-rose-500/10 hover:text-rose-300"
             }`}
           >
             <span>🎂 Festas & Eventos</span>
@@ -2851,6 +3259,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         companyName={companyName}
         companyPhone={companyPhone}
         clientAgendaUrl={clientAgendaUrl}
+        initialCategoria={segmentFilter !== "todos" ? segmentFilter : "todos"}
         showNotification={showNotification}
       />
 
@@ -2862,6 +3271,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         companyPhone={companyPhone}
         clientAgendaUrl={clientAgendaUrl}
         agendamentos={agendamentos}
+        initialCategoria={segmentFilter !== "todos" ? segmentFilter : "todos"}
         formatCurrency={formatCurrency}
         showNotification={showNotification}
       />

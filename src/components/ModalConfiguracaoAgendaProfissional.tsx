@@ -90,6 +90,11 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
     profissional.bloqueiosPersonalizados || []
   );
 
+  // Duração de Atendimento por Cliente (Total Acesso Livre para o Profissional)
+  const [duracaoPadraoMinutos, setDuracaoPadraoMinutos] = useState<number>(
+    Number(profissional.duracaoPadraoMinutos) || 40
+  );
+
   // Estado do formulário de novo bloqueio
   const [novoInicio, setNovoInicio] = useState("14:00");
   const [novoFim, setNovoFim] = useState("15:00");
@@ -146,7 +151,7 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
       horarioInicio: novoInicio,
       horarioFim: novoFim,
       motivo: novoMotivo.trim() || "Horário Indisponível",
-      data: novaData.trim() || undefined,
+      data: novaData.trim() || "",
       tipo: novoTipo
     };
 
@@ -172,14 +177,15 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
       horaInicio,
       horaFim,
       diasSemana,
-      intervaloInicio: temAlmoco ? intervaloInicio : undefined,
-      intervaloFim: temAlmoco ? intervaloFim : undefined,
-      intervaloMotivo: temAlmoco ? intervaloMotivo : undefined,
+      duracaoPadraoMinutos: Number(duracaoPadraoMinutos) || 40,
+      intervaloInicio: temAlmoco ? intervaloInicio : "",
+      intervaloFim: temAlmoco ? intervaloFim : "",
+      intervaloMotivo: temAlmoco ? intervaloMotivo : "",
       bloqueiosPersonalizados: bloqueios
     };
 
     onSave(atualizado);
-    showNotification(`Agenda de ${profissional.nome} salva com sucesso! ✂️📅`, "success");
+    showNotification(`Agenda e tempo de atendimento de ${profissional.nome} salvos! ⏱️📅`, "success");
     onClose();
   };
 
@@ -337,7 +343,71 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
             </p>
           </div>
 
-          {/* 3. INTERVALO DE ALMOÇO / PAUSA */}
+          {/* 3. DURAÇÃO DE ATENDIMENTO POR CLIENTE (ACESSO TOTALMENTE LIVRE) */}
+          <div className="bg-slate-950/70 p-4 rounded-2xl border border-white/5 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <label className="text-xs font-black uppercase text-slate-200 tracking-wider flex items-center gap-2">
+                <Clock className="w-4 h-4 text-cyan-400" />
+                <span>Quanto Tempo Para Cada Cliente? (Duração Padrão)</span>
+              </label>
+              <span className="text-[10px] font-black text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">
+                Livre para o Profissional
+              </span>
+            </div>
+
+            <p className="text-[11px] text-slate-300">
+              O profissional tem acesso 100% livre para definir a duração de cada atendimento ou consulta. Selecione um atalho rápido ou digite os minutos exatos:
+            </p>
+
+            {/* Presets Rápidos */}
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { min: 15, label: "15 min" },
+                { min: 20, label: "20 min" },
+                { min: 30, label: "30 min" },
+                { min: 40, label: "40 min" },
+                { min: 45, label: "45 min" },
+                { min: 50, label: "50 min" },
+                { min: 60, label: "1 hora" },
+                { min: 75, label: "1h15" },
+                { min: 90, label: "1h30" },
+                { min: 120, label: "2 horas" }
+              ].map((preset) => (
+                <button
+                  key={preset.min}
+                  type="button"
+                  onClick={() => setDuracaoPadraoMinutos(preset.min)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                    Number(duracaoPadraoMinutos) === preset.min
+                      ? "bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-950/40 ring-2 ring-cyan-400/30"
+                      : "bg-slate-900 text-slate-400 border-white/5 hover:text-white hover:bg-slate-800"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Input Livre de Minutos */}
+            <div className="flex items-center gap-3 bg-slate-900/90 p-3 rounded-xl border border-white/10">
+              <span className="text-xs font-bold text-slate-300">
+                Ou digite a duração exata:
+              </span>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min="5"
+                  max="480"
+                  value={duracaoPadraoMinutos}
+                  onChange={(e) => setDuracaoPadraoMinutos(Math.max(5, Number(e.target.value) || 15))}
+                  className="w-24 bg-slate-950 border border-cyan-500/40 rounded-xl px-3 py-1.5 text-xs text-cyan-300 font-mono font-black outline-none focus:border-cyan-400 text-center"
+                />
+                <span className="text-xs text-slate-400 font-bold">minutos por cliente</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. INTERVALO DE ALMOÇO / PAUSA */}
           <div className="bg-slate-950/70 p-4 rounded-2xl border border-white/5 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-black uppercase text-slate-200 tracking-wider flex items-center gap-2">

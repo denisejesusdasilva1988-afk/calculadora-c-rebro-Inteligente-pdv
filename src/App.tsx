@@ -11296,6 +11296,12 @@ export default function App() {
                           handleSetNotepadMode("pdv");
                         } else if (action === "ajuda") {
                           handleSetNotepadMode("ajuda");
+                        } else if (action.startsWith("segmento_")) {
+                          const seg = action.replace("segmento_", "");
+                          localStorage.setItem("barbearia_selected_segment", seg);
+                          handleSetNotepadMode("barbearia_salao");
+                        } else if (action === "barbearia_salao") {
+                          handleSetNotepadMode("barbearia_salao");
                         }
                       }}
                       onOpenPDVWithSubTab={(subTab) => {

@@ -35,7 +35,18 @@ import {
 export interface ModeloParabens {
   id: string;
   nome: string;
-  categoria: "barbearia" | "salao" | "manicure" | "festas" | "desconto" | "presente" | "carinhoso";
+  categoria:
+    | "barbearia"
+    | "salao"
+    | "manicure"
+    | "podologia"
+    | "terapia_ocupacional"
+    | "psicologia"
+    | "nutricionista"
+    | "festas"
+    | "desconto"
+    | "presente"
+    | "carinhoso";
   icone: string;
   texto: string;
   isCustom?: boolean;
@@ -60,11 +71,43 @@ export const MODELOS_PARABENS_PRONTOS: ModeloParabens[] = [
   },
   {
     id: "mod_manicure",
-    nome: "Manicure & Esmalteria — Unhas de Princesa",
+    nome: "Manicure & Pedicure — Unhas de Princesa",
     categoria: "manicure",
     icone: "💅",
     texto:
       "Feliz Aniversário, {cliente}! 💅💖🎉\n\nA equipe da *{empresa}* deseja que seu novo ciclo seja radiante e cheio de motivos para sorrir!\n\nComo nosso presente carinhoso, você ganhou *{presente}* no seu atendimento de manicure/pedicure desta semana!\n\nVenha deixar suas unhas perfeitas para a comemoração! Marque seu horário: {telefone} 🥂✨"
+  },
+  {
+    id: "mod_podologia",
+    nome: "Podologia — Saúde, Conforto & Pés Leves",
+    categoria: "podologia",
+    icone: "🦶",
+    texto:
+      "Feliz Aniversário, {cliente}! 🦶✨🎂\n\nA equipe da *{empresa}* deseja a você um novo ano repleto de passos firmes, saúde e muitas realizações!\n\nPara celebrar o seu dia especial, você ganhou *{desconto}* em procedimento de podologia preventiva ou spa dos pés!\n\nVenha cuidar de quem te leva a todos os lugares. Agende sua sessão: {telefone} 👣❤️"
+  },
+  {
+    id: "mod_terapia_ocupacional",
+    nome: "Terapia Ocupacional — Celebração da Autonomia & Vida",
+    categoria: "terapia_ocupacional",
+    icone: "🧩",
+    texto:
+      "Parabéns pelo seu dia, querido(a) {cliente}! 🧩🎉🎂\n\nNós da *{empresa}* celebramos com muito carinho a sua história, sua autonomia e cada conquista do seu caminhar!\n\nQue este novo ciclo traga saúde, novas vitórias, bem-estar e momentos inesquecíveis!\n\nEstamos sempre juntos nessa jornada. Um grande e afetuoso abraço de toda a nossa equipe! Conte sempre conosco: {telefone} 💛✨"
+  },
+  {
+    id: "mod_psicologia",
+    nome: "Psicologia — Paz Interior, Saúde Emocional & Vida Plena",
+    categoria: "psicologia",
+    icone: "🧠",
+    texto:
+      "Feliz Aniversário, {cliente}! 🧠🌱🎂\n\nA equipe da *{empresa}* deseja que o seu novo ciclo seja marcado por paz de espírito, clareza, harmonia interior e dias leves!\n\nCuidar de si é o maior ato de amor próprio. Que você continue florescendo e celebrando a sua melhor versão!\n\nUm abraço acolhedor e cheio de luz em seu dia: {telefone} ✨🤍"
+  },
+  {
+    id: "mod_nutricionista",
+    nome: "Nutricionista — Vitalidade, Equilíbrio & Vida Saudável",
+    categoria: "nutricionista",
+    icone: "🥗",
+    texto:
+      "Parabéns pelo seu aniversário, {cliente}! 🥗🍎🎂\n\nA equipe da *{empresa}* deseja a você um novo ano repleto de energia vibrante, saúde plena, longevidade e sabor de viver bem!\n\nComo presente pelo seu dia, você ganhou *{presente}* no seu próximo acompanhamento nutricional!\n\nContinue firme nos seus objetivos e celebre com muito equilíbrio e alegria! WhatsApp: {telefone} 🥳🥦"
   },
   {
     id: "mod_festas",
@@ -81,14 +124,6 @@ export const MODELOS_PARABENS_PRONTOS: ModeloParabens[] = [
     icone: "🎁",
     texto:
       "Olá, {cliente}! 🎂🎈\n\nA equipe da *{empresa}* deseja a você um FELIZ ANIVERSÁRIO repleto de saúde, paz e muitas alegrias! 🎉✨\n\nComo presente especial pelo seu dia, você ganhou *{desconto}* em qualquer serviço ou atendimento!\n\nVenha comemorar conosco e garantir seu desconto! Agende seu horário: {telefone} 🥳"
-  },
-  {
-    id: "mod_presente",
-    nome: "Presente / Brinde VIP Exclusivo",
-    categoria: "presente",
-    icone: "⭐",
-    texto:
-      "Parabéns pelo seu aniversário, {cliente}! 🥳🎂\n\nNós da *{empresa}* preparamos um mimo muito especial para comemorar essa data tão marcante com você: você ganhou *{presente}*!\n\nVenha nos visitar e retirar seu presente da semana! Agende ou fale conosco no WhatsApp: {telefone} ❤️"
   },
   {
     id: "mod_carinhoso",
@@ -131,6 +166,7 @@ interface ModalPersonalizarParabensProps {
   clientAgendaUrl?: string;
   destinatarioNome?: string;
   destinatarioTelefone?: string;
+  initialCategoria?: string;
   onSaveMensagemPadrao?: (novaMensagem: string) => void;
   showNotification?: (msg: string, type: "success" | "error" | "info") => void;
 }
@@ -143,6 +179,7 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
   clientAgendaUrl,
   destinatarioNome = "Ana Clara",
   destinatarioTelefone = "",
+  initialCategoria = "todos",
   onSaveMensagemPadrao,
   showNotification = (_msg?: string, _type?: "success" | "error" | "info") => {}
 }) => {
@@ -151,6 +188,7 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
     const list = loadModelosParabens();
     return list[0]?.id || "mod_barbearia";
   });
+  const [segmentFilter, setSegmentFilter] = useState<string>(initialCategoria || "todos");
 
   // Mensagem sendo editada
   const modeloAtual = modelos.find((m) => m.id === selectedModeloId) || modelos[0];
@@ -342,9 +380,40 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
               </div>
             </div>
 
+            {/* Filtro por Segmento */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 custom-scrollbar text-[11px]">
+              <span className="text-[10px] font-black uppercase text-slate-400 shrink-0">Filtrar:</span>
+              {[
+                { id: "todos", label: "✨ Todos" },
+                { id: "barbearia", label: "💈 Barbeiro" },
+                { id: "salao", label: "💇‍♀️ Salão" },
+                { id: "manicure", label: "💅 Manicure" },
+                { id: "podologia", label: "🦶 Podologia" },
+                { id: "terapia_ocupacional", label: "🧩 T. Ocupacional" },
+                { id: "psicologia", label: "🧠 Psicologia" },
+                { id: "nutricionista", label: "🥗 Nutricionista" },
+                { id: "festas", label: "🎂 Festas" }
+              ].map((seg) => (
+                <button
+                  key={seg.id}
+                  type="button"
+                  onClick={() => setSegmentFilter(seg.id)}
+                  className={`px-2.5 py-1 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
+                    segmentFilter === seg.id
+                      ? "bg-pink-600 text-white shadow-md shadow-pink-900/40"
+                      : "bg-slate-900 text-slate-400 hover:text-white border border-white/5"
+                  }`}
+                >
+                  {seg.label}
+                </button>
+              ))}
+            </div>
+
             {/* Grid dos Modelos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {modelos.map((mod) => (
+              {modelos
+                .filter((mod) => segmentFilter === "todos" || mod.categoria === segmentFilter)
+                .map((mod) => (
                 <div
                   key={mod.id}
                   onClick={() => setSelectedModeloId(mod.id)}
@@ -425,7 +494,11 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
                 >
                   <option value="barbearia">💈 Barbearia</option>
                   <option value="salao">💇‍♀️ Salão de Beleza</option>
-                  <option value="manicure">💅 Manicure</option>
+                  <option value="manicure">💅 Manicure & Pedicure</option>
+                  <option value="podologia">🦶 Podologia</option>
+                  <option value="terapia_ocupacional">🧩 Terapia Ocupacional</option>
+                  <option value="psicologia">🧠 Psicologia</option>
+                  <option value="nutricionista">🥗 Nutricionista</option>
                   <option value="festas">🎂 Festas & Encomendas</option>
                   <option value="desconto">🎁 Desconto / Cupom</option>
                   <option value="presente">⭐ Presente / Brinde</option>
@@ -491,14 +564,22 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
               </div>
             </div>
 
-            {/* Textarea */}
-            <div className="space-y-1">
+            {/* Textarea Espaçoso */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase text-pink-300 tracking-wider">
+                  Texto da Mensagem (Espaçoso para Escrever à Vontade ✍️):
+                </label>
+                <span className="text-slate-400 font-mono text-[9.5px] bg-slate-800 px-2 py-0.5 rounded-md">
+                  {textoEdit.length} caracteres
+                </span>
+              </div>
               <textarea
-                rows={5}
+                rows={9}
                 value={textoEdit}
                 onChange={(e) => setTextoEdit(e.target.value)}
-                className="w-full bg-slate-900 border border-white/10 rounded-2xl p-3.5 text-xs text-white leading-relaxed outline-none focus:border-pink-500 font-sans"
-                placeholder="Escreva a mensagem personalizada de aniversário..."
+                className="w-full bg-slate-900 border-2 border-white/10 focus:border-pink-500 rounded-2xl p-4 text-sm text-white leading-relaxed outline-none font-sans min-h-[190px] shadow-inner transition-all"
+                placeholder="Escreva a mensagem personalizada de aniversário com todo o carinho e detalhes..."
               />
             </div>
 

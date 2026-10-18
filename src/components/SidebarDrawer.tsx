@@ -1250,7 +1250,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     </button>
 
                     {/* Atalhos Diretos por Categoria Separada */}
-                    <div className="grid grid-cols-2 gap-1 pl-2 pt-0.5">
+                    <div className="grid grid-cols-2 sm:grid-cols-2 gap-1.5 pl-2 pt-1">
                       <button
                         onClick={() => {
                           localStorage.setItem("barbearia_selected_segment", "barbearia");
@@ -1283,12 +1283,52 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
                       <button
                         onClick={() => {
-                          localStorage.setItem("barbearia_selected_segment", "festas");
+                          localStorage.setItem("barbearia_selected_segment", "podologia");
+                          handleNavigate("barbearia_salao");
+                        }}
+                        className="py-1 px-2 rounded-lg bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-[10px] font-bold border border-teal-500/20 text-left truncate flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>🦶 Podologia</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          localStorage.setItem("barbearia_selected_segment", "terapia_ocupacional");
+                          handleNavigate("barbearia_salao");
+                        }}
+                        className="py-1 px-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-[10px] font-bold border border-cyan-500/20 text-left truncate flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>🧩 Terapia Ocup.</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          localStorage.setItem("barbearia_selected_segment", "psicologia");
+                          handleNavigate("barbearia_salao");
+                        }}
+                        className="py-1 px-2 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-[10px] font-bold border border-indigo-500/20 text-left truncate flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>🧠 Psicologia</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          localStorage.setItem("barbearia_selected_segment", "nutricionista");
                           handleNavigate("barbearia_salao");
                         }}
                         className="py-1 px-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/20 text-left truncate flex items-center gap-1 cursor-pointer"
                       >
-                        <span>🍰 Festas/Encomendas</span>
+                        <span>🥗 Nutricionista</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          localStorage.setItem("barbearia_selected_segment", "festas");
+                          handleNavigate("barbearia_salao");
+                        }}
+                        className="py-1 px-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-[10px] font-bold border border-rose-500/20 text-left truncate flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>🍰 Festas/Eventos</span>
                       </button>
                     </div>
                   </div>

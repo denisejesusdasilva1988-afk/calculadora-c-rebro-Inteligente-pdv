@@ -26,6 +26,7 @@ import {
   X
 } from "lucide-react";
 import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+import { cleanUndefinedForFirestore } from "../utils/cleanFirestore";
 
 export interface ClienteCompraHistorico {
   id: string;
@@ -173,7 +174,8 @@ export function ClientesFieisModule({
     if (db && userId && isLoggedIn) {
       try {
         const clientDocRef = doc(db, "users", userId, "pdv_data", "clientes_fieis");
-        setDoc(clientDocRef, { clientes, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+        const cleanedClientes = cleanUndefinedForFirestore(clientes);
+        setDoc(clientDocRef, { clientes: cleanedClientes, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
       } catch (_) {}
     }
   }, [clientes, db, userId, isLoggedIn]);

@@ -31,7 +31,15 @@ import {
   ShieldAlert,
   Smartphone,
   Laptop,
-  FileText
+  FileText,
+  Scissors,
+  Calendar,
+  Share2,
+  Copy,
+  Clock,
+  ExternalLink,
+  MessageSquare,
+  Heart
 } from "lucide-react";
 
 interface BalcaoComandosModuleProps {
@@ -739,6 +747,237 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
             </kbd>
             <span className="text-[10.5px]">Fechar</span>
           </button>
+        </div>
+      </div>
+
+      {/* 💼 4. CENTRAL DE RESPOSTA A COMANDOS: SEPARAÇÃO TOTAL DE NEGÓCIOS & AGENDAS */}
+      <div className="bg-gradient-to-br from-slate-900 via-indigo-950/60 to-slate-900 border-2 border-indigo-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl text-left space-y-4 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-gradient-to-tr from-amber-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-500/20 border border-white/10">
+              <Calendar className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base sm:text-lg font-black uppercase text-white tracking-wide">
+                  Responder Comandos por Negócio & Agenda
+                </h3>
+                <span className="px-2 py-0.5 text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full">
+                  8 Segmentos Separados
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 font-medium">
+                Cada comunicado, cada agenda, cada parabéns, cada link, dados e informações 100% separados por segmento.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.setItem("barbearia_selected_segment", "todos");
+                triggerAction("barbearia_salao");
+              }}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer active:scale-95"
+            >
+              <ExternalLink className="w-4 h-4" />
+              <span>Ver Módulo Completo 🚀</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Informação sobre Liberdade de Tempo para Cada Profissional */}
+        <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 text-xs text-indigo-200">
+          <div className="flex items-center gap-2.5">
+            <Clock className="w-5 h-5 text-amber-400 shrink-0" />
+            <span>
+              <strong>Liberdade Total de Duração:</strong> Cada profissional tem total acesso livre para editar quanto tempo dura cada atendimento (ex: 15m, 30m, 40m, 50m, 60m ou duração livre personalizada em minutos).
+            </span>
+          </div>
+          <span className="text-[10px] font-bold bg-amber-400/20 text-amber-300 px-2 py-1 rounded-lg shrink-0 border border-amber-400/30">
+            Acesso Livre ⏱️
+          </span>
+        </div>
+
+        {/* Grid de Comandos por Segmento */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-1">
+          {[
+            {
+              id: "barbearia",
+              nome: "Barbeiro",
+              titulo: "Barbearia Tradicional",
+              sub: "Degradê, barba terapia e visual masculino",
+              icone: "💈",
+              corBorder: "border-amber-500/40 hover:border-amber-400",
+              corBg: "bg-amber-950/20",
+              corBadge: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+              btnBg: "bg-amber-600 hover:bg-amber-500 text-white",
+              padraoMin: 40
+            },
+            {
+              id: "salao",
+              nome: "Salão de Beleza",
+              titulo: "Cabeleireiras(os)",
+              sub: "Cortes, mechas, escovas e hidratação",
+              icone: "💇‍♀️",
+              corBorder: "border-purple-500/40 hover:border-purple-400",
+              corBg: "bg-purple-950/20",
+              corBadge: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+              btnBg: "bg-purple-600 hover:bg-purple-500 text-white",
+              padraoMin: 50
+            },
+            {
+              id: "manicure",
+              nome: "Manicure & Pedicure",
+              titulo: "Esmalteria & Pés",
+              sub: "Alongamento em gel, fibra, cutilagem e spa",
+              icone: "💅",
+              corBorder: "border-pink-500/40 hover:border-pink-400",
+              corBg: "bg-pink-950/20",
+              corBadge: "bg-pink-500/20 text-pink-300 border-pink-500/30",
+              btnBg: "bg-pink-600 hover:bg-pink-500 text-white",
+              padraoMin: 45
+            },
+            {
+              id: "podologia",
+              nome: "Podologia",
+              titulo: "Podólogas(os)",
+              sub: "Saúde dos pés, calosidades e unha encravada",
+              icone: "🦶",
+              corBorder: "border-teal-500/40 hover:border-teal-400",
+              corBg: "bg-teal-950/20",
+              corBadge: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+              btnBg: "bg-teal-600 hover:bg-teal-500 text-white",
+              padraoMin: 50
+            },
+            {
+              id: "terapia_ocupacional",
+              nome: "Terapia Ocupacional",
+              titulo: "Reabilitação & AVDs",
+              sub: "Autonomia, motor, cognitivo e sensorial",
+              icone: "🧩",
+              corBorder: "border-cyan-500/40 hover:border-cyan-400",
+              corBg: "bg-cyan-950/20",
+              corBadge: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+              btnBg: "bg-cyan-600 hover:bg-cyan-500 text-white",
+              padraoMin: 50
+            },
+            {
+              id: "psicologia",
+              nome: "Psicologia",
+              titulo: "Psicológicos / Clínica",
+              sub: "Psicoterapia, acolhimento, TCC e escuta",
+              icone: "🧠",
+              corBorder: "border-indigo-500/40 hover:border-indigo-400",
+              corBg: "bg-indigo-950/20",
+              corBadge: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+              btnBg: "bg-indigo-600 hover:bg-indigo-500 text-white",
+              padraoMin: 50
+            },
+            {
+              id: "nutricionista",
+              nome: "Nutricionista",
+              titulo: "Nutrição & Bioimpedância",
+              sub: "Plano alimentar, emagrecimento e esportiva",
+              icone: "🥗",
+              corBorder: "border-emerald-500/40 hover:border-emerald-400",
+              corBg: "bg-emerald-950/20",
+              corBadge: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+              btnBg: "bg-emerald-600 hover:bg-emerald-500 text-white",
+              padraoMin: 50
+            },
+            {
+              id: "festas",
+              nome: "Festas & Eventos",
+              titulo: "Encomendas & Buffets",
+              sub: "Bolos, kits festas, doces e orçamentos",
+              icone: "🍰",
+              corBorder: "border-rose-500/40 hover:border-rose-400",
+              corBg: "bg-rose-950/20",
+              corBadge: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+              btnBg: "bg-rose-600 hover:bg-rose-500 text-white",
+              padraoMin: 60
+            }
+          ].map((seg) => {
+            const portalUrl = `${window.location.origin}${window.location.pathname}?segmento=${seg.id}`;
+
+            const handleCopiarLink = (e: React.MouseEvent) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(portalUrl);
+              showNotification(`Link exclusivo de ${seg.nome} copiado para a área de transferência!`, "success");
+            };
+
+            const handleCompartilharWhats = (e: React.MouseEvent) => {
+              e.stopPropagation();
+              const msg = encodeURIComponent(
+                `${seg.icone} Olá! Acesse a nossa agenda exclusiva de ${seg.nome} e reserve seu melhor horário online: ${portalUrl}`
+              );
+              window.open(`https://wa.me/?text=${msg}`, "_blank");
+            };
+
+            return (
+              <div
+                key={seg.id}
+                className={`p-3.5 rounded-2xl border ${seg.corBorder} ${seg.corBg} flex flex-col justify-between space-y-3 transition-all duration-200 shadow-lg hover:shadow-xl text-left`}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                    <span className="text-xl">{seg.icone}</span>
+                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${seg.corBadge}`}>
+                      {seg.nome}
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-black uppercase text-white tracking-wide">
+                    {seg.titulo}
+                  </h4>
+                  <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-2">
+                    {seg.sub}
+                  </p>
+                </div>
+
+                <div className="space-y-1.5 pt-1">
+                  {/* Botão de Comando Principal: Abrir Agenda do Segmento */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.setItem("barbearia_selected_segment", seg.id);
+                      triggerAction(`segmento_${seg.id}`);
+                    }}
+                    className={`w-full py-2 px-2.5 ${seg.btnBg} font-black text-[10.5px] uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer active:scale-95`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Abrir Agenda 📅</span>
+                  </button>
+
+                  {/* Ações Rápidas de Link & WhatsApp */}
+                  <div className="grid grid-cols-2 gap-1 text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={handleCopiarLink}
+                      className="py-1 px-1.5 bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-white/10 hover:border-white/30 rounded-lg flex items-center justify-center gap-1 transition-all cursor-pointer truncate"
+                      title="Copiar link exclusivo do segmento"
+                    >
+                      <Copy className="w-3 h-3 text-indigo-400 shrink-0" />
+                      <span className="truncate">Copiar Link</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCompartilharWhats}
+                      className="py-1 px-1.5 bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-500/30 hover:border-emerald-400 rounded-lg flex items-center justify-center gap-1 transition-all cursor-pointer truncate"
+                      title="Compartilhar link pelo WhatsApp"
+                    >
+                      <Share2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                      <span className="truncate">WhatsApp</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

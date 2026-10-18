@@ -38,7 +38,17 @@ export interface ModeloComunicado {
   id: string;
   nome: string;
   icone: string;
-  categoria: "barbearia" | "salao" | "manicure" | "festas" | "lembrete" | "geral";
+  categoria:
+    | "barbearia"
+    | "salao"
+    | "manicure"
+    | "podologia"
+    | "terapia_ocupacional"
+    | "psicologia"
+    | "nutricionista"
+    | "festas"
+    | "lembrete"
+    | "geral";
   texto: string;
   isCustom?: boolean;
 }
@@ -61,22 +71,6 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
       "Tudo certo, {cliente}! 🎉\n\nSeu agendamento na *{empresa}* foi confirmado com sucesso!\n\n📅 *Dia:* {data} às {horario}\n👤 *Com:* {profissional}\n✂️ *Serviço:* {servico}\n\nMuito obrigado pela confiança! Qualquer dúvida, estamos à disposição: {telefone}. Até breve! ✨"
   },
   {
-    id: "com_festas_encomendas",
-    nome: "Festas & Encomendas — Antecipe seu Pedido",
-    icone: "🎂",
-    categoria: "festas",
-    texto:
-      "🎂🎉 *COMUNICADO DE ENCOMENDAS DE FESTAS — {empresa}* 🍰🎈\n\nVai comemorar aniversário, casamento ou evento nos próximos dias? Nossa agenda de encomendas está a todo vapor!\n\n✨ *Opções Disponíveis:*\n• Bolos confeitados e decorados artesanais 🎂\n• Centos de salgadinhos fritos e assados crocantes 🥟\n• Docinhos tradicionais e gourmets 🍫\n• Kits Festa Completos com refrigerante e descartáveis 🥳\n\n👉 *Antecipe seu pedido pelo link da nossa agenda:* {link_agenda}\n📲 Ou faça seu orçamento direto aqui no WhatsApp: {telefone}!\n\nGaranta sua data e garanta os melhores sabores para a sua comemoração! ❤️"
-  },
-  {
-    id: "com_manicure_unhas",
-    nome: "Manicure & Esmalteria — Vagas da Semana",
-    icone: "💅",
-    categoria: "manicure",
-    texto:
-      "💅✨ *HORÁRIOS DE MANICURE & NAILS NA {empresa}!* 💖\n\nSexta e sábado chegando e você não vai ficar sem fazer as unhas, né? As vagas para esmaltação, manicure, pedicure e alongamento em gel estão disputadas!\n\n👉 *Escolha seu melhor horário no link:* {link_agenda}\n📲 Ou responda esta mensagem para agendar: {telefone}\n\nVenha brilhar com unhas impecáveis para o fim de semana! 🥂🌸"
-  },
-  {
     id: "com_barbearia_fds",
     nome: "Barbearia — Trato no Visual de Fim de Semana",
     icone: "💈",
@@ -93,6 +87,54 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
       "🌸✨ *COMUNICADO DE ATENDIMENTO — {empresa}* 💇‍♀️💖\n\nQuer renovar o visual, fazer aquela escova perfeita, hidratação profunda ou realçar a cor dos seus cabelos?\n\nNossa equipe está com horários abertos para esta semana! Agende seu momento especial de autocuidado:\n\n👉 *Agende online:* {link_agenda}\n📲 WhatsApp de atendimento: {telefone}\n\nVocê merece se sentir radiante todos os dias! Venha nos visitar! ✨"
   },
   {
+    id: "com_manicure_unhas",
+    nome: "Manicure & Pedicure — Vagas da Semana",
+    icone: "💅",
+    categoria: "manicure",
+    texto:
+      "💅✨ *HORÁRIOS DE MANICURE & PEDICURE NA {empresa}!* 💖\n\nSexta e sábado chegando e você não vai ficar sem fazer as unhas, né? As vagas para esmaltação, manicure, pedicure e alongamento em gel estão disputadas!\n\n👉 *Escolha seu melhor horário no link:* {link_agenda}\n📲 Ou responda esta mensagem para agendar: {telefone}\n\nVenha brilhar com unhas impecáveis para o fim de semana! 🥂🌸"
+  },
+  {
+    id: "com_podologia",
+    nome: "Podologia — Saúde & Cuidado dos Pés",
+    icone: "🦶",
+    categoria: "podologia",
+    texto:
+      "🦶✨ *CUIDE DA SAÚDE DOS SEUS PÉS NA {empresa}!* 👣\n\nSentindo dores, desconforto, unhas encravadas ou calosidades? A podologia preventiva devolve o alívio, a leveza e a saúde que seus pés merecem!\n\nNossa agenda de atendimento especializado está com vagas abertas nesta semana:\n\n👉 *Agende online:* {link_agenda}\n📲 Dúvidas ou agendamentos: {telefone}\n\nCaminhe com leveza e sem dor! Esperamos você! ❤️"
+  },
+  {
+    id: "com_terapia_ocupacional",
+    nome: "Terapia Ocupacional — Autonomia & Desenvolvimento",
+    icone: "🧩",
+    categoria: "terapia_ocupacional",
+    texto:
+      "🧩✨ *ATENDIMENTO EM TERAPIA OCUPACIONAL — {empresa}* 💛\n\nA Terapia Ocupacional promove autonomia, desenvolvimento motor, estimulação cognitiva, integração sensorial e qualidade de vida em todas as fases da vida!\n\nNossos horários para novas avaliações e sessões de acompanhamento estão disponíveis:\n\n👉 *Consulte horários e faça seu agendamento:* {link_agenda}\n📲 Fale diretamente com nossa equipe no WhatsApp: {telefone}\n\nAcolhimento e dedicação ao seu desenvolvimento! 🌱"
+  },
+  {
+    id: "com_psicologia",
+    nome: "Psicologia — Espaço de Escuta & Bem-Estar Emocional",
+    icone: "🧠",
+    categoria: "psicologia",
+    texto:
+      "🧠🌱 *CUIDADO COM A SUA SAÚDE MENTAL — {empresa}* 🤍\n\nCuidar das suas emoções é fundamental para viver com mais equilíbrio, clareza e paz de espírito. Oferecemos um espaço seguro, ético e acolhedor de psicoterapia para você.\n\nHorários disponíveis para atendimentos presenciais e online nesta semana:\n\n👉 *Reserve seu horário com total sigilo:* {link_agenda}\n📲 Contato direto no WhatsApp: {telefone}\n\nPriorize o seu bem-estar emocional. Você não precisa carregar tudo sozinho(a)! ✨"
+  },
+  {
+    id: "com_nutricionista",
+    nome: "Nutricionista — Consulta, Bioimpedância & Metas",
+    icone: "🥗",
+    categoria: "nutricionista",
+    texto:
+      "🥗🍎 *CONSULTA NUTRICIONAL & BIOIMPEDÂNCIA NA {empresa}!* 🥦✨\n\nQuer conquistar mais energia, disposição, emagrecimento saudável, ganho de massa ou reeducação alimentar sem dietas malucas?\n\nVenha fazer sua avaliação corporal completa e receber um plano alimentar 100% individualizado para a sua rotina:\n\n👉 *Escolha o seu horário na agenda:* {link_agenda}\n📲 Agende pelo WhatsApp: {telefone}\n\nSua saúde e vitalidade em primeiro lugar! Vamos juntos alcançar suas metas! 💪💚"
+  },
+  {
+    id: "com_festas_encomendas",
+    nome: "Festas & Encomendas — Antecipe seu Pedido",
+    icone: "🎂",
+    categoria: "festas",
+    texto:
+      "🎂🎉 *COMUNICADO DE ENCOMENDAS DE FESTAS — {empresa}* 🍰🎈\n\nVai comemorar aniversário, casamento ou evento nos próximos dias? Nossa agenda de encomendas está a todo vapor!\n\n✨ *Opções Disponíveis:*\n• Bolos confeitados e decorados artesanais 🎂\n• Centos de salgadinhos fritos e assados crocantes 🥟\n• Docinhos tradicionais e gourmets 🍫\n• Kits Festa Completos com refrigerante e descartáveis 🥳\n\n👉 *Antecipe seu pedido pelo link da nossa agenda:* {link_agenda}\n📲 Ou faça seu orçamento direto aqui no WhatsApp: {telefone}!\n\nGaranta sua data e garanta os melhores sabores para a sua comemoração! ❤️"
+  },
+  {
     id: "com_agenda_aberta",
     nome: "Aviso de Agenda da Semana Aberta",
     icone: "📅",
@@ -107,22 +149,6 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     categoria: "geral",
     texto:
       "⚡ *VAGAS DE ÚLTIMA HORA DISPONÍVEIS HOJE NA {empresa}!* 💈✂️\n\nAbriram horários livres para atendimento no dia de hoje! Quem quiser aproveitar para dar aquele trato no visual ou cuidar da beleza:\n\n👉 *Veja os horários livres e reserve:* {link_agenda}\n💬 Ou mande seu nome aqui no WhatsApp: {telefone}!\n\nCorra que as vagas são limitadas! 🚀"
-  },
-  {
-    id: "com_feriado",
-    nome: "Comunicado de Feriado / Horário Especial",
-    icone: "🏖️",
-    categoria: "geral",
-    texto:
-      "📢 *COMUNICADO IMPORTANTE — {empresa}* 🗓️\n\nInformamos a todos os nossos clientes e amigos que neste feriado/fim de semana atenderemos em *horário especial*!\n\nAntecipe seu agendamento para garantir seu horário com tranquilidade:\n👉 *Link de agendamento:* {link_agenda}\n📲 Dúvidas: {telefone}!\n\nAgradecemos a todos pela preferência! ❤️"
-  },
-  {
-    id: "com_pos_atendimento",
-    nome: "Agradecimento Pós-Atendimento & Avaliação",
-    icone: "⭐",
-    categoria: "geral",
-    texto:
-      "Olá, {cliente}! Muito obrigado pela visita hoje na *{empresa}*! ❤️\n\nEsperamos que tenha gostado do seu atendimento com {profissional} ({servico})!\n\nSua satisfação é a nossa maior prioridade. Se puder nos avaliar ou indicar para os amigos, ficaremos muito felizes! Até o próximo corte/cuidado! 🌟✂️"
   }
 ];
 
@@ -156,6 +182,7 @@ interface ModalComunicadosAgendaProps {
   companyPhone: string;
   clientAgendaUrl: string;
   agendamentos?: AgendamentoServico[];
+  initialCategoria?: string;
   formatCurrency?: (val: number) => string;
   showNotification?: (msg: string, type: "success" | "error" | "info") => void;
 }
@@ -167,6 +194,7 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
   companyPhone,
   clientAgendaUrl,
   agendamentos = [],
+  initialCategoria = "todos",
   formatCurrency = (v) => `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`,
   showNotification = (_msg?: string, _type?: "success" | "error" | "info") => {}
 }) => {
@@ -175,6 +203,7 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
     const list = loadModelosComunicados();
     return list[0]?.id || "com_lembrete";
   });
+  const [segmentFilter, setSegmentFilter] = useState<string>(initialCategoria || "todos");
 
   const modeloAtual = modelos.find((m) => m.id === selectedModeloId) || modelos[0];
   const [nomeEdit, setNomeEdit] = useState<string>(modeloAtual?.nome || "Comunicado");
@@ -375,8 +404,40 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
               </div>
             </div>
 
+            {/* Filtro por Segmento */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 custom-scrollbar text-[11px]">
+              <span className="text-[10px] font-black uppercase text-slate-400 shrink-0">Filtrar:</span>
+              {[
+                { id: "todos", label: "✨ Todos" },
+                { id: "barbearia", label: "💈 Barbeiro" },
+                { id: "salao", label: "💇‍♀️ Salão" },
+                { id: "manicure", label: "💅 Manicure" },
+                { id: "podologia", label: "🦶 Podologia" },
+                { id: "terapia_ocupacional", label: "🧩 T. Ocupacional" },
+                { id: "psicologia", label: "🧠 Psicologia" },
+                { id: "nutricionista", label: "🥗 Nutricionista" },
+                { id: "festas", label: "🎂 Festas" },
+                { id: "lembrete", label: "⏰ Lembretes" }
+              ].map((seg) => (
+                <button
+                  key={seg.id}
+                  type="button"
+                  onClick={() => setSegmentFilter(seg.id)}
+                  className={`px-2.5 py-1 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
+                    segmentFilter === seg.id
+                      ? "bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-950/40"
+                      : "bg-slate-900 text-slate-400 hover:text-white border border-white/5"
+                  }`}
+                >
+                  {seg.label}
+                </button>
+              ))}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {modelos.map((mod) => (
+              {modelos
+                .filter((mod) => segmentFilter === "todos" || mod.categoria === segmentFilter)
+                .map((mod) => (
                 <div
                   key={mod.id}
                   onClick={() => setSelectedModeloId(mod.id)}
@@ -475,7 +536,7 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
 
               <div className="space-y-1">
                 <label className="text-[10px] font-black uppercase text-slate-300">
-                  Categoria
+                  Categoria / Segmento
                 </label>
                 <select
                   value={categoriaEdit}
@@ -484,7 +545,11 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
                 >
                   <option value="barbearia">💈 Barbearia</option>
                   <option value="salao">💇‍♀️ Salão de Beleza</option>
-                  <option value="manicure">💅 Manicure</option>
+                  <option value="manicure">💅 Manicure & Pedicure</option>
+                  <option value="podologia">🦶 Podologia</option>
+                  <option value="terapia_ocupacional">🧩 Terapia Ocupacional</option>
+                  <option value="psicologia">🧠 Psicologia</option>
+                  <option value="nutricionista">🥗 Nutricionista</option>
                   <option value="festas">🎂 Festas & Encomendas</option>
                   <option value="lembrete">⏰ Lembretes</option>
                   <option value="geral">📢 Geral</option>
@@ -564,14 +629,22 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
               </div>
             </div>
 
-            {/* Textarea */}
-            <div className="space-y-1">
+            {/* Textarea Espaçoso */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase text-amber-300 tracking-wider">
+                  Texto do Comunicado (Espaçoso para Escrever à Vontade ✍️):
+                </label>
+                <span className="text-slate-400 font-mono text-[9.5px] bg-slate-800 px-2 py-0.5 rounded-md">
+                  {textoEdit.length} caracteres
+                </span>
+              </div>
               <textarea
-                rows={6}
+                rows={9}
                 value={textoEdit}
                 onChange={(e) => setTextoEdit(e.target.value)}
-                className="w-full bg-slate-900 border border-white/10 rounded-2xl p-3.5 text-xs text-white leading-relaxed outline-none focus:border-amber-500 font-sans"
-                placeholder="Escreva ou ajuste seu comunicado da agenda..."
+                className="w-full bg-slate-900 border-2 border-white/10 focus:border-amber-500 rounded-2xl p-4 text-sm text-white leading-relaxed outline-none font-sans min-h-[190px] shadow-inner transition-all"
+                placeholder="Escreva ou ajuste seu comunicado da agenda com todos os detalhes..."
               />
             </div>
 

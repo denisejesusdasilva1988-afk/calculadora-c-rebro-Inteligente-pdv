@@ -137,6 +137,7 @@ import {
   isBluetoothPrintSupported,
   printViaBluetoothEscPos 
 } from "../utils/thermalPrinterHelper";
+import { cleanUndefinedForFirestore } from "../utils/cleanFirestore";
 import { OperationType, FirestoreErrorInfo } from "../types";
 import {
   getScopedItem,
@@ -6657,9 +6658,14 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     localStorage.setItem("pdv_client_profiles", JSON.stringify(updatedProfiles));
     
     if (isLoggedIn && userId && userId !== "guest_visitor" && db) {
-      const userDocRef = doc(db, "userData", userId);
-      setDoc(userDocRef, { pdvClientProfiles: updatedProfiles }, { merge: true })
-        .catch(err => console.error("Erro ao sincronizar cadastro:", err));
+      try {
+        const userDocRef = doc(db, "userData", userId);
+        const cleanedProfiles = cleanUndefinedForFirestore(updatedProfiles);
+        setDoc(userDocRef, { pdvClientProfiles: cleanedProfiles }, { merge: true })
+          .catch(err => console.error("Erro ao sincronizar cadastro:", err));
+      } catch (err) {
+        console.warn("Erro ao preparar sincronização:", err);
+      }
     }
     showNotification(`Dados de cobrança de "${clientName}" atualizados! 📂✅`, "success");
   };
