@@ -14,7 +14,7 @@
  * 4. Funciona tanto na visão interna (Proprietário/Caixa) quanto na visão pública do Cliente via WhatsApp!
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,

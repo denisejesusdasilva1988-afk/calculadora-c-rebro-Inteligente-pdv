@@ -38,6 +38,7 @@ import {
 } from "../utils/companyProfile";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../App";
+import { compressImageFile } from "../utils/imageCompressor";
 
 interface CompanyProfileModalProps {
   isOpen: boolean;
@@ -80,26 +81,30 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
     }));
   };
 
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      showNotification("A imagem deve ter no máximo 5MB. Escolha uma foto menor.", "error");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        handleChange("logoUrl", reader.result);
-        showNotification("Logo carregada com sucesso! 🖼️ Lembre-se de clicar em 'Salvar Dados' ao final.", "success");
+    try {
+      showNotification("Otimizando imagem da logomarca... ⏳", "info");
+      const compressed = await compressImageFile(file, 400, 400, 0.82);
+      handleChange("logoUrl", compressed);
+      showNotification("Logo carregada e salva com sucesso! 🖼️ Lembre-se de clicar em 'Salvar Dados' ao final.", "success");
+    } catch (err) {
+      console.warn("Erro ao comprimir logo, usando fallback:", err);
+      try {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            handleChange("logoUrl", reader.result);
+            showNotification("Logo carregada com sucesso! 🖼️", "success");
+          }
+        };
+        reader.readAsDataURL(file);
+      } catch {
+        showNotification("Não foi possível carregar a imagem. Tente outra foto!", "error");
       }
-    };
-    reader.onerror = () => {
-      showNotification("Erro ao processar imagem.", "error");
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleSave = async () => {

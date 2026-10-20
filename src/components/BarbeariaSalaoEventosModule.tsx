@@ -23,6 +23,7 @@ import {
   Plus,
   Trash2,
   Edit2,
+  Edit3,
   CheckCircle2,
   Clock,
   Phone,
@@ -49,7 +50,8 @@ import {
   X,
   Megaphone,
   Heart,
-  Palette
+  Palette,
+  User
 } from "lucide-react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { ClientPublicAgendaPortal } from "./ClientPublicAgendaPortal";
@@ -58,6 +60,7 @@ import { ModalConfiguracaoAgendaProfissional } from "./ModalConfiguracaoAgendaPr
 import { ModalPersonalizarParabens, MODELOS_PARABENS_PRONTOS } from "./ModalPersonalizarParabens";
 import { ModalComunicadosAgenda } from "./ModalComunicadosAgenda";
 import { loadCompanyProfile, saveCompanyProfile } from "../utils/companyProfile";
+import { compressImageFile } from "../utils/imageCompressor";
 
 // Helper para remover recursivamente valores undefined antes de enviar ao Firestore
 export const cleanUndefinedForFirestore = (obj: any): any => {
@@ -90,6 +93,7 @@ export const safeFirestoreSetDoc = async (docRef: any, data: any, options = { me
 export type NegocioSegmento =
   | "barbearia"
   | "salao"
+  | "esteticista"
   | "manicure"
   | "podologia"
   | "terapia_ocupacional"
@@ -141,6 +145,20 @@ export const NEGOCIOS_SEGMENTOS_CONFIG: Record<NegocioSegmento, NegocioSegmentoI
     duracaoSugeridaMin: 50,
     bioInstagramPadrao: "💇‍♀️ Realçando a sua beleza com amor e cuidado! Escovas, mechas, cortes e hidratação. Reserve seu horário no link 👇",
     conviteWhatsAppPadrao: "🌸 Olá! Venha ter um momento especial de autocuidado em nosso salão! Confira os horários livres e reserve:"
+  },
+  esteticista: {
+    id: "esteticista",
+    nomeCurto: "Esteticista",
+    nomeCompleto: "Estética Facial, Corporal & Esteticistas",
+    subtitulo: "Limpeza de Pele, Drenagem Linfática, Massagens, Harmonização & Cuidados",
+    icone: "✨",
+    corTheme: "rose",
+    corText: "text-rose-300",
+    corBorder: "border-rose-500/30",
+    corBg: "bg-rose-500/10",
+    duracaoSugeridaMin: 60,
+    bioInstagramPadrao: "✨ Cuidando da sua pele, bem-estar e autoestima! Limpeza de pele, drenagem, massagem e estética avançada. Agende no link 👇",
+    conviteWhatsAppPadrao: "✨ Olá! Que tal um momento especial de cuidado para sua pele e seu corpo? Confira nossa agenda e reserve seu horário:"
   },
   manicure: {
     id: "manicure",
@@ -238,16 +256,19 @@ export interface HorarioBloqueadoProfissional {
   tipo?: "almoco" | "reservado" | "indisponivel" | "folga";
 }
 
-// Modelo de Profissional / Barbeiro / Manicure / Confeiteira
+// Modelo de Profissional / Barbeiro / Manicure / Confeiteira / Esteticista
 export interface ProfissionalBarbearia {
   id: string;
   nome: string;
   apelido?: string;
-  categoria?: NegocioSegmento; // Barbearia, Salão, Manicure, Podologia, etc.
+  categoria?: NegocioSegmento; // Barbearia, Salão, Esteticista, Manicure, Podologia, etc.
   fotoUrl: string;
-  especialidade: string; // Ex: Corte Degradê, Podologia Clínica, Psicoterapia
+  especialidade: string; // Ex: Corte Degradê, Podologia Clínica, Limpeza de Pele
   telefone: string;
   chavePix?: string;
+  instagram?: string; // Ex: "@denise.estetica"
+  facebook?: string; // Ex: "facebook.com/perfil"
+  bio?: string;
   comissaoPct: number; // Ex: 50%
   horarioTrabalho?: string;
   horaInicio?: string; // Horário de abertura da agenda (Ex: "08:00")
@@ -344,12 +365,28 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   const [activeTab, setActiveTab] = useState<"profissionais" | "agenda" | "aniversarios" | "encomendas" | "empresa">("profissionais");
   const [agendaViewMode, setAgendaViewMode] = useState<"timeline" | "lista">("timeline");
 
-  // Filtro de Segmento Selecionado: "todos" | "barbearia" | "salao" | "manicure" | "festas"
+  // Filtro de Segmento Selecionado: todos os segmentos suportados
   const [segmentFilter, setSegmentFilter] = useState<"todos" | NegocioSegmento>(() => {
     try {
       const saved = localStorage.getItem("barbearia_selected_segment");
-      if (saved && ["todos", "barbearia", "salao", "manicure", "festas"].includes(saved)) {
+      const validSegments = [
+        "todos",
+        "barbearia",
+        "salao",
+        "esteticista",
+        "manicure",
+        "podologia",
+        "terapia_ocupacional",
+        "psicologia",
+        "nutricionista",
+        "festas"
+      ];
+      if (saved && validSegments.includes(saved)) {
         return saved as any;
+      }
+      const biz = localStorage.getItem("pdv_business_segment");
+      if (biz && validSegments.includes(biz)) {
+        return biz as any;
       }
     } catch {}
     return "todos";
@@ -362,201 +399,67 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   // Armazenamento
   const storagePrefix = userId && userId !== "guest_visitor" ? `barbearia_${userId}_` : "barbearia_guest_";
 
-  // 1. Profissionais State com todos os segmentos separados
+  // Identificador estável da loja para compartilhamento público da agenda (?loja=...)
+  const storeId = useMemo(() => {
+    if (userId && userId !== "guest_visitor") return userId;
+    try {
+      const saved = localStorage.getItem("pdv_store_id");
+      if (saved) return saved;
+      const gen = "loja_" + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem("pdv_store_id", gen);
+      return gen;
+    } catch {
+      return "loja_denise";
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (userId && userId !== "guest_visitor") {
+      try {
+        localStorage.setItem("pdv_store_id", userId);
+      } catch {}
+    }
+  }, [userId]);
+
+  // Detector e limpador de profissionais fictícios de demonstração (Kadu, Juliana, etc.)
+  const isMockProf = (p: ProfissionalBarbearia | any): boolean => {
+    if (!p) return false;
+    if (typeof p.id === "string" && ["prof_1", "prof_2", "prof_3", "prof_4", "prof_5", "prof_6", "prof_7", "prof_8"].includes(p.id)) return true;
+    if (p.apelido === "Kadu Navalha" || p.apelido === "Ju Hair" || p.apelido === "Larissa Nails" || p.apelido === "Camila Podóloga" || p.apelido === "Paula T.O." || p.apelido === "Felipe Psicólogo" || p.apelido === "Bia Nutri" || p.apelido === "Renata Doces & Bolos") return true;
+    if (p.nome === "Carlos Eduardo" && (p.especialidade?.includes("Degradê") || p.especialidade?.includes("Corte"))) return true;
+    return false;
+  };
+
+  // 1. Profissionais State com todos os segmentos separados (SEM DADOS FICTÍCIOS)
   const [profissionais, setProfissionais] = useState<ProfissionalBarbearia[]>(() => {
     try {
-      const isCustomized = localStorage.getItem(`${storagePrefix}profissionais_customized`);
-      const saved = localStorage.getItem(`${storagePrefix}profissionais`);
+      const isCustomized = localStorage.getItem(`${storagePrefix}profissionais_customized`) === "true" || localStorage.getItem("barbearia_profissionais_customized") === "true";
+      const saved = localStorage.getItem(`${storagePrefix}profissionais`) || localStorage.getItem("barbearia_guest_profissionais");
       if (saved !== null) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && (parsed.length > 0 || isCustomized === "true")) {
-          return parsed;
+        if (Array.isArray(parsed)) {
+          const clean = parsed.filter((p) => !isMockProf(p));
+          if (clean.length > 0 || isCustomized) {
+            return clean;
+          }
         }
       }
     } catch {}
-    return [
-      {
-        id: "prof_1",
-        nome: "Carlos Eduardo",
-        apelido: "Kadu Navalha",
-        categoria: "barbearia",
-        fotoUrl: AVATAR_PRESETS[0],
-        especialidade: "Corte Degradê & Barba Terapia",
-        telefone: "21988887777",
-        chavePix: "21988887777",
-        comissaoPct: 50,
-        duracaoPadraoMinutos: 40,
-        horarioTrabalho: "Terça a Sábado, 09h às 19h",
-        totalAtendimentos: 42,
-        totalFaturado: 1470,
-        ativo: true
-      },
-      {
-        id: "prof_2",
-        nome: "Juliana Santos",
-        apelido: "Ju Hair",
-        categoria: "salao",
-        fotoUrl: AVATAR_PRESETS[2],
-        especialidade: "Escova, Mechas & Penteados",
-        telefone: "21977776666",
-        chavePix: "21977776666",
-        comissaoPct: 50,
-        duracaoPadraoMinutos: 50,
-        horarioTrabalho: "Quarta a Domingo, 10h às 20h",
-        totalAtendimentos: 28,
-        totalFaturado: 1960,
-        ativo: true
-      },
-      {
-        id: "prof_3",
-        nome: "Larissa Silveira",
-        apelido: "Larissa Nails",
-        categoria: "manicure",
-        fotoUrl: AVATAR_PRESETS[1],
-        especialidade: "Manicure, Pedicure & Alongamento em Gel",
-        telefone: "21966665555",
-        chavePix: "21966665555",
-        comissaoPct: 60,
-        duracaoPadraoMinutos: 45,
-        horarioTrabalho: "Segunda a Sábado, 09h às 18h",
-        totalAtendimentos: 36,
-        totalFaturado: 2160,
-        ativo: true
-      },
-      {
-        id: "prof_4",
-        nome: "Dra. Camila Rocha",
-        apelido: "Camila Podóloga",
-        categoria: "podologia",
-        fotoUrl: AVATAR_PRESETS[2],
-        especialidade: "Podologia Clínica, Unhas Encravadas & Ozônio",
-        telefone: "21944443333",
-        chavePix: "21944443333",
-        comissaoPct: 70,
-        duracaoPadraoMinutos: 50,
-        horarioTrabalho: "Segunda a Sexta, 08h às 18h",
-        totalAtendimentos: 31,
-        totalFaturado: 2480,
-        ativo: true
-      },
-      {
-        id: "prof_5",
-        nome: "Paula Vasconcelos",
-        apelido: "Paula T.O.",
-        categoria: "terapia_ocupacional",
-        fotoUrl: AVATAR_PRESETS[1],
-        especialidade: "Terapia Ocupacional, Autonomia & Reabilitação",
-        telefone: "21933332222",
-        chavePix: "21933332222",
-        comissaoPct: 80,
-        duracaoPadraoMinutos: 50,
-        horarioTrabalho: "Segunda a Sexta, 08h às 17h",
-        totalAtendimentos: 24,
-        totalFaturado: 3360,
-        ativo: true
-      },
-      {
-        id: "prof_6",
-        nome: "Dr. Felipe Moreira",
-        apelido: "Felipe Psicólogo",
-        categoria: "psicologia",
-        fotoUrl: AVATAR_PRESETS[0],
-        especialidade: "Psicoterapia Clínica, TCC & Saúde Mental",
-        telefone: "21922221111",
-        chavePix: "21922221111",
-        comissaoPct: 80,
-        duracaoPadraoMinutos: 50,
-        horarioTrabalho: "Segunda a Sábado, 08h às 19h",
-        totalAtendimentos: 38,
-        totalFaturado: 5700,
-        ativo: true
-      },
-      {
-        id: "prof_7",
-        nome: "Dra. Beatriz Nogueira",
-        apelido: "Bia Nutri",
-        categoria: "nutricionista",
-        fotoUrl: AVATAR_PRESETS[2],
-        especialidade: "Nutrição Clínica, Bioimpedância & Esportiva",
-        telefone: "21911110000",
-        chavePix: "21911110000",
-        comissaoPct: 80,
-        duracaoPadraoMinutos: 60,
-        horarioTrabalho: "Terça a Sábado, 08h às 18h",
-        totalAtendimentos: 29,
-        totalFaturado: 4640,
-        ativo: true
-      },
-      {
-        id: "prof_8",
-        nome: "Chef Renata Festas",
-        apelido: "Renata Doces & Bolos",
-        categoria: "festas",
-        fotoUrl: AVATAR_PRESETS[3],
-        especialidade: "Bolos Confeitados, Salgados Cento & Kits Festa",
-        telefone: "21955554444",
-        chavePix: "21955554444",
-        comissaoPct: 100,
-        duracaoPadraoMinutos: 30,
-        horarioTrabalho: "Segunda a Domingo (Sob Encomenda)",
-        totalAtendimentos: 19,
-        totalFaturado: 3890,
-        ativo: true
-      }
-    ];
+    return [];
   });
 
-  // 2. Agendamentos State
+  // 2. Agendamentos State (SEM AGENDAMENTOS FICTÍCIOS)
   const [agendamentos, setAgendamentos] = useState<AgendamentoServico[]>(() => {
     try {
       const saved = localStorage.getItem(`${storagePrefix}agendamentos`);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const today = new Date().toISOString().slice(0, 10);
-    return [
-      {
-        id: "ag_1",
-        data: today,
-        horario: "14:00",
-        clienteNome: "Marcos Vinicius",
-        clienteTelefone: "21999991111",
-        profissionalId: "prof_1",
-        profissionalNome: "Carlos Eduardo",
-        categoria: "barbearia",
-        servico: "Corte Degradê + Barba Terapia",
-        valor: 55,
-        status: "agendado",
-        criadoEm: new Date().toISOString()
-      },
-      {
-        id: "ag_2",
-        data: today,
-        horario: "16:30",
-        clienteNome: "Fernanda Lima",
-        clienteTelefone: "21999992222",
-        profissionalId: "prof_2",
-        profissionalNome: "Juliana Santos",
-        categoria: "salao",
-        servico: "Escova Modelada + Hidratação",
-        valor: 75,
-        status: "agendado",
-        criadoEm: new Date().toISOString()
-      },
-      {
-        id: "ag_3",
-        data: today,
-        horario: "11:00",
-        clienteNome: "Camila Ribeiro",
-        clienteTelefone: "21999993333",
-        profissionalId: "prof_3",
-        profissionalNome: "Larissa Silveira",
-        categoria: "manicure",
-        servico: "Alongamento em Gel + Esmaltação",
-        valor: 130,
-        status: "agendado",
-        criadoEm: new Date().toISOString()
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((a) => !["ag_1", "ag_2", "ag_3"].includes(a.id) && !["prof_1", "prof_2", "prof_3"].includes(a.profissionalId));
+        }
       }
-    ];
+    } catch {}
+    return [];
   });
 
   // 3. Aniversários State
@@ -634,7 +537,11 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
 
   // 5. Dados da Empresa e Redes Sociais (Deixados em branco por padrão para cada negócio preencher o seu)
   const [companyName, setCompanyName] = useState(() => {
-    return loadCompanyProfile(userId).name || localStorage.getItem("pdv_store_name") || "Barbearia, Salão & Festas";
+    const fromProfile = loadCompanyProfile(userId).name;
+    if (fromProfile && fromProfile !== "Barbearia, Salão & Festas" && fromProfile !== "Barbearia & Salão") return fromProfile;
+    const fromPdv = localStorage.getItem("pdv_store_name");
+    if (fromPdv && fromPdv !== "Barbearia, Salão & Festas" && fromPdv !== "Barbearia & Salão") return fromPdv;
+    return "";
   });
   const [companyLogo, setCompanyLogo] = useState(() => {
     return loadCompanyProfile(userId).logoUrl || localStorage.getItem("pdv_company_logo") || "";
@@ -686,32 +593,51 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   const [isPreviewClientPortalOpen, setIsPreviewClientPortalOpen] = useState(false);
   const [editingScheduleProf, setEditingScheduleProf] = useState<ProfissionalBarbearia | null>(null);
 
-  const handleUpdateProfissional = (profAtualizado: ProfissionalBarbearia) => {
-    setProfissionais((prev) =>
-      prev.map((p) => (p.id === profAtualizado.id ? profAtualizado : p))
-    );
+  const handleUpdateProfissionalAgenda = (profAtualizado: ProfissionalBarbearia) => {
+    setProfissionais((prev) => {
+      const next = prev.map((p) => (p.id === profAtualizado.id ? profAtualizado : p));
+      try {
+        localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+        localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(next));
+      } catch (err) {
+        console.error("Erro ao salvar profissionais no localStorage:", err);
+      }
+      return next;
+    });
     showNotification(`Agenda de ${profAtualizado.nome} atualizada com sucesso! ✂️📅`, "success");
   };
 
-  const handleCompanyLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCompanyLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        showNotification("A imagem da logo deve ter no máximo 5MB.", "error");
-        return;
+    if (!file) return;
+
+    try {
+      showNotification("Otimizando imagem da logomarca... ⏳", "info");
+      const compressed = await compressImageFile(file, 400, 400, 0.82);
+      setCompanyLogo(compressed);
+      localStorage.setItem("pdv_company_logo", compressed);
+      window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", {
+        detail: { logoUrl: compressed }
+      }));
+      showNotification("Logomarca carregada e salva com sucesso! 🖼️ Clique em 'Salvar Identidade' para confirmar.", "success");
+    } catch (err) {
+      console.warn("Erro ao comprimir logo, usando fallback:", err);
+      try {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            setCompanyLogo(reader.result);
+            localStorage.setItem("pdv_company_logo", reader.result);
+            window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", {
+              detail: { logoUrl: reader.result }
+            }));
+            showNotification("Logomarca carregada com sucesso! 🖼️", "success");
+          }
+        };
+        reader.readAsDataURL(file);
+      } catch {
+        showNotification("Não foi possível carregar esta imagem. Tente outra foto!", "error");
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          setCompanyLogo(reader.result);
-          localStorage.setItem("pdv_company_logo", reader.result);
-          window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", {
-            detail: { logoUrl: reader.result }
-          }));
-          showNotification("Logomarca carregada com sucesso! 🖼️ Clique em 'Salvar Identidade' para confirmar.", "success");
-        }
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -725,26 +651,53 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   })();
   const isCaixa = gestaoRole === "caixa" || gestaoRole === "funcionario";
 
-  const clientAgendaUrl = typeof window !== "undefined"
-    ? `${window.location.origin}${window.location.pathname}?agendar=true`
-    : "";
+  const getSegmentAgendaUrl = (seg: NegocioSegmento) => {
+    if (typeof window === "undefined") return "";
+    return `${window.location.origin}${window.location.pathname}?agendar=true&segmento=${seg}&loja=${storeId}`;
+  };
+
+  const getProfAgendaUrl = (prof: ProfissionalBarbearia) => {
+    if (typeof window === "undefined") return "";
+    const base = `${window.location.origin}${window.location.pathname}?agendar=true`;
+    const cat = prof.categoria || (segmentFilter !== "todos" ? segmentFilter : "salao");
+    return `${base}&segmento=${cat}&loja=${storeId}&prof=${prof.id}`;
+  };
+
+  const clientAgendaUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const base = `${window.location.origin}${window.location.pathname}?agendar=true`;
+    let seg = segmentFilter !== "todos" ? segmentFilter : null;
+    if (!seg) {
+      const savedSeg = localStorage.getItem("barbearia_selected_segment") || localStorage.getItem("pdv_business_segment");
+      if (savedSeg && savedSeg !== "todos") seg = savedSeg as NegocioSegmento;
+    }
+    if (!seg && profissionais.length > 0 && profissionais[0].categoria && profissionais[0].categoria !== "todos") {
+      seg = profissionais[0].categoria;
+    }
+    const finalSeg = seg || "salao";
+    return `${base}&segmento=${finalSeg}&loja=${storeId}`;
+  }, [segmentFilter, storeId, profissionais]);
 
   const handleCopyClientAgendaLink = () => {
     if (!isPublicAgendaActive) {
       showNotification("Atenção: O link público está desativado (marcado como NÃO). Ative com SIM para os clientes conseguirem agendar!", "error");
     }
     navigator.clipboard.writeText(clientAgendaUrl);
-    showNotification("Link da Agenda copiado! 📋 Envie para seus clientes no WhatsApp.", "success");
+    const segInfo = segmentFilter !== "todos" ? (NEGOCIOS_SEGMENTOS_CONFIG[segmentFilter]?.nomeCompleto || segmentFilter) : "Barbearia";
+    showNotification(`Link exclusivo da agenda (${segInfo}) copiado! 📋 Envie para seus clientes no WhatsApp.`, "success");
   };
 
   const handleShareAgendaOnWhatsApp = () => {
     if (!isPublicAgendaActive) {
       showNotification("Atenção: O link público está desativado (marcado como NÃO). Ative com SIM para os clientes conseguirem agendar!", "error");
     }
+    const currentSeg = segmentFilter !== "todos" ? segmentFilter : "barbearia";
+    const segConfig = NEGOCIOS_SEGMENTOS_CONFIG[currentSeg];
+    const segNome = segConfig ? segConfig.nomeCompleto : "nosso estabelecimento";
     const msg = encodeURIComponent(
-      `Olá! 💈✂️ Agora você pode agendar seu horário na *${companyName}* ou solicitar sua encomenda de festa diretamente pelo nosso link exclusivo:\n\n` +
+      `Olá! Agora você pode agendar seu horário em *${companyName}* (${segNome}) diretamente pelo nosso link exclusivo e 100% focado no seu atendimento:\n\n` +
       `👉 ${clientAgendaUrl}\n\n` +
-      `Escolha o profissional, o serviço e o melhor horário para você sem complicação! Esperamos por você! ✨`
+      `Escolha o profissional, o serviço e o melhor horário para você com rapidez e sem filas! Esperamos por você! ✨`
     );
     window.open(`https://wa.me/?text=${msg}`, "_blank");
   };
@@ -840,15 +793,38 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
 
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(profissionais));
-    if (isCloudLoaded && userId && userId !== "guest_visitor" && db) {
-      safeFirestoreSetDoc(doc(db, "userData", userId), { barbeariaProfissionais: profissionais });
+    if (isCloudLoaded && db) {
+      const cleanProfs = profissionais.filter((p) => !isMockProf(p));
+      const publicData = {
+        storeId,
+        companyName: companyName && companyName !== "Barbearia, Salão & Festas" && companyName !== "Barbearia & Salão" ? companyName : "",
+        companyLogo: companyLogo || "",
+        companyPhone: companyPhone || "",
+        profissionais: cleanProfs,
+        agendamentos,
+        isOnlineBookingActive: isPublicAgendaActive,
+        updatedAt: new Date().toISOString()
+      };
+      try {
+        localStorage.setItem(`agenda_publica_${storeId}`, JSON.stringify(publicData));
+      } catch {}
+      safeFirestoreSetDoc(doc(db, "agendas_publicas", storeId), publicData);
+
+      if (userId && userId !== "guest_visitor") {
+        safeFirestoreSetDoc(doc(db, "userData", userId), { 
+          barbeariaProfissionais: cleanProfs,
+          barbeariaProfissionaisCustomized: true
+        });
+      }
     }
-  }, [profissionais, storagePrefix, userId, db, isCloudLoaded]);
+  }, [profissionais, storagePrefix, userId, db, isCloudLoaded, storeId, companyName, companyLogo, companyPhone, isPublicAgendaActive, agendamentos]);
 
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}agendamentos`, JSON.stringify(agendamentos));
-    if (isCloudLoaded && userId && userId !== "guest_visitor" && db) {
-      safeFirestoreSetDoc(doc(db, "userData", userId), { barbeariaAgendamentos: agendamentos });
+    if (isCloudLoaded && db) {
+      if (userId && userId !== "guest_visitor") {
+        safeFirestoreSetDoc(doc(db, "userData", userId), { barbeariaAgendamentos: agendamentos });
+      }
     }
   }, [agendamentos, storagePrefix, userId, db, isCloudLoaded]);
 
@@ -877,8 +853,29 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   const [newProfEspecialidade, setNewProfEspecialidade] = useState("");
   const [newProfTelefone, setNewProfTelefone] = useState("");
   const [newProfPix, setNewProfPix] = useState("");
+  const [newProfInstagram, setNewProfInstagram] = useState("");
+  const [newProfFacebook, setNewProfFacebook] = useState("");
+  const [newProfBio, setNewProfBio] = useState("");
   const [newProfComissao, setNewProfComissao] = useState("50");
   const [newProfFoto, setNewProfFoto] = useState("");
+
+  const handleOpenAddProfissional = () => {
+    if (segmentFilter !== "todos" && segmentFilter !== "festas") {
+      setNewProfCategoria(segmentFilter as NegocioSegmento);
+    } else {
+      setNewProfCategoria("salao");
+    }
+    setNewProfNome("");
+    setNewProfApelido("");
+    setNewProfEspecialidade("");
+    setNewProfTelefone("");
+    setNewProfPix("");
+    setNewProfInstagram("");
+    setNewProfFacebook("");
+    setNewProfBio("");
+    setNewProfFoto("");
+    setIsAddProfissionalOpen(true);
+  };
 
   const [isAddAgendamentoOpen, setIsAddAgendamentoOpen] = useState(false);
   const [newAgData, setNewAgData] = useState(() => new Date().toISOString().slice(0, 10));
@@ -945,7 +942,9 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     }
 
     const defaultEspec =
-      newProfCategoria === "manicure"
+      newProfCategoria === "esteticista"
+        ? "Estética Facial, Corporal & Limpeza de Pele"
+        : newProfCategoria === "manicure"
         ? "Manicure, Pedicure & Gel"
         : newProfCategoria === "festas"
         ? "Bolos Confeitados & Kits Festa"
@@ -970,6 +969,9 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       especialidade: newProfEspecialidade.trim() || defaultEspec,
       telefone: newProfTelefone.trim() || "",
       chavePix: newProfPix.trim() || "",
+      instagram: newProfInstagram.trim() || "",
+      facebook: newProfFacebook.trim() || "",
+      bio: newProfBio.trim() || "",
       comissaoPct: Number(newProfComissao) || 50,
       totalAtendimentos: 0,
       totalFaturado: 0,
@@ -977,8 +979,41 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     };
 
     setProfissionais((prev) => {
-      const next = [novoProf, ...prev];
-      localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+      // Remove qualquer profissional fictício de teste (Kadu, Juliana, etc.) para que apenas os reais fiquem salvos
+      const cleanPrev = prev.filter((p) => !isMockProf(p));
+      const next = [novoProf, ...cleanPrev];
+      try {
+        localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+        localStorage.setItem("barbearia_profissionais_customized", "true");
+        localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(next));
+        localStorage.setItem("barbearia_guest_profissionais", JSON.stringify(next));
+        localStorage.setItem("barbearia_public_profissionais", JSON.stringify(next));
+        localStorage.setItem("barbearia_compartilhada_profissionais", JSON.stringify(next));
+        localStorage.setItem(`barbearia_${storeId}_profissionais`, JSON.stringify(next));
+
+        const publicData = {
+          storeId,
+          companyName: companyName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(companyName) ? companyName : "",
+          companyLogo: companyLogo || "",
+          companyPhone: companyPhone || "",
+          profissionais: next,
+          agendamentos: agendamentos.filter((a) => !["ag_1", "ag_2", "ag_3"].includes(a.id)),
+          isOnlineBookingActive: isPublicAgendaActive,
+          updatedAt: new Date().toISOString()
+        };
+        localStorage.setItem(`agenda_publica_${storeId}`, JSON.stringify(publicData));
+        if (db) {
+          safeFirestoreSetDoc(doc(db, "agendas_publicas", storeId), publicData);
+          if (userId && userId !== "guest_visitor") {
+            safeFirestoreSetDoc(doc(db, "userData", userId), {
+              barbeariaProfissionais: next,
+              barbeariaProfissionaisCustomized: true
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao salvar profissionais no localStorage:", err);
+      }
       return next;
     });
 
@@ -989,7 +1024,49 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     setNewProfEspecialidade("");
     setNewProfTelefone("");
     setNewProfPix("");
+    setNewProfInstagram("");
+    setNewProfFacebook("");
+    setNewProfBio("");
     setNewProfFoto("");
+  };
+
+  // Handler para Limpar Todos os Profissionais Fictícios de Demonstração (Kadu, Juliana, etc.)
+  const handlePurgeAllMocks = () => {
+    setProfissionais((prev) => {
+      const next = prev.filter((p) => !isMockProf(p));
+      try {
+        localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+        localStorage.setItem("barbearia_profissionais_customized", "true");
+        localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(next));
+        localStorage.setItem("barbearia_guest_profissionais", JSON.stringify(next));
+        localStorage.setItem("barbearia_public_profissionais", JSON.stringify(next));
+        localStorage.setItem("barbearia_compartilhada_profissionais", JSON.stringify(next));
+        localStorage.setItem(`barbearia_${storeId}_profissionais`, JSON.stringify(next));
+
+        const publicData = {
+          storeId,
+          companyName: companyName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(companyName) ? companyName : "",
+          companyLogo: companyLogo || "",
+          companyPhone: companyPhone || "",
+          profissionais: next,
+          agendamentos: agendamentos.filter((a) => !["ag_1", "ag_2", "ag_3"].includes(a.id)),
+          isOnlineBookingActive: isPublicAgendaActive,
+          updatedAt: new Date().toISOString()
+        };
+        localStorage.setItem(`agenda_publica_${storeId}`, JSON.stringify(publicData));
+        if (db) {
+          safeFirestoreSetDoc(doc(db, "agendas_publicas", storeId), publicData);
+          if (userId && userId !== "guest_visitor") {
+            safeFirestoreSetDoc(doc(db, "userData", userId), {
+              barbeariaProfissionais: next,
+              barbeariaProfissionaisCustomized: true
+            });
+          }
+        }
+      } catch {}
+      return next;
+    });
+    showNotification("Todos os profissionais fictícios de teste foram removidos definitivamente! 🧹", "success");
   };
 
   // Handler para Atualizar Profissional Existente (Editar Perfil & Foto)
@@ -1005,10 +1082,13 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       ...editingProf,
       nome: editingProf.nome.trim(),
       apelido: (editingProf.apelido || "").trim(),
-      categoria: editingProf.categoria || "barbearia",
+      categoria: editingProf.categoria || "salao",
       especialidade: (editingProf.especialidade || "").trim(),
       telefone: (editingProf.telefone || "").trim(),
       chavePix: (editingProf.chavePix || "").trim(),
+      instagram: (editingProf.instagram || "").trim(),
+      facebook: (editingProf.facebook || "").trim(),
+      bio: (editingProf.bio || "").trim(),
       comissaoPct: Number(editingProf.comissaoPct) || 0,
       duracaoPadraoMinutos: Number(editingProf.duracaoPadraoMinutos) || 40,
       fotoUrl: editingProf.fotoUrl || "",
@@ -1017,7 +1097,38 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
 
     setProfissionais((prev) => {
       const next = prev.map((p) => (p.id === atualizado.id ? atualizado : p));
-      localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+      try {
+        localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+        localStorage.setItem("barbearia_profissionais_customized", "true");
+        localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(next));
+        localStorage.setItem("barbearia_guest_profissionais", JSON.stringify(next));
+        localStorage.setItem("barbearia_public_profissionais", JSON.stringify(next));
+        localStorage.setItem("barbearia_compartilhada_profissionais", JSON.stringify(next));
+        localStorage.setItem(`barbearia_${storeId}_profissionais`, JSON.stringify(next));
+
+        const publicData = {
+          storeId,
+          companyName: companyName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(companyName) ? companyName : "",
+          companyLogo: companyLogo || "",
+          companyPhone: companyPhone || "",
+          profissionais: next,
+          agendamentos: agendamentos.filter((a) => !["ag_1", "ag_2", "ag_3"].includes(a.id)),
+          isOnlineBookingActive: isPublicAgendaActive,
+          updatedAt: new Date().toISOString()
+        };
+        localStorage.setItem(`agenda_publica_${storeId}`, JSON.stringify(publicData));
+        if (db) {
+          safeFirestoreSetDoc(doc(db, "agendas_publicas", storeId), publicData);
+          if (userId && userId !== "guest_visitor") {
+            safeFirestoreSetDoc(doc(db, "userData", userId), {
+              barbeariaProfissionais: next,
+              barbeariaProfissionaisCustomized: true
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao salvar profissionais no localStorage:", err);
+      }
       return next;
     });
 
@@ -1030,7 +1141,38 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     const prof = profissionais.find((p) => p.id === profId);
     setProfissionais((prev) => {
       const next = prev.filter((p) => p.id !== profId);
-      localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+      try {
+        localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+        localStorage.setItem("barbearia_profissionais_customized", "true");
+        localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(next));
+        localStorage.setItem("barbearia_guest_profissionais", JSON.stringify(next));
+        localStorage.setItem("barbearia_public_profissionais", JSON.stringify(next));
+        localStorage.setItem("barbearia_compartilhada_profissionais", JSON.stringify(next));
+        localStorage.setItem(`barbearia_${storeId}_profissionais`, JSON.stringify(next));
+
+        const publicData = {
+          storeId,
+          companyName: companyName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(companyName) ? companyName : "",
+          companyLogo: companyLogo || "",
+          companyPhone: companyPhone || "",
+          profissionais: next,
+          agendamentos: agendamentos.filter((a) => !["ag_1", "ag_2", "ag_3"].includes(a.id)),
+          isOnlineBookingActive: isPublicAgendaActive,
+          updatedAt: new Date().toISOString()
+        };
+        localStorage.setItem(`agenda_publica_${storeId}`, JSON.stringify(publicData));
+        if (db) {
+          safeFirestoreSetDoc(doc(db, "agendas_publicas", storeId), publicData);
+          if (userId && userId !== "guest_visitor") {
+            safeFirestoreSetDoc(doc(db, "userData", userId), {
+              barbeariaProfissionais: next,
+              barbeariaProfissionaisCustomized: true
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao salvar profissionais no localStorage:", err);
+      }
       return next;
     });
     setDeleteConfirmProf(null);
@@ -1059,26 +1201,38 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     });
   };
 
-  // Handler para Upload de Foto do Profissional (Novo ou Editando)
-  const handleFotoUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
+  // Handler para Upload de Foto do Profissional (Funciona para Qualquer Segmento: Salão, Estética, Nutrição, etc.)
+  const handleFotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, isEdit = false) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        showNotification("A foto deve ter no máximo 2MB!", "error");
-        return;
+    if (!file) return;
+
+    try {
+      showNotification("Otimizando e preparando a foto... ⏳", "info");
+      const compressedDataUrl = await compressImageFile(file, 360, 360, 0.82);
+      if (isEdit && editingProf) {
+        setEditingProf({ ...editingProf, fotoUrl: compressedDataUrl });
+      } else {
+        setNewProfFoto(compressedDataUrl);
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          if (isEdit && editingProf) {
-            setEditingProf({ ...editingProf, fotoUrl: reader.result });
-          } else {
-            setNewProfFoto(reader.result);
+      showNotification("Foto carregada e salva com sucesso! 📸✨", "success");
+    } catch (err) {
+      console.warn("Erro ao comprimir foto, tentando carregamento direto:", err);
+      try {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            if (isEdit && editingProf) {
+              setEditingProf({ ...editingProf, fotoUrl: reader.result });
+            } else {
+              setNewProfFoto(reader.result);
+            }
+            showNotification("Foto carregada com sucesso! 📸", "success");
           }
-          showNotification("Foto carregada com sucesso! 📸", "success");
-        }
-      };
-      reader.readAsDataURL(file);
+        };
+        reader.readAsDataURL(file);
+      } catch {
+        showNotification("Não foi possível carregar esta foto. Tente outra imagem!", "error");
+      }
     }
   };
 
@@ -1423,6 +1577,22 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           <button
             type="button"
             onClick={() => {
+              setSegmentFilter("esteticista");
+              localStorage.setItem("barbearia_selected_segment", "esteticista");
+              if (activeTab === "encomendas") setActiveTab("profissionais");
+            }}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              segmentFilter === "esteticista"
+                ? "bg-rose-500 text-white border-rose-400 font-black shadow-lg shadow-rose-500/20 ring-2 ring-rose-400/30"
+                : "bg-slate-900/60 text-rose-300/80 border-rose-500/20 hover:bg-rose-500/10 hover:text-rose-300"
+            }`}
+          >
+            <span>✨ Esteticista</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
               setSegmentFilter("manicure");
               localStorage.setItem("barbearia_selected_segment", "manicure");
               if (activeTab === "encomendas") setActiveTab("profissionais");
@@ -1597,125 +1767,194 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               </p>
             </div>
 
-            <button
-              onClick={() => setIsAddProfissionalOpen(true)}
-              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-amber-500/20 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Cadastrar Novo Profissional</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {profissionais.some(isMockProf) && (
+                <button
+                  type="button"
+                  onClick={handlePurgeAllMocks}
+                  className="bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  title="Apagar definitivamente todos os funcionários fictícios de demonstração (Kadu, Juliana, etc.)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Apagar Fictícios (Kadu, Ju, etc.) 🧹</span>
+                </button>
+              )}
+
+              <button
+                onClick={handleOpenAddProfissional}
+                className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-md shadow-amber-500/20 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Cadastrar Novo Profissional</span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {profissionais.map((prof) => {
-              const comissaoTotal = (prof.totalFaturado * prof.comissaoPct) / 100;
-              const repasseEmpresa = prof.totalFaturado - comissaoTotal;
-
-              return (
-                <div
-                  key={prof.id}
-                  className="bg-slate-900 border border-white/10 rounded-3xl p-5 space-y-4 hover:border-amber-500/40 transition-all shadow-xl"
+            {filteredProfissionais.length === 0 ? (
+              <div className="col-span-full bg-slate-900 border border-white/10 rounded-3xl p-8 text-center space-y-3">
+                <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
+                  <Users className="w-7 h-7" />
+                </div>
+                <h4 className="text-white font-bold text-sm">
+                  Nenhum profissional cadastrado para {segmentFilter === "todos" ? "a sua equipe" : `o segmento ${segmentFilter}`}
+                </h4>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Cadastre profissionais com foto, nome, apelido e comissão. Tudo fica salvo e sincronizado na nuvem!
+                </p>
+                <button
+                  type="button"
+                  onClick={handleOpenAddProfissional}
+                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase px-4 py-2.5 rounded-xl transition-all inline-flex items-center gap-2 cursor-pointer shadow-md shadow-amber-500/20"
                 >
-                  <div className="flex items-center gap-3.5">
-                    <img
-                      src={prof.fotoUrl}
-                      alt={prof.nome}
-                      className="w-14 h-14 rounded-2xl object-cover border-2 border-amber-500/30 shadow-md shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1">
-                        <h4 className="text-white font-black text-sm truncate">
-                          {prof.nome}
-                        </h4>
-                        <span className="bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0">
-                          {prof.ativo ? "Ativo" : "Pausa"}
-                        </span>
-                      </div>
-                      {prof.apelido && (
-                        <p className="text-[11px] text-amber-300 font-bold truncate">
-                          "{prof.apelido}"
-                        </p>
-                      )}
-                      <p className="text-[11px] text-slate-400 truncate">
-                        {prof.especialidade}
-                      </p>
-                    </div>
-                  </div>
+                  <Plus className="w-4 h-4" />
+                  <span>Cadastrar Profissional Agora</span>
+                </button>
+              </div>
+            ) : (
+              filteredProfissionais.map((prof) => {
+                const comissaoTotal = (prof.totalFaturado * prof.comissaoPct) / 100;
+                const repasseEmpresa = prof.totalFaturado - comissaoTotal;
+                const isAtivo = prof.ativo !== false;
 
-                  {/* Informações Separadas do Profissional */}
-                  <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-white/5 space-y-2 text-xs">
-                    <div className="flex justify-between items-center text-slate-400">
-                      <span>Comissão Acordada:</span>
-                      <strong className="text-white font-mono">{prof.comissaoPct}%</strong>
-                    </div>
-                    <div className="flex justify-between items-center text-slate-400">
-                      <span>Total Atendimentos:</span>
-                      <strong className="text-amber-400 font-mono">{prof.totalAtendimentos} cortes/serviços</strong>
-                    </div>
-                    <div className="flex justify-between items-center text-slate-400">
-                      <span>Total Faturado no Mês:</span>
-                      <strong className="text-emerald-400 font-mono">{formatCurrency(prof.totalFaturado)}</strong>
-                    </div>
-                    <div className="border-t border-white/5 pt-2 flex justify-between items-center">
-                      <span className="text-[10px] uppercase font-bold text-slate-400">Comissão do Profissional:</span>
-                      <strong className="text-purple-300 font-mono font-black">{formatCurrency(comissaoTotal)}</strong>
-                    </div>
-                  </div>
-
-                  {/* Link Único e Pessoal da Agenda deste Profissional para Redes Sociais */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const profUrl = `${clientAgendaUrl}&segmento=${prof.categoria || "barbearia"}&prof=${prof.id}`;
-                      navigator.clipboard.writeText(profUrl);
-                      showNotification(`Link único da agenda de ${prof.nome} copiado! 📋 Deixe no Instagram ou WhatsApp do profissional.`, "success");
-                    }}
-                    className="w-full bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 text-[10.5px] font-bold py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                    title="Copiar link único deste profissional para colocar na bio do Instagram ou WhatsApp dele"
+                return (
+                  <div
+                    key={prof.id}
+                    className={`bg-slate-900 border rounded-3xl p-5 space-y-4 transition-all shadow-xl ${
+                      isAtivo
+                        ? "border-white/10 hover:border-amber-500/40"
+                        : "border-red-500/30 opacity-80"
+                    }`}
                   >
-                    <Copy className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Copiar Link da Agenda de {prof.nome.split(" ")[0]} 🔗</span>
-                  </button>
+                    <div className="flex items-center gap-3.5">
+                      {prof.fotoUrl ? (
+                        <img
+                          src={prof.fotoUrl}
+                          alt={prof.nome}
+                          className="w-14 h-14 rounded-2xl object-cover border-2 border-amber-500/30 shadow-md shrink-0"
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-orange-500/20 text-amber-300 border-2 border-amber-500/40 flex items-center justify-center font-black text-base shadow-md shrink-0">
+                          {prof.nome.slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <h4 className="text-white font-black text-sm truncate">
+                            {prof.nome}
+                          </h4>
+                          {/* Botão de Alternar Disponibilidade */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleProfissionalAtivo(prof.id)}
+                            className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-full transition-all flex items-center gap-1 cursor-pointer shrink-0 ${
+                              isAtivo
+                                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25"
+                                : "bg-red-500/15 text-red-300 border border-red-500/30 hover:bg-red-500/25"
+                            }`}
+                            title="Clique para alternar entre Disponível ou Indisponível (Pausa)"
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${isAtivo ? "bg-emerald-400" : "bg-red-400"}`} />
+                            <span>{isAtivo ? "Disponível" : "Indisponível"}</span>
+                          </button>
+                        </div>
+                        {prof.apelido && (
+                          <p className="text-[11px] text-amber-300 font-bold truncate">
+                            "{prof.apelido}"
+                          </p>
+                        )}
+                        <p className="text-[11px] text-slate-400 truncate">
+                          {prof.especialidade}
+                        </p>
+                      </div>
+                    </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+                    {/* Informações Separadas do Profissional */}
+                    <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-white/5 space-y-2 text-xs">
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>Comissão Acordada:</span>
+                        <strong className="text-white font-mono">{prof.comissaoPct}%</strong>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>Total Atendimentos:</span>
+                        <strong className="text-amber-400 font-mono">{prof.totalAtendimentos} cortes/serviços</strong>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>Total Faturado no Mês:</span>
+                        <strong className="text-emerald-400 font-mono">{formatCurrency(prof.totalFaturado)}</strong>
+                      </div>
+                      <div className="border-t border-white/5 pt-2 flex justify-between items-center">
+                        <span className="text-[10px] uppercase font-bold text-slate-400">Comissão do Profissional:</span>
+                        <strong className="text-purple-300 font-mono font-black">{formatCurrency(comissaoTotal)}</strong>
+                      </div>
+                    </div>
+
+                    {/* Link Único e Pessoal da Agenda deste Profissional para Redes Sociais */}
                     <button
                       type="button"
-                      onClick={() => setEditingScheduleProf(prof)}
-                      className="bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-[10px] font-black px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-                      title="Configurar horários que vai abrir a agenda, dias de atendimento, almoço e bloqueios"
+                      onClick={() => {
+                        const profUrl = getProfAgendaUrl(prof);
+                        navigator.clipboard.writeText(profUrl);
+                        showNotification(`Link único da agenda de ${prof.nome} copiado! 📋 Deixe no Instagram ou WhatsApp do profissional.`, "success");
+                      }}
+                      className="w-full bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 text-[10.5px] font-bold py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      title="Copiar link único deste profissional para colocar na bio do Instagram ou WhatsApp dele"
                     >
-                      <Clock className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Configurar Agenda ⚙️</span>
+                      <Copy className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Copiar Link Exclusivo da Agenda de {prof.nome.split(" ")[0]} 🔗</span>
                     </button>
 
-                    <div className="flex items-center gap-1.5 ml-auto">
-                      {prof.telefone && (
-                        <a
-                          href={`https://wa.me/55${prof.telefone.replace(/\D/g, "")}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5" />
-                          <span>WhatsApp</span>
-                        </a>
-                      )}
-
+                    <div className="flex items-center justify-between gap-1.5 pt-1 flex-wrap">
+                      {/* BOTÃO EDITAR PERFIL & FOTO */}
                       <button
-                        onClick={() => {
-                          setProfissionais((prev) => prev.filter((p) => p.id !== prof.id));
-                          showNotification(`Profissional ${prof.nome} removido.`, "info");
-                        }}
-                        className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all cursor-pointer"
-                        title="Remover"
+                        type="button"
+                        onClick={() => setEditingProf(prof)}
+                        className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-white/10 text-[10px] font-bold px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                        title="Editar nome, apelido, foto, comissão e dados do profissional"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Editar Perfil & Foto ✏️</span>
                       </button>
+
+                      {/* BOTÃO CONFIGURAR AGENDA & HORÁRIOS */}
+                      <button
+                        type="button"
+                        onClick={() => setEditingScheduleProf(prof)}
+                        className="bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-[10px] font-black px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                        title="Configurar horários que vai abrir a agenda, dias de atendimento, almoço e bloqueios"
+                      >
+                        <Clock className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Horários ⚙️</span>
+                      </button>
+
+                      <div className="flex items-center gap-1.5 ml-auto">
+                        {prof.telefone && (
+                          <a
+                            href={`https://wa.me/55${prof.telefone.replace(/\D/g, "")}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-1.5 rounded-xl transition-all flex items-center gap-1"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">WhatsApp</span>
+                          </a>
+                        )}
+
+                        {/* BOTÃO EXCLUIR PROFISSIONAL COM CONFIRMAÇÃO */}
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmProf(prof)}
+                          className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-all cursor-pointer"
+                          title="Excluir Profissional Definitivamente"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
       )}
@@ -1850,8 +2089,8 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard.writeText(`${clientAgendaUrl}&segmento=barbearia`);
-                    showNotification("Link exclusivo de Barbearia copiado! 💈", "success");
+                    navigator.clipboard.writeText(getSegmentAgendaUrl("barbearia"));
+                    showNotification("Link exclusivo da Barbearia copiado! 💈 Apenas barbeiros e cortes masculinos aparecerão.", "success");
                   }}
                   className="bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
                 >
@@ -1862,8 +2101,8 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard.writeText(`${clientAgendaUrl}&segmento=salao`);
-                    showNotification("Link exclusivo de Salão de Beleza copiado! 💇‍♀️", "success");
+                    navigator.clipboard.writeText(getSegmentAgendaUrl("salao"));
+                    showNotification("Link exclusivo do Salão de Beleza copiado! 💇‍♀️ Apenas cabeleireiras e serviços capilares aparecerão.", "success");
                   }}
                   className="bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
                 >
@@ -1874,8 +2113,8 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard.writeText(`${clientAgendaUrl}&segmento=manicure`);
-                    showNotification("Link exclusivo de Manicure & Unhas copiado! 💅", "success");
+                    navigator.clipboard.writeText(getSegmentAgendaUrl("manicure"));
+                    showNotification("Link exclusivo de Manicure & Pedicure copiado! 💅 Apenas unhas e esmalteria aparecerão.", "success");
                   }}
                   className="bg-pink-500/15 hover:bg-pink-500/25 text-pink-300 border border-pink-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
                 >
@@ -1886,12 +2125,60 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard.writeText(`${clientAgendaUrl}&segmento=festas`);
-                    showNotification("Link exclusivo de Festas & Encomendas copiado! 🍰", "success");
+                    navigator.clipboard.writeText(getSegmentAgendaUrl("podologia"));
+                    showNotification("Link exclusivo de Podologia Clínica copiado! 🦶 Apenas podologia e saúde dos pés aparecerão.", "success");
+                  }}
+                  className="bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>🦶 Link Só Podologia</span>
+                  <Copy className="w-3 h-3 opacity-70" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(getSegmentAgendaUrl("terapia_ocupacional"));
+                    showNotification("Link exclusivo de Terapia Ocupacional copiado! 🧩 Apenas T.O. e reabilitação aparecerão.", "success");
+                  }}
+                  className="bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>🧩 Link Só Terapia Ocupacional</span>
+                  <Copy className="w-3 h-3 opacity-70" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(getSegmentAgendaUrl("psicologia"));
+                    showNotification("Link exclusivo de Psicologia Clínica copiado! 🧠 Apenas psicólogos e psicoterapia aparecerão.", "success");
+                  }}
+                  className="bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>🧠 Link Só Psicologia</span>
+                  <Copy className="w-3 h-3 opacity-70" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(getSegmentAgendaUrl("nutricionista"));
+                    showNotification("Link exclusivo de Nutricionista copiado! 🥗 Apenas consultas nutricionais aparecerão.", "success");
                   }}
                   className="bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
                 >
-                  <span>🍰 Link Só Festas & Encomendas</span>
+                  <span>🥗 Link Só Nutricionista</span>
+                  <Copy className="w-3 h-3 opacity-70" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(getSegmentAgendaUrl("festas"));
+                    showNotification("Link exclusivo de Festas & Encomendas copiado! 🎂 Apenas bolos e doces para festas aparecerão.", "success");
+                  }}
+                  className="bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>🎂 Link Só Festas & Encomendas</span>
                   <Copy className="w-3 h-3 opacity-70" />
                 </button>
               </div>
@@ -2024,7 +2311,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 companyName={companyName}
                 allowCaixaAgendar={allowCaixaAgendar}
                 isCaixa={isCaixa}
-                onUpdateProfissional={handleUpdateProfissional}
+                onUpdateProfissional={handleUpdateProfissionalAgenda}
                 showNotification={showNotification}
               />
             </div>
@@ -2705,13 +2992,14 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       {/* MODAL 1: CADASTRAR PROFISSIONAL COM FOTO */}
       {isAddProfissionalOpen && (
         <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-lg space-y-4 my-auto">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-lg space-y-4 my-auto text-left shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/5 pb-3">
               <h3 className="text-white font-black text-base flex items-center gap-2">
-                <Scissors className="w-5 h-5 text-amber-400" />
-                <span>Novo Barbeiro / Profissional</span>
+                <span>{NEGOCIOS_SEGMENTOS_CONFIG[newProfCategoria]?.icone || "👤"}</span>
+                <span>Novo Profissional ({NEGOCIOS_SEGMENTOS_CONFIG[newProfCategoria]?.nomeCurto || "Equipe"})</span>
               </h3>
               <button
+                type="button"
                 onClick={() => setIsAddProfissionalOpen(false)}
                 className="p-1.5 text-slate-400 hover:text-white"
               >
@@ -2720,47 +3008,89 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             </div>
 
             <form onSubmit={handleSaveProfissional} className="space-y-4">
+              {/* Seletor de Categoria / Segmento de Negócio */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-amber-400">
+                  Segmento de Negócio *
+                </label>
+                <select
+                  value={newProfCategoria}
+                  onChange={(e) => setNewProfCategoria(e.target.value as NegocioSegmento)}
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-amber-500"
+                >
+                  <option value="barbearia">💈 Barbearia (Barbeiro / Navalhado / Barba)</option>
+                  <option value="salao">💇‍♀️ Salão de Beleza (Cabeleireiro / Escova / Mechas)</option>
+                  <option value="esteticista">✨ Estética & Esteticista (Facial / Corporal / Drenagem / Pele)</option>
+                  <option value="manicure">💅 Manicure & Pedicure (Unhas / Gel / Fibra)</option>
+                  <option value="podologia">🦶 Podologia (Saúde dos Pés / Unha Encravada)</option>
+                  <option value="terapia_ocupacional">🧩 Terapia Ocupacional (Autonomia / Reabilitação)</option>
+                  <option value="psicologia">🧠 Psicologia (Psicoterapia / Saúde Emocional)</option>
+                  <option value="nutricionista">🥗 Nutricionista (Plano Alimentar / Bioimpedância)</option>
+                  <option value="festas">🎂 Festas & Encomendas (Bolos / Doces / Salgados)</option>
+                </select>
+              </div>
+
               {/* Seletor de Foto do Profissional */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase text-slate-300 block">
-                  Foto do Profissional 📸
+                  Foto do Profissional 📸 (Opcional)
                 </label>
                 <div className="flex items-center gap-4">
-                  <img
-                    src={newProfFoto}
-                    alt="Preview"
-                    className="w-16 h-16 rounded-2xl object-cover border-2 border-amber-500/50 shadow-md shrink-0"
-                  />
+                  {newProfFoto ? (
+                    <img
+                      src={newProfFoto}
+                      alt="Preview"
+                      className="w-16 h-16 rounded-2xl object-cover border-2 border-amber-500/50 shadow-md shrink-0"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-300 font-black text-xl flex items-center justify-center border-2 border-amber-500/40 shrink-0">
+                      {newProfNome ? newProfNome.slice(0, 2).toUpperCase() : <User className="w-7 h-7 text-amber-400" />}
+                    </div>
+                  )}
                   <div className="space-y-1.5 flex-1">
-                    <label className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl border border-white/10 transition-all flex items-center gap-2 cursor-pointer w-fit">
-                      <Camera className="w-4 h-4 text-amber-400" />
-                      <span>Escolher Foto do Aparelho</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFotoUpload}
-                        className="hidden"
-                      />
-                    </label>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl border border-white/10 transition-all flex items-center gap-2 cursor-pointer w-fit">
+                        <Camera className="w-4 h-4 text-amber-400" />
+                        <span>{newProfFoto ? "Trocar Foto" : "Carregar Foto do Aparelho"}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleFotoUpload(e, false)}
+                          className="hidden"
+                        />
+                      </label>
+                      {newProfFoto && (
+                        <button
+                          type="button"
+                          onClick={() => setNewProfFoto("")}
+                          className="text-[10px] text-red-400 hover:text-red-300 underline font-bold px-1"
+                        >
+                          Remover Foto
+                        </button>
+                      )}
+                    </div>
                     <span className="text-[9px] text-slate-500 block">
-                      Ou escolha um dos modelos abaixo:
+                      Se não tiver foto, será exibido um ícone com as iniciais do nome.
                     </span>
                   </div>
                 </div>
 
-                {/* Presets de foto rápida */}
-                <div className="flex gap-2 overflow-x-auto py-1">
-                  {AVATAR_PRESETS.map((url, idx) => (
-                    <img
-                      key={idx}
-                      src={url}
-                      alt={`Avatar ${idx}`}
-                      onClick={() => setNewProfFoto(url)}
-                      className={`w-10 h-10 rounded-xl object-cover cursor-pointer transition-all border-2 ${
-                        newProfFoto === url ? "border-amber-400 scale-105" : "border-transparent opacity-60 hover:opacity-100"
-                      }`}
-                    />
-                  ))}
+                {/* Presets de foto rápida opcionais */}
+                <div className="space-y-1">
+                  <span className="text-[9px] text-slate-500 block">Ou escolha um avatar:</span>
+                  <div className="flex gap-2 overflow-x-auto py-1">
+                    {AVATAR_PRESETS.map((url, idx) => (
+                      <img
+                        key={idx}
+                        src={url}
+                        alt={`Avatar ${idx}`}
+                        onClick={() => setNewProfFoto(url)}
+                        className={`w-10 h-10 rounded-xl object-cover cursor-pointer transition-all border-2 ${
+                          newProfFoto === url ? "border-amber-400 scale-105" : "border-transparent opacity-60 hover:opacity-100"
+                        }`}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -2775,20 +3105,20 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                     value={newProfNome}
                     onChange={(e) => setNewProfNome(e.target.value)}
                     placeholder="Ex: Carlos Eduardo"
-                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-amber-500"
                   />
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-slate-300">
-                    Apelido / Nome de Guerra
+                    Apelido
                   </label>
                   <input
                     type="text"
                     value={newProfApelido}
                     onChange={(e) => setNewProfApelido(e.target.value)}
-                    placeholder="Ex: Kadu Navalha"
-                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                    placeholder="Ex: Kadu"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-amber-500"
                   />
                 </div>
               </div>
@@ -2802,7 +3132,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                   value={newProfEspecialidade}
                   onChange={(e) => setNewProfEspecialidade(e.target.value)}
                   placeholder="Ex: Corte Degradê, Barba Terapia, Manicure"
-                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-amber-500"
                 />
               </div>
 
@@ -2816,7 +3146,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                     value={newProfTelefone}
                     onChange={(e) => setNewProfTelefone(e.target.value)}
                     placeholder="Ex: (21) 98888-7777"
-                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-amber-500"
                   />
                 </div>
 
@@ -2831,7 +3161,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                     value={newProfComissao}
                     onChange={(e) => setNewProfComissao(e.target.value)}
                     placeholder="Ex: 50"
-                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono focus:border-amber-500"
                   />
                 </div>
               </div>
@@ -2840,18 +3170,298 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 <button
                   type="button"
                   onClick={() => setIsAddProfissionalOpen(false)}
-                  className="flex-1 bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-xs"
+                  className="flex-1 bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-xs cursor-pointer hover:bg-slate-700 transition-all"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 py-2.5 rounded-xl font-black text-xs uppercase"
+                  className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 py-2.5 rounded-xl font-black text-xs uppercase cursor-pointer shadow-lg shadow-amber-500/20 transition-all"
                 >
                   Salvar Profissional
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1B: EDITAR PERFIL DO PROFISSIONAL (NOME, APELIDO, FOTO, COMISSÃO, DISPONIBILIDADE) */}
+      {editingProf && (
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 w-full max-w-lg space-y-4 my-auto text-left shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <h3 className="text-white font-black text-base flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-amber-400" />
+                <span>Editar Perfil de {editingProf.nome}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingProf(null)}
+                className="p-1.5 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateProfissional} className="space-y-4">
+              {/* Foto do Profissional com Opção de Trocar ou Remover */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-300 block">
+                  Foto do Perfil 📸
+                </label>
+                <div className="flex items-center gap-4">
+                  {editingProf.fotoUrl ? (
+                    <img
+                      src={editingProf.fotoUrl}
+                      alt={editingProf.nome}
+                      className="w-16 h-16 rounded-2xl object-cover border-2 border-amber-500/50 shadow-md shrink-0"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-300 font-black text-xl flex items-center justify-center border-2 border-amber-500/40 shrink-0">
+                      {editingProf.nome ? editingProf.nome.slice(0, 2).toUpperCase() : <User className="w-7 h-7 text-amber-400" />}
+                    </div>
+                  )}
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl border border-white/10 transition-all flex items-center gap-2 cursor-pointer w-fit">
+                        <Camera className="w-4 h-4 text-amber-400" />
+                        <span>Carregar Nova Foto</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleFotoUpload(e, true)}
+                          className="hidden"
+                        />
+                      </label>
+                      {editingProf.fotoUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingProf({ ...editingProf, fotoUrl: "" })}
+                          className="px-2.5 py-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                        >
+                          Remover Foto (Usar Iniciais)
+                        </button>
+                      )}
+                    </div>
+                    <span className="text-[9px] text-slate-500 block">
+                      Você pode usar sua foto real ou remover a foto fictícia a qualquer momento.
+                    </span>
+                  </div>
+                </div>
+
+                {/* Presets rápidos */}
+                <div className="space-y-1">
+                  <span className="text-[9px] text-slate-500 block">Ou escolher uma das fotos padrão:</span>
+                  <div className="flex gap-2 overflow-x-auto py-1">
+                    {AVATAR_PRESETS.map((url, idx) => (
+                      <img
+                        key={idx}
+                        src={url}
+                        alt={`Avatar ${idx}`}
+                        onClick={() => setEditingProf({ ...editingProf, fotoUrl: url })}
+                        className={`w-10 h-10 rounded-xl object-cover cursor-pointer transition-all border-2 ${
+                          editingProf.fotoUrl === url ? "border-amber-400 scale-105" : "border-transparent opacity-60 hover:opacity-100"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status de Disponibilidade (Disponível vs Indisponível) */}
+              <div className="bg-slate-950 p-3 rounded-2xl border border-white/10 flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-white block">
+                    Disponibilidade na Agenda:
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {editingProf.ativo !== false ? "🟢 Ativo e Disponível para Agendamentos" : "⏸️ Indisponível (Pausado)"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingProf({ ...editingProf, ativo: editingProf.ativo === false ? true : false })}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+                    editingProf.ativo !== false
+                      ? "bg-emerald-500 text-slate-950 font-black shadow-md shadow-emerald-500/20"
+                      : "bg-red-600 text-white font-black shadow-md shadow-red-600/20"
+                  }`}
+                >
+                  {editingProf.ativo !== false ? "Disponível ✅" : "Indisponível ⏸️"}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">
+                    Nome Completo *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingProf.nome}
+                    onChange={(e) => setEditingProf({ ...editingProf, nome: e.target.value })}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">
+                    Apelido
+                  </label>
+                  <input
+                    type="text"
+                    value={editingProf.apelido || ""}
+                    onChange={(e) => setEditingProf({ ...editingProf, apelido: e.target.value })}
+                    placeholder="Ex: Kadu"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">
+                    Segmento de Negócio
+                  </label>
+                  <select
+                    value={editingProf.categoria || "barbearia"}
+                    onChange={(e) => setEditingProf({ ...editingProf, categoria: e.target.value as NegocioSegmento })}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-amber-500"
+                  >
+                    <option value="barbearia">💈 Barbearia</option>
+                    <option value="salao">💇‍♀️ Salão de Beleza</option>
+                    <option value="esteticista">✨ Estética & Esteticista</option>
+                    <option value="manicure">💅 Manicure & Pedicure</option>
+                    <option value="podologia">🦶 Podologia</option>
+                    <option value="terapia_ocupacional">🧩 Terapia Ocupacional</option>
+                    <option value="psicologia">🧠 Psicologia</option>
+                    <option value="nutricionista">🥗 Nutricionista</option>
+                    <option value="festas">🎂 Festas & Encomendas</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">
+                    Duração Padrão (Minutos)
+                  </label>
+                  <input
+                    type="number"
+                    min={5}
+                    max={240}
+                    step={5}
+                    value={editingProf.duracaoPadraoMinutos || 40}
+                    onChange={(e) => setEditingProf({ ...editingProf, duracaoPadraoMinutos: Number(e.target.value) || 40 })}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300">
+                  Especialidade / Serviços
+                </label>
+                <input
+                  type="text"
+                  value={editingProf.especialidade || ""}
+                  onChange={(e) => setEditingProf({ ...editingProf, especialidade: e.target.value })}
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">
+                    WhatsApp do Profissional
+                  </label>
+                  <input
+                    type="text"
+                    value={editingProf.telefone || ""}
+                    onChange={(e) => setEditingProf({ ...editingProf, telefone: e.target.value })}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300">
+                    Comissão (%)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={editingProf.comissaoPct || 0}
+                    onChange={(e) => setEditingProf({ ...editingProf, comissaoPct: Number(e.target.value) || 0 })}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingProf(null)}
+                  className="bg-slate-800 text-slate-300 py-2.5 px-4 rounded-xl font-bold text-xs cursor-pointer hover:bg-slate-700 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const profParaExcluir = editingProf;
+                    setEditingProf(null);
+                    setDeleteConfirmProf(profParaExcluir);
+                  }}
+                  className="bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 py-2.5 px-4 rounded-xl font-bold text-xs cursor-pointer transition-all flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Excluir</span>
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 py-2.5 rounded-xl font-black text-xs uppercase cursor-pointer shadow-lg shadow-amber-500/20 transition-all"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1C: CONFIRMAR EXCLUSÃO DE PROFISSIONAL */}
+      {deleteConfirmProf && (
+        <div className="fixed inset-0 z-[10030] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-red-500/30 rounded-3xl p-6 w-full max-w-md space-y-4 text-center shadow-2xl">
+            <div className="w-14 h-14 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center mx-auto border border-red-500/40">
+              <Trash2 className="w-7 h-7" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-white font-black text-base">
+                Excluir Profissional Definitivamente?
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Você tem certeza que deseja excluir <strong>{deleteConfirmProf.nome}</strong>?
+                Os dados deste profissional serão removidos da equipe e não voltarão na próxima vez que você abrir o app.
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmProf(null)}
+                className="flex-1 bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-xs hover:bg-slate-700 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteProfissional(deleteConfirmProf.id)}
+                className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2.5 rounded-xl font-black text-xs uppercase shadow-lg shadow-red-600/30 transition-all cursor-pointer"
+              >
+                Sim, Excluir Profissional 🗑️
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3218,12 +3828,15 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       {isPreviewClientPortalOpen && (
         <div className="fixed inset-0 z-[10030] bg-slate-950 overflow-y-auto">
           <ClientPublicAgendaPortal
-            companyName={companyName}
+            companyName={companyName && companyName !== "Barbearia, Salão & Festas" && companyName !== "Barbearia & Salão" ? companyName : ""}
             companyLogo={companyLogo}
             companyPhone={companyPhone}
             profissionais={profissionais}
             agendamentos={agendamentos}
             isOnlineBookingActive={isPublicAgendaActive}
+            businessSegment={segmentFilter !== "todos" ? segmentFilter : "barbearia"}
+            storeId={storeId}
+            db={db}
             onSaveAgendamento={(ag) => {
               setAgendamentos((prev) => [ag, ...prev]);
               showNotification("Agendamento de teste criado com sucesso! ✂️✅", "success");
@@ -3245,7 +3858,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           onClose={() => setEditingScheduleProf(null)}
           profissional={editingScheduleProf}
           onSave={(atualizado) => {
-            handleUpdateProfissional(atualizado);
+            handleUpdateProfissionalAgenda(atualizado);
             setEditingScheduleProf(null);
           }}
           showNotification={showNotification}

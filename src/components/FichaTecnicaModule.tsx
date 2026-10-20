@@ -21,7 +21,15 @@ import {
   Info,
   DollarSign,
   Wheat,
-  PieChart
+  PieChart,
+  Folder,
+  FolderOpen,
+  Search,
+  Copy,
+  Edit3,
+  AlertCircle,
+  CheckCircle2,
+  Clock
 } from "lucide-react";
 
 export interface RecipeIngredient {
@@ -786,8 +794,10 @@ export function FichaTecnicaModule({
   formatCurrency = (v) => `R$ ${v.toFixed(2).replace(".", ",")}`,
   showNotification
 }: FichaTecnicaModuleProps) {
-  // Global Mode Toggle: "receitas" (Salgados, Coxinhas, Lanches) vs "granel" (Rações, Aviário, Milho, Sementes)
-  const [calculatorMode, setCalculatorMode] = useState<"receitas" | "granel">("receitas");
+  // Global Mode Toggle: "receitas" (Salgados, Coxinhas, Lanches) vs "granel" (Rações, Aviário) vs "pasta" (Pasta de Receitas Salvas)
+  const [calculatorMode, setCalculatorMode] = useState<"receitas" | "granel" | "pasta">("receitas");
+  const [folderSearch, setFolderSearch] = useState<string>("");
+  const [folderCategoryFilter, setFolderCategoryFilter] = useState<string>("todas");
 
   // ==========================================
   // MODE 1: RECIPES STATE (Coxinhas, Lanches, etc.)
@@ -955,7 +965,7 @@ export function FichaTecnicaModule({
       name: recipeName.trim(),
       yieldQty,
       yieldUnit,
-      category,
+      category: category || "Salgados",
       ingredients,
       extraCostsPct,
       packagingCostPerUnit,
@@ -963,8 +973,50 @@ export function FichaTecnicaModule({
       sellingPrice,
       createdAt: new Date().toISOString()
     };
-    setSavedRecipes([newRecipe, ...savedRecipes.filter((r) => r.name.toLowerCase() !== recipeName.trim().toLowerCase())]);
-    showNotification(`Ficha Técnica de "${recipeName}" salva com sucesso! 💾✅`, "success");
+    const updated = [newRecipe, ...savedRecipes.filter((r) => r.name.toLowerCase() !== recipeName.trim().toLowerCase())];
+    setSavedRecipes(updated);
+    try {
+      localStorage.setItem("pdv_ficha_tecnica_recipes", JSON.stringify(updated));
+    } catch {}
+    showNotification(`Ficha Técnica de "${recipeName}" salva na Pasta de Receitas! 📁💾✅`, "success");
+  };
+
+  const handleDeleteSavedRecipe = (id: string, name: string) => {
+    const updated = savedRecipes.filter((r) => r.id !== id);
+    setSavedRecipes(updated);
+    try {
+      localStorage.setItem("pdv_ficha_tecnica_recipes", JSON.stringify(updated));
+    } catch {}
+    showNotification(`Receita "${name}" removida da pasta! 🗑️`, "info");
+  };
+
+  const handleDuplicateSavedRecipe = (recipe: SavedRecipe) => {
+    const duplicated: SavedRecipe = {
+      ...recipe,
+      id: `recipe_${Date.now()}`,
+      name: `${recipe.name} (Cópia)`,
+      createdAt: new Date().toISOString()
+    };
+    const updated = [duplicated, ...savedRecipes];
+    setSavedRecipes(updated);
+    try {
+      localStorage.setItem("pdv_ficha_tecnica_recipes", JSON.stringify(updated));
+    } catch {}
+    showNotification(`Receita "${recipe.name}" duplicada com sucesso! 📋✨`, "success");
+  };
+
+  const handleLoadSavedRecipe = (recipe: SavedRecipe) => {
+    setRecipeName(recipe.name);
+    setYieldQty(recipe.yieldQty);
+    setYieldUnit(recipe.yieldUnit);
+    setCategory(recipe.category);
+    setExtraCostsPct(recipe.extraCostsPct);
+    setPackagingCostPerUnit(recipe.packagingCostPerUnit);
+    setTargetMarginPct(recipe.targetMarginPct);
+    setSellingPrice(recipe.sellingPrice);
+    setIngredients(recipe.ingredients.map((ing, i) => ({ ...ing, id: `ing_${Date.now()}_${i}` })));
+    setCalculatorMode("receitas");
+    showNotification(`Receita "${recipe.name}" aberta na calculadora! 🥟📝`, "success");
   };
 
   const handleShareRecipeWhatsApp = () => {
@@ -1016,6 +1068,10 @@ export function FichaTecnicaModule({
   };
 
   const handleApplyRecipeToCatalog = () => {
+    // 1. Salva automaticamente na pasta de receitas para nunca sumir
+    handleSaveRecipe();
+
+    // 2. Envia para o catálogo de vendas do PDV
     if (onApplyToPDVCatalog) {
       onApplyToPDVCatalog({
         name: recipeName,
@@ -1023,6 +1079,7 @@ export function FichaTecnicaModule({
         salePrice: totals.currentPrice,
         category: category || "Alimentos"
       });
+      showNotification(`"${recipeName}" salvo na Pasta de Receitas e atualizado no Catálogo do PDV! 📁✅`, "success");
     }
   };
 

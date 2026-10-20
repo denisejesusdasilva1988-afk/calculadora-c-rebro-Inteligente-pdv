@@ -575,10 +575,10 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
                 </span>
               </div>
               <textarea
-                rows={9}
+                rows={12}
                 value={textoEdit}
                 onChange={(e) => setTextoEdit(e.target.value)}
-                className="w-full bg-slate-900 border-2 border-white/10 focus:border-pink-500 rounded-2xl p-4 text-sm text-white leading-relaxed outline-none font-sans min-h-[190px] shadow-inner transition-all"
+                className="w-full bg-slate-900 border-2 border-white/10 focus:border-pink-500 rounded-2xl p-4 text-sm sm:text-base text-white leading-relaxed outline-none font-sans min-h-[240px] shadow-inner transition-all resize-y"
                 placeholder="Escreva a mensagem personalizada de aniversário com todo o carinho e detalhes..."
               />
             </div>

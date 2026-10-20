@@ -2685,6 +2685,44 @@ export default function App() {
       return false;
     }
   });
+
+  const [cloudPortalData, setCloudPortalData] = useState<{
+    companyName?: string;
+    companyLogo?: string;
+    companyPhone?: string;
+    profissionais?: any[];
+    agendamentos?: any[];
+    isOnlineBookingActive?: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!showClientPublicAgendaPortal || !db) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const lojaId = params.get("loja");
+      if (!lojaId) return;
+
+      let isMounted = true;
+      getDoc(doc(db, "agendas_publicas", lojaId))
+        .then((snap) => {
+          if (snap.exists() && isMounted) {
+            const data = snap.data();
+            if (data) {
+              setCloudPortalData(data);
+              try {
+                localStorage.setItem(`agenda_publica_${lojaId}`, JSON.stringify(data));
+              } catch {}
+            }
+          }
+        })
+        .catch((err) => console.warn("Aviso ao sincronizar agenda pública da nuvem:", err));
+
+      return () => {
+        isMounted = false;
+      };
+    } catch {}
+  }, [showClientPublicAgendaPortal]);
+
   const [currentFolder, setCurrentFolder] = useState<string>("Geral");
   const [createdFolders, setCreatedFolders] = useState<string[]>(() => {
     try {
@@ -4000,85 +4038,128 @@ export default function App() {
     return () => window.removeEventListener("hashchange", checkUrlParams);
   }, []);
 
-  const getClientPortalProfissionais = useCallback(() => {
+  const getClientPortalProfissionais = useCallback((): ProfissionalBarbearia[] => {
     try {
-      const key = user?.uid && user.uid !== "guest_visitor"
-        ? `barbearia_${user.uid}_profissionais`
-        : "barbearia_guest_profissionais";
-      const saved = localStorage.getItem(key);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return [
-      {
-        id: "prof_1",
-        nome: "Carlos Eduardo",
-        apelido: "Kadu Navalha",
-        fotoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
-        especialidade: "Corte Degradê & Barba",
-        telefone: "21988887777",
-        chavePix: "21988887777",
-        comissaoPct: 50,
-        horarioTrabalho: "Terça a Sábado, 09h às 19h",
-        totalAtendimentos: 42,
-        totalFaturado: 1470,
-        ativo: true
-      },
-      {
-        id: "prof_2",
-        nome: "Juliana Santos",
-        apelido: "Ju Hair",
-        fotoUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-        especialidade: "Escova, Coloração & Penteados",
-        telefone: "21977776666",
-        chavePix: "21977776666",
-        comissaoPct: 50,
-        horarioTrabalho: "Quarta a Domingo, 10h às 20h",
-        totalAtendimentos: 28,
-        totalFaturado: 1960,
-        ativo: true
+      const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+      const lojaId = params?.get("loja");
+
+      const isMockProf = (p: any): boolean => {
+        if (!p) return true;
+        if (typeof p.id === "string" && ["prof_1", "prof_2", "prof_3", "prof_4", "prof_5", "prof_6", "prof_7", "prof_8"].includes(p.id)) return true;
+        if (p.apelido === "Kadu Navalha" || p.apelido === "Ju Hair" || p.apelido === "Larissa Nails" || p.apelido === "Camila Podóloga") return true;
+        if (p.nome === "Carlos Eduardo" || p.nome === "Juliana Santos") return true;
+        return false;
+      };
+
+      const filterClean = (list: any): ProfissionalBarbearia[] => {
+        if (!Array.isArray(list)) return [];
+        return list.filter((p) => !isMockProf(p));
+      };
+
+      // 1. Tenta pegar dos dados públicos da loja passados pelo link compartilhado (?loja=...)
+      if (lojaId) {
+        const savedPub = localStorage.getItem(`agenda_publica_${lojaId}`);
+        if (savedPub) {
+          try {
+            const parsed = JSON.parse(savedPub);
+            const clean = filterClean(parsed.profissionais);
+            if (clean.length > 0) return clean;
+          } catch {}
+        }
+        const savedLoja = localStorage.getItem(`barbearia_${lojaId}_profissionais`);
+        if (savedLoja) {
+          try {
+            const clean = filterClean(JSON.parse(savedLoja));
+            if (clean.length > 0) return clean;
+          } catch {}
+        }
       }
-    ];
+
+      // 2. Tenta pegar do usuário logado ou das chaves padrão
+      const keysToTry = [
+        user?.uid && user.uid !== "guest_visitor" ? `barbearia_${user.uid}_profissionais` : null,
+        "barbearia_guest_profissionais",
+        "barbearia_public_profissionais",
+        "barbearia_compartilhada_profissionais",
+        "barbearia_profissionais",
+      ].filter(Boolean) as string[];
+
+      for (const k of keysToTry) {
+        const s = localStorage.getItem(k);
+        if (s) {
+          try {
+            const clean = filterClean(JSON.parse(s));
+            if (clean.length > 0) return clean;
+          } catch {}
+        }
+      }
+
+      // 3. Varredura ampla em localStorage caso o prefixo seja ligeiramente diferente
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("barbearia_") && key.endsWith("_profissionais")) {
+          const s = localStorage.getItem(key);
+          if (s) {
+            try {
+              const clean = filterClean(JSON.parse(s));
+              if (clean.length > 0) return clean;
+            } catch {}
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Erro ao buscar profissionais da agenda cliente:", err);
+    }
+    // NUNCA retorna profissionais fictícios de teste (Kadu, Juliana, etc.)
+    return [];
   }, [user]);
 
   const getClientPortalAgendamentos = useCallback((): AgendamentoServico[] => {
     try {
-      const key = user?.uid && user.uid !== "guest_visitor"
-        ? `barbearia_${user.uid}_agendamentos`
-        : "barbearia_guest_agendamentos";
-      const saved = localStorage.getItem(key);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    const today = new Date().toISOString().slice(0, 10);
-    return [
-      {
-        id: "ag_1",
-        data: today,
-        horario: "09:00",
-        horarioFim: "09:40",
-        clienteNome: "BRUNO VIEIRA DA SILVA",
-        clienteTelefone: "21999991111",
-        profissionalId: "prof_1",
-        profissionalNome: "Carlos Eduardo",
-        servico: "Máquina e Tesoura",
-        valor: 45,
-        status: "agendado",
-        criadoEm: new Date().toISOString()
-      },
-      {
-        id: "ag_2",
-        data: today,
-        horario: "10:40",
-        horarioFim: "12:00",
-        clienteNome: "Marcos Vinícius Lima",
-        clienteTelefone: "21999992222",
-        profissionalId: "prof_1",
-        profissionalNome: "Carlos Eduardo",
-        servico: "Comb 3 Cabelo + Barba + Sobrancelha",
-        valor: 75,
-        status: "agendado",
-        criadoEm: new Date().toISOString()
+      const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+      const lojaId = params?.get("loja");
+
+      const filterClean = (list: any): AgendamentoServico[] => {
+        if (!Array.isArray(list)) return [];
+        return list.filter((a) => !["ag_1", "ag_2", "ag_3"].includes(a.id) && !["prof_1", "prof_2", "prof_3"].includes(a.profissionalId));
+      };
+
+      if (lojaId) {
+        const savedPub = localStorage.getItem(`agenda_publica_${lojaId}`);
+        if (savedPub) {
+          try {
+            const parsed = JSON.parse(savedPub);
+            const clean = filterClean(parsed.agendamentos);
+            if (clean.length > 0) return clean;
+          } catch {}
+        }
+        const savedLoja = localStorage.getItem(`barbearia_${lojaId}_agendamentos`);
+        if (savedLoja) {
+          try {
+            const clean = filterClean(JSON.parse(savedLoja));
+            if (clean.length > 0) return clean;
+          } catch {}
+        }
       }
-    ];
+
+      const keysToTry = [
+        user?.uid && user.uid !== "guest_visitor" ? `barbearia_${user.uid}_agendamentos` : null,
+        "barbearia_guest_agendamentos",
+        "barbearia_agendamentos",
+      ].filter(Boolean) as string[];
+
+      for (const k of keysToTry) {
+        const s = localStorage.getItem(k);
+        if (s) {
+          try {
+            const clean = filterClean(JSON.parse(s));
+            if (clean.length > 0) return clean;
+          } catch {}
+        }
+      }
+    } catch {}
+    // NUNCA retorna agendamentos fictícios
+    return [];
   }, [user]);
 
   const handleClientSaveAgendamento = useCallback((ag: any) => {
@@ -13832,12 +13913,42 @@ export default function App() {
             className="fixed inset-0 z-[100] bg-slate-950 overflow-y-auto"
           >
             <ClientPublicAgendaPortal
-              companyName={loadCompanyProfile(user?.uid).name || localStorage.getItem("pdv_store_name") || "Barbearia, Salão & Festas"}
-              companyLogo={loadCompanyProfile(user?.uid).logoUrl || localStorage.getItem("pdv_company_logo") || ""}
-              companyPhone={loadCompanyProfile(user?.uid).whatsapp || loadCompanyProfile(user?.uid).phone || localStorage.getItem("pdv_store_phone") || ""}
-              profissionais={getClientPortalProfissionais()}
-              agendamentos={getClientPortalAgendamentos()}
+              companyName={(() => {
+                const cloudName = cloudPortalData?.companyName;
+                if (cloudName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(cloudName)) return cloudName;
+                const profileName = loadCompanyProfile(user?.uid).name;
+                if (profileName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(profileName)) return profileName;
+                const pdvName = localStorage.getItem("pdv_store_name");
+                if (pdvName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(pdvName)) return pdvName;
+                return "";
+              })()}
+              companyLogo={
+                cloudPortalData?.companyLogo ||
+                loadCompanyProfile(user?.uid).logoUrl ||
+                localStorage.getItem("pdv_company_logo") ||
+                ""
+              }
+              companyPhone={
+                cloudPortalData?.companyPhone ||
+                loadCompanyProfile(user?.uid).whatsapp ||
+                loadCompanyProfile(user?.uid).phone ||
+                localStorage.getItem("pdv_store_phone") ||
+                ""
+              }
+              profissionais={
+                cloudPortalData?.profissionais && cloudPortalData.profissionais.length > 0
+                  ? cloudPortalData.profissionais
+                  : getClientPortalProfissionais()
+              }
+              agendamentos={
+                cloudPortalData?.agendamentos && cloudPortalData.agendamentos.length > 0
+                  ? cloudPortalData.agendamentos
+                  : getClientPortalAgendamentos()
+              }
               isOnlineBookingActive={(() => {
+                if (cloudPortalData?.isOnlineBookingActive !== undefined) {
+                  return cloudPortalData.isOnlineBookingActive;
+                }
                 try {
                   const saved = localStorage.getItem("barbearia_link_publico_ativo");
                   return saved !== null ? saved === "true" : true;
@@ -13845,6 +13956,29 @@ export default function App() {
                   return true;
                 }
               })()}
+              businessSegment={(() => {
+                try {
+                  const params = new URLSearchParams(window.location.search);
+                  let seg = params.get("segmento");
+                  if (seg === "festas") seg = "encomendas";
+                  if (seg) return seg as any;
+                  const saved = localStorage.getItem("barbearia_selected_segment") || localStorage.getItem("pdv_business_segment");
+                  if (saved && saved !== "todos") return (saved === "festas" ? "encomendas" : saved) as any;
+                  const profs = cloudPortalData?.profissionais || getClientPortalProfissionais();
+                  if (profs && profs.length > 0 && profs[0].categoria && profs[0].categoria !== "todos") {
+                    return (profs[0].categoria === "festas" ? "encomendas" : profs[0].categoria) as any;
+                  }
+                } catch {}
+                return "salao";
+              })()}
+              storeId={(() => {
+                try {
+                  const s = new URLSearchParams(window.location.search).get("loja");
+                  if (s) return s;
+                } catch {}
+                return user?.uid || localStorage.getItem("pdv_store_id") || "loja_denise";
+              })()}
+              db={db}
               onSaveAgendamento={(ag) => {
                 handleClientSaveAgendamento(ag);
                 showNotification("Agendamento registrado com sucesso! ✂️📅", "success");

@@ -1273,6 +1273,16 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
                       <button
                         onClick={() => {
+                          localStorage.setItem("barbearia_selected_segment", "esteticista");
+                          handleNavigate("barbearia_salao");
+                        }}
+                        className="py-1 px-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-[10px] font-bold border border-rose-500/20 text-left truncate flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>✨ Esteticista</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
                           localStorage.setItem("barbearia_selected_segment", "manicure");
                           handleNavigate("barbearia_salao");
                         }}

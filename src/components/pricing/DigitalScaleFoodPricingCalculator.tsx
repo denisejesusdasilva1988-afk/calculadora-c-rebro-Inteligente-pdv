@@ -24,7 +24,12 @@ import {
   RefreshCw,
   Box,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Folder,
+  FolderOpen,
+  Search,
+  Copy,
+  FileText
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { SalgadoProporcaoLivreCard } from "./SalgadoProporcaoLivreCard";
@@ -898,7 +903,9 @@ export function DigitalScaleFoodPricingCalculator({
     }
   });
 
-  const [activeTab, setActiveTab] = useState<"balanca" | "proporcao" | "ingredientes" | "sobras" | "precificacao" | "resumo">("balanca");
+  const [activeTab, setActiveTab] = useState<"balanca" | "proporcao" | "ingredientes" | "sobras" | "precificacao" | "pasta_receitas">("balanca");
+  const [recipeSearchTerm, setRecipeSearchTerm] = useState<string>("");
+  const [recipeCategoryFilter, setRecipeCategoryFilter] = useState<string>("todas");
   const [notification, setNotification] = useState<string | null>(null);
 
   const showFeedback = (msg: string) => {
@@ -1125,17 +1132,52 @@ export function DigitalScaleFoodPricingCalculator({
     }));
   };
 
-  // Salvar receita
+  // Salvar receita na pasta de receitas
   const handleSaveRecipe = () => {
     try {
       const existing = savedRecipes.filter((r) => r.id !== activeRecipe.id);
-      const updated = [...existing, activeRecipe];
+      const recipeToSave: FoodRecipePreset = {
+        ...activeRecipe,
+        id: activeRecipe.id && !activeRecipe.id.startsWith("rec_") ? "rec_" + Date.now() : (activeRecipe.id || "rec_" + Date.now()),
+        notes: activeRecipe.notes || `Rendimento: ${scaleStats.batchYield} ${activeRecipe.unitTypeLabel} | Custo un: ${formatCurrency(scaleStats.costPerUnit)} | Sugerido: ${formatCurrency(scaleStats.suggestedSellPriceUnit)}`,
+      };
+      const updated = [recipeToSave, ...existing];
       setSavedRecipes(updated);
       localStorage.setItem("culinary_food_recipes_saved", JSON.stringify(updated));
-      showFeedback(`Receita "${activeRecipe.name}" salva com sucesso!`);
+      showFeedback(`Receita "${activeRecipe.name}" salva com sucesso na Pasta de Receitas! 📁✨`);
     } catch {
       showFeedback("Erro ao salvar no dispositivo.");
     }
+  };
+
+  const handleLoadRecipeFromFolder = (recipe: FoodRecipePreset) => {
+    setActiveRecipe(JSON.parse(JSON.stringify(recipe)));
+    setSelectedPresetId(recipe.id);
+    setActiveTab("balanca");
+    showFeedback(`Receita "${recipe.name}" carregada na balança! ⚖️`);
+  };
+
+  const handleDeleteSavedRecipe = (recipeId: string) => {
+    const updated = savedRecipes.filter((r) => r.id !== recipeId);
+    setSavedRecipes(updated);
+    try {
+      localStorage.setItem("culinary_food_recipes_saved", JSON.stringify(updated));
+    } catch {}
+    showFeedback("Receita removida da pasta! 🗑️");
+  };
+
+  const handleDuplicateSavedRecipe = (recipe: FoodRecipePreset) => {
+    const duplicated: FoodRecipePreset = {
+      ...JSON.parse(JSON.stringify(recipe)),
+      id: "rec_" + Date.now(),
+      name: `${recipe.name} (Cópia)`
+    };
+    const updated = [duplicated, ...savedRecipes];
+    setSavedRecipes(updated);
+    try {
+      localStorage.setItem("culinary_food_recipes_saved", JSON.stringify(updated));
+    } catch {}
+    showFeedback(`Cópia da receita "${recipe.name}" criada com sucesso! 📄`);
   };
 
   // Compartilhar WhatsApp
@@ -1344,6 +1386,19 @@ export function DigitalScaleFoodPricingCalculator({
         >
           <TrendingUp className="w-4 h-4" />
           5. Lucro & Preço de Venda
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("pasta_receitas")}
+          className={`flex-1 min-w-[140px] py-2.5 px-3 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            activeTab === "pasta_receitas"
+              ? "bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black shadow-lg shadow-amber-500/25 ring-2 ring-amber-400"
+              : "text-amber-400/90 hover:text-white hover:bg-white/5 border border-amber-500/30"
+          }`}
+        >
+          <FolderOpen className="w-4 h-4 text-amber-300" />
+          <span>📁 6. Pasta de Receitas ({savedRecipes.length})</span>
         </button>
       </div>
 
@@ -2224,26 +2279,309 @@ export function DigitalScaleFoodPricingCalculator({
 
               {/* Botão para cadastrar no PDV */}
               {onRegisterProductToPDV && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onRegisterProductToPDV(
-                      activeRecipe.name,
-                      "Alimentos & Lanches",
-                      scaleStats.suggestedSellPriceUnit,
-                      scaleStats.costPerUnit,
-                      scaleStats.batchYield
-                    );
-                    showFeedback(`"${activeRecipe.name}" cadastrado no PDV!`);
-                  }}
-                  className="w-full py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  Cadastrar este Salgado/Lanche no PDV
-                </button>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleSaveRecipe();
+                      onRegisterProductToPDV(
+                        activeRecipe.name,
+                        "Alimentos & Lanches",
+                        scaleStats.suggestedSellPriceUnit,
+                        scaleStats.costPerUnit,
+                        scaleStats.batchYield
+                      );
+                      showFeedback(`"${activeRecipe.name}" salvo na Pasta de Receitas e cadastrado no PDV! 📁✅`);
+                    }}
+                    className="w-full py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Cadastrar no PDV & Salvar Receita 📁
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleSaveRecipe();
+                      setActiveTab("pasta_receitas");
+                    }}
+                    className="w-full py-2 px-3 bg-slate-900 hover:bg-slate-800 text-amber-300 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 border border-amber-500/30 transition-all cursor-pointer"
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    Salvar e Abrir Pasta de Receitas ({savedRecipes.length})
+                  </button>
+                </div>
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ABA 6: PASTA DE RECEITAS SALVAS & FICHAS TÉCNICAS */}
+      {activeTab === "pasta_receitas" && (
+        <div className="space-y-5 animate-fadeIn">
+          {/* Header da Pasta */}
+          <div className="bg-gradient-to-r from-amber-950/60 via-slate-900 to-slate-950 p-5 rounded-3xl border border-amber-500/30 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase tracking-wider border border-amber-500/30 flex items-center gap-1">
+                  <Folder className="w-3.5 h-3.5" />
+                  PASTA EXCLUSIVA DE RECEITAS & SALGADOS
+                </span>
+                <span className="text-xs text-slate-400 font-medium">
+                  Total: <strong className="text-white">{savedRecipes.length}</strong> salvas
+                </span>
+              </div>
+              <h3 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
+                <span>📁 Minhas Receitas & Fichas Salvas</span>
+              </h3>
+              <p className="text-xs text-slate-300 font-medium mt-0.5">
+                Todas as receitas com pesagem na balança, ingredientes, rendimento do lote e custo unitário ficam guardadas aqui. Abra a qualquer momento para recalcular ou vender!
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={handleSaveRecipe}
+                className="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-amber-500/20 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>Salvar Receita Atual 💾</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveRecipe(JSON.parse(JSON.stringify(FOOD_PRESETS[0])));
+                  setActiveTab("balanca");
+                  showFeedback("Balança zerada para criar nova receita!");
+                }}
+                className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all border border-white/10 cursor-pointer"
+              >
+                <Plus className="w-4 h-4 text-emerald-400" />
+                <span>+ Nova Receita</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Filtros e Busca */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={recipeSearchTerm}
+                onChange={(e) => setRecipeSearchTerm(e.target.value)}
+                placeholder="Buscar por nome da receita ou ingrediente..."
+                className="w-full bg-slate-900 border border-white/10 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 outline-none focus:border-amber-500 font-medium"
+              />
+              {recipeSearchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setRecipeSearchTerm("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div className="flex gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+              {[
+                { id: "todas", label: "Todas" },
+                { id: "salgados", label: "🥟 Salgados" },
+                { id: "doces", label: "🍬 Doces" },
+                { id: "bolos", label: "🎂 Bolos" },
+                { id: "lanches", label: "🥪 Lanches" },
+                { id: "refeicoes", label: "🍱 Refeições" }
+              ].map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setRecipeCategoryFilter(cat.id)}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                    recipeCategoryFilter === cat.id
+                      ? "bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20"
+                      : "bg-slate-900 text-slate-400 hover:text-white border border-white/5"
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Lista de Receitas Salvas */}
+          {savedRecipes.length === 0 ? (
+            <div className="bg-slate-900/60 border-2 border-dashed border-white/10 rounded-3xl p-10 text-center space-y-4">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
+                <Folder className="w-8 h-8" />
+              </div>
+              <div className="space-y-1 max-w-md mx-auto">
+                <h4 className="text-white font-bold text-sm">
+                  Sua pasta de receitas ainda está vazia!
+                </h4>
+                <p className="text-xs text-slate-400 leading-relaxed font-medium">
+                  Quando você calcular os salgados, doces ou bolos na calculadora, clique em <strong>"Salvar Ficha"</strong> ou <strong>"Cadastrar no PDV & Salvar Receita"</strong>. Tudo ficará registrado aqui nesta pasta para você nunca perder seus cálculos!
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveRecipe}
+                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl inline-flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>Salvar "{activeRecipe.name}" Agora</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {savedRecipes
+                .filter((r) => {
+                  const matchSearch =
+                    recipeSearchTerm.trim() === "" ||
+                    r.name.toLowerCase().includes(recipeSearchTerm.toLowerCase()) ||
+                    r.ingredients.some((ing) => ing.name.toLowerCase().includes(recipeSearchTerm.toLowerCase()));
+                  const matchCat = recipeCategoryFilter === "todas" || r.category === recipeCategoryFilter;
+                  return matchSearch && matchCat;
+                })
+                .map((rec) => {
+                  const isCurrent = activeRecipe.id === rec.id;
+                  return (
+                    <div
+                      key={rec.id}
+                      className={`bg-slate-900 border rounded-3xl p-5 flex flex-col justify-between space-y-4 transition-all relative ${
+                        isCurrent
+                          ? "border-amber-400 shadow-xl shadow-amber-500/10 ring-1 ring-amber-400/40"
+                          : "border-white/10 hover:border-white/20 shadow-lg"
+                      }`}
+                    >
+                      {isCurrent && (
+                        <span className="absolute -top-2.5 right-4 px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider shadow">
+                          Aberta na Balança ⚖️
+                        </span>
+                      )}
+
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-2xl p-2 rounded-2xl bg-slate-950 border border-white/5">
+                              {rec.emoji || "🥟"}
+                            </span>
+                            <div>
+                              <h4 className="text-white font-black text-sm leading-snug">
+                                {rec.name}
+                              </h4>
+                              <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">
+                                {rec.category || "Salgados"} • {rec.unitTypeLabel || "unidades"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Detalhes de Peso e Rendimento */}
+                        <div className="grid grid-cols-3 gap-1.5 p-2.5 bg-slate-950/80 rounded-2xl border border-white/5 text-center">
+                          <div>
+                            <span className="text-[9px] uppercase font-bold text-slate-500 block">Unitário:</span>
+                            <strong className="text-xs text-white font-mono font-bold">
+                              {rec.unitWeightG || 0}g
+                            </strong>
+                          </div>
+                          <div>
+                            <span className="text-[9px] uppercase font-bold text-slate-500 block">Rendimento:</span>
+                            <strong className="text-xs text-emerald-400 font-mono font-black">
+                              {rec.manualBatchYield || 50} un
+                            </strong>
+                          </div>
+                          <div>
+                            <span className="text-[9px] uppercase font-bold text-slate-500 block">Ingredientes:</span>
+                            <strong className="text-xs text-cyan-400 font-mono font-bold">
+                              {rec.ingredients?.length || 0}
+                            </strong>
+                          </div>
+                        </div>
+
+                        {/* Lista rápida de Ingredientes */}
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                            Ingredientes Usados:
+                          </span>
+                          <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto custom-scrollbar">
+                            {rec.ingredients.map((ing) => (
+                              <span
+                                key={ing.id}
+                                className="px-2 py-0.5 rounded-lg bg-slate-800/80 border border-white/5 text-[10px] text-slate-300 font-medium"
+                              >
+                                {ing.name} ({ing.recipeUsedQty}{ing.unit})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Ações da Receita */}
+                      <div className="space-y-2 pt-2 border-t border-white/5">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleLoadRecipeFromFolder(rec)}
+                            className="py-2 px-3 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md shadow-amber-500/20 cursor-pointer"
+                            title="Carregar todos os ingredientes e pesos na balança digital"
+                          >
+                            <Scale className="w-3.5 h-3.5" />
+                            <span>Abrir / Editar</span>
+                          </button>
+
+                          {onRegisterProductToPDV && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onRegisterProductToPDV(
+                                  rec.name,
+                                  "Alimentos & Lanches",
+                                  rec.suggestedSellPrice || 1.5,
+                                  rec.costPerUnit || 0.45,
+                                  rec.manualBatchYield || 50
+                                );
+                                showFeedback(`"${rec.name}" cadastrado no PDV!`);
+                              }}
+                              className="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-900/30 cursor-pointer"
+                              title="Adicionar ao catálogo de vendas do balcão PDV"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Para o PDV</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-1 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleDuplicateSavedRecipe(rec)}
+                            className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 font-bold p-1 cursor-pointer transition-all"
+                            title="Duplicar receita para criar variação"
+                          >
+                            <Copy className="w-3 h-3 text-cyan-400" />
+                            <span>Duplicar</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSavedRecipe(rec.id)}
+                            className="text-[11px] text-red-400 hover:text-red-300 flex items-center gap-1 font-bold p-1 cursor-pointer transition-all"
+                            title="Excluir receita da pasta"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Excluir</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
         </div>
       )}
 

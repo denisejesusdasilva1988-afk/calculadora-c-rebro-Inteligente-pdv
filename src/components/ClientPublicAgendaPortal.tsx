@@ -34,6 +34,7 @@ import { BarbeariaTimelineAgenda } from "./BarbeariaTimelineAgenda";
 export type CategoriaPortal =
   | "barbearia"
   | "salao"
+  | "esteticista"
   | "manicure"
   | "podologia"
   | "terapia_ocupacional"
@@ -42,7 +43,7 @@ export type CategoriaPortal =
   | "encomendas";
 
 export const SERVICOS_POR_SEGMENTO: Record<
-  "barbearia" | "salao" | "manicure" | "podologia" | "terapia_ocupacional" | "psicologia" | "nutricionista",
+  "barbearia" | "salao" | "esteticista" | "manicure" | "podologia" | "terapia_ocupacional" | "psicologia" | "nutricionista",
   { nome: string; preco: number; duracao: string }[]
 > = {
   barbearia: [
@@ -64,6 +65,16 @@ export const SERVICOS_POR_SEGMENTO: Record<
     { nome: "Botox Capilar / Alinhamento", preco: 130, duracao: "90 min" },
     { nome: "Penteado para Festas & Eventos", preco: 120, duracao: "60 min" },
     { nome: "Maquiagem Social", preco: 110, duracao: "50 min" }
+  ],
+  esteticista: [
+    { nome: "Limpeza de Pele Profunda com Ozônio", preco: 120, duracao: "60 min" },
+    { nome: "Drenagem Linfática Corporal Manual", preco: 90, duracao: "50 min" },
+    { nome: "Massagem Relaxante com Óleos Essenciais", preco: 100, duracao: "50 min" },
+    { nome: "Peeling de Diamante + Revitalização Facial", preco: 110, duracao: "45 min" },
+    { nome: "Massagem Modeladora / Redutora", preco: 95, duracao: "45 min" },
+    { nome: "Hidratação e Nutrição Facial com Colágeno", preco: 85, duracao: "40 min" },
+    { nome: "Design de Sobrancelhas com Henna", preco: 45, duracao: "35 min" },
+    { nome: "Spa Facial Detox com Argiloterapia", preco: 95, duracao: "50 min" }
   ],
   manicure: [
     { nome: "Manicure Simples (Cutilagem e Esmaltação)", preco: 25, duracao: "35 min" },
@@ -141,6 +152,13 @@ export const SEGMENTO_INFO: Record<
     descricao: "Cortes femininos, escovas, mechas, hidratação e cuidados capilares especiais!",
     cor: "purple"
   },
+  esteticista: {
+    nomeCurto: "Esteticista",
+    nomeCompleto: "Estética Facial & Corporal",
+    icone: "✨",
+    descricao: "Limpeza de pele, drenagem linfática, massagem relaxante e cuidados com sua autoestima!",
+    cor: "rose"
+  },
   manicure: {
     nomeCurto: "Manicure & Pedicure",
     nomeCompleto: "Esmalteria & Cuidados com as Unhas",
@@ -197,29 +215,35 @@ interface ClientPublicAgendaPortalProps {
   formatCurrency?: (val: number) => string;
   isOnlineBookingActive?: boolean;
   businessSegment?: CategoriaPortal | "multi";
+  storeId?: string;
+  db?: any;
 }
 
 export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> = ({
   companyName,
   companyLogo,
   companyPhone,
-  profissionais,
+  profissionais = [],
   agendamentos = [],
   onSaveAgendamento,
   onSaveEncomenda,
   onClosePortal,
   formatCurrency = (v) => `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`,
   isOnlineBookingActive = true,
-  businessSegment = "multi"
+  businessSegment = "multi",
+  storeId,
+  db
 }) => {
   const [selectedSegment, setSelectedSegment] = useState<CategoriaPortal>(() => {
     if (typeof window !== "undefined") {
       try {
         const params = new URLSearchParams(window.location.search);
-        const seg = params.get("segmento") as CategoriaPortal;
+        let seg = params.get("segmento") as string;
+        if (seg === "festas") seg = "encomendas";
         if (
           seg === "barbearia" ||
           seg === "salao" ||
+          seg === "esteticista" ||
           seg === "manicure" ||
           seg === "podologia" ||
           seg === "terapia_ocupacional" ||
@@ -227,17 +251,19 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
           seg === "nutricionista" ||
           seg === "encomendas"
         ) {
-          return seg;
+          return seg as CategoriaPortal;
         }
       } catch {}
     }
-    if (businessSegment && businessSegment !== "multi") {
-      return businessSegment;
+    if (businessSegment && businessSegment !== "multi" && businessSegment !== "todos") {
+      return (businessSegment === "festas" ? "encomendas" : businessSegment) as CategoriaPortal;
     }
-    const saved = localStorage.getItem("pdv_business_segment") as CategoriaPortal;
+    const saved = (localStorage.getItem("barbearia_selected_segment") || localStorage.getItem("pdv_business_segment")) as string;
+    if (saved === "festas") return "encomendas";
     if (
       saved === "barbearia" ||
       saved === "salao" ||
+      saved === "esteticista" ||
       saved === "manicure" ||
       saved === "podologia" ||
       saved === "terapia_ocupacional" ||
@@ -245,9 +271,13 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       saved === "nutricionista" ||
       saved === "encomendas"
     ) {
-      return saved;
+      return saved as CategoriaPortal;
     }
-    return "barbearia";
+    // Se há profissionais cadastrados na equipe, usa o segmento do primeiro profissional
+    if (profissionais && profissionais.length > 0 && profissionais[0].categoria && profissionais[0].categoria !== "todos") {
+      return (profissionais[0].categoria === "festas" ? "encomendas" : profissionais[0].categoria) as CategoriaPortal;
+    }
+    return "salao";
   });
 
   const [viewModeSalao, setViewModeSalao] = useState<"timeline" | "form">("timeline");
@@ -313,27 +343,104 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
         const params = new URLSearchParams(window.location.search);
         const seg = params.get("segmento");
         if (seg && seg !== "todos" && seg !== "multi") return true;
+        const pId = params.get("prof");
+        if (pId) {
+          const match = profissionais.find((p) => p.id === pId);
+          if (match && match.categoria && match.categoria !== "todos") return true;
+        }
       } catch {}
     }
     return false;
-  }, [businessSegment]);
+  }, [businessSegment, profissionais]);
 
+  const isExclusiveSegment = isSegmentLocked;
   const infoSegmento = SEGMENTO_INFO[selectedSegment] || SEGMENTO_INFO.barbearia;
 
-  // Profissionais 100% isolados pelo segmento do negócio (sem misturar barbearia com psicólogo ou manicure)
+  // Detector estrito de mock fictício (Kadu, Juliana, Carlos Eduardo, etc.)
+  const isMock = (p: any): boolean => {
+    if (!p) return true;
+    if (typeof p.id === "string" && ["prof_1", "prof_2", "prof_3", "prof_4", "prof_5", "prof_6", "prof_7", "prof_8"].includes(p.id)) return true;
+    if (p.apelido === "Kadu Navalha" || p.apelido === "Ju Hair" || p.apelido === "Larissa Nails" || p.apelido === "Camila Podóloga") return true;
+    if (p.nome === "Carlos Eduardo" || p.nome === "Juliana Santos") return true;
+    return false;
+  };
+
+  // Profissionais reais cadastrados pelo usuário (limpos e sem fictícios)
+  const listaProfissionaisValidos = useMemo(() => {
+    let list = (profissionais || []).filter((p) => !isMock(p));
+    
+    // Se a lista veio vazia (por exemplo ao abrir o link em outra aba), busca do storage da loja
+    if (list.length === 0 && typeof window !== "undefined") {
+      try {
+        const storeKey = storeId || new URLSearchParams(window.location.search).get("loja");
+        if (storeKey) {
+          const sPub = localStorage.getItem(`agenda_publica_${storeKey}`);
+          if (sPub) {
+            const parsed = JSON.parse(sPub);
+            const candidate = Array.isArray(parsed) ? parsed : parsed.profissionais;
+            if (Array.isArray(candidate)) {
+              const clean = candidate.filter((p) => !isMock(p));
+              if (clean.length > 0) return clean;
+            }
+          }
+          const sLoja = localStorage.getItem(`barbearia_${storeKey}_profissionais`);
+          if (sLoja) {
+            const parsed = JSON.parse(sLoja);
+            if (Array.isArray(parsed)) {
+              const clean = parsed.filter((p) => !isMock(p));
+              if (clean.length > 0) return clean;
+            }
+          }
+        }
+
+        // Tenta também as chaves comuns
+        const fallbacks = [
+          "barbearia_guest_profissionais",
+          "barbearia_public_profissionais",
+          "barbearia_compartilhada_profissionais",
+          "barbearia_profissionais"
+        ];
+        for (const k of fallbacks) {
+          const s = localStorage.getItem(k);
+          if (s) {
+            const parsed = JSON.parse(s);
+            if (Array.isArray(parsed)) {
+              const clean = parsed.filter((p) => !isMock(p));
+              if (clean.length > 0) return clean;
+            }
+          }
+        }
+      } catch {}
+    }
+    return list;
+  }, [profissionais, storeId]);
+
+  // Profissionais 100% isolados pelo segmento do negócio (sem misturar barbearia com salão, manicure ou festas)
   const profissionaisDoSegmento = useMemo(() => {
     if (selectedSegment === "encomendas") return [];
-    return profissionais.filter((p) => (p.categoria || "barbearia") === selectedSegment);
-  }, [profissionais, selectedSegment]);
+    
+    // Filtro pelo segmento ativo
+    const matches = listaProfissionaisValidos.filter((p) => {
+      if (p.categoria === selectedSegment) return true;
+      if (!p.categoria || p.categoria === "todos") return true;
+      return false;
+    });
+
+    if (matches.length > 0) return matches;
+    
+    // Se nenhum profissional tem categoria explicitada ou o dono acabou de cadastrar
+    return listaProfissionaisValidos;
+  }, [listaProfissionaisValidos, selectedSegment]);
 
   // Agendamentos 100% isolados pelo segmento do negócio
   const agendamentosDoSegmento = useMemo(() => {
-    return agendamentos.filter((a) => {
+    return (agendamentos || []).filter((a) => {
+      if (["ag_1", "ag_2", "ag_3"].includes(a.id) || ["prof_1", "prof_2", "prof_3"].includes(a.profissionalId)) return false;
       if (a.categoria) return a.categoria === selectedSegment;
-      const prof = profissionais.find((p) => p.id === a.profissionalId);
+      const prof = listaProfissionaisValidos.find((p) => p.id === a.profissionalId);
       return (prof?.categoria || "barbearia") === selectedSegment;
     });
-  }, [agendamentos, profissionais, selectedSegment]);
+  }, [agendamentos, listaProfissionaisValidos, selectedSegment]);
 
   // Mantém profissional selecionado válido dentro do segmento atual
   useEffect(() => {
@@ -619,32 +726,47 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
             {companyLogo ? (
               <img
                 src={companyLogo}
-                alt={companyName}
+                alt={companyName || infoSegmento.nomeCompleto}
                 className="w-20 h-20 rounded-2xl object-cover border-2 border-amber-500/50 shadow-xl mb-2"
               />
             ) : (
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-amber-500/30 mb-2">
-                <Scissors className="w-8 h-8" />
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-orange-500/20 border-2 border-amber-500/40 text-slate-100 flex items-center justify-center font-black shadow-lg shadow-amber-500/20 text-3xl mb-2">
+                <span>{infoSegmento.icone}</span>
               </div>
             )}
+
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-black uppercase tracking-wider mb-1">
+              <span>{infoSegmento.icone}</span>
+              <span>{infoSegmento.nomeCompleto}</span>
+            </div>
+
             <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-              {companyName || "Barbearia & Salão"}
+              {(() => {
+                const isGenericName =
+                  !companyName ||
+                  companyName.trim() === "Barbearia, Salão & Festas" ||
+                  companyName.trim() === "Barbearia & Salão" ||
+                  companyName.trim() === "Barbearia e Salão" ||
+                  companyName.trim() === "Denise PDV" ||
+                  companyName.trim() === "Sistema Denise PDV";
+                return isGenericName ? infoSegmento.nomeCompleto : companyName;
+              })()}
             </h1>
             <p className="text-xs text-slate-300 font-medium max-w-sm mt-1">
-              Agende seu horário com nossos profissionais ou solicite sua encomenda para festas com rapidez e sem filas!
+              {infoSegmento.descricao}
             </p>
           </div>
 
-          {/* Se o link for exclusivo do segmento (enviado pelo WhatsApp da barbearia, psicologia, etc.), exibe APENAS esse negócio */}
+          {/* Se o link for exclusivo do segmento (enviado pelo WhatsApp da barbearia, salão, etc.), exibe APENAS esse negócio */}
           {isExclusiveSegment ? (
-            <div className="bg-slate-950/90 border border-amber-500/30 rounded-2xl p-4 flex items-center justify-center gap-3 shadow-lg">
-              <span className="text-3xl shrink-0">{infoSegmento.icone}</span>
+            <div className="bg-slate-950/90 border border-amber-500/30 rounded-2xl p-3.5 flex items-center justify-center gap-3 shadow-lg">
+              <span className="text-2xl shrink-0">{infoSegmento.icone}</span>
               <div className="text-left min-w-0">
-                <span className="text-xs sm:text-sm font-black uppercase text-amber-300 tracking-wider block truncate">
-                  {infoSegmento.nomeCompleto}
+                <span className="text-xs font-black uppercase text-amber-300 tracking-wider block truncate">
+                  Agenda Exclusiva • {infoSegmento.nomeCompleto}
                 </span>
                 <span className="text-[11px] text-slate-300 block line-clamp-2">
-                  {infoSegmento.descricao}
+                  Atendimento 100% focado no seu horário. Escolha o profissional e agende sem filas!
                 </span>
               </div>
             </div>
@@ -677,6 +799,18 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
                   }`}
                 >
                   <span>💇‍♀️ Salão Beleza</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedSegment("esteticista")}
+                  className={`py-2 px-2 rounded-xl text-[10.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    selectedSegment === "esteticista"
+                      ? "bg-rose-500 text-white shadow-lg shadow-rose-500/20"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <span>✨ Esteticista</span>
                 </button>
 
                 <button

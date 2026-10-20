@@ -830,6 +830,18 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
               padraoMin: 50
             },
             {
+              id: "esteticista",
+              nome: "Esteticista",
+              titulo: "Estética & Pele",
+              sub: "Limpeza de pele, drenagem, massagem e bem-estar",
+              icone: "✨",
+              corBorder: "border-rose-500/40 hover:border-rose-400",
+              corBg: "bg-rose-950/20",
+              corBadge: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+              btnBg: "bg-rose-600 hover:bg-rose-500 text-white",
+              padraoMin: 60
+            },
+            {
               id: "manicure",
               nome: "Manicure & Pedicure",
               titulo: "Esmalteria & Pés",
@@ -902,7 +914,8 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
               padraoMin: 60
             }
           ].map((seg) => {
-            const portalUrl = `${window.location.origin}${window.location.pathname}?segmento=${seg.id}`;
+            const currentStoreId = localStorage.getItem("pdv_store_id") || "loja_denise";
+            const portalUrl = `${window.location.origin}${window.location.pathname}?agendar=true&segmento=${seg.id}&loja=${currentStoreId}`;
 
             const handleCopiarLink = (e: React.MouseEvent) => {
               e.stopPropagation();
