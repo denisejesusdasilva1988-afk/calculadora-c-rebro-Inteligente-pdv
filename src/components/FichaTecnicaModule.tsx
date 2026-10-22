@@ -1019,6 +1019,59 @@ export function FichaTecnicaModule({
     showNotification(`Receita "${recipe.name}" aberta na calculadora! 🥟📝`, "success");
   };
 
+  const getRecipeQuickStats = (r: SavedRecipe) => {
+    const validYield = Math.max(1, r.yieldQty || 1);
+    const ingCost = (r.ingredients || []).reduce((acc, ing) => {
+      if (!ing.packageCost || ing.packageCost <= 0) return acc;
+      const pkg = toBaseValue(ing.packageQty || 1, ing.packageUnit);
+      const used = toBaseValue(ing.usedQty || 0, ing.usedUnit);
+      if (pkg.val <= 0) return acc;
+      return acc + (ing.packageCost / pkg.val) * used.val;
+    }, 0);
+    const extraCost = ingCost * ((r.extraCostsPct || 0) / 100);
+    const pkgCost = (r.packagingCostPerUnit || 0) * validYield;
+    const totalCost = ingCost + extraCost + pkgCost;
+    const unitCost = totalCost / validYield;
+    const price = r.sellingPrice || 0;
+    const unitProfit = price - unitCost;
+    const marginPct = price > 0 ? (unitProfit / price) * 100 : 0;
+    return { validYield, ingCost, totalCost, unitCost, price, unitProfit, marginPct };
+  };
+
+  const handleShareSavedRecipeWhatsApp = (r: SavedRecipe) => {
+    const stats = getRecipeQuickStats(r);
+    let msg = `*📋 FICHA TÉCNICA: ${r.name.toUpperCase()}*\n`;
+    msg += `📁 Categoria: ${r.category}\n`;
+    msg += `📦 Rendimento da Fornada: ${stats.validYield} ${r.yieldUnit}\n`;
+    msg += `-----------------------------------------------\n`;
+    msg += `💰 Custo Total Fornada: ${formatCurrency(stats.totalCost)}\n`;
+    msg += `🎯 Custo por Unidade: ${formatCurrency(stats.unitCost)}\n`;
+    msg += `🏷️ Preço de Venda Praticado: ${formatCurrency(stats.price)}\n`;
+    msg += `💵 Lucro Unitário: ${formatCurrency(stats.unitProfit)} (${stats.marginPct.toFixed(1)}% margem)\n`;
+    msg += `💰 Lucro Total Fornada: +${formatCurrency(stats.unitProfit * stats.validYield)}\n`;
+    if (r.yieldUnit.toLowerCase().includes("salgado") || r.yieldUnit.toLowerCase().includes("coxinha") || r.yieldUnit.toLowerCase().includes("un")) {
+      msg += `📦 Custo do Cento (100 un): ${formatCurrency(stats.unitCost * 100)} | Lucro Cento: +${formatCurrency(stats.unitProfit * 100)}\n`;
+    }
+    msg += `-----------------------------------------------\n`;
+    msg += `📱 _Calculado pelo Frente de Caixa Inteligente!_`;
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank");
+    showNotification(`Ficha de "${r.name}" enviada para o WhatsApp! 📲✨`, "success");
+  };
+
+  const handleRestoreDefaultRecipes = () => {
+    const presets: SavedRecipe[] = PRESET_RECIPES.map((r, i) => ({
+      ...r,
+      id: `recipe_preset_${Date.now()}_${i}`,
+      createdAt: new Date().toISOString()
+    }));
+    setSavedRecipes(presets);
+    try {
+      localStorage.setItem("pdv_ficha_tecnica_recipes", JSON.stringify(presets));
+    } catch {}
+    showNotification("Receitas padrão restauradas com sucesso! 🥟🍰✨", "success");
+  };
+
   const handleShareRecipeWhatsApp = () => {
     let msg = `*📋 FICHA TÉCNICA & CUSTO DE PRODUÇÃO*\n`;
     msg += `-----------------------------------------------\n`;
@@ -1239,6 +1292,20 @@ export function FichaTecnicaModule({
             <Dog className="w-4 h-4" />
             <span>Venda a Granel / Rações & Aviário 🌾🐾</span>
           </button>
+
+          <button
+            type="button"
+            id="btn-tab-mode-pasta"
+            onClick={() => setCalculatorMode("pasta")}
+            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              calculatorMode === "pasta"
+                ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25 border border-amber-300 font-black"
+                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
+            }`}
+          >
+            <FolderOpen className="w-4 h-4" />
+            <span>📁 Pasta de Receitas Salvas ({savedRecipes.length})</span>
+          </button>
         </div>
 
         {onBack && (
@@ -1280,6 +1347,15 @@ export function FichaTecnicaModule({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCalculatorMode("pasta")}
+                  className="px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black text-[10px] uppercase tracking-wider rounded-xl transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow-md"
+                  title="Abrir Pasta com todas as receitas salvas"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  <span>Pasta de Receitas ({savedRecipes.length}) 📁</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleShareRecipeWhatsApp}
@@ -2362,6 +2438,299 @@ export function FichaTecnicaModule({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODE 3: PASTA DE RECEITAS SALVAS
+          ========================================== */}
+      {calculatorMode === "pasta" && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {/* HEADER PASTA */}
+          <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-4 sm:p-5 shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-amber-500/20 border border-amber-500/40 rounded-xl text-amber-400">
+                    <FolderOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg sm:text-xl font-black text-white tracking-tight flex items-center gap-2">
+                      Pasta de Receitas & Fichas Técnicas
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold">
+                        {savedRecipes.length} salvas
+                      </span>
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      Suas receitas nunca mais somem. Edite, duplique, recalcule margens ou envie para o catálogo de vendas com 1 clique.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* ACTION BUTTONS */}
+              <div className="flex items-center flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecipeName("");
+                    setYieldQty(10);
+                    setYieldUnit("unidades");
+                    setSellingPrice(5.0);
+                    setTargetMarginPct(60);
+                    setIngredients([
+                      {
+                        id: `ing_${Date.now()}`,
+                        name: "",
+                        packageQty: 1,
+                        packageUnit: "kg",
+                        packageCost: 0,
+                        usedQty: 100,
+                        usedUnit: "g"
+                      }
+                    ]);
+                    setCalculatorMode("receitas");
+                  }}
+                  className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-500/20"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Nova Receita</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRestoreDefaultRecipes}
+                  className="px-3 py-2 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Restaurar coxinhas, lanches e doces de exemplo"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Restaurar Modelos</span>
+                </button>
+              </div>
+            </div>
+
+            {/* SEARCH & CATEGORY FILTERS */}
+            <div className="mt-4 pt-4 border-t border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={folderSearch}
+                  onChange={(e) => setFolderSearch(e.target.value)}
+                  placeholder="Pesquisar por nome da receita ou ingrediente..."
+                  className="w-full bg-slate-950/70 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400/50"
+                />
+                {folderSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setFolderSearch("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs px-1"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* CATEGORY CHIPS */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                {[
+                  { id: "todas", label: "Todas" },
+                  { id: "Salgados", label: "🥟 Salgados" },
+                  { id: "Doces & Bolos", label: "🍰 Doces & Bolos" },
+                  { id: "Pizzas", label: "🍕 Pizzas" },
+                  { id: "Lanches", label: "🍔 Lanches" },
+                  { id: "Alimentos", label: "🍱 Marmitas" }
+                ].map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => setFolderCategoryFilter(chip.id)}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                      folderCategoryFilter === chip.id
+                        ? "bg-amber-500 text-slate-950 shadow-md font-black"
+                        : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5"
+                    }`}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* RECIPES GRID */}
+          {(() => {
+            const filteredRecipes = savedRecipes.filter((r) => {
+              const matchesSearch =
+                !folderSearch.trim() ||
+                r.name.toLowerCase().includes(folderSearch.toLowerCase()) ||
+                r.ingredients.some((ing) => ing.name.toLowerCase().includes(folderSearch.toLowerCase()));
+              const matchesCategory =
+                folderCategoryFilter === "todas" ||
+                r.category.toLowerCase().includes(folderCategoryFilter.toLowerCase());
+              return matchesSearch && matchesCategory;
+            });
+
+            if (filteredRecipes.length === 0) {
+              return (
+                <div className="bg-slate-900/60 border border-dashed border-white/10 rounded-2xl p-10 text-center space-y-3">
+                  <div className="w-12 h-12 mx-auto rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                    <Folder className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-white">Nenhuma receita encontrada</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    {folderSearch || folderCategoryFilter !== "todas"
+                      ? "Nenhuma receita corresponde aos filtros aplicados. Tente limpar a busca ou mudar de categoria."
+                      : "Sua pasta de receitas está vazia no momento. Crie uma nova receita ou restaure os modelos prontos!"}
+                  </p>
+                  <div className="pt-2 flex items-center justify-center gap-2">
+                    {(folderSearch || folderCategoryFilter !== "todas") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFolderSearch("");
+                          setFolderCategoryFilter("todas");
+                        }}
+                        className="px-3.5 py-2 bg-white/5 hover:bg-white/10 text-white text-xs font-semibold rounded-xl border border-white/10 cursor-pointer"
+                      >
+                        Limpar Filtros
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setCalculatorMode("receitas")}
+                      className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black rounded-xl uppercase tracking-wider cursor-pointer shadow-lg shadow-amber-500/20"
+                    >
+                      Criar Nova Receita 🥟
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {filteredRecipes.map((recipe) => {
+                  const stats = getRecipeQuickStats(recipe);
+                  return (
+                    <div
+                      key={recipe.id}
+                      className="bg-slate-900/80 border border-white/10 hover:border-amber-500/40 rounded-2xl p-4 flex flex-col justify-between transition-all duration-200 hover:shadow-xl hover:shadow-black/50 group"
+                    >
+                      <div className="space-y-3">
+                        {/* TOP BADGES */}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-black uppercase tracking-wider">
+                            {recipe.category || "Receita"}
+                          </span>
+                          <span className="text-[10px] text-slate-500 flex items-center gap-1 font-mono">
+                            <Clock className="w-3 h-3" />
+                            {recipe.yieldQty} {recipe.yieldUnit}
+                          </span>
+                        </div>
+
+                        {/* TITLE */}
+                        <div>
+                          <h3 className="text-sm font-bold text-white group-hover:text-amber-300 transition-colors line-clamp-2">
+                            {recipe.name}
+                          </h3>
+                          <p className="text-[10.5px] text-slate-400 mt-0.5">
+                            {recipe.ingredients.length} {recipe.ingredients.length === 1 ? "ingrediente" : "ingredientes"} cadastrados
+                          </p>
+                        </div>
+
+                        {/* FINANCIAL METRICS 2x2 */}
+                        <div className="grid grid-cols-2 gap-2 bg-slate-950/60 border border-white/5 rounded-xl p-2.5">
+                          <div>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-bold">
+                              Custo Unitário
+                            </span>
+                            <span className="text-xs font-mono font-black text-rose-300">
+                              {formatCurrency(stats.unitCost)}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-bold">
+                              Preço de Venda
+                            </span>
+                            <span className="text-xs font-mono font-black text-emerald-300">
+                              {formatCurrency(stats.price)}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-bold">
+                              Lucro Unitário
+                            </span>
+                            <span className="text-xs font-mono font-black text-amber-300">
+                              +{formatCurrency(stats.unitProfit)}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-bold">
+                              Margem Líquida
+                            </span>
+                            <span className="text-xs font-mono font-black text-purple-300">
+                              {stats.marginPct.toFixed(1)}%
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* BATCH TOTAL HIGHLIGHT */}
+                        <div className="text-[10.5px] text-slate-400 flex items-center justify-between px-1">
+                          <span>Custo Fornada: <strong className="text-slate-200">{formatCurrency(stats.totalCost)}</strong></span>
+                          <span>Lucro Fornada: <strong className="text-emerald-400">+{formatCurrency(stats.unitProfit * stats.validYield)}</strong></span>
+                        </div>
+                      </div>
+
+                      {/* ACTIONS */}
+                      <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleLoadSavedRecipe(recipe)}
+                          className="flex-1 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-amber-500/10"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Abrir</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicateSavedRecipe(recipe)}
+                          title="Duplicar receita"
+                          className="p-2 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 rounded-xl transition-all cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleShareSavedRecipeWhatsApp(recipe)}
+                          title="Compartilhar no WhatsApp"
+                          className="p-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-xl transition-all cursor-pointer"
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSavedRecipe(recipe.id, recipe.name)}
+                          title="Excluir da pasta"
+                          className="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

@@ -150,7 +150,7 @@ import { SubscriptionPlansModal } from "./components/SubscriptionPlansModal";
 import { AppShowcaseSlidesModal } from "./components/AppShowcaseSlidesModal";
 import { loadCompanyProfile, saveCompanyProfile } from "./utils/companyProfile";
 import { PersonalDataProfileCard } from "./components/PersonalDataProfileCard";
-import { BarbeariaSalaoEventosModule, AgendamentoServico } from "./components/BarbeariaSalaoEventosModule";
+import { BarbeariaSalaoEventosModule, AgendamentoServico, ProfissionalBarbearia } from "./components/BarbeariaSalaoEventosModule";
 import { ClientPublicAgendaPortal } from "./components/ClientPublicAgendaPortal";
 import { ThemeSelectorModal, ThemeMode, ColorPalette } from "./components/ThemeSelectorModal";
 import { MarketingAdModal } from "./components/MarketingAdModal";
@@ -209,6 +209,12 @@ import {
   clearLegacyUnscopedData,
   getScopedStorageKey
 } from "./utils/userScopedStorage";
+import {
+  isQuotaExhaustedError,
+  getIsFirestoreQuotaPaused,
+  markFirestoreQuotaPaused,
+  getFirestoreUpgradeUrl,
+} from "./utils/firestoreQuotaManager";
 
 // Reconstruct apiKey dynamically to bypass aggressive static scanners (e.g., Netlify) that block on "AIza" keys
 const customApiKey = (import.meta as any).env?.VITE_FIREBASE_API_KEY || ("AI" + "za" + "SyCYU87c6H-0ut6I2khbZWywcJmdxCD4kB8");
@@ -506,6 +512,14 @@ function handleFirestoreError(
 ) {
   const errorMessage = error instanceof Error ? error.message : String(error);
   const errorCode = error?.code;
+
+  if (isQuotaExhaustedError(error)) {
+    markFirestoreQuotaPaused();
+    console.warn(
+      `[Firestore Quota] Limite diário gratuito de gravações do Firestore atingido para este projeto. O app está operando com segurança no modo Local / Offline-First. Link para upgrade/detalhes: ${getFirestoreUpgradeUrl()}`
+    );
+    return;
+  }
 
   const errInfo: FirestoreErrorInfo = {
     error: errorMessage,
@@ -809,7 +823,7 @@ const predefinedNichesApp: {
 ];
 
 const saveUserProfileToFirestore = async (currentUser: any) => {
-  if (!db || !currentUser || currentUser.uid === "guest_visitor") return;
+  if (!db || !currentUser || currentUser.uid === "guest_visitor" || getIsFirestoreQuotaPaused()) return;
 
   const runSave = async () => {
     const userDocRef = doc(db, "users", currentUser.uid);
@@ -844,12 +858,20 @@ const saveUserProfileToFirestore = async (currentUser: any) => {
 
   try {
     await runSave();
-  } catch (e) {
+  } catch (e: any) {
+    if (isQuotaExhaustedError(e)) {
+      markFirestoreQuotaPaused();
+      return;
+    }
     console.warn("First attempt to save user profile to Firestore failed, retrying in 1s...", e);
     await new Promise((resolve) => setTimeout(resolve, 1000));
     try {
       await runSave();
-    } catch (retryError) {
+    } catch (retryError: any) {
+      if (isQuotaExhaustedError(retryError)) {
+        markFirestoreQuotaPaused();
+        return;
+      }
       console.error("Error saving user profile to Firestore:", retryError);
     }
   }
@@ -1782,7 +1804,7 @@ export default function App() {
     showNotification("Nota salva com sucesso! 🎉", "success");
 
     if (user && user.uid !== "guest_visitor") {
-      if (isOnline) {
+      if (isOnline && !getIsFirestoreQuotaPaused()) {
         try {
           await setDoc(doc(db, "notas", newNote.id), {
             userId: user.uid,
@@ -1798,7 +1820,10 @@ export default function App() {
             createdAt: serverTimestamp(),
           });
           await registerSyncTag("sync-notas");
-        } catch (e) {
+        } catch (e: any) {
+          if (isQuotaExhaustedError(e)) {
+            markFirestoreQuotaPaused();
+          }
           setLocalNotesQueue((prev) => [...prev, { ...newNote, action: "create" }]);
           await registerSyncTag("sync-notas");
         }
@@ -1827,11 +1852,14 @@ export default function App() {
     showNotification("Documento movido com sucesso! 📁", "success");
 
     if (user && user.uid !== "guest_visitor") {
-      if (isOnline) {
+      if (isOnline && !getIsFirestoreQuotaPaused()) {
         try {
           await setDoc(doc(db, "notas", id), { folder: folderName }, { merge: true });
           await registerSyncTag("sync-notas");
-        } catch (e) {
+        } catch (e: any) {
+          if (isQuotaExhaustedError(e)) {
+            markFirestoreQuotaPaused();
+          }
           setLocalNotesQueue((prev) => [
             ...prev,
             { id, folder: folderName, action: "update-folder" as any },
@@ -1867,11 +1895,14 @@ export default function App() {
     showNotification("PIN redefinido com sucesso! 🛡️", "success");
 
     if (user && user.uid !== "guest_visitor") {
-      if (isOnline) {
+      if (isOnline && !getIsFirestoreQuotaPaused()) {
         try {
           await setDoc(doc(db, "notas", id), { pin: newPin }, { merge: true });
           await registerSyncTag("sync-notas");
-        } catch (e) {
+        } catch (e: any) {
+          if (isQuotaExhaustedError(e)) {
+            markFirestoreQuotaPaused();
+          }
           setLocalNotesQueue((prev) => [
             ...prev,
             { id, pin: newPin, action: "update-pin" as any },
@@ -1910,11 +1941,14 @@ export default function App() {
     showNotification("Nota removida", "info");
 
     if (user && user.uid !== "guest_visitor") {
-      if (isOnline) {
+      if (isOnline && !getIsFirestoreQuotaPaused()) {
         try {
           await deleteDoc(doc(db, "notas", id));
           await registerSyncTag("sync-notas");
-        } catch (e) {
+        } catch (e: any) {
+          if (isQuotaExhaustedError(e)) {
+            markFirestoreQuotaPaused();
+          }
           setLocalNotesQueue((prev) => [...prev, { id, action: "delete" }]);
           await registerSyncTag("sync-notas");
         }
@@ -2848,7 +2882,7 @@ export default function App() {
 
   // Sincronizar Notas Offline com Firestore
   const syncLocalNotes = useCallback(async () => {
-    if (!user || localNotesQueue.length === 0 || !isOnline) return;
+    if (!user || localNotesQueue.length === 0 || !isOnline || getIsFirestoreQuotaPaused()) return;
     const processedIds: string[] = [];
     for (const item of localNotesQueue) {
       try {
@@ -2870,7 +2904,12 @@ export default function App() {
           await deleteDoc(doc(db, "notas", item.id));
         }
         processedIds.push(item.id);
-      } catch (e) {
+      } catch (e: any) {
+        if (isQuotaExhaustedError(e)) {
+          markFirestoreQuotaPaused();
+          console.warn("[Firestore] Cota diária de gravações atingida ao sincronizar notas. Fila preservada localmente.");
+          break;
+        }
         console.error("Erro ao sincronizar nota offline:", e);
       }
     }
@@ -2882,7 +2921,7 @@ export default function App() {
 
   // Sincronizar Agenda Offline com Firestore
   const syncLocalAgenda = useCallback(async () => {
-    if (!user || localAgendaQueue.length === 0 || !isOnline) return;
+    if (!user || localAgendaQueue.length === 0 || !isOnline || getIsFirestoreQuotaPaused()) return;
     const processedIds: string[] = [];
     for (const item of localAgendaQueue) {
       try {
@@ -2898,7 +2937,12 @@ export default function App() {
           await deleteDoc(doc(db, "agenda", item.id));
         }
         processedIds.push(item.id);
-      } catch (e) {
+      } catch (e: any) {
+        if (isQuotaExhaustedError(e)) {
+          markFirestoreQuotaPaused();
+          console.warn("[Firestore] Cota diária de gravações atingida ao sincronizar agenda. Fila preservada localmente.");
+          break;
+        }
         console.error("Erro ao sincronizar compromisso offline:", e);
       }
     }
@@ -2951,6 +2995,16 @@ export default function App() {
   useEffect(() => {
     try {
       const urlParams = new URLSearchParams(window.location.search);
+
+      // 0. Redirecionamento da Política de Privacidade e Termos de Uso (Google Play Store)
+      if (urlParams.get("page") === "privacy" || urlParams.has("privacy")) {
+        window.location.href = "/privacy.html";
+        return;
+      }
+      if (urlParams.get("page") === "terms" || urlParams.has("terms")) {
+        window.location.href = "/terms.html";
+        return;
+      }
       
       // 1. Atalhos do PWA (shortcuts)
       if (urlParams.has("shortcut")) {
@@ -3210,7 +3264,7 @@ export default function App() {
       setAgendaEvents((prev) => [...prev, newEvent]);
       showNotification("Compromisso agendado localmente!", "success");
 
-      if (isOnline) {
+      if (isOnline && !getIsFirestoreQuotaPaused()) {
         try {
           await setDoc(doc(db, "agenda", tempId), {
             ...event,
@@ -3218,7 +3272,10 @@ export default function App() {
             createdAt: serverTimestamp(),
           });
           await registerSyncTag("sync-agenda");
-        } catch (error) {
+        } catch (error: any) {
+          if (isQuotaExhaustedError(error)) {
+            markFirestoreQuotaPaused();
+          }
           setLocalAgendaQueue((prev) => [...prev, { id: tempId, event, action: "create" }]);
           await registerSyncTag("sync-agenda");
         }
@@ -3242,11 +3299,14 @@ export default function App() {
       }
 
       setAgendaEvents((prev) => prev.map((item) => item.id === id ? { ...item, ...updates } : item));
-      if (isOnline) {
+      if (isOnline && !getIsFirestoreQuotaPaused()) {
         try {
           await setDoc(doc(db, "agenda", id), updates, { merge: true });
           await registerSyncTag("sync-agenda");
-        } catch (error) {
+        } catch (error: any) {
+          if (isQuotaExhaustedError(error)) {
+            markFirestoreQuotaPaused();
+          }
           setLocalAgendaQueue((prev) => [...prev, { id, updates, action: "update" }]);
           await registerSyncTag("sync-agenda");
         }
@@ -3271,11 +3331,14 @@ export default function App() {
 
     setAgendaEvents((prev) => prev.filter((item) => item.id !== id));
     showNotification("Evento removido localmente", "info");
-    if (isOnline) {
+    if (isOnline && !getIsFirestoreQuotaPaused()) {
       try {
         await deleteDoc(doc(db, "agenda", id));
         await registerSyncTag("sync-agenda");
-      } catch (error) {
+      } catch (error: any) {
+        if (isQuotaExhaustedError(error)) {
+          markFirestoreQuotaPaused();
+        }
         setLocalAgendaQueue((prev) => [...prev, { id, action: "delete" }]);
         await registerSyncTag("sync-agenda");
       }
@@ -4164,27 +4227,71 @@ export default function App() {
 
   const handleClientSaveAgendamento = useCallback((ag: any) => {
     try {
-      const key = user?.uid && user.uid !== "guest_visitor"
-        ? `barbearia_${user.uid}_agendamentos`
-        : "barbearia_guest_agendamentos";
-      const existing = JSON.parse(localStorage.getItem(key) || "[]");
-      localStorage.setItem(key, JSON.stringify([ag, ...existing]));
+      const urlStore = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("loja") : null;
+      const targetStoreId = urlStore || (user?.uid && user.uid !== "guest_visitor" ? user.uid : localStorage.getItem("pdv_store_id") || "loja_denise");
+
+      const storeKey = `barbearia_${targetStoreId}_agendamentos`;
+      const existing = JSON.parse(localStorage.getItem(storeKey) || "[]");
+      const updatedList = [ag, ...existing];
+      localStorage.setItem(storeKey, JSON.stringify(updatedList));
+
+      // Salva no guest
+      const guestKey = "barbearia_guest_agendamentos";
+      const guestExisting = JSON.parse(localStorage.getItem(guestKey) || "[]");
+      localStorage.setItem(guestKey, JSON.stringify([ag, ...guestExisting]));
+
+      // Salva em agenda_publica_${targetStoreId}
+      const pubKey = `agenda_publica_${targetStoreId}`;
+      const pubExisting = JSON.parse(localStorage.getItem(pubKey) || "{}");
+      const pubAgs = Array.isArray(pubExisting.agendamentos) ? pubExisting.agendamentos : [];
+      pubExisting.agendamentos = [ag, ...pubAgs];
+      pubExisting.updatedAt = new Date().toISOString();
+      localStorage.setItem(pubKey, JSON.stringify(pubExisting));
+
+      // Sincroniza nuvem se não estiver pausada
+      if (db && !getIsFirestoreQuotaPaused()) {
+        try {
+          setDoc(doc(db, "agendas_publicas", targetStoreId), pubExisting, { merge: true }).catch(() => {});
+          if (user?.uid && user.uid !== "guest_visitor") {
+            setDoc(doc(db, "userData", user.uid), { barbeariaAgendamentos: updatedList }, { merge: true }).catch(() => {});
+          }
+        } catch {}
+      }
+
+      // Notifica componentes e timeline imediatamente
+      window.dispatchEvent(new CustomEvent("agenda_updated", { detail: ag }));
+      window.dispatchEvent(new CustomEvent("barbearia_agendamento_adicionado", { detail: ag }));
+      window.dispatchEvent(new Event("storage"));
     } catch (err) {
       console.error("Erro ao salvar agendamento do cliente:", err);
     }
-  }, [user]);
+  }, [user, db]);
 
   const handleClientSaveEncomenda = useCallback((enc: any) => {
     try {
-      const key = user?.uid && user.uid !== "guest_visitor"
-        ? `barbearia_${user.uid}_encomendas`
-        : "barbearia_guest_encomendas";
-      const existing = JSON.parse(localStorage.getItem(key) || "[]");
-      localStorage.setItem(key, JSON.stringify([enc, ...existing]));
+      const urlStore = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("loja") : null;
+      const targetStoreId = urlStore || (user?.uid && user.uid !== "guest_visitor" ? user.uid : localStorage.getItem("pdv_store_id") || "loja_denise");
+
+      const storeKey = `barbearia_${targetStoreId}_encomendas`;
+      const existing = JSON.parse(localStorage.getItem(storeKey) || "[]");
+      const updated = [enc, ...existing];
+      localStorage.setItem(storeKey, JSON.stringify(updated));
+
+      const guestKey = "barbearia_guest_encomendas";
+      const guestExisting = JSON.parse(localStorage.getItem(guestKey) || "[]");
+      localStorage.setItem(guestKey, JSON.stringify([enc, ...guestExisting]));
+
+      if (db && user?.uid && user.uid !== "guest_visitor" && !getIsFirestoreQuotaPaused()) {
+        try {
+          setDoc(doc(db, "userData", user.uid), { barbeariaEncomendas: updated }, { merge: true }).catch(() => {});
+        } catch {}
+      }
+
+      window.dispatchEvent(new Event("storage"));
     } catch (err) {
       console.error("Erro ao salvar encomenda do cliente:", err);
     }
-  }, [user]);
+  }, [user, db]);
 
   const SHOPPING_CATEGORIES = [
     {
@@ -5396,6 +5503,11 @@ export default function App() {
         await getDocFromServer(doc(db, "test", "connection"));
         console.log("Firebase connection stable.");
       } catch (error: any) {
+        if (isQuotaExhaustedError(error)) {
+          markFirestoreQuotaPaused();
+          console.info("[Firestore] Cota diária gratuita do projeto atingida. Operando com segurança em modo Local.");
+          return;
+        }
         if (
           error?.message?.includes("the client is offline") ||
           error?.code === "unavailable"
@@ -5612,7 +5724,7 @@ export default function App() {
   }, []);
 
   const syncToCloudWithTime = async (userId: string, timestamp: number) => {
-    if (!userId || userId === "guest_visitor") return;
+    if (!userId || userId === "guest_visitor" || getIsFirestoreQuotaPaused()) return;
     const suffix = `_user_${userId}`;
     const path = `userData/${userId}`;
     try {
@@ -5694,7 +5806,12 @@ export default function App() {
         },
         { merge: true }
       );
-    } catch (error) {
+    } catch (error: any) {
+      if (isQuotaExhaustedError(error)) {
+        markFirestoreQuotaPaused();
+        console.warn("[Firestore] Cota diária de gravações atingida ao sincronizar dados. Operando localmente.");
+        return;
+      }
       console.error("Erro na sincronização manual/inicial para nuvem:", error);
     }
   };
@@ -5996,7 +6113,7 @@ export default function App() {
   const syncPendingRef = useRef(false);
 
   const syncToCloud = async () => {
-    if (!user || user.uid === "guest_visitor" || !isCloudLoaded) return;
+    if (!user || user.uid === "guest_visitor" || !isCloudLoaded || getIsFirestoreQuotaPaused()) return;
 
     if (isSyncingRef.current) {
       syncPendingRef.current = true;
@@ -6065,11 +6182,16 @@ export default function App() {
         },
         { merge: true },
       );
-    } catch (error) {
+    } catch (error: any) {
+      if (isQuotaExhaustedError(error)) {
+        markFirestoreQuotaPaused();
+        syncPendingRef.current = false;
+        return;
+      }
       handleFirestoreError(error, OperationType.WRITE, path);
     } finally {
       isSyncingRef.current = false;
-      if (syncPendingRef.current) {
+      if (syncPendingRef.current && !getIsFirestoreQuotaPaused()) {
         setTimeout(() => {
           syncToCloud();
         }, 100);
@@ -7084,7 +7206,7 @@ export default function App() {
   }, [isOnline, user]);
 
   const syncLocalHistory = async () => {
-    if (!user || user.uid === "guest_visitor" || localHistory.length === 0 || !isOnline) return;
+    if (!user || user.uid === "guest_visitor" || localHistory.length === 0 || !isOnline || getIsFirestoreQuotaPaused()) return;
 
     const currentUid = auth.currentUser?.uid || user.uid;
     if (!currentUid || currentUid === "guest_visitor") return;
@@ -7108,7 +7230,12 @@ export default function App() {
           data: serverTimestamp(),
         });
         syncedIds.push(list.id);
-      } catch (e) {
+      } catch (e: any) {
+        if (isQuotaExhaustedError(e)) {
+          markFirestoreQuotaPaused();
+          console.warn("[Firestore] Cota diária atingida ao salvar listas. Fila local preservada.");
+          break;
+        }
         handleFirestoreError(e, OperationType.CREATE, path);
       }
     }
@@ -7156,7 +7283,7 @@ export default function App() {
     // 2. Background Sync if possible
     const currentUid = auth.currentUser?.uid || (user && user.uid !== "guest_visitor" ? user.uid : null);
     if (currentUid) {
-      if (isOnline) {
+      if (isOnline && !getIsFirestoreQuotaPaused()) {
         const path = "listas";
         try {
           await addDoc(collection(db, "listas"), {
@@ -7176,15 +7303,19 @@ export default function App() {
           setLocalHistory((prev) => prev.filter((l) => l.id !== listData.id));
           showNotification("Sua lista foi salva e guardada com sucesso! ✨", "success");
           await registerSyncTag("sync-listas");
-        } catch (e) {
-          handleFirestoreError(e, OperationType.CREATE, path);
+        } catch (e: any) {
+          if (isQuotaExhaustedError(e)) {
+            markFirestoreQuotaPaused();
+          } else {
+            handleFirestoreError(e, OperationType.CREATE, path);
+          }
           await registerSyncTag("sync-listas");
         }
       } else {
         await registerSyncTag("sync-listas");
         showNotification(
-          "Salvo no celular! Suas listas serão salvas assim que você se reconectar à internet! 📶",
-          "info",
+          "Salvo com segurança no seu celular! Suas listas estão arquivadas localmente! 📱✨",
+          "success",
         );
       }
     } else {
@@ -7216,10 +7347,16 @@ export default function App() {
     }
 
     if (user) {
-      try {
-        await deleteDoc(doc(db, "listas", id));
-      } catch (e) {
-        console.error("Erro ao apagar na nuvem:", e);
+      if (!getIsFirestoreQuotaPaused()) {
+        try {
+          await deleteDoc(doc(db, "listas", id));
+        } catch (e: any) {
+          if (isQuotaExhaustedError(e)) {
+            markFirestoreQuotaPaused();
+          } else {
+            console.error("Erro ao apagar na nuvem:", e);
+          }
+        }
       }
       setHistory((prev) => prev.filter((l) => l.id !== id));
     }

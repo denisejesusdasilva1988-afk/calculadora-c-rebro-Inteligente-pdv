@@ -323,6 +323,136 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
     showNotification("Lembrete enviado para o WhatsApp do cliente! 📲", "success");
   };
 
+  // Lembrete 24h antes
+  const handleSendWhatsApp24h = (ag: AgendamentoServico) => {
+    const cleanPhone = (ag.clienteTelefone || "").replace(/\D/g, "");
+    const dataFormatada = ag.data.split("-").reverse().join("/");
+    const horaFimStr = ag.horarioFim ? ` às ${ag.horarioFim}` : "";
+    const rawMsg =
+      `🏢 *${(companyName || "NOSSO ESTABELECIMENTO").toUpperCase()}*\n` +
+      `🔔 *LEMBRETE DE AGENDAMENTO (24H ANTES)*\n\n` +
+      `Olá, *${ag.clienteNome}*! Tudo bem?\n` +
+      `Passando para lembrar que você tem horário marcado conosco amanhã:\n\n` +
+      `📅 *Data:* ${dataFormatada}\n` +
+      `⏰ *Horário:* ${ag.horario}${horaFimStr}\n` +
+      `👤 *Profissional:* ${ag.profissionalNome}\n` +
+      `✂️ *Serviço:* ${ag.servico}\n` +
+      `💰 *Valor Estimado:* ${formatCurrency(ag.valor)}\n\n` +
+      `Por favor, responda com *SIM* para confirmar que você comparecerá. Estamos ansiosos para te atender! ✨`;
+    const msg = encodeURIComponent(rawMsg);
+    const waUrl = cleanPhone ? `https://wa.me/55${cleanPhone}?text=${msg}` : `https://wa.me/?text=${msg}`;
+    window.open(waUrl, "_blank");
+    showNotification("Lembrete 24h enviado para o WhatsApp! 🔔📲", "success");
+  };
+
+  // Lembrete 2h antes (Anti-falta)
+  const handleSendWhatsApp2hAntiFalta = (ag: AgendamentoServico) => {
+    const cleanPhone = (ag.clienteTelefone || "").replace(/\D/g, "");
+    const horaFimStr = ag.horarioFim ? ` às ${ag.horarioFim}` : "";
+    const rawMsg =
+      `🏢 *${(companyName || "NOSSO ESTABELECIMENTO").toUpperCase()}*\n` +
+      `⏰ *LEMBRETE IMPORTANTE (FALTAM 2 HORAS!)*\n\n` +
+      `Olá, *${ag.clienteNome}*! Faltam apenas 2 horinhas para o seu atendimento hoje às *${ag.horario}*${horaFimStr}!\n\n` +
+      `👤 *Profissional:* ${ag.profissionalNome}\n` +
+      `✂️ *Serviço:* ${ag.servico}\n\n` +
+      `Nosso profissional já está preparando sua bancada com todo carinho. Solicitamos comparecer com 5 a 10 min de tolerância. Caso haja qualquer imprevisto de última hora, nos avise imediatamente por aqui para não travar a agenda. Te esperamos! 💈✨`;
+    const msg = encodeURIComponent(rawMsg);
+    const waUrl = cleanPhone ? `https://wa.me/55${cleanPhone}?text=${msg}` : `https://wa.me/?text=${msg}`;
+    window.open(waUrl, "_blank");
+    showNotification("Lembrete anti-falta de 2h enviado! ⏰📲", "success");
+  };
+
+  // Confirmar Presença
+  const handleConfirmPresence = (ag: AgendamentoServico) => {
+    const atualizado: AgendamentoServico = {
+      ...ag,
+      status: "agendado"
+    };
+    if (onUpdateAgendamento) onUpdateAgendamento(atualizado);
+    const cleanPhone = (ag.clienteTelefone || "").replace(/\D/g, "");
+    const dataFormatada = ag.data.split("-").reverse().join("/");
+    const rawMsg =
+      `🏢 *${(companyName || "NOSSO ESTABELECIMENTO").toUpperCase()}*\n` +
+      `✅ *PRESENÇA CONFIRMADA COM SUCESSO!*\n\n` +
+      `Olá, *${ag.clienteNome}*! Sua vaga para o dia *${dataFormatada}* às *${ag.horario}* com *${ag.profissionalNome}* está 100% garantida e reservada no nosso sistema!\n\n` +
+      `Muito obrigado por confirmar sua presença com pontualidade. Até breve! ✨`;
+    const msg = encodeURIComponent(rawMsg);
+    const waUrl = cleanPhone ? `https://wa.me/55${cleanPhone}?text=${msg}` : `https://wa.me/?text=${msg}`;
+    window.open(waUrl, "_blank");
+    showNotification("Presença confirmada e enviada no WhatsApp! ✅", "success");
+  };
+
+  // Reagendar com delicadeza
+  const handleRescheduleDelicate = (ag: AgendamentoServico) => {
+    const cleanPhone = (ag.clienteTelefone || "").replace(/\D/g, "");
+    const dataFormatada = ag.data.split("-").reverse().join("/");
+    const rawMsg =
+      `🏢 *${(companyName || "NOSSO ESTABELECIMENTO").toUpperCase()}*\n` +
+      `🔄 *REMARCAÇÃO DE HORÁRIO COM TODA ATENÇÃO*\n\n` +
+      `Olá, *${ag.clienteNome}*! Tudo bem? Esperamos que esteja tudo ótimo com você!\n\n` +
+      `Devido a uma necessidade de ajuste imprevisto na nossa escala de atendimentos, gostaríamos de verificar com todo carinho a possibilidade de reagendarmos seu horário de *${dataFormatada} às ${ag.horario}* com *${ag.profissionalNome}*.\n\n` +
+      `Qual o melhor dia e período para você (manhã, tarde ou noite)? Pedimos sinceras desculpas e garantimos um atendimento especial para você! Muito obrigado(a) pela sua compreensão e parceria! 💛`;
+    const msg = encodeURIComponent(rawMsg);
+    const waUrl = cleanPhone ? `https://wa.me/55${cleanPhone}?text=${msg}` : `https://wa.me/?text=${msg}`;
+    window.open(waUrl, "_blank");
+    showNotification("Mensagem delicada de remarcação pronta no WhatsApp! 🔄", "info");
+  };
+
+  // Cancelar com delicadeza
+  const handleCancelDelicate = (ag: AgendamentoServico) => {
+    const cleanPhone = (ag.clienteTelefone || "").replace(/\D/g, "");
+    const dataFormatada = ag.data.split("-").reverse().join("/");
+    const rawMsg =
+      `🏢 *${(companyName || "NOSSO ESTABELECIMENTO").toUpperCase()}*\n` +
+      `🤍 *COMUNICADO DE CANCELAMENTO COM RESPEITO E CARINHO*\n\n` +
+      `Olá, *${ag.clienteNome}*! Esperamos que esteja bem!\n\n` +
+      `Informamos com todo respeito e delicadeza que o seu agendamento previsto para o dia *${dataFormatada} às ${ag.horario}* precisou ser desmarcado em nosso sistema.\n\n` +
+      `Lamentamos qualquer transtorno e queremos muito te atender assim que for conveniente para você. Quando desejar remarcar, nossa equipe estará totalmente à disposição!\n\n` +
+      `Agradecemos imensamente pelo carinho e compreensão! 🙏✨`;
+    const msg = encodeURIComponent(rawMsg);
+    const waUrl = cleanPhone ? `https://wa.me/55${cleanPhone}?text=${msg}` : `https://wa.me/?text=${msg}`;
+    window.open(waUrl, "_blank");
+    showNotification("Mensagem respeitosa de cancelamento enviada! 🤍", "info");
+  };
+
+  // Notificar Profissional
+  const handleNotifyProfessional = (ag: AgendamentoServico) => {
+    const prof = profissionais.find((p) => p.id === ag.profissionalId);
+    const cleanProfPhone = (prof?.telefone || "").replace(/\D/g, "");
+    const dataFormatada = ag.data.split("-").reverse().join("/");
+    const rawMsg =
+      `🚨 *AVISO DE ATENDIMENTO MARCADO NA AGENDA!*\n\n` +
+      `Olá, *${ag.profissionalNome}*! Fique atento(a) para organizar sua bancada e não haver atrasos:\n\n` +
+      `📅 *Data:* ${dataFormatada}\n` +
+      `⏰ *Horário:* ${ag.horario} ${ag.horarioFim ? `às ${ag.horarioFim}` : ""}\n` +
+      `👤 *Cliente:* ${ag.clienteNome} (${ag.clienteTelefone || "Sem telefone"})\n` +
+      `✂️ *Serviço:* ${ag.servico}\n` +
+      `💰 *Valor:* ${formatCurrency(ag.valor)}\n\n` +
+      `Mantenha sua pontualidade para encantar o cliente! Bom trabalho! 🔥`;
+    const msg = encodeURIComponent(rawMsg);
+    const waUrl = cleanProfPhone ? `https://wa.me/55${cleanProfPhone}?text=${msg}` : `https://wa.me/?text=${msg}`;
+    window.open(waUrl, "_blank");
+    showNotification(`Aviso enviado para o WhatsApp de ${ag.profissionalNome}! 📲`, "success");
+  };
+
+  // Slots dinâmicos cobrindo o horário integral de trabalho do profissional
+  const dynamicTimelineSlots = useMemo(() => {
+    const profIni = activeProf?.horaInicio || "08:00";
+    const profFim = activeProf?.horaFim || "20:00";
+    const hIni = parseInt(profIni.split(":")[0], 10) || 8;
+    const hFim = parseInt(profFim.split(":")[0], 10) || 20;
+    const minH = Math.min(Math.max(0, hIni - 1), 8);
+    const maxH = Math.max(Math.min(23, hFim + 1), 20);
+
+    const slots: string[] = [];
+    for (let h = minH; h <= maxH; h++) {
+      const hStr = String(h).padStart(2, "0");
+      slots.push(`${hStr}:00`);
+      slots.push(`${hStr}:30`);
+    }
+    return slots;
+  }, [activeProf]);
+
   return (
     <div className="w-full max-w-2xl mx-auto bg-slate-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl font-sans text-left">
       {/* 1. CABEÇALHO DO APLICATIVO (EXATAMENTE COMO NA FOTO) */}
@@ -495,7 +625,7 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
 
       {/* 4. GRADE VERTICAL DA AGENDA DE HORÁRIOS (TIMELINE DA FOTO) */}
       <div className="p-3 sm:p-5 space-y-1 bg-slate-950/40 min-h-[480px]">
-        {SLOTS_HORARIOS.map((slotHora) => {
+        {dynamicTimelineSlots.map((slotHora) => {
           // 1. Verificar se há agendamento para este horário ou que cobre este horário
           const agendamentoDoSlot = agendamentosDoDia.find((ag) => {
             if (ag.horario === slotHora) return true;
@@ -1064,32 +1194,86 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
               </div>
             )}
 
-            {/* Ações (WhatsApp, Concluir, Excluir) */}
-            <div className="flex flex-col gap-2 pt-1">
-              {selectedAgendamentoDetail.clienteTelefone && (
-                <button
-                  type="button"
-                  onClick={() => handleSendWhatsAppReminder(selectedAgendamentoDetail)}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 px-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 shadow cursor-pointer"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  <span>Lembrar Cliente no WhatsApp</span>
-                </button>
+            {/* Ações Inteligentes de WhatsApp & Gestão de Horários */}
+            <div className="space-y-2 pt-1 border-t border-white/5">
+              <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider block">
+                📲 Ações e Lembretes Automáticos no WhatsApp:
+              </span>
+
+              {selectedAgendamentoDetail.clienteTelefone ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSendWhatsApp24h(selectedAgendamentoDetail)}
+                    className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white py-2 px-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 shadow transition-all cursor-pointer"
+                    title="Enviar lembrete 24 horas antes do horário"
+                  >
+                    <span>🔔 Lembrete 24h</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSendWhatsApp2hAntiFalta(selectedAgendamentoDetail)}
+                    className="bg-amber-600 hover:bg-amber-500 active:scale-95 text-white py-2 px-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 shadow transition-all cursor-pointer"
+                    title="Lembrete 2 horas antes para evitar no-show / faltas"
+                  >
+                    <span>⏰ Lembrete 2h (Anti-Falta)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmPresence(selectedAgendamentoDetail)}
+                    className="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white py-2 px-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 shadow transition-all cursor-pointer"
+                    title="Confirmar presença e enviar comprovante"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Confirmar Presença</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRescheduleDelicate(selectedAgendamentoDetail)}
+                    className="bg-purple-600 hover:bg-purple-500 active:scale-95 text-white py-2 px-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 shadow transition-all cursor-pointer"
+                    title="Enviar mensagem profissional e carinhosa para reagendamento"
+                  >
+                    <span>🔄 Remarcar com Carinho</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleCancelDelicate(selectedAgendamentoDetail)}
+                    className="bg-slate-800 hover:bg-slate-700 active:scale-95 text-rose-300 py-2 px-3 rounded-xl font-bold text-xs uppercase flex items-center justify-center gap-1.5 border border-rose-500/30 transition-all cursor-pointer"
+                    title="Mensagem de cancelamento delicada e respeitosa"
+                  >
+                    <span>🤍 Cancelar Educado</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleNotifyProfessional(selectedAgendamentoDetail)}
+                    className="bg-slate-800 hover:bg-slate-700 active:scale-95 text-amber-300 py-2 px-3 rounded-xl font-bold text-xs uppercase flex items-center justify-center gap-1.5 border border-amber-500/30 transition-all cursor-pointer"
+                    title="Notificar o profissional no WhatsApp para não haver atrasos"
+                  >
+                    <span>🚨 Avisar Profissional</span>
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-400">Cliente cadastrado sem número de WhatsApp.</p>
               )}
 
               {!isClientView && onDeleteAgendamento && (
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm("Deseja realmente cancelar este agendamento?")) {
+                    if (confirm("Deseja realmente excluir este agendamento da grade?")) {
                       onDeleteAgendamento(selectedAgendamentoDetail.id);
                       setSelectedAgendamentoDetail(null);
                     }
                   }}
-                  className="w-full bg-slate-800 hover:bg-red-950/60 text-slate-300 hover:text-red-400 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors border border-white/5 cursor-pointer"
+                  className="w-full bg-red-950/40 hover:bg-red-900/60 text-red-300 py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors border border-red-500/20 cursor-pointer mt-1"
                 >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Cancelar Agendamento</span>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Excluir Agendamento Definitivamente</span>
                 </button>
               )}
             </div>

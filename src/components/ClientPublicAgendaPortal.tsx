@@ -28,7 +28,8 @@ import {
   ExternalLink,
   AlertCircle
 } from "lucide-react";
-import { ProfissionalBarbearia, AgendamentoServico, EncomendaFesta } from "./BarbeariaSalaoEventosModule";
+import { ProfissionalBarbearia, AgendamentoServico, EncomendaFesta, safeFirestoreSetDoc } from "./BarbeariaSalaoEventosModule";
+import { doc } from "firebase/firestore";
 import { BarbeariaTimelineAgenda } from "./BarbeariaTimelineAgenda";
 
 export type CategoriaPortal =
@@ -67,14 +68,16 @@ export const SERVICOS_POR_SEGMENTO: Record<
     { nome: "Maquiagem Social", preco: 110, duracao: "50 min" }
   ],
   esteticista: [
-    { nome: "Limpeza de Pele Profunda com Ozônio", preco: 120, duracao: "60 min" },
-    { nome: "Drenagem Linfática Corporal Manual", preco: 90, duracao: "50 min" },
-    { nome: "Massagem Relaxante com Óleos Essenciais", preco: 100, duracao: "50 min" },
-    { nome: "Peeling de Diamante + Revitalização Facial", preco: 110, duracao: "45 min" },
-    { nome: "Massagem Modeladora / Redutora", preco: 95, duracao: "45 min" },
-    { nome: "Hidratação e Nutrição Facial com Colágeno", preco: 85, duracao: "40 min" },
-    { nome: "Design de Sobrancelhas com Henna", preco: 45, duracao: "35 min" },
-    { nome: "Spa Facial Detox com Argiloterapia", preco: 95, duracao: "50 min" }
+    { nome: "Limpeza de Pele Profunda com Vapor de Ozônio", preco: 130, duracao: "60 min" },
+    { nome: "Drenagem Linfática Corporal Manual", preco: 100, duracao: "50 min" },
+    { nome: "Massagem Relaxante com Óleos Essenciais", preco: 110, duracao: "50 min" },
+    { nome: "Peeling de Diamante + Revitalização Facial", preco: 115, duracao: "45 min" },
+    { nome: "Massagem Modeladora / Redutora de Medidas", preco: 105, duracao: "45 min" },
+    { nome: "Hidratação Profunda & Nutrição com Colágeno", preco: 90, duracao: "40 min" },
+    { nome: "Microagulhamento Facial com Ativos Regeneradores", preco: 180, duracao: "60 min" },
+    { nome: "Design de Sobrancelhas com Henna & Epilação", preco: 45, duracao: "35 min" },
+    { nome: "Spa Facial Detox com Argiloterapia", preco: 95, duracao: "50 min" },
+    { nome: "Epilação a Cera Quente / Depilação Completa", preco: 85, duracao: "40 min" }
   ],
   manicure: [
     { nome: "Manicure Simples (Cutilagem e Esmaltação)", preco: 25, duracao: "35 min" },
@@ -461,26 +464,58 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
   const servicoObj = servicosAtuais.find((s) => s.nome === selectedServico) || servicosAtuais[0];
   const precoEstimado = servicoObj ? servicoObj.preco : 50;
 
-  // Horários e slots com detecção precisa de horários marcados, livres e bloqueados
+  // Duração específica do serviço selecionado (ex: "60 min" -> 60) ou tempo padrão configurado pelo profissional
+  const duracaoServicoMin = useMemo(() => {
+    if (servicoObj?.duracao) {
+      const match = servicoObj.duracao.match(/(\d+)\s*min/i);
+      if (match) return parseInt(match[1], 10);
+      const parsed = parseInt(servicoObj.duracao, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return Number(selectedProf?.duracaoPadraoMinutos) || 40;
+  }, [servicoObj, selectedProf]);
+
+  // Helpers para conversão de tempo
+  const timeToMin = (t?: string): number => {
+    if (!t) return 0;
+    const [h, m] = t.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  const minToTime = (min: number): string => {
+    const h = Math.floor(min / 60) % 24;
+    const m = min % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  };
+
+  // Horários e slots com cálculo dinâmico baseado no serviço, horário de abertura/fechamento, almoço e bloqueios
   const slotsStatus = useMemo(() => {
     if (!selectedProf) return [];
 
-    const startHour = selectedProf?.horaInicio ? parseInt(selectedProf.horaInicio.split(":")[0], 10) : 8;
-    const endHour = selectedProf?.horaFim ? parseInt(selectedProf.horaFim.split(":")[0], 10) : 20;
+    // Horário de abertura e fechamento configurado pelo profissional
+    const startMin = selectedProf?.horaInicio ? timeToMin(selectedProf.horaInicio) : 8 * 60; // 08:00
+    const endMin = selectedProf?.horaFim ? timeToMin(selectedProf.horaFim) : 20 * 60; // 20:00
+    const safeEndMin = endMin > startMin ? endMin : startMin + 10 * 60;
 
-    const baseTimes: string[] = [];
-    for (let h = startHour; h <= endHour; h++) {
-      const hStr = String(h).padStart(2, "0");
-      baseTimes.push(`${hStr}:00`);
-      if (h < endHour) {
-        baseTimes.push(`${hStr}:40`);
-      }
+    // Se o serviço leva duracaoServicoMin, geramos intervalos a cada 30 min (ou 15 min para serviços curtos)
+    const stepMin = duracaoServicoMin <= 25 ? 15 : 30;
+
+    const baseSlots: { startMin: number; endMin: number; time: string; endTime: string }[] = [];
+    for (let m = startMin; m + duracaoServicoMin <= safeEndMin; m += stepMin) {
+      baseSlots.push({
+        startMin: m,
+        endMin: m + duracaoServicoMin,
+        time: minToTime(m),
+        endTime: minToTime(m + duracaoServicoMin)
+      });
     }
 
     // Se o profissional estiver desativado / em pausa, não pode receber agendamentos
     if (selectedProf.ativo === false) {
-      return baseTimes.map((slot) => ({
-        time: slot,
+      return baseSlots.map((slot) => ({
+        time: slot.time,
+        endTime: slot.endTime,
+        durationMin: duracaoServicoMin,
         isUnavailable: true,
         statusType: "blocked" as const,
         label: "Profissional Indisponível / Em Pausa ⏸️",
@@ -488,9 +523,9 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       }));
     }
 
-    const lunchStart = selectedProf?.intervaloInicio || "";
-    const lunchEnd = selectedProf?.intervaloFim || "";
-    const hasLunch = Boolean(lunchStart && lunchEnd && lunchStart < lunchEnd);
+    const lunchStartMin = selectedProf?.intervaloInicio ? timeToMin(selectedProf.intervaloInicio) : 0;
+    const lunchEndMin = selectedProf?.intervaloFim ? timeToMin(selectedProf.intervaloFim) : 0;
+    const hasLunch = Boolean(lunchStartMin && lunchEndMin && lunchStartMin < lunchEndMin);
 
     // Verificar folga do profissional no dia da semana selecionado
     let isDiaDeFolga = false;
@@ -504,8 +539,10 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
     } catch {}
 
     if (isDiaDeFolga) {
-      return baseTimes.map((slot) => ({
-        time: slot,
+      return baseSlots.map((slot) => ({
+        time: slot.time,
+        endTime: slot.endTime,
+        durationMin: duracaoServicoMin,
         isUnavailable: true,
         statusType: "blocked" as const,
         label: "Folga do Profissional ⛔",
@@ -513,37 +550,43 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       }));
     }
 
-    return baseTimes.map((slot) => {
-      // 1. Verificar se já existe agendamento ativo nessa data e horário
-      const agendado = agendamentos.find(
-        (a) =>
-          a.data === selectedDate &&
-          a.horario === slot &&
-          a.status !== "cancelado" &&
-          (!selectedProf?.id || selectedProf.id === "todos" || a.profissionalId === selectedProf.id)
-      );
+    return baseSlots.map((slot) => {
+      // 1. Verificar conflito com agendamentos existentes na mesma data e profissional
+      const agendado = agendamentos.find((a) => {
+        if (a.data !== selectedDate || a.status === "cancelado") return false;
+        if (selectedProf?.id && selectedProf.id !== "todos" && a.profissionalId !== selectedProf.id) return false;
+        
+        const aStart = timeToMin(a.horario);
+        const aDur = a.duracaoMinutos || (a.horarioFim ? timeToMin(a.horarioFim) - aStart : 40);
+        const aEnd = aStart + (aDur > 0 ? aDur : 40);
 
-      // 2. Verificar intervalo de almoço
-      const isLunch = hasLunch && slot >= lunchStart && slot < lunchEnd;
+        // Há colisão se o slot começar antes do término do agendamento E terminar após o início
+        return slot.startMin < aEnd && slot.endMin > aStart;
+      });
+
+      // 2. Verificar intervalo de almoço do profissional
+      const isLunch = hasLunch && slot.startMin < lunchEndMin && slot.endMin > lunchStartMin;
 
       // 3. Verificar bloqueios personalizados do profissional
       const isBlocked = selectedProf?.bloqueiosPersonalizados?.some((b) => {
         const matchDate = !b.data || b.data === selectedDate;
         if (!matchDate) return false;
-        if (b.horarioInicio === b.horarioFim) return slot === b.horarioInicio;
-        return slot >= b.horarioInicio && slot < b.horarioFim;
+        const bStart = timeToMin(b.horarioInicio);
+        const bEnd = timeToMin(b.horarioFim);
+        if (bStart === bEnd) return slot.time === b.horarioInicio;
+        return slot.startMin < bEnd && slot.endMin > bStart;
       });
 
       const isUnavailable = !!agendado || isLunch || !!isBlocked;
 
-      let label = "Disponível ✅";
+      let label = `Livre (${duracaoServicoMin} min) ✅`;
       let statusType: "free" | "booked" | "lunch" | "blocked" = "free";
 
       if (agendado) {
         label = "Marcado / Ocupado 🔴";
         statusType = "booked";
       } else if (isLunch) {
-        label = "Horário de Almoço 🍽️";
+        label = `Almoço (${selectedProf.intervaloInicio} às ${selectedProf.intervaloFim}) 🍽️`;
         statusType = "lunch";
       } else if (isBlocked) {
         label = "Horário Reservado 🔒";
@@ -551,19 +594,21 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       }
 
       return {
-        time: slot,
+        time: slot.time,
+        endTime: slot.endTime,
+        durationMin: duracaoServicoMin,
         isUnavailable,
         statusType,
         label,
         clientName: agendado ? agendado.clienteNome : undefined
       };
     });
-  }, [selectedProf, selectedDate, agendamentos]);
+  }, [selectedProf, selectedDate, agendamentos, duracaoServicoMin]);
 
-  // Se o horário selecionado estiver indisponível ao trocar data/profissional, ajusta para o primeiro livre
+  // Se o horário selecionado estiver indisponível ao trocar data/serviço/profissional, ajusta para o primeiro livre
   useEffect(() => {
     const currentSlot = slotsStatus.find((s) => s.time === selectedTime);
-    if (currentSlot?.isUnavailable) {
+    if (!currentSlot || currentSlot.isUnavailable) {
       const firstFree = slotsStatus.find((s) => !s.isUnavailable);
       if (firstFree) {
         setSelectedTime(firstFree.time);
@@ -589,34 +634,88 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       return;
     }
 
+    const horarioFimCalculado = currentSlot?.endTime || minToTime(timeToMin(selectedTime) + duracaoServicoMin);
+
     const novoAg: AgendamentoServico = {
       id: "ag_cli_" + Date.now(),
       data: selectedDate,
       horario: selectedTime,
+      horarioFim: horarioFimCalculado,
+      duracaoMinutos: duracaoServicoMin,
       clienteNome: clientName.trim(),
       clienteTelefone: clientPhone.trim(),
       profissionalId: selectedProf?.id || "equipe",
       profissionalNome: selectedProf?.nome || "Equipe",
+      categoria: (selectedProf?.categoria || (selectedSegment !== "encomendas" ? selectedSegment : "salao")) as any,
       servico: selectedServico,
       valor: precoEstimado,
       status: "agendado",
       criadoEm: new Date().toISOString()
     };
 
+    // 1. Notifica callback do React
     onSaveAgendamento(novoAg);
 
-    // Enviar mensagem pronta no WhatsApp do estabelecimento
+    // 2. Persistência multi-armazenamento imediata no storage da loja
+    const targetStoreId = storeId || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("loja") : "") || "loja_denise";
+    if (targetStoreId) {
+      try {
+        const storeKey = `barbearia_${targetStoreId}_agendamentos`;
+        const existingStore = JSON.parse(localStorage.getItem(storeKey) || "[]");
+        localStorage.setItem(storeKey, JSON.stringify([novoAg, ...existingStore]));
+
+        // Atualiza também agenda_publica_${targetStoreId}
+        const pubKey = `agenda_publica_${targetStoreId}`;
+        const pubExisting = JSON.parse(localStorage.getItem(pubKey) || "{}");
+        const pubAgs = Array.isArray(pubExisting.agendamentos) ? pubExisting.agendamentos : [];
+        pubExisting.agendamentos = [novoAg, ...pubAgs];
+        pubExisting.updatedAt = new Date().toISOString();
+        localStorage.setItem(pubKey, JSON.stringify(pubExisting));
+
+        if (db) {
+          safeFirestoreSetDoc(doc(db, "agendas_publicas", targetStoreId), pubExisting);
+        }
+      } catch (err) {
+        console.warn("Aviso ao sincronizar agendamento na loja:", err);
+      }
+    }
+
+    // Salva fallback guest
+    try {
+      const guestKey = "barbearia_guest_agendamentos";
+      const existingGuest = JSON.parse(localStorage.getItem(guestKey) || "[]");
+      localStorage.setItem(guestKey, JSON.stringify([novoAg, ...existingGuest]));
+    } catch {}
+
+    // 3. Dispara evento customizado para atualizar timeline e agendas abertas na tela sem recarregar
+    try {
+      window.dispatchEvent(new CustomEvent("agenda_updated", { detail: novoAg }));
+      window.dispatchEvent(new CustomEvent("barbearia_agendamento_adicionado", { detail: novoAg }));
+      window.dispatchEvent(new Event("storage"));
+    } catch {}
+
+    // 4. Enviar mensagem elegante com logotipo/identidade da empresa no WhatsApp
     const cleanCompanyPhone = (companyPhone || "").replace(/\D/g, "");
     const dataFormatada = selectedDate.split("-").reverse().join("/");
+    const segInfo = SEGMENTO_INFO[selectedSegment] || SEGMENTO_INFO.salao;
+    const nomeEmpresaDisplay = companyName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(companyName)
+      ? companyName
+      : "NOSSO ESTABELECIMENTO";
+
     const rawMsg =
-      `Olá! 💈✨ Acabei de agendar um horário pelo link da agenda:\n\n` +
-      `📅 *Data:* ${dataFormatada} às ${selectedTime}\n` +
+      `🏢 *${nomeEmpresaDisplay.toUpperCase()}*\n` +
+      `✨ *Atendimento Especializado:* ${segInfo.nomeCompleto}\n` +
+      `👤 *Profissional:* ${selectedProf?.nome || "Equipe"}${selectedProf?.especialidade ? ` (${selectedProf.especialidade})` : ""}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📅 *Data Marcada:* ${dataFormatada}\n` +
+      `⏰ *Horário:* ${selectedTime} às ${horarioFimCalculado} (${duracaoServicoMin} min)\n` +
       `✂️ *Serviço:* ${selectedServico}\n` +
-      `👤 *Profissional:* ${selectedProf?.nome || "Qualquer Disponível"}\n` +
-      `💰 *Valor Estimado:* ${formatCurrency(precoEstimado)}\n\n` +
-      `*Meu Nome:* ${clientName.trim()}\n` +
-      `*Meu WhatsApp:* ${clientPhone.trim()}\n\n` +
-      `Por favor, me confirme este horário! Obrigado(a)!`;
+      `💰 *Valor Estimado:* ${formatCurrency(precoEstimado)}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👤 *Cliente:* ${clientName.trim()}\n` +
+      `📲 *WhatsApp do Cliente:* ${clientPhone.trim()}\n\n` +
+      `✅ *Agendamento confirmado no sistema com sucesso!*\n` +
+      `⏰ *Lembrete:* Por favor, compareça com 5 a 10 min de antecedência. Em caso de necessidade de remarcação ou imprevisto, avise-nos com antecedência. Obrigado(a)!`;
 
     const encodedMsg = encodeURIComponent(rawMsg);
     const waUrl = cleanCompanyPhone
@@ -1257,7 +1356,10 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
                             <span className="font-mono text-xs font-bold leading-none">
                               {slot.time}
                             </span>
-                            <span className="text-[8px] font-black uppercase tracking-tight leading-none">
+                            <span className="text-[7.5px] font-mono text-slate-400 leading-tight">
+                              até {slot.endTime}
+                            </span>
+                            <span className="text-[7.5px] font-black uppercase tracking-tight leading-none mt-0.5">
                               {isSelected
                                 ? "Escolhido ✅"
                                 : isBooked
@@ -1266,7 +1368,7 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
                                 ? "Almoço 🍽️"
                                 : isBlocked
                                 ? "Reservado 🔒"
-                                : "Livre"}
+                                : `${slot.durationMin}m Livre`}
                             </span>
                           </button>
                         );
@@ -1274,10 +1376,10 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
                     </div>
 
                     {/* Resumo do Horário Selecionado */}
-                    <div className="bg-slate-950/80 border border-white/5 rounded-xl p-2.5 flex items-center justify-between text-xs mt-2">
+                    <div className="bg-slate-950/80 border border-white/5 rounded-xl p-2.5 flex items-center justify-between text-xs mt-2 flex-wrap gap-2">
                       <span className="text-slate-400">Horário Escolhido:</span>
-                      <span className="font-mono font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">
-                        {selectedTime} ({slotsStatus.find((s) => s.time === selectedTime)?.label || "Disponível"})
+                      <span className="font-mono font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 text-xs">
+                        {selectedTime} às {slotsStatus.find((s) => s.time === selectedTime)?.endTime || ""} ({duracaoServicoMin} min) • {slotsStatus.find((s) => s.time === selectedTime)?.label || "Disponível"}
                       </span>
                     </div>
                   </div>

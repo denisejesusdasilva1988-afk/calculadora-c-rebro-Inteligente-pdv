@@ -41,6 +41,7 @@ export interface ModeloComunicado {
   categoria:
     | "barbearia"
     | "salao"
+    | "esteticista"
     | "manicure"
     | "podologia"
     | "terapia_ocupacional"
@@ -85,6 +86,14 @@ export const MODELOS_COMUNICADOS_PRONTOS: ModeloComunicado[] = [
     categoria: "salao",
     texto:
       "🌸✨ *COMUNICADO DE ATENDIMENTO — {empresa}* 💇‍♀️💖\n\nQuer renovar o visual, fazer aquela escova perfeita, hidratação profunda ou realçar a cor dos seus cabelos?\n\nNossa equipe está com horários abertos para esta semana! Agende seu momento especial de autocuidado:\n\n👉 *Agende online:* {link_agenda}\n📲 WhatsApp de atendimento: {telefone}\n\nVocê merece se sentir radiante todos os dias! Venha nos visitar! ✨"
+  },
+  {
+    id: "com_esteticista",
+    nome: "Estética Facial & Corporal — Cuidados & Limpeza de Pele",
+    icone: "✨",
+    categoria: "esteticista",
+    texto:
+      "✨💆‍♀️ *MOMENTO DE AUTOCUIDADO NA {empresa}!* 🌸\n\nSua pele e seu corpo merecem um tratamento especial! Estamos com vagas abertas para Limpeza de Pele Profunda, Drenagem Linfática, Peeling e Massagens nesta semana!\n\n👉 *Reserve seu horário com facilidade pelo link:* {link_agenda}\n📲 Dúvidas e agendamentos no WhatsApp: {telefone}\n\nVenha renovar sua autoestima e relaxar conosco! ✨"
   },
   {
     id: "com_manicure_unhas",
@@ -411,6 +420,7 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
                 { id: "todos", label: "✨ Todos" },
                 { id: "barbearia", label: "💈 Barbeiro" },
                 { id: "salao", label: "💇‍♀️ Salão" },
+                { id: "esteticista", label: "✨ Esteticista" },
                 { id: "manicure", label: "💅 Manicure" },
                 { id: "podologia", label: "🦶 Podologia" },
                 { id: "terapia_ocupacional", label: "🧩 T. Ocupacional" },
@@ -557,75 +567,86 @@ export const ModalComunicadosAgenda: React.FC<ModalComunicadosAgendaProps> = ({
               </div>
             </div>
 
-            {/* TAGS DINÂMICAS */}
-            <div className="space-y-1.5 pt-1">
-              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
-                🏷️ Clique para inserir tags dinâmicas:
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{cliente}")}
-                  className="px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all cursor-pointer"
-                >
-                  + &#123;cliente&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{empresa}")}
-                  className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer"
-                >
-                  + &#123;empresa&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{data}")}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
-                >
-                  + &#123;data&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{horario}")}
-                  className="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all cursor-pointer"
-                >
-                  + &#123;horario&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{profissional}")}
-                  className="px-2.5 py-1 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 border border-orange-500/30 text-xs font-bold transition-all cursor-pointer"
-                >
-                  + &#123;profissional&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{servico}")}
-                  className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
-                >
-                  + &#123;servico&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{valor}")}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
-                >
-                  + &#123;valor&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{link_agenda}")}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black transition-all cursor-pointer"
-                >
-                  + &#123;link_agenda&#125; 🔗
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{telefone}")}
-                  className="px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-bold transition-all cursor-pointer"
-                >
-                  + &#123;telefone&#125;
-                </button>
+            {/* TAGS DINÂMICAS & IDEIAS DE MENSAGENS COM TOUCH 100% RESPONSIVO */}
+            <div className="space-y-3 pt-1">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block mb-1.5">
+                  🏷️ Toque nas tags para inserir no comunicado:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { tag: "{cliente}", label: "+ {cliente}", desc: "Nome do cliente", cor: "blue" },
+                    { tag: "{empresa}", label: "+ {empresa}", desc: "Nome da empresa", cor: "amber" },
+                    { tag: "{data}", label: "+ {data}", desc: "Data do horário", cor: "emerald" },
+                    { tag: "{horario}", label: "+ {horario}", desc: "Hora marcada", cor: "purple" },
+                    { tag: "{profissional}", label: "+ {profissional}", desc: "Nome do profissional", cor: "orange" },
+                    { tag: "{servico}", label: "+ {servico}", desc: "Serviço marcado", cor: "rose" },
+                    { tag: "{valor}", label: "+ {valor}", desc: "Valor em R$", cor: "emerald" },
+                    { tag: "{link_agenda}", label: "+ {link_agenda} 🔗", desc: "Link da agenda", cor: "emerald" },
+                    { tag: "{telefone}", label: "+ {telefone}", desc: "WhatsApp da empresa", cor: "sky" }
+                  ].map((t) => (
+                    <button
+                      key={t.tag}
+                      type="button"
+                      onClick={() => handleInserirTag(t.tag)}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        handleInserirTag(t.tag);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl bg-${t.cor}-500/10 hover:bg-${t.cor}-500/20 active:scale-95 text-${t.cor}-300 border border-${t.cor}-500/30 text-xs font-bold transition-all cursor-pointer touch-manipulation select-none`}
+                      title={t.desc}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* IDEIAS RÁPIDAS DE COMUNICADOS (TOQUE PARA INSERIR NO TEXTO) */}
+              <div className="bg-slate-950/70 p-3 rounded-2xl border border-white/5 space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>💡 Ideias Rápidas de Textos (Toque para Inserir):</span>
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    {
+                      label: "⏰ Tolerância 10 min",
+                      texto: "\n\n⏰ *Pontualidade:* Solicitamos comparecer com 5 a 10 min de tolerância para garantirmos o início sem atrasos da sua vaga!"
+                    },
+                    {
+                      label: "✅ Confirmação Anti-Falta",
+                      texto: "\n\n✅ *Atenção:* Por favor, responda esta mensagem com um *SIM* confirmando sua presença, pois sua vaga fica bloqueada para você!"
+                    },
+                    {
+                      label: "🔄 Reagendar com Delicadeza",
+                      texto: "\n\n🔄 *Remarcação:* Caso tenha qualquer imprevisto, avise-nos com antecedência para reagendarmos seu horário com todo carinho!"
+                    },
+                    {
+                      label: "🤍 Cancelamento Respeitoso",
+                      texto: "\n\n🤍 Seu horário foi desmarcado. Quando quiser retornar, nossa agenda estará aberta para você no link!"
+                    },
+                    {
+                      label: "🚨 Aviso ao Profissional",
+                      texto: "\n\n🚨 *Atenção Profissional:* Cliente com horário marcado! Favor organizar a bancada e produtos para evitar atrasos."
+                    }
+                  ].map((ideia, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setTextoEdit((prev) => prev + ideia.texto);
+                      }}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        setTextoEdit((prev) => prev + ideia.texto);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 active:scale-95 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold transition-all cursor-pointer touch-manipulation select-none"
+                    >
+                      {ideia.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 

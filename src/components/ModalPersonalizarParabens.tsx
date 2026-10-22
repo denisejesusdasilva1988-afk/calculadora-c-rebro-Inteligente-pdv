@@ -38,6 +38,7 @@ export interface ModeloParabens {
   categoria:
     | "barbearia"
     | "salao"
+    | "esteticista"
     | "manicure"
     | "podologia"
     | "terapia_ocupacional"
@@ -68,6 +69,14 @@ export const MODELOS_PARABENS_PRONTOS: ModeloParabens[] = [
     icone: "💇‍♀️",
     texto:
       "Parabéns, {cliente} linda! 🌸✨🎂\n\nNeste dia tão abençoado, a equipe do *{empresa}* deseja a você muitas felicidades, luz e realizações!\n\nVocê merece um momento especial de autocuidado hoje: ganhou *{desconto}* em escova, hidratação ou qualquer serviço do nosso salão!\n\nVenha realçar ainda mais a sua beleza. Reserve seu momento: {telefone} 💖"
+  },
+  {
+    id: "mod_esteticista",
+    nome: "Esteticista — Pele Radiante & Cuidado Especial",
+    categoria: "esteticista",
+    icone: "✨",
+    texto:
+      "Parabéns pelo seu dia, querida {cliente}! ✨💆‍♀️🎂\n\nToda a equipe da *{empresa}* deseja a você um novo ciclo com muita saúde, luz, renovação e bem-estar!\n\nNo seu mês de aniversário, você ganhou *{desconto}* em limpeza de pele profunda, drenagem corporal ou qualquer procedimento estético!\n\nVenha viver um momento único de autocuidado e relaxamento! Reserve seu horário: {telefone} 🌸"
   },
   {
     id: "mod_manicure",
@@ -387,6 +396,7 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
                 { id: "todos", label: "✨ Todos" },
                 { id: "barbearia", label: "💈 Barbeiro" },
                 { id: "salao", label: "💇‍♀️ Salão" },
+                { id: "esteticista", label: "✨ Esteticista" },
                 { id: "manicure", label: "💅 Manicure" },
                 { id: "podologia", label: "🦶 Podologia" },
                 { id: "terapia_ocupacional", label: "🧩 T. Ocupacional" },
@@ -507,60 +517,89 @@ export const ModalPersonalizarParabens: React.FC<ModalPersonalizarParabensProps>
               </div>
             </div>
 
-            {/* 3. TAGS DINÂMICAS */}
-            <div className="space-y-1.5 pt-1">
-              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
-                🏷️ Clique para inserir tags automáticas no texto:
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{cliente}")}
-                  className="px-2.5 py-1 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 text-pink-300 border border-pink-500/30 text-xs font-bold transition-all cursor-pointer"
-                  title="Nome do aniversariante"
-                >
-                  + &#123;cliente&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{empresa}")}
-                  className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer"
-                  title="Nome da sua empresa"
-                >
-                  + &#123;empresa&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{desconto}")}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
-                  title="Cupom ou desconto oferecido"
-                >
-                  + &#123;desconto&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{presente}")}
-                  className="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all cursor-pointer"
-                  title="Brinde especial"
-                >
-                  + &#123;presente&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{telefone}")}
-                  className="px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-bold transition-all cursor-pointer"
-                  title="WhatsApp da sua empresa"
-                >
-                  + &#123;telefone&#125;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleInserirTag("{link_agenda}")}
-                  className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
-                  title="Link direto da agenda do cliente"
-                >
-                  + &#123;link_agenda&#125;
-                </button>
+            {/* 3. TAGS DINÂMICAS & IDEIAS DE MENSAGENS (COM TOUCH 100% RESPONSIVO) */}
+            <div className="space-y-3 pt-1">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block mb-1.5">
+                  🏷️ Toque nas tags para inserir no texto:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { tag: "{cliente}", label: "+ {cliente}", desc: "Nome do cliente", cor: "pink" },
+                    { tag: "{empresa}", label: "+ {empresa}", desc: "Nome da empresa", cor: "amber" },
+                    { tag: "{desconto}", label: "+ {desconto}", desc: "Desconto/Cupom", cor: "emerald" },
+                    { tag: "{presente}", label: "+ {presente}", desc: "Presente/Brinde", cor: "purple" },
+                    { tag: "{telefone}", label: "+ {telefone}", desc: "WhatsApp da empresa", cor: "sky" },
+                    { tag: "{link_agenda}", label: "+ {link_agenda}", desc: "Link da agenda", cor: "rose" }
+                  ].map((t) => (
+                    <button
+                      key={t.tag}
+                      type="button"
+                      onClick={() => handleInserirTag(t.tag)}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        handleInserirTag(t.tag);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl bg-${t.cor}-500/10 hover:bg-${t.cor}-500/20 active:scale-95 text-${t.cor}-300 border border-${t.cor}-500/30 text-xs font-bold transition-all cursor-pointer touch-manipulation select-none`}
+                      title={t.desc}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* IDEIAS RÁPIDAS DE MENSAGENS (TOQUE PARA INSERIR NA MENSAGEM) */}
+              <div className="bg-slate-950/70 p-3 rounded-2xl border border-white/5 space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>💡 Ideias Rápidas de Mensagens (Toque para Inserir no Texto):</span>
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    {
+                      label: "⏰ Tolerância 10 min",
+                      texto: "\n\n⏰ *Lembrete:* Solicitamos comparecer com 5 a 10 min de antecedência para mantermos a pontualidade da sua vaga!"
+                    },
+                    {
+                      label: "✅ Confirmar Presença",
+                      texto: "\n\n✅ *Confirmação:* Por favor, responda esta mensagem com um *SIM* para confirmarmos sua presença!"
+                    },
+                    {
+                      label: "🎁 Cupom 15% Desconto",
+                      texto: "\n\n🎁 *Presente Especial:* Você ganhou *15% de desconto* exclusivo de aniversário!"
+                    },
+                    {
+                      label: "🌸 Cortesia Especial",
+                      texto: "\n\n🌸 *Cortesia:* Ganhou uma hidratação especial cortesia em comemoração ao seu dia!"
+                    },
+                    {
+                      label: "🔄 Reagendar com Carinho",
+                      texto: "\n\n🔄 *Remarcação:* Caso precise de outro dia ou horário por imprevisto, avise-nos com antecedência para remanejarmos com todo carinho."
+                    },
+                    {
+                      label: "🤍 Cancelamento Delicado",
+                      texto: "\n\n🤍 Caso não possa comparecer, avise-nos por aqui. Estaremos de braços abertos para te receber em uma nova data!"
+                    }
+                  ].map((ideia, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setTextoEdit((prev) => prev + ideia.texto);
+                        showNotification(`Ideia "${ideia.label}" inserida na mensagem! ✍️`, "info");
+                      }}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        setTextoEdit((prev) => prev + ideia.texto);
+                        showNotification(`Ideia "${ideia.label}" inserida na mensagem! ✍️`, "info");
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 active:scale-95 text-cyan-300 border border-cyan-500/30 text-[11px] font-bold transition-all cursor-pointer touch-manipulation select-none flex items-center gap-1"
+                    >
+                      <span>{ideia.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 

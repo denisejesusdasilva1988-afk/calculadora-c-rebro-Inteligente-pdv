@@ -51,7 +51,14 @@ import {
   Megaphone,
   Heart,
   Palette,
-  User
+  User,
+  Bell,
+  AlertTriangle,
+  Wallet,
+  PiggyBank,
+  Briefcase,
+  Activity,
+  RefreshCw
 } from "lucide-react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { ClientPublicAgendaPortal } from "./ClientPublicAgendaPortal";
@@ -61,6 +68,11 @@ import { ModalPersonalizarParabens, MODELOS_PARABENS_PRONTOS } from "./ModalPers
 import { ModalComunicadosAgenda } from "./ModalComunicadosAgenda";
 import { loadCompanyProfile, saveCompanyProfile } from "../utils/companyProfile";
 import { compressImageFile } from "../utils/imageCompressor";
+import {
+  isQuotaExhaustedError,
+  getIsFirestoreQuotaPaused,
+  markFirestoreQuotaPaused
+} from "../utils/firestoreQuotaManager";
 
 // Helper para remover recursivamente valores undefined antes de enviar ao Firestore
 export const cleanUndefinedForFirestore = (obj: any): any => {
@@ -79,12 +91,21 @@ export const cleanUndefinedForFirestore = (obj: any): any => {
   return cleaned;
 };
 
-// Wrapper seguro para evitar que erros de validação síncrona do Firestore quebrem o React
+// Wrapper seguro para evitar que erros de validação síncrona ou estouro de cota do Firestore quebrem o React
 export const safeFirestoreSetDoc = async (docRef: any, data: any, options = { merge: true }) => {
+  if (getIsFirestoreQuotaPaused()) {
+    // Modo local / offline ativado, cota gratuita temporariamente excedida
+    return;
+  }
   try {
     const cleaned = cleanUndefinedForFirestore(data);
     await setDoc(docRef, cleaned, options);
-  } catch (err) {
+  } catch (err: any) {
+    if (isQuotaExhaustedError(err)) {
+      markFirestoreQuotaPaused();
+      console.warn("[Firestore] Cota diária gratuita do projeto atingida. Operando no modo Offline-First local.");
+      return;
+    }
     console.warn("Aviso ao persistir dados da barbearia/salão na nuvem Firestore:", err);
   }
 };
@@ -364,6 +385,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   // Aba Ativa
   const [activeTab, setActiveTab] = useState<"profissionais" | "agenda" | "aniversarios" | "encomendas" | "empresa">("profissionais");
   const [agendaViewMode, setAgendaViewMode] = useState<"timeline" | "lista">("timeline");
+  const [selectedAgendaDate, setSelectedAgendaDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
 
   // Filtro de Segmento Selecionado: todos os segmentos suportados
   const [segmentFilter, setSegmentFilter] = useState<"todos" | NegocioSegmento>(() => {
@@ -779,6 +801,27 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             if (cp.website) setCompanyWebsite(cp.website);
           }
         }
+
+        // Também mescla agendamentos da agenda pública caso clientes tenham agendado pelo link
+        try {
+          const pubSnap = await getDoc(doc(db, "agendas_publicas", storeId));
+          if (pubSnap.exists() && isMounted) {
+            const pd = pubSnap.data();
+            if (Array.isArray(pd.agendamentos) && pd.agendamentos.length > 0) {
+              setAgendamentos((current) => {
+                const existingIds = new Set(current.map((a) => a.id));
+                const merged = [...current];
+                for (const a of pd.agendamentos) {
+                  if (a?.id && !existingIds.has(a.id) && !["ag_1", "ag_2", "ag_3"].includes(a.id)) {
+                    merged.unshift(a);
+                    existingIds.add(a.id);
+                  }
+                }
+                return merged;
+              });
+            }
+          }
+        } catch {}
       } catch (err) {
         console.warn("Aviso ao ler dados da barbearia/salão da nuvem:", err);
       } finally {
@@ -789,7 +832,58 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     };
     fetchCloudData();
     return () => { isMounted = false; };
-  }, [userId, db, storagePrefix]);
+  }, [userId, db, storagePrefix, storeId]);
+
+  // Listener em tempo real para novos agendamentos feitos pelos clientes no portal público
+  useEffect(() => {
+    const handleAgendaUpdated = (event?: any) => {
+      try {
+        const storeKey = `${storagePrefix}agendamentos`;
+        const saved = localStorage.getItem(storeKey);
+        let list: AgendamentoServico[] = [];
+        if (saved) {
+          list = JSON.parse(saved);
+        }
+
+        // Também verifica se há novos agendamentos na agenda pública
+        const pubKey = `agenda_publica_${storeId}`;
+        const pubSaved = localStorage.getItem(pubKey);
+        if (pubSaved) {
+          const parsedPub = JSON.parse(pubSaved);
+          if (Array.isArray(parsedPub.agendamentos)) {
+            const existingIds = new Set(list.map((a) => a.id));
+            for (const pubAg of parsedPub.agendamentos) {
+              if (pubAg && pubAg.id && !existingIds.has(pubAg.id) && !["ag_1", "ag_2", "ag_3"].includes(pubAg.id)) {
+                list.unshift(pubAg);
+                existingIds.add(pubAg.id);
+              }
+            }
+          }
+        }
+
+        if (event?.detail && event.detail.id) {
+          const exists = list.some((a) => a.id === event.detail.id);
+          if (!exists) {
+            list.unshift(event.detail);
+          }
+          showNotification(`🔔 Novo agendamento recebido: ${event.detail.clienteNome} às ${event.detail.horario}!`, "success");
+        }
+
+        setAgendamentos(list);
+      } catch (err) {
+        console.warn("Erro ao sincronizar novos agendamentos:", err);
+      }
+    };
+
+    window.addEventListener("agenda_updated", handleAgendaUpdated);
+    window.addEventListener("barbearia_agendamento_adicionado", handleAgendaUpdated);
+    window.addEventListener("storage", handleAgendaUpdated);
+    return () => {
+      window.removeEventListener("agenda_updated", handleAgendaUpdated);
+      window.removeEventListener("barbearia_agendamento_adicionado", handleAgendaUpdated);
+      window.removeEventListener("storage", handleAgendaUpdated);
+    };
+  }, [storagePrefix, storeId, showNotification]);
 
   useEffect(() => {
     localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(profissionais));
@@ -919,6 +1013,80 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       return (prof?.categoria || "barbearia") === segmentFilter;
     });
   }, [agendamentos, profissionais, segmentFilter]);
+
+  // Balanço Diário da Agenda: Faturamento, Gastos com Produtos, Lucro Líquido e Tempo de Trabalho
+  const metricasDia = useMemo(() => {
+    const doDia = agendamentos.filter((a) => a.data === selectedAgendaDate);
+    const ativos = doDia.filter((a) => a.status !== "cancelado");
+    const concluidos = doDia.filter((a) => a.status === "concluido");
+    const cancelados = doDia.filter((a) => a.status === "cancelado");
+    const pendentes = doDia.filter((a) => a.status === "agendado");
+
+    const faturamentoEstimado = ativos.reduce((acc, cur) => acc + (Number(cur.valor) || 0), 0);
+    const faturamentoConcluido = concluidos.reduce((acc, cur) => acc + (Number(cur.valor) || 0), 0);
+
+    // Estimativa de insumos e produtos (15% para descartáveis, cremes, tinturas, lâminas, luvas, óleos)
+    const custoInsumosEstimado = faturamentoEstimado * 0.15;
+    const lucroLiquidoEstimado = Math.max(0, faturamentoEstimado - custoInsumosEstimado);
+
+    // Carga horária total no dia
+    const tempoTotalMinutos = ativos.reduce((acc, cur) => {
+      let dur = cur.duracaoMinutos;
+      if (!dur && cur.horario && cur.horarioFim) {
+        const [h1, m1] = cur.horario.split(":").map(Number);
+        const [h2, m2] = cur.horarioFim.split(":").map(Number);
+        dur = (h2 * 60 + m2) - (h1 * 60 + m1);
+      }
+      return acc + (dur && dur > 0 ? dur : 45);
+    }, 0);
+
+    const horas = Math.floor(tempoTotalMinutos / 60);
+    const minutosRest = tempoTotalMinutos % 60;
+    const tempoFormatado = horas > 0 ? `${horas}h${minutosRest > 0 ? ` ${minutosRest}min` : ""}` : `${minutosRest}min`;
+
+    // Próximo agendamento hoje com alerta anti-atraso
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    let proximo: AgendamentoServico | null = null;
+    let minutosParaProximo: number | null = null;
+
+    if (selectedAgendaDate === todayStr) {
+      const hojePendentes = ativos.filter((a) => a.status === "agendado");
+      const ordenados = [...hojePendentes].sort((a, b) => a.horario.localeCompare(b.horario));
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+
+      for (const ag of ordenados) {
+        const [ah, am] = ag.horario.split(":").map(Number);
+        const agMin = ah * 60 + am;
+        if (agMin >= nowMin - 15) {
+          proximo = ag;
+          minutosParaProximo = agMin - nowMin;
+          break;
+        }
+      }
+      if (!proximo && ordenados.length > 0) {
+        proximo = ordenados[0];
+        const [ah, am] = proximo.horario.split(":").map(Number);
+        minutosParaProximo = (ah * 60 + am) - nowMin;
+      }
+    }
+
+    return {
+      totalDoDia: doDia.length,
+      totalAtivos: ativos.length,
+      totalConcluidos: concluidos.length,
+      totalCancelados: cancelados.length,
+      totalPendentes: pendentes.length,
+      faturamentoEstimado,
+      faturamentoConcluido,
+      custoInsumosEstimado,
+      lucroLiquidoEstimado,
+      tempoTotalMinutos,
+      tempoFormatado,
+      proximo,
+      minutosParaProximo
+    };
+  }, [agendamentos, selectedAgendaDate]);
 
   // Análise de Aniversários
   const hoje = new Date();
@@ -1363,13 +1531,120 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     showNotification("Mensagem de aniversário enviada ao WhatsApp! 🎂🎉", "success");
   };
 
-  // WhatsApp Lembrete de Horário
+  // WhatsApp Lembrete de Horário Geral
   const handleLembreteWhatsApp = (ag: AgendamentoServico) => {
     const limpo = ag.clienteTelefone.replace(/\D/g, "");
     const msg = encodeURIComponent(
-      `Olá ${ag.clienteNome}! ⏰💈\n\nPassando para confirmar seu horário na *${companyName}*:\n📅 Data: ${ag.data.split("-").reverse().join("/")}\n🕒 Horário: ${ag.horario}\n✂️ Serviço: ${ag.servico}\n👤 Profissional: ${ag.profissionalNome}\n💰 Valor: ${formatCurrency(ag.valor)}\n\nEsperamos por você! Qualquer dúvida, nos avise aqui. 👍`
+      `Olá ${ag.clienteNome}! ⏰💈\n\nPassando para confirmar seu horário na *${companyName || "Nossa Empresa"}*:\n📅 Data: ${ag.data.split("-").reverse().join("/")}\n🕒 Horário: ${ag.horario} ${ag.horarioFim ? `às ${ag.horarioFim}` : ""}\n✂️ Serviço: ${ag.servico}\n👤 Profissional: ${ag.profissionalNome}\n💰 Valor: ${formatCurrency(ag.valor)}\n\nEsperamos por você! Qualquer dúvida, nos avise aqui. 👍`
     );
     window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
+  };
+
+  // WhatsApp Lembrete 24h Antes
+  const handleLembrete24hWhatsApp = (ag: AgendamentoServico) => {
+    const limpo = ag.clienteTelefone.replace(/\D/g, "");
+    const dataFormatada = ag.data.split("-").reverse().join("/");
+    const horaFimStr = ag.horarioFim ? ` às ${ag.horarioFim}` : "";
+    const rawMsg =
+      `🏢 *${(companyName || "NOSSO ESTABELECIMENTO").toUpperCase()}*\n` +
+      `🔔 *LEMBRETE DE AGENDAMENTO (24H ANTES)*\n\n` +
+      `Olá, *${ag.clienteNome}*! Tudo bem?\n` +
+      `Passando para lembrar do seu horário marcado conosco amanhã:\n\n` +
+      `📅 *Data:* ${dataFormatada}\n` +
+      `⏰ *Horário:* ${ag.horario}${horaFimStr}\n` +
+      `👤 *Profissional:* ${ag.profissionalNome}\n` +
+      `✂️ *Serviço:* ${ag.servico}\n` +
+      `💰 *Valor Estimado:* ${formatCurrency(ag.valor)}\n\n` +
+      `Por favor, responda com *SIM* para confirmar que você comparecerá. Estamos ansiosos para te atender! ✨`;
+    const msg = encodeURIComponent(rawMsg);
+    window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
+    showNotification("Lembrete de 24h enviado para o WhatsApp! 🔔📲", "success");
+  };
+
+  // WhatsApp Lembrete 2h Antes (Anti-Falta)
+  const handleLembrete2hAntiFaltaWhatsApp = (ag: AgendamentoServico) => {
+    const limpo = ag.clienteTelefone.replace(/\D/g, "");
+    const horaFimStr = ag.horarioFim ? ` às ${ag.horarioFim}` : "";
+    const rawMsg =
+      `🏢 *${(companyName || "NOSSO ESTABELECIMENTO").toUpperCase()}*\n` +
+      `⏰ *LEMBRETE IMPORTANTE (FALTAM 2 HORAS!)*\n\n` +
+      `Olá, *${ag.clienteNome}*! Faltam apenas 2 horinhas para o seu atendimento hoje às *${ag.horario}*${horaFimStr}!\n\n` +
+      `👤 *Profissional:* ${ag.profissionalNome}\n` +
+      `✂️ *Serviço:* ${ag.servico}\n\n` +
+      `Nosso profissional já está preparando sua bancada com todo carinho. Solicitamos comparecer com 5 a 10 min de tolerância. Caso haja qualquer imprevisto de última hora, nos avise imediatamente por aqui para não travar a agenda. Te esperamos! 💈✨`;
+    const msg = encodeURIComponent(rawMsg);
+    window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
+    showNotification("Lembrete anti-falta de 2h enviado! ⏰📲", "success");
+  };
+
+  // WhatsApp Confirmar Presença
+  const handleConfirmarPresencaWhatsApp = (ag: AgendamentoServico) => {
+    setAgendamentos((prev) =>
+      prev.map((item) => (item.id === ag.id ? { ...item, status: "agendado" as const } : item))
+    );
+    const limpo = ag.clienteTelefone.replace(/\D/g, "");
+    const dataFormatada = ag.data.split("-").reverse().join("/");
+    const rawMsg =
+      `🏢 *${(companyName || "NOSSO ESTABELECIMENTO").toUpperCase()}*\n` +
+      `✅ *PRESENÇA CONFIRMADA COM SUCESSO!*\n\n` +
+      `Olá, *${ag.clienteNome}*! Sua vaga para o dia *${dataFormatada}* às *${ag.horario}* com *${ag.profissionalNome}* está 100% garantida e reservada no nosso sistema!\n\n` +
+      `Muito obrigado por confirmar sua presença com pontualidade. Até breve! ✨`;
+    const msg = encodeURIComponent(rawMsg);
+    window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
+    showNotification("Presença confirmada e comprovante enviado no WhatsApp! ✅", "success");
+  };
+
+  // WhatsApp Remarcar com Delicadeza
+  const handleRemarcarDelicadoWhatsApp = (ag: AgendamentoServico) => {
+    const limpo = ag.clienteTelefone.replace(/\D/g, "");
+    const dataFormatada = ag.data.split("-").reverse().join("/");
+    const rawMsg =
+      `🏢 *${(companyName || "NOSSO ESTABELECIMENTO").toUpperCase()}*\n` +
+      `🔄 *REMARCAÇÃO DE HORÁRIO COM TODA ATENÇÃO*\n\n` +
+      `Olá, *${ag.clienteNome}*! Tudo bem? Esperamos que esteja tudo ótimo com você!\n\n` +
+      `Devido a uma necessidade de ajuste imprevisto na nossa escala de atendimentos, gostaríamos de verificar com todo carinho a possibilidade de reagendarmos seu horário de *${dataFormatada} às ${ag.horario}* com *${ag.profissionalNome}*.\n\n` +
+      `Qual o melhor dia e período para você (manhã, tarde ou noite)? Pedimos sinceras desculpas e garantimos um atendimento especial para você! Muito obrigado(a) pela sua compreensão e parceria! 💛`;
+    const msg = encodeURIComponent(rawMsg);
+    window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
+    showNotification("Mensagem delicada de remarcação pronta no WhatsApp! 🔄", "info");
+  };
+
+  // WhatsApp Cancelar com Delicadeza
+  const handleCancelarDelicadoWhatsApp = (ag: AgendamentoServico) => {
+    setAgendamentos((prev) =>
+      prev.map((item) => (item.id === ag.id ? { ...item, status: "cancelado" as const } : item))
+    );
+    const limpo = ag.clienteTelefone.replace(/\D/g, "");
+    const dataFormatada = ag.data.split("-").reverse().join("/");
+    const rawMsg =
+      `🏢 *${(companyName || "NOSSO ESTABELECIMENTO").toUpperCase()}*\n` +
+      `🤍 *COMUNICADO DE CANCELAMENTO COM RESPEITO E CARINHO*\n\n` +
+      `Olá, *${ag.clienteNome}*! Esperamos que esteja bem!\n\n` +
+      `Informamos com todo respeito e delicadeza que o seu agendamento previsto para o dia *${dataFormatada} às ${ag.horario}* precisou ser desmarcado em nosso sistema.\n\n` +
+      `Lamentamos qualquer transtorno e queremos muito te atender assim que for conveniente para você. Quando desejar remarcar, nossa equipe estará totalmente à disposição!\n\n` +
+      `Agradecemos imensamente pelo carinho e compreensão! 🙏✨`;
+    const msg = encodeURIComponent(rawMsg);
+    window.open(`https://wa.me/55${limpo}?text=${msg}`, "_blank");
+    showNotification("Agendamento desmarcado e mensagem respeitosa enviada! 🤍", "info");
+  };
+
+  // WhatsApp Notificar Profissional
+  const handleNotificarProfissionalWhatsApp = (ag: AgendamentoServico) => {
+    const prof = profissionais.find((p) => p.id === ag.profissionalId);
+    const limpoProf = (prof?.telefone || "").replace(/\D/g, "");
+    const dataFormatada = ag.data.split("-").reverse().join("/");
+    const rawMsg =
+      `🚨 *AVISO DE ATENDIMENTO MARCADO NA AGENDA!*\n\n` +
+      `Olá, *${ag.profissionalNome}*! Fique atento(a) para organizar sua bancada e não haver atrasos:\n\n` +
+      `📅 *Data:* ${dataFormatada}\n` +
+      `⏰ *Horário:* ${ag.horario} ${ag.horarioFim ? `às ${ag.horarioFim}` : ""}\n` +
+      `👤 *Cliente:* ${ag.clienteNome} (${ag.clienteTelefone || "Sem telefone"})\n` +
+      `✂️ *Serviço:* ${ag.servico}\n` +
+      `💰 *Valor:* ${formatCurrency(ag.valor)}\n\n` +
+      `Mantenha sua pontualidade para encantar o cliente! Bom trabalho! 🔥`;
+    const msg = encodeURIComponent(rawMsg);
+    window.open(`https://wa.me/55${limpoProf}?text=${msg}`, "_blank");
+    showNotification(`Aviso enviado ao WhatsApp de ${ag.profissionalNome}! 📲`, "success");
   };
 
   // WhatsApp Comprovante de Encomenda
@@ -2264,6 +2539,211 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             </div>
           </div>
 
+          {/* PAINEL DIÁRIO DE GESTÃO, FATURAMENTO, GASTOS E TEMPO DE TRABALHO */}
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 shadow-xl space-y-4">
+            {/* Cabeçalho do Painel com Seletor de Data */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-white/5 pb-4">
+              <div>
+                <h4 className="text-white font-black text-sm uppercase tracking-wider flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  <span>Balanço Diário da Agenda & Lucro dos Profissionais</span>
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Estimativas diárias de faturamento, insumos/produtos, lucro líquido real e carga horária de atendimento.
+                </p>
+              </div>
+
+              {/* Controles de Navegação da Data */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date();
+                    d.setDate(d.getDate() - 1);
+                    setSelectedAgendaDate(d.toISOString().slice(0, 10));
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl text-[10.5px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer"
+                >
+                  Ontem
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedAgendaDate(new Date().toISOString().slice(0, 10));
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-[10.5px] font-black uppercase transition-all cursor-pointer ${
+                    selectedAgendaDate === new Date().toISOString().slice(0, 10)
+                      ? "bg-amber-500 text-slate-950 font-black shadow-sm"
+                      : "bg-slate-800 hover:bg-slate-700 text-slate-300"
+                  }`}
+                >
+                  Hoje
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date();
+                    d.setDate(d.getDate() + 1);
+                    setSelectedAgendaDate(d.toISOString().slice(0, 10));
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl text-[10.5px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer"
+                >
+                  Amanhã
+                </button>
+                <div className="flex items-center gap-1 bg-slate-950 px-2.5 py-1 rounded-xl border border-white/10">
+                  <CalendarIcon className="w-3.5 h-3.5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={selectedAgendaDate}
+                    onChange={(e) => setSelectedAgendaDate(e.target.value)}
+                    className="bg-transparent text-xs text-white font-bold outline-none cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 4 Cards de Métricas Diárias */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* Card 1: Faturamento Estimado */}
+              <div className="bg-slate-950/70 border border-emerald-500/20 p-3.5 rounded-2xl relative overflow-hidden group hover:border-emerald-500/40 transition-all">
+                <div className="flex items-center justify-between text-[11px] font-black text-emerald-400 uppercase tracking-wider mb-1">
+                  <span>Faturamento Estimado</span>
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-lg md:text-xl font-black text-white font-mono tracking-tight">
+                  {formatCurrency(metricasDia.faturamentoEstimado)}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                  <span className="text-emerald-400 font-bold">{formatCurrency(metricasDia.faturamentoConcluido)}</span>
+                  <span>já concluído no dia</span>
+                </div>
+              </div>
+
+              {/* Card 2: Gastos com Produtos e Insumos */}
+              <div className="bg-slate-950/70 border border-amber-500/20 p-3.5 rounded-2xl relative overflow-hidden group hover:border-amber-500/40 transition-all">
+                <div className="flex items-center justify-between text-[11px] font-black text-amber-400 uppercase tracking-wider mb-1">
+                  <span>Insumos & Produtos (~15%)</span>
+                  <PiggyBank className="w-4 h-4 text-amber-400" />
+                </div>
+                <div className="text-lg md:text-xl font-black text-amber-300 font-mono tracking-tight">
+                  {formatCurrency(metricasDia.custoInsumosEstimado)}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1 truncate">
+                  Cremes, descartáveis, tinturas & lâminas
+                </div>
+              </div>
+
+              {/* Card 3: Lucro Líquido Estimado */}
+              <div className="bg-slate-950/70 border border-cyan-500/20 p-3.5 rounded-2xl relative overflow-hidden group hover:border-cyan-500/40 transition-all">
+                <div className="flex items-center justify-between text-[11px] font-black text-cyan-400 uppercase tracking-wider mb-1">
+                  <span>Lucro Líquido Estimado</span>
+                  <Wallet className="w-4 h-4 text-cyan-400" />
+                </div>
+                <div className="text-lg md:text-xl font-black text-cyan-300 font-mono tracking-tight">
+                  {formatCurrency(metricasDia.lucroLiquidoEstimado)}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1 truncate">
+                  Margem limpa estimada do dia
+                </div>
+              </div>
+
+              {/* Card 4: Tempo de Trabalho Total */}
+              <div className="bg-slate-950/70 border border-indigo-500/20 p-3.5 rounded-2xl relative overflow-hidden group hover:border-indigo-500/40 transition-all">
+                <div className="flex items-center justify-between text-[11px] font-black text-indigo-400 uppercase tracking-wider mb-1">
+                  <span>Tempo de Trabalho</span>
+                  <Clock className="w-4 h-4 text-indigo-400" />
+                </div>
+                <div className="text-lg md:text-xl font-black text-indigo-300 font-mono tracking-tight">
+                  {metricasDia.tempoFormatado}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1 truncate">
+                  {metricasDia.totalAtivos} clientes no dia ({metricasDia.totalConcluidos} feitos)
+                </div>
+              </div>
+            </div>
+
+            {/* DESTAQUE: PRÓXIMO ATENDIMENTO HOJE COM ALERTA ANTI-ATRASO & AVISO AO PROFISSIONAL */}
+            {metricasDia.proximo && (
+              <div className="bg-gradient-to-r from-amber-500/10 via-slate-950 to-indigo-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-md">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0 border border-amber-500/30 font-black">
+                    <Bell className="w-5 h-5 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10.5px] uppercase font-black text-amber-400 tracking-wider">
+                        Próximo Atendimento em Destaque:
+                      </span>
+                      {metricasDia.minutosParaProximo !== null && (
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                          metricasDia.minutosParaProximo > 0
+                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                            : metricasDia.minutosParaProximo >= -30
+                            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                            : "bg-red-500/20 text-red-300 border border-red-500/40"
+                        }`}>
+                          {metricasDia.minutosParaProximo > 0
+                            ? `⏰ Faltam ${metricasDia.minutosParaProximo} min!`
+                            : metricasDia.minutosParaProximo >= -30
+                            ? "⚠️ Em Andamento Agora"
+                            : "⏳ Finalização"}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <h5 className="text-white font-black text-sm">{metricasDia.proximo.clienteNome}</h5>
+                      <span className="text-slate-400 text-xs">•</span>
+                      <span className="text-amber-300 font-bold text-xs">{metricasDia.proximo.horario}</span>
+                      <span className="text-slate-400 text-xs">•</span>
+                      <span className="text-slate-300 text-xs">{metricasDia.proximo.servico}</span>
+                      <span className="text-slate-400 text-xs">•</span>
+                      <span className="text-indigo-300 font-bold text-xs">{metricasDia.proximo.profissionalNome}</span>
+                      <span className="text-slate-400 text-xs">•</span>
+                      <span className="text-emerald-400 font-mono font-bold text-xs">{formatCurrency(metricasDia.proximo.valor)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Botões Rápidos de Ação Anti-Atraso */}
+                <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleLembrete2hAntiFaltaWhatsApp(metricasDia.proximo!)}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10.5px] font-black uppercase px-3 py-1.5 rounded-xl transition-all flex items-center gap-1 cursor-pointer shadow-sm"
+                    title="Enviar lembrete 2h no WhatsApp para evitar faltas"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>Lembrete 2h</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleNotificarProfissionalWhatsApp(metricasDia.proximo!)}
+                    className="bg-amber-600 hover:bg-amber-500 text-white text-[10.5px] font-black uppercase px-3 py-1.5 rounded-xl transition-all flex items-center gap-1 cursor-pointer shadow-sm"
+                    title="Avisar o profissional no WhatsApp para preparar bancada e evitar atrasos"
+                  >
+                    <Bell className="w-3.5 h-3.5" />
+                    <span>Avisar Profissional</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAgendamentos((prev) =>
+                        prev.map((item) =>
+                          item.id === metricasDia.proximo!.id ? { ...item, status: "concluido" as const } : item
+                        )
+                      );
+                      showNotification("Atendimento concluído com sucesso! ✂️✅", "success");
+                    }}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10.5px] font-black uppercase px-3 py-1.5 rounded-xl transition-all flex items-center gap-1 cursor-pointer border border-white/10"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Concluir</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* SELETOR DE MODO DE VISUALIZAÇÃO: GRADE DA AGENDA (TIMELINE DA FOTO) vs LISTA */}
           <div className="flex bg-slate-900 border border-white/10 p-1.5 rounded-2xl gap-1.5">
             <button
@@ -2316,7 +2796,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               />
             </div>
           ) : (
-            /* VISÃO EM LISTA RESUMIDA */
+            /* VISÃO EM LISTA RESUMIDA COMPLETA COM AÇÕES DO WHATSAPP */
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
                 <div>
@@ -2324,7 +2804,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                     Horários Agendados ({agendamentos.length})
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Horários confirmados com envio de lembrete no WhatsApp e lançamento no caixa.
+                    Lembretes anti-falta automáticos, aviso ao profissional, remarcação e controle de presença.
                   </p>
                 </div>
 
@@ -2345,75 +2825,178 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               </div>
 
               <div className="space-y-3">
-            {agendamentos.map((ag) => (
-              <div
-                key={ag.id}
-                className="bg-slate-900 border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg"
-              >
-                <div className="flex items-start gap-3.5">
-                  <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex flex-col items-center justify-center font-mono shrink-0 border border-indigo-500/20">
-                    <span className="text-[10px] uppercase font-bold">Hora</span>
-                    <span className="text-xs font-black">{ag.horario}</span>
+                {agendamentos.length === 0 ? (
+                  <div className="bg-slate-900 border border-white/10 rounded-2xl p-8 text-center text-slate-400">
+                    <CalendarIcon className="w-12 h-12 mx-auto mb-2 opacity-30 text-amber-400" />
+                    <p className="font-bold text-white text-sm">Nenhum agendamento marcado ainda</p>
+                    <p className="text-xs mt-1">Marque um novo horário acima ou compartilhe o link da sua agenda com seus clientes!</p>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="text-white font-black text-sm">{ag.clienteNome}</h4>
-                      <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md">
-                        {ag.servico}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
-                      <span>Data: <strong className="text-slate-200">{ag.data.split("-").reverse().join("/")}</strong></span>
-                      <span>•</span>
-                      <span>Profissional: <strong className="text-amber-300">{ag.profissionalNome}</strong></span>
-                      <span>•</span>
-                      <span>Valor: <strong className="text-emerald-400 font-mono">{formatCurrency(ag.valor)}</strong></span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  {ag.clienteTelefone && (
-                    <button
-                      onClick={() => handleLembreteWhatsApp(ag)}
-                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow cursor-pointer"
-                    >
-                      <MessageCircle className="w-3.5 h-3.5" />
-                      <span>Lembrar no WhatsApp</span>
-                    </button>
-                  )}
-
-                  <button
-                    onClick={() => {
-                      setAgendamentos((prev) =>
-                        prev.map((item) =>
-                          item.id === ag.id ? { ...item, status: "concluido" } : item
-                        )
-                      );
-                      showNotification("Atendimento concluído! ✂️✅", "success");
-                    }}
-                    className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                ) : (
+                  agendamentos.map((ag) => {
+                    const dur = ag.duracaoMinutos || 45;
+                    const statusBg =
                       ag.status === "concluido"
-                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                        : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>{ag.status === "concluido" ? "Concluído ✅" : "Concluir"}</span>
-                  </button>
+                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                        : ag.status === "cancelado"
+                        ? "bg-red-500/20 text-red-300 border-red-500/30"
+                        : "bg-indigo-500/20 text-indigo-300 border-indigo-500/30";
 
-                  <button
-                    onClick={() => {
-                      setAgendamentos((prev) => prev.filter((item) => item.id !== ag.id));
-                      showNotification("Agendamento excluído.", "info");
-                    }}
-                    className="p-2 text-slate-500 hover:text-red-400 rounded-xl hover:bg-red-500/10 transition-all cursor-pointer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+                    return (
+                      <div
+                        key={ag.id}
+                        className={`bg-slate-900 border rounded-2xl p-4 flex flex-col gap-3 shadow-lg transition-all ${
+                          ag.status === "concluido" ? "border-emerald-500/30 opacity-90" : ag.status === "cancelado" ? "border-red-500/20 opacity-60" : "border-white/10 hover:border-amber-500/30"
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-start gap-3.5">
+                            <div className="w-14 h-14 rounded-xl bg-indigo-500/10 text-indigo-400 flex flex-col items-center justify-center font-mono shrink-0 border border-indigo-500/20">
+                              <span className="text-[9.5px] uppercase font-bold text-slate-400">Início</span>
+                              <span className="text-xs font-black text-white">{ag.horario}</span>
+                              {ag.horarioFim && (
+                                <span className="text-[9px] text-indigo-300 font-bold">{ag.horarioFim}</span>
+                              )}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="text-white font-black text-sm">{ag.clienteNome}</h4>
+                                <span className="text-[10px] text-amber-300 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md">
+                                  {ag.servico}
+                                </span>
+                                <span className="text-[9.5px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded-md">
+                                  ⏱️ {dur} min
+                                </span>
+                                <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-md border ${statusBg}`}>
+                                  {ag.status === "concluido" ? "Concluído ✅" : ag.status === "cancelado" ? "Cancelado" : "Agendado"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
+                                <span>Data: <strong className="text-slate-200">{ag.data.split("-").reverse().join("/")}</strong></span>
+                                <span>•</span>
+                                <span>Profissional: <strong className="text-amber-300">{ag.profissionalNome}</strong></span>
+                                <span>•</span>
+                                <span>Valor: <strong className="text-emerald-400 font-mono">{formatCurrency(ag.valor)}</strong></span>
+                                <span>•</span>
+                                <span className="text-cyan-400 text-[10.5px]">Líq. Est.: <strong className="font-mono">{formatCurrency(ag.valor * 0.85)}</strong></span>
+                                {ag.clienteTelefone && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-slate-300 font-mono text-[11px]">{ag.clienteTelefone}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Ações de Estado */}
+                          <div className="flex items-center gap-1.5 self-end sm:self-center">
+                            <button
+                              onClick={() => {
+                                setAgendamentos((prev) =>
+                                  prev.map((item) =>
+                                    item.id === ag.id
+                                      ? { ...item, status: item.status === "concluido" ? ("agendado" as const) : ("concluido" as const) }
+                                      : item
+                                  )
+                                );
+                                showNotification("Status do atendimento atualizado!", "success");
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                                ag.status === "concluido"
+                                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                              }`}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>{ag.status === "concluido" ? "Concluído" : "Concluir"}</span>
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setAgendamentos((prev) => prev.filter((item) => item.id !== ag.id));
+                                showNotification("Agendamento excluído da lista.", "info");
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-red-400 rounded-xl hover:bg-red-500/10 transition-all cursor-pointer"
+                              title="Excluir da lista"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* BARRA DE AÇÕES RÁPIDAS DO WHATSAPP (1-TOQUE) */}
+                        <div className="bg-slate-950/80 p-2.5 rounded-xl border border-white/5 flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1">
+                            <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>WhatsApp Automático:</span>
+                          </span>
+
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleLembrete24hWhatsApp(ag)}
+                              className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer active:scale-95 touch-manipulation"
+                              title="Lembrete enviado 1 dia antes para confirmar comparecimento"
+                            >
+                              <Bell className="w-3 h-3" />
+                              <span>🔔 24h</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleLembrete2hAntiFaltaWhatsApp(ag)}
+                              className="bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/30 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer active:scale-95 touch-manipulation"
+                              title="Lembrete enviado 2 horas antes com tolerância para evitar no-show"
+                            >
+                              <Clock className="w-3 h-3" />
+                              <span>⏰ 2h (Anti-Falta)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleConfirmarPresencaWhatsApp(ag)}
+                              className="bg-teal-500/20 hover:bg-teal-500 text-teal-300 hover:text-slate-950 border border-teal-500/30 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer active:scale-95 touch-manipulation"
+                              title="Confirmar vaga e enviar comprovante de presença"
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>✅ Confirmar</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemarcarDelicadoWhatsApp(ag)}
+                              className="bg-blue-500/20 hover:bg-blue-500 text-blue-300 hover:text-white border border-blue-500/30 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer active:scale-95 touch-manipulation"
+                              title="Mensagem carinhosa e delicada para propor reagendamento"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              <span>🔄 Remarcar</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleCancelarDelicadoWhatsApp(ag)}
+                              className="bg-red-500/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer active:scale-95 touch-manipulation"
+                              title="Comunicado delicado e respeitoso de cancelamento de horário"
+                            >
+                              <Heart className="w-3 h-3" />
+                              <span>🤍 Cancelar</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleNotificarProfissionalWhatsApp(ag)}
+                              className="bg-indigo-500/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer active:scale-95 touch-manipulation"
+                              title="Avisar o profissional sobre o horário para preparar produtos e evitar atrasos"
+                            >
+                              <User className="w-3 h-3" />
+                              <span>🚨 Avisar Profissional</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           )}
