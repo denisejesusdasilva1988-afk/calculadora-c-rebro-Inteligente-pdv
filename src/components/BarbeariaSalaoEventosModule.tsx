@@ -12,7 +12,7 @@
  * 5. Módulo de Encomendas para Festas & Eventos (Bolos, Salgados, Doces, Kits, Sinal e Saldo)
  */
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Scissors,
   Users,
@@ -73,6 +73,7 @@ import {
   getIsFirestoreQuotaPaused,
   markFirestoreQuotaPaused
 } from "../utils/firestoreQuotaManager";
+import { getScopedItem, setScopedItem } from "../utils/userScopedStorage";
 
 // Helper para remover recursivamente valores undefined antes de enviar ao Firestore
 export const cleanUndefinedForFirestore = (obj: any): any => {
@@ -410,9 +411,164 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       if (biz && validSegments.includes(biz)) {
         return biz as any;
       }
+      const pdvSeg = localStorage.getItem("pdv_selected_segment");
+      if (pdvSeg) {
+        if (pdvSeg === "salao_beleza") return "salao";
+        if (pdvSeg === "doces" || pdvSeg === "salgados") return "festas";
+        if (validSegments.includes(pdvSeg)) return pdvSeg as any;
+      }
     } catch {}
     return "todos";
   });
+
+  // Estado de trava do segmento (Fixar Meu Segmento 🔒)
+  const [isSegmentLocked, setIsSegmentLocked] = useState<boolean>(() => {
+    try {
+      const barLocked = localStorage.getItem("barbearia_segment_locked");
+      if (barLocked !== null) return barLocked === "true";
+      if (userId && userId !== "guest_visitor") {
+        const scoped = getScopedItem("pdv_niche_locked", userId);
+        if (scoped !== null && scoped !== undefined) return scoped === "true";
+      }
+      return localStorage.getItem("pdv_niche_locked") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  // Sincronização entre abas e módulos do segmento e trava
+  useEffect(() => {
+    const handleSyncSegmentFromStorage = () => {
+      try {
+        const validSegments = [
+          "todos",
+          "barbearia",
+          "salao",
+          "esteticista",
+          "manicure",
+          "podologia",
+          "terapia_ocupacional",
+          "psicologia",
+          "nutricionista",
+          "festas"
+        ];
+        const barLocked = localStorage.getItem("barbearia_segment_locked");
+        const pdvLocked = localStorage.getItem("pdv_niche_locked");
+        if (barLocked !== null) {
+          setIsSegmentLocked(barLocked === "true");
+        } else if (pdvLocked !== null) {
+          setIsSegmentLocked(pdvLocked === "true");
+        }
+
+        const saved = localStorage.getItem("barbearia_selected_segment");
+        if (saved && validSegments.includes(saved)) {
+          setSegmentFilter(saved as any);
+        } else {
+          const pdvSeg = localStorage.getItem("pdv_selected_segment");
+          if (pdvSeg === "salao_beleza") setSegmentFilter("salao");
+          else if (pdvSeg === "doces" || pdvSeg === "salgados") setSegmentFilter("festas");
+          else if (pdvSeg && validSegments.includes(pdvSeg)) setSegmentFilter(pdvSeg as any);
+        }
+      } catch {}
+    };
+
+    window.addEventListener("pdv_segment_changed", handleSyncSegmentFromStorage);
+    window.addEventListener("storage", handleSyncSegmentFromStorage);
+    return () => {
+      window.removeEventListener("pdv_segment_changed", handleSyncSegmentFromStorage);
+      window.removeEventListener("storage", handleSyncSegmentFromStorage);
+    };
+  }, []);
+
+  const toggleSegmentLock = useCallback(async () => {
+    const next = !isSegmentLocked;
+    setIsSegmentLocked(next);
+    try {
+      localStorage.setItem("barbearia_segment_locked", next ? "true" : "false");
+      localStorage.setItem("pdv_niche_locked", next ? "true" : "false");
+      if (userId && userId !== "guest_visitor") {
+        setScopedItem("pdv_niche_locked", next ? "true" : "false", userId);
+      }
+    } catch {}
+
+    const segLabel = segmentFilter === "todos" ? "Todos os Segmentos" : (NEGOCIOS_SEGMENTOS_CONFIG[segmentFilter]?.nomeCompleto || segmentFilter);
+
+    if (next) {
+      showNotification(`Segmento fixado em "${segLabel}"! O segmento não mudará por acidente. 🔒`, "success");
+    } else {
+      showNotification(`Trava de segmento liberada. Você pode escolher outro segmento agora. 🔓`, "info");
+    }
+
+    // Persistir no Firestore
+    if (userId && userId !== "guest_visitor" && db && !getIsFirestoreQuotaPaused()) {
+      try {
+        await setDoc(
+          doc(db, "userData", userId),
+          {
+            barbeariaSegmentoLocked: next,
+            isNicheLocked: next,
+            barbeariaSegmento: segmentFilter,
+            pdvSelectedSegment: segmentFilter === "todos" ? "comercio_geral" : segmentFilter,
+            updatedAt: new Date().toISOString()
+          },
+          { merge: true }
+        );
+      } catch (e: any) {
+        if (isQuotaExhaustedError(e)) markFirestoreQuotaPaused();
+      }
+    }
+
+    window.dispatchEvent(new Event("pdv_segment_changed"));
+    window.dispatchEvent(new Event("storage"));
+  }, [isSegmentLocked, segmentFilter, userId, db, showNotification]);
+
+  const handleSelectSegment = useCallback(async (newSeg: "todos" | NegocioSegmento) => {
+    if (isSegmentLocked && newSeg !== segmentFilter) {
+      const curLabel = segmentFilter === "todos" ? "Todos os Segmentos" : (NEGOCIOS_SEGMENTOS_CONFIG[segmentFilter]?.nomeCompleto || segmentFilter);
+      showNotification(`🔒 O segmento está fixado em "${curLabel}"! Destrave a trava acima para trocar de segmento.`, "error");
+      return;
+    }
+
+    setSegmentFilter(newSeg);
+    if (newSeg === "festas") {
+      setActiveTab("encomendas");
+    } else if (activeTab === "encomendas" && newSeg !== "todos") {
+      setActiveTab("profissionais");
+    }
+
+    try {
+      localStorage.setItem("barbearia_selected_segment", newSeg);
+      localStorage.setItem("pdv_business_segment", newSeg);
+      if (newSeg !== "todos") {
+        localStorage.setItem("pdv_selected_segment", newSeg);
+        if (userId && userId !== "guest_visitor") {
+          setScopedItem("pdv_selected_segment", newSeg, userId);
+        }
+      }
+    } catch {}
+
+    if (userId && userId !== "guest_visitor" && db && !getIsFirestoreQuotaPaused()) {
+      try {
+        await setDoc(
+          doc(db, "userData", userId),
+          {
+            barbeariaSegmento: newSeg,
+            pdvSelectedSegment: newSeg === "todos" ? "comercio_geral" : newSeg,
+            updatedAt: new Date().toISOString()
+          },
+          { merge: true }
+        );
+      } catch (e: any) {
+        if (isQuotaExhaustedError(e)) markFirestoreQuotaPaused();
+      }
+    }
+
+    const newLabel = newSeg === "todos" ? "Todos os Segmentos" : (NEGOCIOS_SEGMENTOS_CONFIG[newSeg]?.nomeCompleto || newSeg);
+    showNotification(`Segmento alterado para ${newLabel}! ✨`, "success");
+
+    window.dispatchEvent(new Event("pdv_segment_changed"));
+    window.dispatchEvent(new Event("storage"));
+  }, [isSegmentLocked, segmentFilter, activeTab, userId, db, showNotification]);
 
   // Modais de Mensagens WhatsApp
   const [isPersonalizarParabensOpen, setIsPersonalizarParabensOpen] = useState(false);
@@ -620,13 +776,44 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       const next = prev.map((p) => (p.id === profAtualizado.id ? profAtualizado : p));
       try {
         localStorage.setItem(`${storagePrefix}profissionais_customized`, "true");
+        localStorage.setItem("barbearia_profissionais_customized", "true");
         localStorage.setItem(`${storagePrefix}profissionais`, JSON.stringify(next));
+        localStorage.setItem("barbearia_guest_profissionais", JSON.stringify(next));
+        localStorage.setItem("barbearia_public_profissionais", JSON.stringify(next));
+        localStorage.setItem("barbearia_compartilhada_profissionais", JSON.stringify(next));
+        localStorage.setItem(`barbearia_${storeId}_profissionais`, JSON.stringify(next));
+
+        const cleanProfs = next.filter((p) => !isMockProf(p));
+        const publicData = {
+          storeId,
+          companyName: companyName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(companyName) ? companyName : "",
+          companyLogo: companyLogo || "",
+          companyPhone: companyPhone || "",
+          profissionais: cleanProfs,
+          agendamentos: agendamentos.filter((a) => !["ag_1", "ag_2", "ag_3"].includes(a.id)),
+          isOnlineBookingActive: isPublicAgendaActive,
+          updatedAt: new Date().toISOString()
+        };
+        localStorage.setItem(`agenda_publica_${storeId}`, JSON.stringify(publicData));
+
+        if (db) {
+          safeFirestoreSetDoc(doc(db, "agendas_publicas", storeId), publicData);
+          if (userId && userId !== "guest_visitor") {
+            safeFirestoreSetDoc(doc(db, "userData", userId), {
+              barbeariaProfissionais: cleanProfs,
+              barbeariaProfissionaisCustomized: true
+            });
+          }
+        }
+
+        window.dispatchEvent(new CustomEvent("agenda_updated", { detail: { profissional: profAtualizado } }));
+        window.dispatchEvent(new Event("storage"));
       } catch (err) {
         console.error("Erro ao salvar profissionais no localStorage:", err);
       }
       return next;
     });
-    showNotification(`Agenda de ${profAtualizado.nome} atualizada com sucesso! ✂️📅`, "success");
+    showNotification(`Agenda e horários de ${profAtualizado.nome} atualizados com sucesso! ✂️📅`, "success");
   };
 
   const handleCompanyLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -799,6 +986,20 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             if (cp.instagram) setCompanyInstagram(cp.instagram);
             if (cp.facebook) setCompanyFacebook(cp.facebook);
             if (cp.website) setCompanyWebsite(cp.website);
+          }
+          if (d.barbeariaSegmento) {
+            setSegmentFilter(d.barbeariaSegmento);
+            localStorage.setItem("barbearia_selected_segment", d.barbeariaSegmento);
+            localStorage.setItem("pdv_business_segment", d.barbeariaSegmento);
+          }
+          if (d.barbeariaSegmentoLocked !== undefined || d.isNicheLocked !== undefined) {
+            const locked = Boolean(d.barbeariaSegmentoLocked ?? d.isNicheLocked);
+            setIsSegmentLocked(locked);
+            localStorage.setItem("barbearia_segment_locked", locked ? "true" : "false");
+            localStorage.setItem("pdv_niche_locked", locked ? "true" : "false");
+            if (userId && userId !== "guest_visitor") {
+              setScopedItem("pdv_niche_locked", locked ? "true" : "false", userId);
+            }
           }
         }
 
@@ -1679,19 +1880,52 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     };
     saveCompanyProfile(updated, userId);
     localStorage.setItem("pdv_company_link", companyInstagram || companyWebsite || companyFacebook || "");
+    if (companyName) localStorage.setItem("pdv_store_name", companyName);
+    if (companyPhone) {
+      localStorage.setItem("pdv_store_phone", companyPhone);
+      localStorage.setItem("pdv_store_whatsapp", companyPhone);
+    }
+    if (companyLogo) localStorage.setItem("pdv_company_logo", companyLogo);
+
+    // Atualiza imediatamente a agenda pública e portal do cliente
+    try {
+      const cleanProfs = profissionais.filter((p) => !isMockProf(p));
+      const publicData = {
+        storeId,
+        companyName: companyName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(companyName) ? companyName : "",
+        companyLogo: companyLogo || "",
+        companyPhone: companyPhone || "",
+        profissionais: cleanProfs,
+        agendamentos: agendamentos.filter((a) => !["ag_1", "ag_2", "ag_3"].includes(a.id)),
+        isOnlineBookingActive: isPublicAgendaActive,
+        updatedAt: new Date().toISOString()
+      };
+      localStorage.setItem(`agenda_publica_${storeId}`, JSON.stringify(publicData));
+      if (db) {
+        safeFirestoreSetDoc(doc(db, "agendas_publicas", storeId), publicData);
+      }
+    } catch (e) {
+      console.warn("Erro ao sincronizar dados da empresa na agenda pública:", e);
+    }
     
     // Salvar no Firestore se logado
     if (userId && userId !== "guest_visitor" && db) {
       await safeFirestoreSetDoc(doc(db, "userData", userId), {
         companyProfile: updated,
         storeName: companyName,
-        barbeariaProfissionais: profissionais,
+        barbeariaProfissionais: profissionais.filter((p) => !isMockProf(p)),
         barbeariaAgendamentos: agendamentos,
         barbeariaEncomendas: encomendas,
         barbeariaAniversarios: aniversarios,
         updatedAt: new Date().toISOString()
       });
     }
+
+    window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", {
+      detail: { logoUrl: companyLogo, name: companyName, phone: companyPhone }
+    }));
+    window.dispatchEvent(new CustomEvent("agenda_updated"));
+    window.dispatchEvent(new Event("storage"));
 
     showNotification("Dados e redes sociais da empresa gravados com sucesso na memória do app e nuvem! 🏢💾✅", "success");
   };
@@ -1799,15 +2033,50 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           </div>
         </div>
 
-        {/* Botões dos 4 Segmentos + Todos */}
-        {/* Botões dos 8 Segmentos Separados + Todos */}
+        {/* Banner de Fixação / Trava de Segmento */}
+        <div className="bg-slate-950/90 border border-amber-500/30 p-3.5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+          <div className="flex items-center gap-3">
+            <div className={`p-2.5 rounded-xl shrink-0 ${isSegmentLocked ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-slate-800 text-slate-400"}`}>
+              {isSegmentLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Segmento Ativo:</span>
+                <span className="text-xs font-black uppercase text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-lg border border-amber-500/20 font-mono">
+                  {segmentFilter === "todos" ? "✨ Todos os Segmentos" : (NEGOCIOS_SEGMENTOS_CONFIG[segmentFilter]?.nomeCompleto || segmentFilter)}
+                </span>
+                {isSegmentLocked && (
+                  <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1 font-mono">
+                    <CheckCircle2 className="w-3 h-3" /> Fixado com Segurança
+                  </span>
+                )}
+              </div>
+              <p className="text-[10.5px] text-slate-400 font-medium mt-0.5">
+                {isSegmentLocked
+                  ? "Segmento fixado! Nenhum clique acidental alterará o ramo da sua equipe e serviços."
+                  : "Trava liberada: ao clicar em outro segmento abaixo, seu negócio será alterado."}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={toggleSegmentLock}
+            className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-md shrink-0 active:scale-95 ${
+              isSegmentLocked
+                ? "bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-amber-500/20"
+                : "bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30"
+            }`}
+          >
+            {isSegmentLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+            <span>{isSegmentLocked ? "Destravar Segmento 🔓" : "Fixar Meu Segmento 🔒"}</span>
+          </button>
+        </div>
+
+        {/* Botões dos 9 Segmentos Separados + Todos */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
           <button
             type="button"
-            onClick={() => {
-              setSegmentFilter("todos");
-              localStorage.setItem("barbearia_selected_segment", "todos");
-            }}
+            onClick={() => handleSelectSegment("todos")}
             className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "todos"
                 ? "bg-slate-800 text-white border-white/30 shadow-md ring-2 ring-white/10"
@@ -1815,15 +2084,12 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             }`}
           >
             <span>✨ Todos</span>
+            {segmentFilter === "todos" && isSegmentLocked && <Lock className="w-3 h-3 text-amber-400 ml-0.5" />}
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              setSegmentFilter("barbearia");
-              localStorage.setItem("barbearia_selected_segment", "barbearia");
-              if (activeTab === "encomendas") setActiveTab("profissionais");
-            }}
+            onClick={() => handleSelectSegment("barbearia")}
             className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "barbearia"
                 ? "bg-amber-500 text-slate-950 border-amber-400 font-black shadow-lg shadow-amber-500/20 ring-2 ring-amber-400/30"
@@ -1831,15 +2097,12 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             }`}
           >
             <span>💈 Barbeiro</span>
+            {segmentFilter === "barbearia" && isSegmentLocked && <Lock className="w-3 h-3 text-slate-950 ml-0.5" />}
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              setSegmentFilter("salao");
-              localStorage.setItem("barbearia_selected_segment", "salao");
-              if (activeTab === "encomendas") setActiveTab("profissionais");
-            }}
+            onClick={() => handleSelectSegment("salao")}
             className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "salao"
                 ? "bg-purple-600 text-white border-purple-400 font-black shadow-lg shadow-purple-600/20 ring-2 ring-purple-400/30"
@@ -1847,15 +2110,12 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             }`}
           >
             <span>💇‍♀️ Salão Beleza</span>
+            {segmentFilter === "salao" && isSegmentLocked && <Lock className="w-3 h-3 text-white ml-0.5" />}
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              setSegmentFilter("esteticista");
-              localStorage.setItem("barbearia_selected_segment", "esteticista");
-              if (activeTab === "encomendas") setActiveTab("profissionais");
-            }}
+            onClick={() => handleSelectSegment("esteticista")}
             className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "esteticista"
                 ? "bg-rose-500 text-white border-rose-400 font-black shadow-lg shadow-rose-500/20 ring-2 ring-rose-400/30"
@@ -1863,15 +2123,12 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             }`}
           >
             <span>✨ Esteticista</span>
+            {segmentFilter === "esteticista" && isSegmentLocked && <Lock className="w-3 h-3 text-white ml-0.5" />}
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              setSegmentFilter("manicure");
-              localStorage.setItem("barbearia_selected_segment", "manicure");
-              if (activeTab === "encomendas") setActiveTab("profissionais");
-            }}
+            onClick={() => handleSelectSegment("manicure")}
             className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "manicure"
                 ? "bg-pink-600 text-white border-pink-400 font-black shadow-lg shadow-pink-600/20 ring-2 ring-pink-400/30"
@@ -1879,15 +2136,12 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             }`}
           >
             <span>💅 Manicure</span>
+            {segmentFilter === "manicure" && isSegmentLocked && <Lock className="w-3 h-3 text-white ml-0.5" />}
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              setSegmentFilter("podologia");
-              localStorage.setItem("barbearia_selected_segment", "podologia");
-              if (activeTab === "encomendas") setActiveTab("profissionais");
-            }}
+            onClick={() => handleSelectSegment("podologia")}
             className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "podologia"
                 ? "bg-teal-600 text-white border-teal-400 font-black shadow-lg shadow-teal-600/20 ring-2 ring-teal-400/30"
@@ -1895,15 +2149,12 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             }`}
           >
             <span>🦶 Podologia</span>
+            {segmentFilter === "podologia" && isSegmentLocked && <Lock className="w-3 h-3 text-white ml-0.5" />}
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              setSegmentFilter("terapia_ocupacional");
-              localStorage.setItem("barbearia_selected_segment", "terapia_ocupacional");
-              if (activeTab === "encomendas") setActiveTab("profissionais");
-            }}
+            onClick={() => handleSelectSegment("terapia_ocupacional")}
             className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "terapia_ocupacional"
                 ? "bg-cyan-600 text-white border-cyan-400 font-black shadow-lg shadow-cyan-600/20 ring-2 ring-cyan-400/30"
@@ -1911,15 +2162,12 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             }`}
           >
             <span>🧩 T. Ocupacional</span>
+            {segmentFilter === "terapia_ocupacional" && isSegmentLocked && <Lock className="w-3 h-3 text-white ml-0.5" />}
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              setSegmentFilter("psicologia");
-              localStorage.setItem("barbearia_selected_segment", "psicologia");
-              if (activeTab === "encomendas") setActiveTab("profissionais");
-            }}
+            onClick={() => handleSelectSegment("psicologia")}
             className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "psicologia"
                 ? "bg-indigo-600 text-white border-indigo-400 font-black shadow-lg shadow-indigo-600/20 ring-2 ring-indigo-400/30"
@@ -1927,15 +2175,12 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             }`}
           >
             <span>🧠 Psicologia</span>
+            {segmentFilter === "psicologia" && isSegmentLocked && <Lock className="w-3 h-3 text-white ml-0.5" />}
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              setSegmentFilter("nutricionista");
-              localStorage.setItem("barbearia_selected_segment", "nutricionista");
-              if (activeTab === "encomendas") setActiveTab("profissionais");
-            }}
+            onClick={() => handleSelectSegment("nutricionista")}
             className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               segmentFilter === "nutricionista"
                 ? "bg-emerald-600 text-white border-emerald-400 font-black shadow-lg shadow-emerald-600/20 ring-2 ring-emerald-400/30"
@@ -1943,15 +2188,12 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             }`}
           >
             <span>🥗 Nutricionista</span>
+            {segmentFilter === "nutricionista" && isSegmentLocked && <Lock className="w-3 h-3 text-white ml-0.5" />}
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              setSegmentFilter("festas");
-              localStorage.setItem("barbearia_selected_segment", "festas");
-              setActiveTab("encomendas");
-            }}
+            onClick={() => handleSelectSegment("festas")}
             className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer col-span-2 sm:col-span-1 ${
               segmentFilter === "festas"
                 ? "bg-rose-600 text-white border-rose-400 font-black shadow-lg shadow-rose-600/20 ring-2 ring-rose-400/30"
@@ -1959,6 +2201,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             }`}
           >
             <span>🎂 Festas & Eventos</span>
+            {segmentFilter === "festas" && isSegmentLocked && <Lock className="w-3 h-3 text-white ml-0.5" />}
           </button>
         </div>
       </div>

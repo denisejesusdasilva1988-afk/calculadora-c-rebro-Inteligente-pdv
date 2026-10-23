@@ -12,7 +12,7 @@
  * 5. Horários reservados e horários indisponíveis personalizados
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   X,
   Clock,
@@ -101,6 +101,25 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
   const [novoMotivo, setNovoMotivo] = useState("Horário Reservado");
   const [novaData, setNovaData] = useState("");
   const [novoTipo, setNovoTipo] = useState<"reservado" | "indisponivel" | "almoco" | "folga">("reservado");
+
+  // Sincronizar estados sempre que o profissional ou abertura da modal mudar
+  useEffect(() => {
+    if (profissional && isOpen) {
+      setHoraInicio(profissional.horaInicio || "08:00");
+      setHoraFim(profissional.horaFim || "20:00");
+      setDiasSemana(
+        profissional.diasSemana && profissional.diasSemana.length > 0
+          ? [...profissional.diasSemana]
+          : [1, 2, 3, 4, 5, 6]
+      );
+      setTemAlmoco(Boolean(profissional.intervaloInicio && profissional.intervaloFim));
+      setIntervaloInicio(profissional.intervaloInicio || "12:00");
+      setIntervaloFim(profissional.intervaloFim || "13:30");
+      setIntervaloMotivo(profissional.intervaloMotivo || "Horário de almoço");
+      setBloqueios(profissional.bloqueiosPersonalizados ? [...profissional.bloqueiosPersonalizados] : []);
+      setDuracaoPadraoMinutos(Number(profissional.duracaoPadraoMinutos) || 40);
+    }
+  }, [profissional, isOpen]);
 
   if (!isOpen) return null;
 
@@ -243,25 +262,25 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
               </label>
 
               {/* Botões Rápidos */}
-              <div className="flex items-center gap-1 text-[10px]">
+              <div className="flex items-center gap-1.5 text-[10px]">
                 <button
                   type="button"
                   onClick={() => setPresetDias("ter-sab")}
-                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-all"
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 touch-manipulation text-slate-300 font-bold transition-all cursor-pointer"
                 >
                   Ter-Sáb
                 </button>
                 <button
                   type="button"
                   onClick={() => setPresetDias("seg-sab")}
-                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-all"
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 touch-manipulation text-slate-300 font-bold transition-all cursor-pointer"
                 >
                   Seg-Sáb
                 </button>
                 <button
                   type="button"
                   onClick={() => setPresetDias("todos")}
-                  className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-all"
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 touch-manipulation text-slate-300 font-bold transition-all cursor-pointer"
                 >
                   Todos
                 </button>
@@ -276,7 +295,7 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
                     key={d.dia}
                     type="button"
                     onClick={() => toggleDia(d.dia)}
-                    className={`p-2.5 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer border ${
+                    className={`p-2.5 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer border touch-manipulation active:scale-95 select-none ${
                       ativo
                         ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-md shadow-emerald-950/50"
                         : "bg-slate-900/80 text-slate-500 border-white/5 hover:border-white/10 opacity-60"
@@ -308,34 +327,50 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
                 <span className="text-[11px] font-bold text-slate-400">
                   ⏰ Hora que Abre a Agenda (Primeiro Horário):
                 </span>
-                <select
-                  value={horaInicio}
-                  onChange={(e) => setHoraInicio(e.target.value)}
-                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-amber-500"
-                >
-                  {OPCOES_HORAS.map((h) => (
-                    <option key={`ini_${h}`} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="time"
+                    value={horaInicio}
+                    onChange={(e) => setHoraInicio(e.target.value)}
+                    className="flex-1 bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-amber-500 font-mono"
+                  />
+                  <select
+                    value={horaInicio}
+                    onChange={(e) => setHoraInicio(e.target.value)}
+                    className="w-28 bg-slate-900 border border-white/10 rounded-xl px-2 py-2 text-xs text-slate-300 font-bold outline-none focus:border-amber-500"
+                  >
+                    {OPCOES_HORAS.map((h) => (
+                      <option key={`ini_${h}`} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="space-y-1.5">
                 <span className="text-[11px] font-bold text-slate-400">
                   🛑 Hora que Fecha a Agenda (Último Horário):
                 </span>
-                <select
-                  value={horaFim}
-                  onChange={(e) => setHoraFim(e.target.value)}
-                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-amber-500"
-                >
-                  {OPCOES_HORAS.map((h) => (
-                    <option key={`fim_${h}`} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="time"
+                    value={horaFim}
+                    onChange={(e) => setHoraFim(e.target.value)}
+                    className="flex-1 bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-amber-500 font-mono"
+                  />
+                  <select
+                    value={horaFim}
+                    onChange={(e) => setHoraFim(e.target.value)}
+                    className="w-28 bg-slate-900 border border-white/10 rounded-xl px-2 py-2 text-xs text-slate-300 font-bold outline-none focus:border-amber-500"
+                  >
+                    {OPCOES_HORAS.map((h) => (
+                      <option key={`fim_${h}`} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
             <p className="text-[10px] text-slate-400">
@@ -377,7 +412,7 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
                   key={preset.min}
                   type="button"
                   onClick={() => setDuracaoPadraoMinutos(preset.min)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border touch-manipulation active:scale-95 ${
                     Number(duracaoPadraoMinutos) === preset.min
                       ? "bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-950/40 ring-2 ring-cyan-400/30"
                       : "bg-slate-900 text-slate-400 border-white/5 hover:text-white hover:bg-slate-800"
@@ -418,7 +453,7 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
               <button
                 type="button"
                 onClick={() => setTemAlmoco(!temAlmoco)}
-                className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer ${
+                className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer touch-manipulation active:scale-95 ${
                   temAlmoco
                     ? "bg-orange-500/20 text-orange-300 border border-orange-500/40"
                     : "bg-slate-800 text-slate-400 border border-white/5"
@@ -432,32 +467,48 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div className="space-y-1">
                   <span className="text-[10.5px] font-bold text-slate-400">Início do Almoço:</span>
-                  <select
-                    value={intervaloInicio}
-                    onChange={(e) => setIntervaloInicio(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-orange-500"
-                  >
-                    {OPCOES_HORAS.map((h) => (
-                      <option key={`alm_ini_${h}`} value={h}>
-                        {h}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="time"
+                      value={intervaloInicio}
+                      onChange={(e) => setIntervaloInicio(e.target.value)}
+                      className="flex-1 bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-orange-500 font-mono"
+                    />
+                    <select
+                      value={intervaloInicio}
+                      onChange={(e) => setIntervaloInicio(e.target.value)}
+                      className="w-28 bg-slate-900 border border-white/10 rounded-xl px-2 py-2 text-xs text-slate-300 font-bold outline-none focus:border-orange-500"
+                    >
+                      {OPCOES_HORAS.map((h) => (
+                        <option key={`alm_ini_${h}`} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="space-y-1">
                   <span className="text-[10.5px] font-bold text-slate-400">Fim do Almoço:</span>
-                  <select
-                    value={intervaloFim}
-                    onChange={(e) => setIntervaloFim(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-orange-500"
-                  >
-                    {OPCOES_HORAS.map((h) => (
-                      <option key={`alm_fim_${h}`} value={h}>
-                        {h}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="time"
+                      value={intervaloFim}
+                      onChange={(e) => setIntervaloFim(e.target.value)}
+                      className="flex-1 bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-orange-500 font-mono"
+                    />
+                    <select
+                      value={intervaloFim}
+                      onChange={(e) => setIntervaloFim(e.target.value)}
+                      className="w-28 bg-slate-900 border border-white/10 rounded-xl px-2 py-2 text-xs text-slate-300 font-bold outline-none focus:border-orange-500"
+                    >
+                      {OPCOES_HORAS.map((h) => (
+                        <option key={`alm_fim_${h}`} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
             )}
