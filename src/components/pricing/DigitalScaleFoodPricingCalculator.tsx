@@ -891,8 +891,19 @@ export function DigitalScaleFoodPricingCalculator({
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(val || 0)
   );
 
-  // Active Recipe State
-  const [activeRecipe, setActiveRecipe] = useState<FoodRecipePreset>(FOOD_PRESETS[0]);
+  // Active Recipe State com recuperação de rascunho para não perder receitas de família digitadas
+  const [activeRecipe, setActiveRecipe] = useState<FoodRecipePreset>(() => {
+    try {
+      const draft = localStorage.getItem("culinary_food_recipes_active_draft");
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        if (parsed && parsed.name && Array.isArray(parsed.ingredients) && parsed.ingredients.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return FOOD_PRESETS[0];
+  });
   const [selectedPresetId, setSelectedPresetId] = useState<string>("coxinha_frango");
   const [savedRecipes, setSavedRecipes] = useState<FoodRecipePreset[]>(() => {
     try {
@@ -902,6 +913,13 @@ export function DigitalScaleFoodPricingCalculator({
       return [];
     }
   });
+
+  // Salvar rascunho ativo continuamente para nunca perder ingredientes e cálculos de receitas
+  useEffect(() => {
+    try {
+      localStorage.setItem("culinary_food_recipes_active_draft", JSON.stringify(activeRecipe));
+    } catch {}
+  }, [activeRecipe]);
 
   const [activeTab, setActiveTab] = useState<"balanca" | "proporcao" | "ingredientes" | "sobras" | "precificacao" | "pasta_receitas">("balanca");
   const [recipeSearchTerm, setRecipeSearchTerm] = useState<string>("");

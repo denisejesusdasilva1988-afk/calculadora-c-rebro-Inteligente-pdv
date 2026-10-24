@@ -461,6 +461,7 @@ export const getNicheLabel = (nicheId: string, customNiches: any[] = []): string
     sacolao: "Sacolão & Hortifrúti",
     loja_racao: "Loja de Ração & Pet",
     aviario: "Aviário & Rações",
+    odontologia: "Consultório Dentário & Odontologia",
     outros_comercios: "Outros Segmentos"
   };
   return predefined[nicheId] || "Comércio Geral";
@@ -819,6 +820,7 @@ const predefinedNichesApp: {
   { id: "aviario", name: "Aviário & Rações", label: "Aviário", icon: Bird, color: "text-lime-400 border-lime-500/10 bg-slate-900/60", activeColor: "bg-lime-600 border-lime-500 text-white shadow-lg shadow-lime-500/15" },
   { id: "acougue", name: "Açougue & Carnes", label: "Açougue", icon: Scale, color: "text-red-400 border-red-500/10 bg-slate-900/60", activeColor: "bg-red-600 border-red-500 text-white shadow-lg shadow-red-500/15" },
   { id: "sacolao", name: "Sacolão & Hortifrúti", label: "Sacolão", icon: Apple, color: "text-lime-400 border-lime-500/10 bg-slate-900/60", activeColor: "bg-lime-600 border-lime-500 text-white shadow-lg shadow-lime-500/15" },
+  { id: "odontologia", name: "Consultório Dentário & Odonto", label: "Dentista", icon: Sparkles, color: "text-cyan-400 border-cyan-500/10 bg-slate-900/60", activeColor: "bg-cyan-600 border-cyan-500 text-white shadow-lg shadow-cyan-500/15" },
   { id: "outros_comercios", name: "Outros Segmentos", label: "Outros", icon: Layers, color: "text-slate-400 border-slate-500/10 bg-slate-900/60", activeColor: "bg-slate-600 border-slate-500 text-white shadow-lg shadow-slate-500/15" }
 ];
 
@@ -2468,29 +2470,6 @@ export default function App() {
     });
   };
 
-  const toggleNicheLock = useCallback(() => {
-    setIsNicheLocked(prev => {
-      const next = !prev;
-      localStorage.setItem("pdv_niche_locked", next ? "true" : "false");
-      const currentNicheName = getNicheLabel(selectedNiche, customNiches);
-      if (next) {
-        showNotification(`Segmento fixado em "${currentNicheName}"! O nicho não mudará por acidente. 🔒`, "success");
-      } else {
-        showNotification(`Trava de segmento liberada. Você pode escolher outro ramo agora. 🔓`, "info");
-      }
-      return next;
-    });
-  }, [selectedNiche, customNiches, showNotification]);
-
-  const handleSafeSetSelectedNiche = useCallback((newNiche: string) => {
-    if (isNicheLocked && newNiche !== selectedNiche) {
-      const currentNicheName = getNicheLabel(selectedNiche, customNiches);
-      showNotification(`🔒 O segmento está fixado em "${currentNicheName}"! Desative a trava de segmento no topo da tela para trocar de ramo.`, "error");
-      return;
-    }
-    setSelectedNiche(newNiche);
-    localStorage.setItem("pdv_selected_segment", newNiche);
-  }, [isNicheLocked, selectedNiche, customNiches, showNotification]);
 
   const handleAddCustomNiche = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2775,6 +2754,76 @@ export default function App() {
   const [showFolderInput, setShowFolderInput] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [isCloudLoaded, setIsCloudLoaded] = useState(false);
+
+  const toggleNicheLock = useCallback(() => {
+    setIsNicheLocked(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem("pdv_niche_locked", next ? "true" : "false");
+        localStorage.setItem("barbearia_segment_locked", next ? "true" : "false");
+        if (user?.uid && user.uid !== "guest_visitor") {
+          setScopedItem("pdv_niche_locked", next ? "true" : "false", user.uid);
+        }
+      } catch {}
+
+      const currentNicheName = getNicheLabel(selectedNiche, customNiches);
+      if (next) {
+        showNotification(`Segmento fixado em "${currentNicheName}"! O nicho não mudará por acidente. 🔒`, "success");
+      } else {
+        showNotification(`Trava de segmento liberada. Você pode escolher outro ramo agora. 🔓`, "info");
+      }
+
+      if (user?.uid && user.uid !== "guest_visitor" && db && !getIsFirestoreQuotaPaused()) {
+        setDoc(doc(db, "userData", user.uid), {
+          isNicheLocked: next,
+          pdv_niche_locked: next,
+          barbeariaSegmentoLocked: next,
+          pdvSelectedSegment: selectedNiche,
+          updatedAt: serverTimestamp()
+        }, { merge: true }).catch((e: any) => {
+          if (isQuotaExhaustedError(e)) markFirestoreQuotaPaused();
+        });
+      }
+
+      window.dispatchEvent(new Event("pdv_segment_changed"));
+      window.dispatchEvent(new Event("storage"));
+      return next;
+    });
+  }, [selectedNiche, customNiches, showNotification, user, db]);
+
+  const handleSafeSetSelectedNiche = useCallback((newNiche: string) => {
+    if (isNicheLocked && newNiche !== selectedNiche) {
+      const currentNicheName = getNicheLabel(selectedNiche, customNiches);
+      showNotification(`🔒 O segmento está fixado em "${currentNicheName}"! Desative a trava de segmento no topo da tela para trocar de ramo.`, "error");
+      return;
+    }
+    setSelectedNiche(newNiche);
+    try {
+      localStorage.setItem("pdv_selected_segment", newNiche);
+      localStorage.setItem("pdv_business_segment", newNiche);
+      if (user?.uid && user.uid !== "guest_visitor") {
+        setScopedItem("pdv_selected_segment", newNiche, user.uid);
+      }
+      const mappedBarbearia = newNiche === "salao_beleza" ? "salao"
+        : (newNiche === "doces" || newNiche === "salgados") ? "festas"
+        : ["barbearia","salao","esteticista","manicure","podologia","terapia_ocupacional","psicologia","nutricionista","odontologia","festas"].includes(newNiche) ? newNiche : null;
+      if (mappedBarbearia) {
+        localStorage.setItem("barbearia_selected_segment", mappedBarbearia);
+      }
+    } catch {}
+
+    if (user?.uid && user.uid !== "guest_visitor" && db && !getIsFirestoreQuotaPaused()) {
+      setDoc(doc(db, "userData", user.uid), {
+        pdvSelectedSegment: newNiche,
+        updatedAt: serverTimestamp()
+      }, { merge: true }).catch((e: any) => {
+        if (isQuotaExhaustedError(e)) markFirestoreQuotaPaused();
+      });
+    }
+
+    window.dispatchEvent(new Event("pdv_segment_changed"));
+    window.dispatchEvent(new Event("storage"));
+  }, [isNicheLocked, selectedNiche, customNiches, showNotification, user, db]);
 
   // States for Email & Password Authentication
   const [authEmail, setAuthEmail] = useState("");
@@ -5801,6 +5850,10 @@ export default function App() {
               return saved ? JSON.parse(saved) : undefined;
             } catch { return undefined; }
           })(),
+          pdvSelectedSegment: selectedNiche,
+          isNicheLocked: isNicheLocked,
+          barbeariaSegmentoLocked: isNicheLocked,
+          barbeariaSegmento: localStorage.getItem("barbearia_selected_segment") || (selectedNiche === "salao_beleza" ? "salao" : selectedNiche),
           updatedAt: serverTimestamp(),
           lastModifiedAt: timestamp,
         },
@@ -5936,6 +5989,22 @@ export default function App() {
           if (Array.isArray(data.barbeariaAniversarios)) {
             localStorage.setItem(`barbearia_${userId}_aniversarios`, JSON.stringify(data.barbeariaAniversarios));
           }
+          if (data.pdvSelectedSegment) {
+            setSelectedNiche(data.pdvSelectedSegment);
+            localStorage.setItem("pdv_selected_segment", data.pdvSelectedSegment);
+            localStorage.setItem("pdv_business_segment", data.pdvSelectedSegment);
+            setScopedItem("pdv_selected_segment", data.pdvSelectedSegment, userId);
+          }
+          if (data.barbeariaSegmento) {
+            localStorage.setItem("barbearia_selected_segment", data.barbeariaSegmento);
+          }
+          if (data.isNicheLocked !== undefined || data.barbeariaSegmentoLocked !== undefined) {
+            const locked = Boolean(data.isNicheLocked ?? data.barbeariaSegmentoLocked);
+            setIsNicheLocked(locked);
+            localStorage.setItem("pdv_niche_locked", locked ? "true" : "false");
+            localStorage.setItem("barbearia_segment_locked", locked ? "true" : "false");
+            setScopedItem("pdv_niche_locked", locked ? "true" : "false", userId);
+          }
           
           setLastModifiedAt(cloudTime);
           localStorage.setItem(`notepad_last_modified_at${suffix}`, cloudTime.toString());
@@ -6038,6 +6107,22 @@ export default function App() {
           localStorage.setItem(`notepad_excel_rows${suffix}`, JSON.stringify(data.excelRows || []));
           if (data.customCatalogProducts !== undefined) {
             setScopedItem("custom_catalog_products", JSON.stringify(data.customCatalogProducts), user.uid);
+          }
+          if (data.pdvSelectedSegment) {
+            setSelectedNiche(data.pdvSelectedSegment);
+            localStorage.setItem("pdv_selected_segment", data.pdvSelectedSegment);
+            localStorage.setItem("pdv_business_segment", data.pdvSelectedSegment);
+            setScopedItem("pdv_selected_segment", data.pdvSelectedSegment, user.uid);
+          }
+          if (data.barbeariaSegmento) {
+            localStorage.setItem("barbearia_selected_segment", data.barbeariaSegmento);
+          }
+          if (data.isNicheLocked !== undefined || data.barbeariaSegmentoLocked !== undefined) {
+            const locked = Boolean(data.isNicheLocked ?? data.barbeariaSegmentoLocked);
+            setIsNicheLocked(locked);
+            localStorage.setItem("pdv_niche_locked", locked ? "true" : "false");
+            localStorage.setItem("barbearia_segment_locked", locked ? "true" : "false");
+            setScopedItem("pdv_niche_locked", locked ? "true" : "false", user.uid);
           }
         } else {
           loadFromLocalStorage(user.uid);

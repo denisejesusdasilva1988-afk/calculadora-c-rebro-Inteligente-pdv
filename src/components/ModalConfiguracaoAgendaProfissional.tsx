@@ -406,13 +406,20 @@ export const ModalConfiguracaoAgendaProfissional: React.FC<ModalConfiguracaoAgen
                 { min: 60, label: "1 hora" },
                 { min: 75, label: "1h15" },
                 { min: 90, label: "1h30" },
-                { min: 120, label: "2 horas" }
+                { min: 120, label: "2 horas" },
+                { min: 150, label: "2h30" },
+                { min: 180, label: "3 horas (Mechas/Platinado)" },
+                { min: 210, label: "3h30" },
+                { min: 240, label: "4 horas (Progressiva/Alisamento)" },
+                { min: 300, label: "5 horas" },
+                { min: 360, label: "6 horas" },
+                { min: 480, label: "8 horas (Dia Inteiro / Noiva)" }
               ].map((preset) => (
                 <button
                   key={preset.min}
                   type="button"
                   onClick={() => setDuracaoPadraoMinutos(preset.min)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer border touch-manipulation active:scale-95 ${
+                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all cursor-pointer border touch-manipulation active:scale-95 ${
                     Number(duracaoPadraoMinutos) === preset.min
                       ? "bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-950/40 ring-2 ring-cyan-400/30"
                       : "bg-slate-900 text-slate-400 border-white/5 hover:text-white hover:bg-slate-800"

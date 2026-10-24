@@ -512,6 +512,8 @@ export interface CustomProduct {
   material?: string;
   location?: string;
   section?: string;
+  isService?: boolean;
+  durationMinutes?: number;
 }
 
 export interface CartItem {
@@ -588,6 +590,15 @@ const defaultProductsByNiche: Record<string, { name: string; price: number }[]> 
     { name: "Botox Capilar / Selagem", price: 120.0 },
     { name: "Hidratação & Reconstrução", price: 65.0 },
     { name: "Lavagem & Secagem Rápida", price: 25.0 }
+  ],
+  odontologia: [
+    { name: "Limpeza & Profilaxia com Ultrassom", price: 150.0 },
+    { name: "Restauração em Resina Composta", price: 180.0 },
+    { name: "Clareamento Dental em Consultório", price: 650.0 },
+    { name: "Extração Simples / Cirúrgica", price: 220.0 },
+    { name: "Consulta de Avaliação & Diagnóstico", price: 100.0 },
+    { name: "Tratamento de Canal (Endodontia)", price: 480.0 },
+    { name: "Aplicação Tópica de Flúor", price: 80.0 }
   ],
   bar: [
     { name: "Chopp Puro Malte 300ml", price: 10.0 },
@@ -1604,6 +1615,9 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [newProdCategory, setNewProdCategory] = useState("Alimentos");
   const [newProdValidity, setNewProdValidity] = useState("");
   const [newProdImageUrl, setNewProdImageUrl] = useState("");
+  const [newProdIsService, setNewProdIsService] = useState<boolean>(false);
+  const [newProdDurationMinutes, setNewProdDurationMinutes] = useState<string>("60");
+  const [newProdDescription, setNewProdDescription] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState("Todos");
   const [catalogSearch, setCatalogSearch] = useState("");
 
@@ -5795,6 +5809,10 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     const addBarcodes = newProdAdditionalBarcodes.split(/[,\s]+/).map(b => b.trim()).filter(Boolean);
 
     executeSecureAction("Cadastrar Produto no Estoque", () => {
+      const isServiceItem = newProdIsService || newProdCategory === "Serviços";
+      const durationNum = isServiceItem ? (parseInt(newProdDurationMinutes, 10) || 60) : undefined;
+      const finalStockQty = isServiceItem ? 999999 : (isNaN(stockParsed) ? 0 : stockParsed);
+
       const newProd: CustomProduct = {
         id: "cp_" + Date.now() + "_" + Math.floor(Math.random() * 100),
         name: newProdName.trim(),
@@ -5802,10 +5820,13 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         niche: selectedNiche,
         category: newProdCategory,
         barcode: newProdBarcode.trim() || undefined,
-        size: newProdSize.trim() || undefined,
-        color: newProdColor.trim() || undefined,
+        size: isServiceItem ? undefined : (newProdSize.trim() || undefined),
+        color: isServiceItem ? undefined : (newProdColor.trim() || undefined),
+        description: newProdDescription.trim() || undefined,
+        isService: isServiceItem,
+        durationMinutes: durationNum,
         additionalBarcodes: addBarcodes.length > 0 ? addBarcodes : undefined,
-        validity: newProdValidity.trim() || undefined,
+        validity: isServiceItem ? undefined : (newProdValidity.trim() || undefined),
         imageUrl: newProdImageUrl.trim() || undefined
       };
 
@@ -5817,8 +5838,8 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         ...productStockData,
         [newProd.id]: {
           costPrice: costParsed,
-          stockQty: isNaN(stockParsed) ? 0 : stockParsed,
-          minStockAlert: minParsed,
+          stockQty: finalStockQty,
+          minStockAlert: isServiceItem ? undefined : minParsed,
           salesCount: 0
         }
       };
@@ -5835,12 +5856,15 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       setNewProdBarcode("");
       setNewProdSize("");
       setNewProdColor("");
+      setNewProdDescription("");
+      setNewProdDurationMinutes("60");
+      setNewProdIsService(false);
       setNewProdAdditionalBarcodes("");
       setNewProdValidity("");
       setNewProdImageUrl("");
       setNewProdCategory("Alimentos");
       setIsCreatingProduct(false);
-      showNotification(`Produto "${newProd.name.toUpperCase()}" cadastrado com sucesso! 🛍️`, "success");
+      showNotification(`${isServiceItem ? "Serviço" : "Produto"} "${newProd.name.toUpperCase()}" cadastrado com sucesso! ${isServiceItem ? "✂️✨" : "🛍️"}`, "success");
     }, "add_product");
   };
 
@@ -7556,6 +7580,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     { id: "cabeleireiro", name: "Cabeleireiro & Cabelos", label: "Cabeleireiro", icon: Scissors, color: "text-violet-400 border-violet-500/10 bg-slate-900/60", activeColor: "bg-violet-600 border-violet-500 text-white shadow-lg shadow-violet-500/15" },
     { id: "barbearia", name: "Barbearia", label: "Barbearia", icon: Scissors, color: "text-emerald-400 border-emerald-500/10 bg-slate-900/60", activeColor: "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/15" },
     { id: "manicure", name: "Manicure & Unhas", label: "Manicure", icon: Sparkles, color: "text-fuchsia-400 border-fuchsia-500/10 bg-slate-900/60", activeColor: "bg-fuchsia-600 border-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/15" },
+    { id: "odontologia", name: "Odontologia & Consultório Dentário", label: "Dentista", icon: Sparkles, color: "text-cyan-400 border-cyan-500/10 bg-slate-900/60", activeColor: "bg-cyan-600 border-cyan-500 text-white shadow-lg shadow-cyan-500/15" },
     { id: "mercadinho", name: "Mercadinho & Mercearia", label: "Mercadinho", icon: ShoppingCart, color: "text-emerald-400 border-emerald-500/10 bg-slate-900/60", activeColor: "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/15" },
     { id: "sushi", name: "Sushi & Culinária Japonesa", label: "Sushi", icon: Fish, color: "text-orange-400 border-orange-500/10 bg-slate-900/60", activeColor: "bg-orange-600 border-orange-500 text-white shadow-lg shadow-orange-500/15" },
     { id: "lojas", name: "Lojas & Varejo", label: "Lojas", icon: ShoppingBag, color: "text-sky-400 border-sky-500/10 bg-slate-900/60", activeColor: "bg-sky-600 border-sky-500 text-white shadow-lg shadow-sky-500/15" },
@@ -18290,238 +18315,406 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                   {/* Register Custom Item Form Drawer */}
                   {isCreatingProduct && (
-                    <form onSubmit={handleCreateProductSubmit} className="p-3 bg-slate-950 border border-white/10 rounded-xl space-y-3 animate-in slide-in-from-top-2 duration-150">
-                      <p className="text-[8.5px] font-black text-amber-500 uppercase">Novo Item Personalizado do Estabelecimento</p>
-                      
-                      <div className="grid grid-cols-12 gap-2 text-xs">
-                        <div className="col-span-12 sm:col-span-5">
-                          <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Nome do Produto / Serviço</label>
-                          <input
-                            type="text"
-                            id="input-new-prod-name"
-                            value={newProdName}
-                            onChange={(e) => setNewProdName(e.target.value)}
-                            className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-xs text-white uppercase font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
-                            placeholder="Ex: Coca-cola, Escova..."
-                          />
+                    <form onSubmit={handleCreateProductSubmit} className="p-3.5 bg-slate-950 border border-emerald-500/30 rounded-2xl space-y-3 animate-in slide-in-from-top-2 duration-150 shadow-2xl">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-2">
+                        <div>
+                          <p className="text-[10px] font-black text-amber-400 uppercase tracking-wider">Novo Cadastro do Estabelecimento</p>
+                          <p className="text-[8.5px] text-slate-400">Escolha se é um produto para vender na prateleira ou um serviço com tempo e gastos de insumos</p>
                         </div>
-                        <div className="col-span-6 sm:col-span-3">
-                          <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Preço R$</label>
-                          <input
-                            type="text"
-                            id="input-new-prod-price"
-                            value={newProdPrice}
-                            onChange={(e) => setNewProdPrice(e.target.value)}
-                            className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
-                            placeholder="0,00"
-                          />
-                        </div>
-                        <div className="col-span-6 sm:col-span-4">
-                          <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Categoria</label>
-                          <select
-                            id="select-new-prod-category"
-                            value={newProdCategory}
-                            onChange={(e) => setNewProdCategory(e.target.value)}
-                            className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-[11px] text-white font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1 h-[29.5px] cursor-pointer"
-                          >
-                            <option value="Alimentos">Alimentos</option>
-                            <option value="Bebidas">Bebidas</option>
-                            <option value="Produtos">Produtos</option>
-                            <option value="Peças">Peças</option>
-                            <option value="Carne">Carne</option>
-                            <option value="Roupas">Roupas</option>
-                            <option value="Serviços">Serviços</option>
-                            <option value="Outros">Outros</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Validity & Product Photo Inputs */}
-                      <div className="grid grid-cols-12 gap-2 text-xs">
-                        <div className="col-span-12 sm:col-span-6">
-                          <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Data de Validade (Opcional)</label>
-                          <input
-                            type="date"
-                            value={newProdValidity}
-                            onChange={(e) => setNewProdValidity(e.target.value)}
-                            className="w-full bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs text-white outline-none rounded-lg focus:border-emerald-500/40 mt-1"
-                          />
-                        </div>
-                        <div className="col-span-12 sm:col-span-6">
-                          <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Foto do Produto (Câmera ou Galeria)</label>
-                          <div className="flex gap-2 items-center mt-1">
-                            {newProdImageUrl ? (
-                              <div className="relative w-9 h-9 rounded-lg overflow-hidden border border-emerald-500/40 shrink-0 shadow-sm">
-                                <img src={newProdImageUrl} referrerPolicy="no-referrer" alt="Preview" className="w-full h-full object-cover" />
-                                <button
-                                  type="button"
-                                  onClick={() => setNewProdImageUrl("")}
-                                  className="absolute inset-0 bg-black/60 flex items-center justify-center text-rose-400 font-bold text-[8px] uppercase hover:opacity-100 opacity-0 transition-opacity cursor-pointer"
-                                  title="Remover Foto"
-                                >
-                                  Apagar
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="w-9 h-9 bg-slate-900 border border-dashed border-white/10 rounded-lg shrink-0 flex items-center justify-center text-slate-500">
-                                <Camera className="w-4 h-4 text-emerald-400" />
-                              </div>
-                            )}
-                            <input
-                              type="file"
-                              accept="image/*"
-                              capture="environment"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  const reader = new FileReader();
-                                  reader.onload = (re) => {
-                                    const img = new Image();
-                                    img.onload = () => {
-                                      try {
-                                        const canvas = document.createElement("canvas");
-                                        let w = img.width;
-                                        let h = img.height;
-                                        const maxSide = 500;
-                                        if (w > h && w > maxSide) {
-                                          h = Math.round((h * maxSide) / w);
-                                          w = maxSide;
-                                        } else if (h > maxSide) {
-                                          w = Math.round((w * maxSide) / h);
-                                          h = maxSide;
-                                        }
-                                        canvas.width = w;
-                                        canvas.height = h;
-                                        const ctx = canvas.getContext("2d");
-                                        if (ctx) {
-                                          ctx.drawImage(img, 0, 0, w, h);
-                                          setNewProdImageUrl(canvas.toDataURL("image/jpeg", 0.82));
-                                          showNotification("Foto do produto capturada e comprimida! 📸✅", "success");
-                                        }
-                                      } catch (err) {
-                                        setNewProdImageUrl(re.target?.result as string);
-                                      }
-                                    };
-                                    img.src = re.target?.result as string;
-                                  };
-                                  reader.readAsDataURL(file);
-                                }
-                              }}
-                              className="hidden"
-                              id="custom-prod-image-uploader"
-                            />
-                            <label
-                              htmlFor="custom-prod-image-uploader"
-                              className="px-2.5 py-2 bg-slate-900 hover:bg-slate-850 border border-white/10 text-emerald-300 hover:text-white rounded-lg text-[9px] font-bold uppercase transition-all cursor-pointer flex-1 text-center flex items-center justify-center gap-1.5 shadow-sm"
-                            >
-                              <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>Tirar Foto / Galeria 📸</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Barcode scanner or code selection */}
-                      <div className="bg-slate-900/40 p-2.5 rounded-xl border border-white/[0.04] space-y-2">
-                        <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Código de Barras (Opcional)</label>
-                        <div className="flex gap-1.5">
-                          <div className="relative flex-1">
-                            <input
-                              type="text"
-                              value={newProdBarcode}
-                              onChange={(e) => setNewProdBarcode(e.target.value)}
-                              className="w-full bg-slate-900 border border-white/10 pl-7 pr-2 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40"
-                              placeholder="Digite ou leia o código..."
-                            />
-                            <div className="absolute left-2.5 top-2.5 text-slate-500">
-                              <ScanLine className="w-3.5 h-3.5" />
-                            </div>
-                          </div>
+                        {/* Toggle Produto vs Serviço */}
+                        <div className="flex bg-slate-900 border border-white/10 rounded-xl p-0.5 shrink-0">
                           <button
                             type="button"
-                            onClick={() => setIsScannerOpen(true)}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 text-xs shadow-md transition-colors"
+                            onClick={() => {
+                              setNewProdIsService(false);
+                              if (newProdCategory === "Serviços") setNewProdCategory("Produtos");
+                            }}
+                            className={`px-3 py-1 rounded-lg text-[9.5px] font-extrabold uppercase transition-all cursor-pointer ${
+                              !newProdIsService ? "bg-emerald-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                            }`}
                           >
-                            <Camera className="w-3.5 h-3.5" />
-                            <span>Ler via Câmera</span>
+                            🛍️ Produto Físico
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewProdIsService(true);
+                              setNewProdCategory("Serviços");
+                            }}
+                            className={`px-3 py-1 rounded-lg text-[9.5px] font-extrabold uppercase transition-all cursor-pointer ${
+                              newProdIsService ? "bg-purple-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                            }`}
+                          >
+                            ✂️ Serviço / Procedimento
                           </button>
                         </div>
-                        <p className="text-[9px] text-slate-500 leading-normal">
-                          Dica: Você pode testar os códigos de demonstração como <code className="text-amber-500/90 font-mono">7891000100101</code> (Refrigerante Lata), <code className="text-amber-500/90 font-mono">7892000200202</code> (Cerveja Pilsen) ou <code className="text-amber-500/90 font-mono">7893000300303</code> (Água Mineral).
-                        </p>
                       </div>
 
-                      {/* Size and Color Inputs */}
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        <div>
-                          <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Tamanho (Ex: M, G, 42) (Opcional)</label>
-                          <input
-                            type="text"
-                            value={newProdSize}
-                            onChange={(e) => setNewProdSize(e.target.value)}
-                            className="w-full bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs text-white font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1 uppercase"
-                            placeholder="Ex: M"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Cor / Variante (Ex: Azul, Preto) (Opcional)</label>
-                          <input
-                            type="text"
-                            value={newProdColor}
-                            onChange={(e) => setNewProdColor(e.target.value)}
-                            className="w-full bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs text-white font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1 uppercase"
-                            placeholder="Ex: Azul"
-                          />
-                        </div>
-                      </div>
+                      {newProdIsService ? (
+                        /* MODO SERVIÇO / PROCEDIMENTO COM INSUMOS, TEMPO E LUCRO */
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-12 gap-2 text-xs">
+                            <div className="col-span-12 sm:col-span-6">
+                              <label className="text-[8px] font-black text-purple-300 block uppercase">Nome do Serviço / Tratamento *</label>
+                              <input
+                                type="text"
+                                id="input-new-prod-name"
+                                value={newProdName}
+                                onChange={(e) => setNewProdName(e.target.value)}
+                                className="w-full bg-slate-900 border border-purple-500/40 px-2.5 py-1.5 text-xs text-white uppercase font-bold outline-none rounded-xl focus:border-purple-400 mt-1"
+                                placeholder="Ex: Cabelos Platinados, Mechas, Escova Progressiva, Clareamento Dental..."
+                              />
+                            </div>
+                            <div className="col-span-6 sm:col-span-3">
+                              <label className="text-[8px] font-black text-emerald-400 block uppercase">Preço Cobrado R$ *</label>
+                              <input
+                                type="text"
+                                id="input-new-prod-price"
+                                value={newProdPrice}
+                                onChange={(e) => setNewProdPrice(e.target.value)}
+                                className="w-full bg-slate-900 border border-emerald-500/40 px-2.5 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-xl focus:border-emerald-400 mt-1"
+                                placeholder="Ex: 220,00"
+                              />
+                            </div>
+                            <div className="col-span-6 sm:col-span-3">
+                              <label className="text-[8px] font-black text-amber-400 block uppercase">Gasto Insumos R$ (Químicos/Materiais)</label>
+                              <input
+                                type="text"
+                                value={newProdCostPrice}
+                                onChange={(e) => setNewProdCostPrice(e.target.value)}
+                                className="w-full bg-slate-900 border border-amber-500/40 px-2.5 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-xl focus:border-amber-400 mt-1"
+                                placeholder="Ex: 80,00"
+                              />
+                            </div>
+                          </div>
 
-                      {/* Additional Barcodes Input */}
-                      <div className="space-y-1 text-xs">
-                        <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Códigos de Barras Adicionais (Separados por vírgula) (Opcional)</label>
-                        <input
-                          type="text"
-                          value={newProdAdditionalBarcodes}
-                          onChange={(e) => setNewProdAdditionalBarcodes(e.target.value)}
-                          className="w-full bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
-                          placeholder="Ex: 7891234, 7895678"
-                        />
-                      </div>
+                          {/* Seletor de Tempo / Duração do Procedimento */}
+                          <div className="bg-slate-900/60 p-2.5 rounded-xl border border-white/5 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[8px] font-black text-cyan-300 uppercase block">Tempo / Duração Estimada do Procedimento</label>
+                              <span className="text-[8.5px] font-mono font-bold text-cyan-400">
+                                {parseInt(newProdDurationMinutes || "60", 10) >= 60 
+                                  ? `${Math.floor(parseInt(newProdDurationMinutes || "60", 10) / 60)}h${parseInt(newProdDurationMinutes || "60", 10) % 60 ? (parseInt(newProdDurationMinutes || "60", 10) % 60) + "m" : ""} (${newProdDurationMinutes} min)`
+                                  : `${newProdDurationMinutes || "60"} minutos`}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {[
+                                { min: 15, label: "15m" },
+                                { min: 30, label: "30m" },
+                                { min: 45, label: "45m" },
+                                { min: 60, label: "1h" },
+                                { min: 75, label: "1h15" },
+                                { min: 90, label: "1h30" },
+                                { min: 120, label: "2h" },
+                                { min: 150, label: "2h30" },
+                                { min: 180, label: "3h (Mechas/Platinado)" },
+                                { min: 210, label: "3h30" },
+                                { min: 240, label: "4h (Progressiva)" },
+                                { min: 300, label: "5h" },
+                                { min: 360, label: "6h" },
+                                { min: 480, label: "8h (Dia Inteiro)" }
+                              ].map(t => (
+                                <button
+                                  key={t.min}
+                                  type="button"
+                                  onClick={() => setNewProdDurationMinutes(String(t.min))}
+                                  className={`px-2 py-0.5 rounded-lg text-[8.5px] font-black transition-all cursor-pointer border ${
+                                    String(newProdDurationMinutes) === String(t.min)
+                                      ? "bg-cyan-500 text-slate-950 border-cyan-400 shadow-sm"
+                                      : "bg-slate-950 text-slate-400 border-white/5 hover:text-white hover:bg-slate-800"
+                                  }`}
+                                >
+                                  {t.label}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-2 pt-1">
+                              <span className="text-[7.5px] font-bold text-slate-500 uppercase">Ou digite os minutos:</span>
+                              <input
+                                type="number"
+                                min="5"
+                                max="720"
+                                value={newProdDurationMinutes}
+                                onChange={(e) => setNewProdDurationMinutes(e.target.value)}
+                                className="w-20 bg-slate-950 border border-white/10 px-2 py-0.5 rounded text-[10px] text-white font-mono font-bold outline-none"
+                              />
+                            </div>
+                          </div>
 
-                      {/* Intelligent Stock Inputs */}
-                      <div className="grid grid-cols-12 gap-2 text-xs">
-                        <div className="col-span-12 sm:col-span-4">
-                          <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Custo Unitário R$ (Opcional)</label>
-                          <input
-                            type="text"
-                            value={newProdCostPrice}
-                            onChange={(e) => setNewProdCostPrice(e.target.value)}
-                            className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
-                            placeholder="0,00"
-                          />
-                        </div>
-                        <div className="col-span-6 sm:col-span-4">
-                          <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Estoque Inicial (Opcional)</label>
-                          <input
-                            type="number"
-                            value={newProdInitialStock}
-                            onChange={(e) => setNewProdInitialStock(e.target.value)}
-                            className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
-                            placeholder="0"
-                          />
-                        </div>
-                        <div className="col-span-6 sm:col-span-4">
-                          <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Alerta Estoque Mínimo</label>
-                          <input
-                            type="number"
-                            value={newProdMinStock}
-                            onChange={(e) => setNewProdMinStock(e.target.value)}
-                            className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
-                            placeholder="Ex: 5"
-                          />
-                        </div>
-                      </div>
+                          {/* Descrição Explicativa do Serviço para o Cliente */}
+                          <div>
+                            <label className="text-[8px] font-black text-slate-400 block uppercase">
+                              Descrição Explicativa para os Clientes (O que está incluso no tratamento)
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={newProdDescription}
+                              onChange={(e) => setNewProdDescription(e.target.value)}
+                              className="w-full bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs text-white rounded-xl outline-none focus:border-purple-500/50 mt-1 placeholder-slate-600"
+                              placeholder="Ex: Descoloração global, tonalização com matizador premium, tratamento pós-química reconstrutor e finalização com escova modeladora..."
+                            />
+                          </div>
 
-                      <div className="flex gap-1.5 justify-end">
+                          {/* Card de Demonstração Financeira & Lucro em Tempo Real */}
+                          {parsePortugueseNumber(newProdPrice) > 0 && (() => {
+                            const pCobrado = parsePortugueseNumber(newProdPrice);
+                            const cGasto = parsePortugueseNumber(newProdCostPrice || "0");
+                            const lucro = pCobrado - cGasto;
+                            const margem = pCobrado > 0 ? (lucro / pCobrado) * 100 : 0;
+                            const durHoras = (parseInt(newProdDurationMinutes || "60", 10) || 60) / 60;
+                            const lucroHora = durHoras > 0 ? (lucro / durHoras) : lucro;
+                            return (
+                              <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-purple-950/40 border border-emerald-500/30 rounded-xl p-2.5 flex flex-wrap items-center justify-between gap-2 font-mono text-[9.5px]">
+                                <div className="space-y-0.5">
+                                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Balanço do Procedimento:</span>
+                                  <span className="text-slate-300">Cobrado: <strong className="text-white font-black">{formatCurrency(pCobrado)}</strong></span>
+                                  <span className="text-slate-400 mx-1">|</span>
+                                  <span className="text-slate-300">Gastos Químicos: <strong className="text-rose-400 font-bold">-{formatCurrency(cGasto)}</strong></span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-emerald-400 font-black text-xs block">
+                                    Lucro Real: {formatCurrency(lucro)} ({margem.toFixed(0)}%)
+                                  </span>
+                                  <span className="text-cyan-400 font-bold text-[8.5px]">
+                                    ≈ {formatCurrency(lucroHora)} / hora de dedicação
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      ) : (
+                        /* MODO PRODUTO FÍSICO COM ESTOQUE */
+                        <>
+                          <div className="grid grid-cols-12 gap-2 text-xs">
+                            <div className="col-span-12 sm:col-span-5">
+                              <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Nome do Produto</label>
+                              <input
+                                type="text"
+                                id="input-new-prod-name"
+                                value={newProdName}
+                                onChange={(e) => setNewProdName(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-xs text-white uppercase font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
+                                placeholder="Ex: Coca-cola, Shampoo..."
+                              />
+                            </div>
+                            <div className="col-span-6 sm:col-span-3">
+                              <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Preço R$</label>
+                              <input
+                                type="text"
+                                id="input-new-prod-price"
+                                value={newProdPrice}
+                                onChange={(e) => setNewProdPrice(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
+                                placeholder="0,00"
+                              />
+                            </div>
+                            <div className="col-span-6 sm:col-span-4">
+                              <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Categoria</label>
+                              <select
+                                id="select-new-prod-category"
+                                value={newProdCategory}
+                                onChange={(e) => setNewProdCategory(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-[11px] text-white font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1 h-[29.5px] cursor-pointer"
+                              >
+                                <option value="Alimentos">Alimentos</option>
+                                <option value="Bebidas">Bebidas</option>
+                                <option value="Produtos">Produtos</option>
+                                <option value="Peças">Peças</option>
+                                <option value="Carne">Carne</option>
+                                <option value="Roupas">Roupas</option>
+                                <option value="Serviços">Serviços</option>
+                                <option value="Outros">Outros</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Validity & Product Photo Inputs */}
+                          <div className="grid grid-cols-12 gap-2 text-xs">
+                            <div className="col-span-12 sm:col-span-6">
+                              <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Data de Validade (Opcional)</label>
+                              <input
+                                type="date"
+                                value={newProdValidity}
+                                onChange={(e) => setNewProdValidity(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs text-white outline-none rounded-lg focus:border-emerald-500/40 mt-1"
+                              />
+                            </div>
+                            <div className="col-span-12 sm:col-span-6">
+                              <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Foto do Produto (Câmera ou Galeria)</label>
+                              <div className="flex gap-2 items-center mt-1">
+                                {newProdImageUrl ? (
+                                  <div className="relative w-9 h-9 rounded-lg overflow-hidden border border-emerald-500/40 shrink-0 shadow-sm">
+                                    <img src={newProdImageUrl} referrerPolicy="no-referrer" alt="Preview" className="w-full h-full object-cover" />
+                                    <button
+                                      type="button"
+                                      onClick={() => setNewProdImageUrl("")}
+                                      className="absolute inset-0 bg-black/60 flex items-center justify-center text-rose-400 font-bold text-[8px] uppercase hover:opacity-100 opacity-0 transition-opacity cursor-pointer"
+                                      title="Remover Foto"
+                                    >
+                                      Apagar
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="w-9 h-9 bg-slate-900 border border-dashed border-white/10 rounded-lg shrink-0 flex items-center justify-center text-slate-500">
+                                    <Camera className="w-4 h-4 text-emerald-400" />
+                                  </div>
+                                )}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  capture="environment"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      const reader = new FileReader();
+                                      reader.onload = (re) => {
+                                        const img = new Image();
+                                        img.onload = () => {
+                                          try {
+                                            const canvas = document.createElement("canvas");
+                                            let w = img.width;
+                                            let h = img.height;
+                                            const maxSide = 500;
+                                            if (w > h && w > maxSide) {
+                                              h = Math.round((h * maxSide) / w);
+                                              w = maxSide;
+                                            } else if (h > maxSide) {
+                                              w = Math.round((w * maxSide) / h);
+                                              h = maxSide;
+                                            }
+                                            canvas.width = w;
+                                            canvas.height = h;
+                                            const ctx = canvas.getContext("2d");
+                                            if (ctx) {
+                                              ctx.drawImage(img, 0, 0, w, h);
+                                              setNewProdImageUrl(canvas.toDataURL("image/jpeg", 0.82));
+                                              showNotification("Foto do produto capturada e comprimida! 📸✅", "success");
+                                            }
+                                          } catch (err) {
+                                            setNewProdImageUrl(re.target?.result as string);
+                                          }
+                                        };
+                                        img.src = re.target?.result as string;
+                                      };
+                                      reader.readAsDataURL(file);
+                                    }
+                                  }}
+                                  className="hidden"
+                                  id="custom-prod-image-uploader"
+                                />
+                                <label
+                                  htmlFor="custom-prod-image-uploader"
+                                  className="px-2.5 py-2 bg-slate-900 hover:bg-slate-850 border border-white/10 text-emerald-300 hover:text-white rounded-lg text-[9px] font-bold uppercase transition-all cursor-pointer flex-1 text-center flex items-center justify-center gap-1.5 shadow-sm"
+                                >
+                                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Tirar Foto / Galeria 📸</span>
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Barcode scanner or code selection */}
+                          <div className="bg-slate-900/40 p-2.5 rounded-xl border border-white/[0.04] space-y-2">
+                            <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Código de Barras (Opcional)</label>
+                            <div className="flex gap-1.5">
+                              <div className="relative flex-1">
+                                <input
+                                  type="text"
+                                  value={newProdBarcode}
+                                  onChange={(e) => setNewProdBarcode(e.target.value)}
+                                  className="w-full bg-slate-900 border border-white/10 pl-7 pr-2 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40"
+                                  placeholder="Digite ou leia o código..."
+                                />
+                                <div className="absolute left-2.5 top-2.5 text-slate-500">
+                                  <ScanLine className="w-3.5 h-3.5" />
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setIsScannerOpen(true)}
+                                className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 text-xs shadow-md transition-colors"
+                              >
+                                <Camera className="w-3.5 h-3.5" />
+                                <span>Ler via Câmera</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Size and Color Inputs */}
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Tamanho (Ex: M, G, 42) (Opcional)</label>
+                              <input
+                                type="text"
+                                value={newProdSize}
+                                onChange={(e) => setNewProdSize(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs text-white font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1 uppercase"
+                                placeholder="Ex: M"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Cor / Variante (Ex: Azul, Preto) (Opcional)</label>
+                              <input
+                                type="text"
+                                value={newProdColor}
+                                onChange={(e) => setNewProdColor(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs text-white font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1 uppercase"
+                                placeholder="Ex: Azul"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Additional Barcodes Input */}
+                          <div className="space-y-1 text-xs">
+                            <label className="text-[7.5px] font-bold text-slate-400 block uppercase">Códigos de Barras Adicionais (Separados por vírgula) (Opcional)</label>
+                            <input
+                              type="text"
+                              value={newProdAdditionalBarcodes}
+                              onChange={(e) => setNewProdAdditionalBarcodes(e.target.value)}
+                              className="w-full bg-slate-900 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
+                              placeholder="Ex: 7891234, 7895678"
+                            />
+                          </div>
+
+                          {/* Intelligent Stock Inputs */}
+                          <div className="grid grid-cols-12 gap-2 text-xs">
+                            <div className="col-span-12 sm:col-span-4">
+                              <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Custo Unitário R$ (Opcional)</label>
+                              <input
+                                type="text"
+                                value={newProdCostPrice}
+                                onChange={(e) => setNewProdCostPrice(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
+                                placeholder="0,00"
+                              />
+                            </div>
+                            <div className="col-span-6 sm:col-span-4">
+                              <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Estoque Inicial (Opcional)</label>
+                              <input
+                                type="number"
+                                value={newProdInitialStock}
+                                onChange={(e) => setNewProdInitialStock(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
+                                placeholder="0"
+                              />
+                            </div>
+                            <div className="col-span-6 sm:col-span-4">
+                              <label className="text-[7.5px] font-bold text-slate-500 block uppercase">Alerta Estoque Mínimo</label>
+                              <input
+                                type="number"
+                                value={newProdMinStock}
+                                onChange={(e) => setNewProdMinStock(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 px-2 py-1.5 text-xs text-white font-mono font-bold outline-none rounded-lg focus:border-emerald-500/40 mt-1"
+                                placeholder="Ex: 5"
+                              />
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      <div className="flex gap-1.5 justify-end pt-1">
                         <button
                           type="button"
                           onClick={() => setIsCreatingProduct(false)}
@@ -18532,10 +18725,10 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         <button
                           type="submit"
                           id="submit-register-prod"
-                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-550 text-slate-950 font-black text-[8.5px] rounded uppercase flex items-center gap-1 cursor-pointer"
+                          className="px-3.5 py-1 bg-emerald-600 hover:bg-emerald-550 text-slate-950 font-black text-[9px] rounded-lg uppercase flex items-center gap-1 cursor-pointer shadow-md"
                         >
                           <Check className="w-3 h-3 text-slate-950" />
-                          Gravar Item
+                          Gravar {newProdIsService ? "Serviço" : "Item"}
                         </button>
                       </div>
                     </form>

@@ -121,6 +121,7 @@ export type NegocioSegmento =
   | "terapia_ocupacional"
   | "psicologia"
   | "nutricionista"
+  | "odontologia"
   | "festas";
 
 // Metadados ricos de cada segmento para separação completa de negócios
@@ -251,6 +252,20 @@ export const NEGOCIOS_SEGMENTOS_CONFIG: Record<NegocioSegmento, NegocioSegmentoI
     duracaoSugeridaMin: 60,
     bioInstagramPadrao: "🥗 Conquiste mais saúde, disposição e o corpo que deseja sem dietas restritivas! Agende sua consulta nutricional no link 👇",
     conviteWhatsAppPadrao: "🥗 Olá! Que tal começar hoje a transformar sua alimentação e atingir seus objetivos? Agende sua consulta no link:"
+  },
+  odontologia: {
+    id: "odontologia",
+    nomeCurto: "Dentista",
+    nomeCompleto: "Odontologia & Consultório Dentário",
+    subtitulo: "Avaliação, Profilaxia, Limpeza, Clareamento, Restaurações, Ortodontia & Implantes",
+    icone: "🦷",
+    corTheme: "cyan",
+    corText: "text-cyan-300",
+    corBorder: "border-cyan-500/30",
+    corBg: "bg-cyan-500/10",
+    duracaoSugeridaMin: 45,
+    bioInstagramPadrao: "🦷 O sorriso que você merece com atendimento humanizado e tecnologia! Agende sua consulta ou avaliação no link 👇",
+    conviteWhatsAppPadrao: "🦷 Olá! Cuidar do seu sorriso é prioridade. Escolha o melhor dia e horário para sua consulta odontológica pelo nosso link:"
   },
   festas: {
     id: "festas",
@@ -402,6 +417,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
         "terapia_ocupacional",
         "psicologia",
         "nutricionista",
+        "odontologia",
         "festas"
       ];
       if (saved && validSegments.includes(saved)) {
@@ -450,6 +466,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           "terapia_ocupacional",
           "psicologia",
           "nutricionista",
+          "odontologia",
           "festas"
         ];
         const barLocked = localStorage.getItem("barbearia_segment_locked");
@@ -1046,42 +1063,58 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           list = JSON.parse(saved);
         }
 
+        // Função de verificação estrita de duplicidade
+        const isDuplicate = (existingList: AgendamentoServico[], candidate: AgendamentoServico) => {
+          return existingList.some(
+            (item) => item.id === candidate.id ||
+              (item.profissionalId === candidate.profissionalId && item.data === candidate.data && item.horario === candidate.horario)
+          );
+        };
+
         // Também verifica se há novos agendamentos na agenda pública
         const pubKey = `agenda_publica_${storeId}`;
         const pubSaved = localStorage.getItem(pubKey);
         if (pubSaved) {
           const parsedPub = JSON.parse(pubSaved);
           if (Array.isArray(parsedPub.agendamentos)) {
-            const existingIds = new Set(list.map((a) => a.id));
             for (const pubAg of parsedPub.agendamentos) {
-              if (pubAg && pubAg.id && !existingIds.has(pubAg.id) && !["ag_1", "ag_2", "ag_3"].includes(pubAg.id)) {
+              if (pubAg && pubAg.id && !isDuplicate(list, pubAg) && !["ag_1", "ag_2", "ag_3"].includes(pubAg.id)) {
                 list.unshift(pubAg);
-                existingIds.add(pubAg.id);
               }
             }
           }
         }
 
         if (event?.detail && event.detail.id) {
-          const exists = list.some((a) => a.id === event.detail.id);
+          const exists = isDuplicate(list, event.detail);
           if (!exists) {
             list.unshift(event.detail);
+            showNotification(`🔔 Novo agendamento recebido: ${event.detail.clienteNome} às ${event.detail.horario}!`, "success");
           }
-          showNotification(`🔔 Novo agendamento recebido: ${event.detail.clienteNome} às ${event.detail.horario}!`, "success");
         }
 
-        setAgendamentos(list);
+        // Limpeza final de qualquer duplicata residual antes de setar estado
+        const uniqueList: AgendamentoServico[] = [];
+        const seenSlots = new Set<string>();
+        for (const item of list) {
+          if (!item?.id) continue;
+          const slotKey = `${item.profissionalId}_${item.data}_${item.horario}`;
+          if (!seenSlots.has(slotKey) && !uniqueList.some((u) => u.id === item.id)) {
+            seenSlots.add(slotKey);
+            uniqueList.push(item);
+          }
+        }
+
+        setAgendamentos(uniqueList);
       } catch (err) {
         console.warn("Erro ao sincronizar novos agendamentos:", err);
       }
     };
 
     window.addEventListener("agenda_updated", handleAgendaUpdated);
-    window.addEventListener("barbearia_agendamento_adicionado", handleAgendaUpdated);
     window.addEventListener("storage", handleAgendaUpdated);
     return () => {
       window.removeEventListener("agenda_updated", handleAgendaUpdated);
-      window.removeEventListener("barbearia_agendamento_adicionado", handleAgendaUpdated);
       window.removeEventListener("storage", handleAgendaUpdated);
     };
   }, [storagePrefix, storeId, showNotification]);
@@ -2011,6 +2044,28 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Botão Copiar Link da Agenda do Cliente */}
+            <button
+              type="button"
+              onClick={handleCopyClientAgendaLink}
+              className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="Copiar link exclusivo da agenda para clientes marcarem pelo WhatsApp ou Instagram"
+            >
+              <LinkIcon className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Link dos Clientes 📲</span>
+            </button>
+
+            {/* Botão Ver Como Cliente Enxerga */}
+            <button
+              type="button"
+              onClick={() => setIsPreviewClientPortalOpen(true)}
+              className="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="Visualizar portal limpo exatamente como o cliente enxerga no celular"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Ver Como Cliente 👁️</span>
+            </button>
+
             {/* Botão Comunicados da Agenda */}
             <button
               type="button"
@@ -2018,7 +2073,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
             >
               <Megaphone className="w-3.5 h-3.5 text-amber-400" />
-              <span>Comunicado de Agendas 📢</span>
+              <span>Comunicados 📢</span>
             </button>
 
             {/* Botão Personalizar Parabéns */}
@@ -2028,7 +2083,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
               className="bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 border border-pink-500/40 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
             >
               <Cake className="w-3.5 h-3.5 text-pink-400" />
-              <span>Personalizar Parabéns 🎂</span>
+              <span>Parabéns 🎂</span>
             </button>
           </div>
         </div>
@@ -2189,6 +2244,19 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
           >
             <span>🥗 Nutricionista</span>
             {segmentFilter === "nutricionista" && isSegmentLocked && <Lock className="w-3 h-3 text-white ml-0.5" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSelectSegment("odontologia")}
+            className={`p-2.5 rounded-2xl border text-xs font-black uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              segmentFilter === "odontologia"
+                ? "bg-cyan-600 text-white border-cyan-400 font-black shadow-lg shadow-cyan-600/20 ring-2 ring-cyan-400/30"
+                : "bg-slate-900/60 text-cyan-300/80 border-cyan-500/20 hover:bg-cyan-500/10 hover:text-cyan-300"
+            }`}
+          >
+            <span>🦷 Dentista</span>
+            {segmentFilter === "odontologia" && isSegmentLocked && <Lock className="w-3 h-3 text-white ml-0.5" />}
           </button>
 
           <button
@@ -2533,9 +2601,13 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                 <button
                   type="button"
                   onClick={() => {
-                    const bioText = `💈 Agende seu horário online pelo nosso link exclusivo:\n👉 ${clientAgendaUrl}\n✂️ Sem filas e com confirmação rápida pelo WhatsApp!`;
+                    const currentSeg = segmentFilter !== "todos" ? segmentFilter : "barbearia";
+                    const segConfig = NEGOCIOS_SEGMENTOS_CONFIG[currentSeg];
+                    const bioText = segConfig?.bioInstagramPadrao
+                      ? `${segConfig.bioInstagramPadrao}\n👉 ${clientAgendaUrl}\n✨ Agendamento online prático e rápido!`
+                      : `✨ Agende seu horário online pelo nosso link exclusivo:\n👉 ${clientAgendaUrl}\n📱 Sem filas e com confirmação rápida pelo WhatsApp!`;
                     navigator.clipboard.writeText(bioText);
-                    showNotification("Texto pronto para Bio do Instagram copiado! 📋 Cole no seu perfil.", "success");
+                    showNotification(`Texto para Bio (${segConfig?.nomeCurto || "Segmento"}) copiado! 📋 Cole no seu Instagram.`, "success");
                   }}
                   className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-white/10"
                   title="Copiar texto pronto para colar na Bio do Instagram ou redes sociais"
@@ -4664,8 +4736,12 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
             storeId={storeId}
             db={db}
             onSaveAgendamento={(ag) => {
-              setAgendamentos((prev) => [ag, ...prev]);
-              showNotification("Agendamento de teste criado com sucesso! ✂️✅", "success");
+              setAgendamentos((prev) => {
+                const isDup = prev.some((a) => a.id === ag.id || (a.profissionalId === ag.profissionalId && a.data === ag.data && a.horario === ag.horario));
+                if (isDup) return prev;
+                return [ag, ...prev];
+              });
+              showNotification("Agendamento de teste criado com sucesso! ✅", "success");
             }}
             onSaveEncomenda={(enc) => {
               setEncomendas((prev) => [enc, ...prev]);

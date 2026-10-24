@@ -64,6 +64,7 @@ export interface CustomProduct {
   material?: string; // Tecido / Material: "Algodão", "Jeans", "Viscose", etc.
   location?: string; // Localização física na loja / estoque: "Arara 1", "Prateleira B", etc.
   section?: string; // Sessão / Departamento do Mercado (ex: "Café da Manhã", "Laticínios", "Açougue", "Limpeza", "Grãos & Cereais", "Higiênico", "Higiênico Infantil", "Molhos & Condimentos", "Adega & Bebidas", etc.)
+  durationMinutes?: number; // Duração estimada do serviço / procedimento em minutos
 }
 
 export interface MercadoSectionDef {
@@ -638,6 +639,7 @@ export function CadastroProdutosModule({
   const [prodSection, setProdSection] = useState("");
   const [prodImageUrl, setProdImageUrl] = useState("");
   const [selectedEmoji, setSelectedEmoji] = useState("🛍️");
+  const [prodDurationMinutes, setProdDurationMinutes] = useState<string>("60");
   const [scannerCameraError, setScannerCameraError] = useState<string | null>(null);
 
   // Clothing Size Category Tab and Multi-size Grid Generator
@@ -1475,6 +1477,7 @@ export function CadastroProdutosModule({
       validity: prodValidity.trim() || undefined,
       imageUrl: prodImageUrl.trim() || selectedEmoji,
       isService: isService,
+      durationMinutes: isService ? (parseInt(prodDurationMinutes, 10) || 60) : undefined,
       brand: prodBrand.trim() || undefined,
       gender: prodGender || undefined,
       material: prodMaterial.trim() || undefined,
@@ -1538,6 +1541,7 @@ export function CadastroProdutosModule({
     setProdImageUrl("");
     setSelectedEmoji("🛍️");
     setIsService(false);
+    setProdDurationMinutes("60");
     setIsGridMode(false);
     setGridSelectedSizes([]);
     setEditingProductId(null);
@@ -1584,6 +1588,7 @@ export function CadastroProdutosModule({
     setProdSection(product.section || "");
     setProdImageUrl(product.imageUrl || "");
     setIsService(!!product.isService);
+    setProdDurationMinutes(product.durationMinutes ? String(product.durationMinutes) : "60");
     setIsGridMode(false);
     setGridSelectedSizes([]);
     
@@ -2305,123 +2310,237 @@ export function CadastroProdutosModule({
 
               {/* Grid Fields */}
               <div className="grid grid-cols-12 gap-3 text-xs">
-                {/* 0. SESSÕES & DEPARTAMENTOS DO MERCADO (Café da Manhã, Laticínios, Açougue, Limpeza, Grãos, Molhos, Adega, etc.) */}
-                <div className="col-span-12 bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 bg-amber-500/10 text-amber-400 rounded-lg text-base">
-                        🏛️
-                      </div>
-                      <div>
-                        <h5 className="text-xs font-black uppercase text-white flex items-center gap-2">
-                          Sessões & Departamentos do Mercado
-                          {prodSection && (
-                            <span className="text-[9.5px] font-black text-amber-300 bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-                              {activeMercadoSection?.icon || "🏷️"} {prodSection}
+                {/* 0. SE FOR SERVIÇO: CONFIGURAÇÃO DE TEMPO, GASTO DE QUÍMICA & INSUMOS */}
+                {isService ? (
+                  <div className="col-span-12 bg-gradient-to-r from-purple-950/40 via-slate-900 to-indigo-950/40 border border-purple-500/30 rounded-2xl p-4 space-y-3.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-purple-500/10 text-purple-400 rounded-xl">
+                          <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h5 className="text-xs font-black uppercase text-white flex items-center gap-2">
+                            ✂️ Configuração de Procedimento / Tratamento
+                            <span className="text-[9px] font-black text-cyan-300 bg-cyan-500/20 border border-cyan-500/30 px-2 py-0.5 rounded-full">
+                              Tempo: {parseInt(prodDurationMinutes || "60", 10) >= 60 
+                                ? `${Math.floor(parseInt(prodDurationMinutes || "60", 10) / 60)}h${parseInt(prodDurationMinutes || "60", 10) % 60 ? (parseInt(prodDurationMinutes || "60", 10) % 60) + "m" : ""}`
+                                : `${prodDurationMinutes || "60"}m`}
                             </span>
-                          )}
-                        </h5>
-                        <p className="text-[9.5px] text-slate-400 font-semibold">
-                          Café da manhã, Laticínios, Açougue, Limpeza, Grãos (arroz, feijão, açúcar, sal...), Higiênico, Infantil, Molhos, Adega e outros
-                        </p>
+                          </h5>
+                          <p className="text-[9.5px] text-slate-400 font-semibold">
+                            Defina a duração do atendimento e os gastos com insumos (química, descartáveis, anestésicos) para calcular o lucro líquido real e o ganho por hora!
+                          </p>
+                        </div>
                       </div>
                     </div>
 
-                    {prodSection && (
-                      <button
-                        type="button"
-                        onClick={() => setProdSection("")}
-                        className="text-[9px] font-bold text-slate-400 hover:text-rose-400 px-2 py-1 bg-slate-950 rounded-lg border border-white/5 cursor-pointer self-start sm:self-auto transition-colors"
-                      >
-                        Limpar Sessão ✕
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Grid of Mercado Section Buttons */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
-                    {MERCADO_SECTIONS.map((sec) => {
-                      const isSelected = prodSection === sec.name;
-                      return (
-                        <button
-                          key={sec.id}
-                          type="button"
-                          onClick={() => {
-                            if (isSelected) {
-                              setProdSection("");
-                            } else {
-                              setProdSection(sec.name);
-                              if (!prodCategory || suggestedCategories.includes(prodCategory) || MERCADO_SECTIONS.some(ms => ms.suggestedCategory === prodCategory)) {
-                                setProdCategory(sec.suggestedCategory);
-                              }
-                            }
-                          }}
-                          className={`p-2 rounded-xl text-left transition-all cursor-pointer border flex flex-col gap-0.5 ${
-                            isSelected
-                              ? "bg-amber-500/20 text-white border-amber-400 shadow-md shadow-amber-500/10 scale-[1.02]"
-                              : "bg-slate-950 text-slate-300 border-white/5 hover:border-amber-500/30 hover:bg-slate-800"
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-base">{sec.icon}</span>
-                            <span className="text-[10px] font-black truncate">{sec.name}</span>
-                          </div>
-                          <span className="text-[8px] text-slate-400 line-clamp-1">
-                            {sec.description}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Quick Product Presets when a section is selected */}
-                  {activeMercadoSection && activeMercadoSection.quickProducts.length > 0 && (
-                    <div className="bg-slate-950/90 border border-amber-500/30 rounded-xl p-3 space-y-2 animate-fadeIn">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                        <span className="text-[10px] font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
-                          <span>{activeMercadoSection.icon}</span>
-                          Itens Rápidos & Sugestões da Sessão "{activeMercadoSection.name}":
-                        </span>
-                        <span className="text-[8.5px] text-slate-400 font-semibold">
-                          (Clique no item para preencher nome, categoria, preço e código EAN na hora!)
+                    {/* Presets de Duração do Serviço */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[8.5px] font-black text-cyan-300 uppercase block tracking-wider">
+                          Duração / Tempo Estimado de Cadeira / Consultório:
+                        </label>
+                        <span className="text-[9px] font-mono font-bold text-slate-400">
+                          {prodDurationMinutes} minutos
                         </span>
                       </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
-                        {activeMercadoSection.quickProducts.map((item, idx) => (
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { min: 15, label: "15 min" },
+                          { min: 30, label: "30 min" },
+                          { min: 45, label: "45 min" },
+                          { min: 60, label: "1h (60m)" },
+                          { min: 75, label: "1h15 (75m)" },
+                          { min: 90, label: "1h30 (90m)" },
+                          { min: 120, label: "2h (120m)" },
+                          { min: 150, label: "2h30 (150m)" },
+                          { min: 180, label: "3h [Mechas / Platinado]" },
+                          { min: 210, label: "3h30 (210m)" },
+                          { min: 240, label: "4h [Progressiva]" },
+                          { min: 300, label: "5h (300m)" },
+                          { min: 360, label: "6h (360m)" },
+                          { min: 480, label: "8h [Dia Inteiro / Noivas]" }
+                        ].map(t => (
                           <button
-                            key={item.name + "_" + idx}
+                            key={t.min}
                             type="button"
-                            onClick={() => handleSelectQuickProduct(item, activeMercadoSection)}
-                            className="px-2.5 py-1 bg-slate-900 hover:bg-amber-400 hover:text-slate-950 text-slate-300 border border-white/10 hover:border-amber-300 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer flex items-center gap-1.5 group active:scale-95 shadow-sm"
-                            title={`Preencher "${item.name}" (Preço sugerido: R$ ${item.suggestedPrice || "-"})`}
+                            onClick={() => setProdDurationMinutes(String(t.min))}
+                            className={`px-2.5 py-1 rounded-xl text-[9.5px] font-black transition-all cursor-pointer border ${
+                              String(prodDurationMinutes) === String(t.min)
+                                ? "bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-500/20 scale-105"
+                                : "bg-slate-950 text-slate-300 border-white/5 hover:text-white hover:bg-slate-800"
+                            }`}
                           >
-                            <span className="group-hover:scale-110 transition-transform">➕</span>
-                            <span>{item.name}</span>
-                            {item.suggestedPrice && (
-                              <span className="text-[8px] font-mono text-emerald-400 group-hover:text-slate-950 font-black">
-                                R$ {item.suggestedPrice}
-                              </span>
-                            )}
+                            {t.label}
                           </button>
                         ))}
                       </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-[8.5px] font-bold text-slate-500 uppercase">Ou digite o tempo personalizado em minutos:</span>
+                        <input
+                          type="number"
+                          min="5"
+                          max="720"
+                          value={prodDurationMinutes}
+                          onChange={(e) => setProdDurationMinutes(e.target.value)}
+                          className="w-24 bg-slate-950 border border-white/10 px-2 py-1 rounded-lg text-xs text-white font-mono font-bold outline-none focus:border-cyan-400"
+                        />
+                      </div>
                     </div>
-                  )}
 
-                  {/* Custom manual session name input */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider shrink-0">
-                      Ou digite outra sessão:
-                    </span>
-                    <input
-                      type="text"
-                      placeholder="Ex: Bazar & Utilidades, Bebê, Congelados Especiais, Padaria Gourmet..."
-                      value={prodSection}
-                      onChange={(e) => setProdSection(e.target.value)}
-                      className="flex-1 bg-slate-950 border border-white/10 focus:border-amber-500/50 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 transition-all outline-none"
-                    />
+                    {/* Simulação em Tempo Real do Lucro Líquido do Procedimento */}
+                    {parsePortugueseNumber(prodPrice) > 0 && (() => {
+                      const pVenda = parsePortugueseNumber(prodPrice);
+                      const cInsumo = parsePortugueseNumber(prodCostPrice || "0");
+                      const lucroLiq = pVenda - cInsumo;
+                      const margem = pVenda > 0 ? (lucroLiq / pVenda) * 100 : 0;
+                      const durMin = parseInt(prodDurationMinutes || "60", 10) || 60;
+                      const durHoras = durMin / 60;
+                      const lucroPorHora = durHoras > 0 ? (lucroLiq / durHoras) : lucroLiq;
+
+                      return (
+                        <div className="bg-slate-950/80 border border-emerald-500/30 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono">
+                          <div className="space-y-0.5">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block font-sans">
+                              Demonstrativo de Lucratividade Real do Procedimento:
+                            </span>
+                            <div className="flex flex-wrap items-center gap-2 text-slate-300 text-[11px]">
+                              <span>Preço Cobrado: <strong className="text-white font-black">{formatCurrency(pVenda)}</strong></span>
+                              <span className="text-slate-500">|</span>
+                              <span>Gastos Insumos: <strong className="text-rose-400 font-bold">-{formatCurrency(cInsumo)}</strong></span>
+                            </div>
+                          </div>
+                          <div className="text-left sm:text-right">
+                            <span className="text-emerald-400 font-black text-sm block">
+                              Lucro Líquido Real: {formatCurrency(lucroLiq)} ({margem.toFixed(0)}%)
+                            </span>
+                            <span className="text-cyan-400 font-bold text-[10px]">
+                              💰 Retorno: {formatCurrency(lucroPorHora)} / hora dedicada
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
-                </div>
+                ) : (
+                  /* 0. SE FOR PRODUTO FÍSICO: SESSÕES & DEPARTAMENTOS DO MERCADO (Café da Manhã, Laticínios, Açougue, Limpeza, Grãos, etc.) */
+                  <div className="col-span-12 bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-amber-500/10 text-amber-400 rounded-lg text-base">
+                          🏛️
+                        </div>
+                        <div>
+                          <h5 className="text-xs font-black uppercase text-white flex items-center gap-2">
+                            Sessões & Departamentos do Mercado
+                            {prodSection && (
+                              <span className="text-[9.5px] font-black text-amber-300 bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                {activeMercadoSection?.icon || "🏷️"} {prodSection}
+                              </span>
+                            )}
+                          </h5>
+                          <p className="text-[9.5px] text-slate-400 font-semibold">
+                            Café da manhã, Laticínios, Açougue, Limpeza, Grãos (arroz, feijão, açúcar, sal...), Higiênico, Infantil, Molhos, Adega e outros
+                          </p>
+                        </div>
+                      </div>
+
+                      {prodSection && (
+                        <button
+                          type="button"
+                          onClick={() => setProdSection("")}
+                          className="text-[9px] font-bold text-slate-400 hover:text-rose-400 px-2 py-1 bg-slate-950 rounded-lg border border-white/5 cursor-pointer self-start sm:self-auto transition-colors"
+                        >
+                          Limpar Sessão ✕
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Grid of Mercado Section Buttons */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
+                      {MERCADO_SECTIONS.map((sec) => {
+                        const isSelected = prodSection === sec.name;
+                        return (
+                          <button
+                            key={sec.id}
+                            type="button"
+                            onClick={() => {
+                              if (isSelected) {
+                                setProdSection("");
+                              } else {
+                                setProdSection(sec.name);
+                                if (!prodCategory || suggestedCategories.includes(prodCategory) || MERCADO_SECTIONS.some(ms => ms.suggestedCategory === prodCategory)) {
+                                  setProdCategory(sec.suggestedCategory);
+                                }
+                              }
+                            }}
+                            className={`p-2 rounded-xl text-left transition-all cursor-pointer border flex flex-col gap-0.5 ${
+                              isSelected
+                                ? "bg-amber-500/20 text-white border-amber-400 shadow-md shadow-amber-500/10 scale-[1.02]"
+                                : "bg-slate-950 text-slate-300 border-white/5 hover:border-amber-500/30 hover:bg-slate-800"
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-base">{sec.icon}</span>
+                              <span className="text-[10px] font-black truncate">{sec.name}</span>
+                            </div>
+                            <span className="text-[8px] text-slate-400 line-clamp-1">
+                              {sec.description}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Quick Product Presets when a section is selected */}
+                    {activeMercadoSection && activeMercadoSection.quickProducts.length > 0 && (
+                      <div className="bg-slate-950/90 border border-amber-500/30 rounded-xl p-3 space-y-2 animate-fadeIn">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                          <span className="text-[10px] font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <span>{activeMercadoSection.icon}</span>
+                            Itens Rápidos & Sugestões da Sessão "{activeMercadoSection.name}":
+                          </span>
+                          <span className="text-[8.5px] text-slate-400 font-semibold">
+                            (Clique no item para preencher nome, categoria, preço e código EAN na hora!)
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
+                          {activeMercadoSection.quickProducts.map((item, idx) => (
+                            <button
+                              key={item.name + "_" + idx}
+                              type="button"
+                              onClick={() => handleSelectQuickProduct(item, activeMercadoSection)}
+                              className="px-2.5 py-1 bg-slate-900 hover:bg-amber-400 hover:text-slate-950 text-slate-300 border border-white/10 hover:border-amber-300 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer flex items-center gap-1.5 group active:scale-95 shadow-sm"
+                              title={`Preencher "${item.name}" (Preço sugerido: R$ ${item.suggestedPrice || "-"})`}
+                            >
+                              <span className="group-hover:scale-110 transition-transform">➕</span>
+                              <span>{item.name}</span>
+                              {item.suggestedPrice && (
+                                <span className="text-[8px] font-mono text-emerald-400 group-hover:text-slate-950 font-black">
+                                  R$ {item.suggestedPrice}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Custom manual session name input */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider shrink-0">
+                        Ou digite outra sessão:
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Ex: Bazar & Utilidades, Bebê, Congelados Especiais, Padaria Gourmet..."
+                        value={prodSection}
+                        onChange={(e) => setProdSection(e.target.value)}
+                        className="flex-1 bg-slate-950 border border-white/10 focus:border-amber-500/50 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 transition-all outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* 1. Name */}
                 <div className="col-span-12 md:col-span-8">

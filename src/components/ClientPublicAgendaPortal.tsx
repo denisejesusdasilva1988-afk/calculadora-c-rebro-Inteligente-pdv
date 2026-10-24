@@ -41,10 +41,11 @@ export type CategoriaPortal =
   | "terapia_ocupacional"
   | "psicologia"
   | "nutricionista"
+  | "odontologia"
   | "encomendas";
 
 export const SERVICOS_POR_SEGMENTO: Record<
-  "barbearia" | "salao" | "esteticista" | "manicure" | "podologia" | "terapia_ocupacional" | "psicologia" | "nutricionista",
+  "barbearia" | "salao" | "esteticista" | "manicure" | "podologia" | "terapia_ocupacional" | "psicologia" | "nutricionista" | "odontologia",
   { nome: string; preco: number; duracao: string }[]
 > = {
   barbearia: [
@@ -61,7 +62,10 @@ export const SERVICOS_POR_SEGMENTO: Record<
     { nome: "Corte Feminino & Modelagem", preco: 60, duracao: "45 min" },
     { nome: "Escova Modelada + Lavagem Especial", preco: 50, duracao: "40 min" },
     { nome: "Coloração / Tinta Raiz", preco: 90, duracao: "60 min" },
-    { nome: "Luzes / Mechas no Papel", preco: 180, duracao: "120 min" },
+    { nome: "Mechas / Platinado / Morena Iluminada", preco: 220, duracao: "240 min" },
+    { nome: "Escova Progressiva / Alisamento", preco: 180, duracao: "210 min" },
+    { nome: "Descoloração Global / Loiro Platinado", preco: 250, duracao: "300 min" },
+    { nome: "Luzes / Mechas no Papel", preco: 180, duracao: "150 min" },
     { nome: "Hidratação Profunda / Nutrição", preco: 70, duracao: "40 min" },
     { nome: "Botox Capilar / Alinhamento", preco: 130, duracao: "90 min" },
     { nome: "Penteado para Festas & Eventos", preco: 120, duracao: "60 min" },
@@ -128,6 +132,16 @@ export const SERVICOS_POR_SEGMENTO: Record<
     { nome: "Nutrição Clínica (Diabetes, Colesterol e Hipertensão)", preco: 160, duracao: "50 min" },
     { nome: "Acompanhamento Nutricional Materno-Infantil / Gestantes", preco: 170, duracao: "50 min" },
     { nome: "Consultoria para Alergias e Intolerâncias Alimentares", preco: 160, duracao: "50 min" }
+  ],
+  odontologia: [
+    { nome: "Consulta, Avaliação & Diagnóstico", preco: 120, duracao: "30 min" },
+    { nome: "Profilaxia & Limpeza Dentária com Ultrassom", preco: 150, duracao: "45 min" },
+    { nome: "Clareamento Dental a Laser no Consultório", preco: 450, duracao: "90 min" },
+    { nome: "Restauração Estética em Resina", preco: 160, duracao: "45 min" },
+    { nome: "Tratamento de Canal (Endodontia)", preco: 380, duracao: "90 min" },
+    { nome: "Manutenção de Aparelho Ortodôntico", preco: 130, duracao: "30 min" },
+    { nome: "Extração Dentária Simples", preco: 180, duracao: "45 min" },
+    { nome: "Avaliação de Implante & Prótese", preco: 200, duracao: "60 min" }
   ]
 };
 
@@ -196,6 +210,13 @@ export const SEGMENTO_INFO: Record<
     icone: "🥗",
     descricao: "Consulta nutricional completa, bioimpedância, reeducação alimentar e emagrecimento!",
     cor: "emerald"
+  },
+  odontologia: {
+    nomeCurto: "Dentista",
+    nomeCompleto: "Odontologia & Consultório Dentário",
+    icone: "🦷",
+    descricao: "Avaliação, profilaxia/limpeza, clareamento, restaurações e tratamentos odontológicos!",
+    cor: "cyan"
   },
   encomendas: {
     nomeCurto: "Festas & Encomendas",
@@ -653,22 +674,30 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       criadoEm: new Date().toISOString()
     };
 
-    // 1. Notifica callback do React
-    onSaveAgendamento(novoAg);
+    // 1. Notifica callback do React se houver
+    if (onSaveAgendamento) {
+      onSaveAgendamento(novoAg);
+    }
 
-    // 2. Persistência multi-armazenamento imediata no storage da loja
+    // 2. Persistência multi-armazenamento com deduplicação rigorosa
     const targetStoreId = storeId || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("loja") : "") || "loja_denise";
     if (targetStoreId) {
       try {
         const storeKey = `barbearia_${targetStoreId}_agendamentos`;
         const existingStore = JSON.parse(localStorage.getItem(storeKey) || "[]");
-        localStorage.setItem(storeKey, JSON.stringify([novoAg, ...existingStore]));
+        const filteredStore = existingStore.filter((a: any) => 
+          a?.id !== novoAg.id && !(a?.profissionalId === novoAg.profissionalId && a?.data === novoAg.data && a?.horario === novoAg.horario)
+        );
+        localStorage.setItem(storeKey, JSON.stringify([novoAg, ...filteredStore]));
 
         // Atualiza também agenda_publica_${targetStoreId}
         const pubKey = `agenda_publica_${targetStoreId}`;
         const pubExisting = JSON.parse(localStorage.getItem(pubKey) || "{}");
         const pubAgs = Array.isArray(pubExisting.agendamentos) ? pubExisting.agendamentos : [];
-        pubExisting.agendamentos = [novoAg, ...pubAgs];
+        const filteredPubAgs = pubAgs.filter((a: any) => 
+          a?.id !== novoAg.id && !(a?.profissionalId === novoAg.profissionalId && a?.data === novoAg.data && a?.horario === novoAg.horario)
+        );
+        pubExisting.agendamentos = [novoAg, ...filteredPubAgs];
         pubExisting.updatedAt = new Date().toISOString();
         localStorage.setItem(pubKey, JSON.stringify(pubExisting));
 
@@ -684,13 +713,15 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
     try {
       const guestKey = "barbearia_guest_agendamentos";
       const existingGuest = JSON.parse(localStorage.getItem(guestKey) || "[]");
-      localStorage.setItem(guestKey, JSON.stringify([novoAg, ...existingGuest]));
+      const filteredGuest = existingGuest.filter((a: any) => 
+        a?.id !== novoAg.id && !(a?.profissionalId === novoAg.profissionalId && a?.data === novoAg.data && a?.horario === novoAg.horario)
+      );
+      localStorage.setItem(guestKey, JSON.stringify([novoAg, ...filteredGuest]));
     } catch {}
 
     // 3. Dispara evento customizado para atualizar timeline e agendas abertas na tela sem recarregar
     try {
       window.dispatchEvent(new CustomEvent("agenda_updated", { detail: novoAg }));
-      window.dispatchEvent(new CustomEvent("barbearia_agendamento_adicionado", { detail: novoAg }));
       window.dispatchEvent(new Event("storage"));
     } catch {}
 
