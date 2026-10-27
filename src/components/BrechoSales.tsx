@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { getIsFirestoreQuotaPaused, isQuotaExhaustedError } from "../utils/firestoreQuotaManager";
 import { 
   Plus, 
   Trash2, 

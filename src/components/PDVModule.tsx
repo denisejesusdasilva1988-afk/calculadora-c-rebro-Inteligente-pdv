@@ -3816,11 +3816,21 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   // --- Fetch Cloud Data on Mount if Authenticated ---
   useEffect(() => {
     const fetchCloudData = async () => {
-      if (!isLoggedIn || !userId || userId === "guest_visitor" || !db) return;
+      if (!isLoggedIn || !userId || userId === "guest_visitor" || !db || getIsFirestoreQuotaPaused()) return;
       setIsSyncing(true);
       try {
         const userDocRef = doc(db, "userData", userId);
-        const docSnap = await getDoc(userDocRef);
+        let docSnap: any;
+        try {
+          docSnap = await getDoc(userDocRef);
+        } catch (fetchErr: any) {
+          const fetchMsg = fetchErr?.message || String(fetchErr);
+          if (fetchErr?.code === "unavailable" || fetchMsg.toLowerCase().includes("offline") || fetchMsg.toLowerCase().includes("client is offline")) {
+            console.warn("[PDV Offline] Sem conexão para buscar dados remotos do caixa. Usando dados locais.");
+            return;
+          }
+          throw fetchErr;
+        }
         if (docSnap.exists()) {
           const data = docSnap.data();
           const cloudTxs = data.pdvTransactions || [];
@@ -3937,8 +3947,19 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
             }
           }
         }
-      } catch (error) {
-        console.error("Erro ao puxar dados do caixa do Firestore:", error);
+      } catch (error: any) {
+        const errMsg = error?.message || String(error);
+        const errCode = error?.code || "";
+        if (
+          errCode === "unavailable" ||
+          errMsg.toLowerCase().includes("client is offline") ||
+          errMsg.toLowerCase().includes("offline") ||
+          isQuotaExhaustedError(error)
+        ) {
+          console.warn("[PDV Offline] Dados do caixa preservados localmente (cliente offline).");
+        } else {
+          console.error("Erro ao puxar dados do caixa do Firestore:", error);
+        }
       } finally {
         setIsSyncing(false);
       }
@@ -19176,11 +19197,11 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                               )}
                             </div>
          
-                            <div className="flex items-center justify-between mt-3 z-15 pointer-events-none relative pt-2 border-t border-white/5">
+                            <div className="flex flex-wrap items-center justify-between gap-2 mt-3 z-15 pointer-events-none relative pt-2 border-t border-white/5">
                               <span className="font-mono font-black text-base sm:text-lg text-emerald-400 tracking-tight">
                                 {formatCurrency(product.price)}
                               </span>
-                              <span className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 shadow-sm ${
+                              <span className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 shadow-sm shrink-0 ${
                                 isOutOfStock 
                                   ? "bg-rose-500/20 text-rose-300 border border-rose-500/40 group-hover:bg-rose-500 group-hover:text-slate-950" 
                                   : "bg-emerald-500 text-slate-950 group-hover:bg-emerald-400 group-hover:shadow-md group-hover:shadow-emerald-500/25"

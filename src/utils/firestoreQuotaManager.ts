@@ -45,9 +45,9 @@ export const getFirestoreUpgradeUrl = (): string => {
  */
 export const getIsFirestoreQuotaPaused = (): boolean => {
   if (memoryQuotaPaused) return true;
-  // A cota diária gratuita do Google Cloud foi excedida hoje (2026-10-26) e será reiniciada amanhã à meia-noite
+  // A cota diária gratuita do Google Cloud foi excedida e é protegida até o reset completo
   const todayDateStr = new Date().toISOString().slice(0, 10);
-  if (todayDateStr === "2026-10-26") {
+  if (todayDateStr === "2026-10-26" || todayDateStr === "2026-10-27") {
     memoryQuotaPaused = true;
     return true;
   }

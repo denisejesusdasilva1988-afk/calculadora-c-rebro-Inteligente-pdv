@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Calculator,
   Landmark,
@@ -20,7 +20,13 @@ import {
   Briefcase,
   ChevronRight,
   ArrowDownRight,
-  ArrowUpRight
+  ArrowUpRight,
+  Save,
+  Share2,
+  Beer,
+  Plus,
+  Minus,
+  Check
 } from "lucide-react";
 
 interface ContabilidadeTributosProps {
@@ -39,10 +45,25 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
   showNotification = (_msg?: string, _type?: any) => {},
   initialTab = "tributos"
 }) => {
-  // Sub-abas do módulo
-  const [activeTab, setActiveTab] = useState<"tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa">(initialTab);
+  // Sub-abas do módulo com sincronização em localStorage
+  const [activeTab, setActiveTab] = useState<"tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa">(() => {
+    try {
+      const saved = localStorage.getItem("contabilidade_active_tab");
+      if (saved && ["tributos", "funcionarios", "tempo_dinheiro", "bar_doses", "livro_caixa"].includes(saved)) {
+        return saved as any;
+      }
+    } catch {}
+    return initialTab || "tributos";
+  });
 
-  React.useEffect(() => {
+  const handleSelectTab = (tab: "tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa") => {
+    setActiveTab(tab);
+    try {
+      localStorage.setItem("contabilidade_active_tab", tab);
+    } catch {}
+  };
+
+  useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
     }
@@ -462,71 +483,71 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
           </div>
         </div>
 
-        {/* NAVEGAÇÃO DE SUB-ABAS */}
+        {/* NAVEGAÇÃO DE SUB-ABAS TOUCH */}
         <div className="flex gap-2 overflow-x-auto no-scrollbar pt-5 border-t border-white/5 mt-4">
           <button
             type="button"
-            onClick={() => setActiveTab("tributos")}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all shrink-0 cursor-pointer ${
+            onClick={() => handleSelectTab("tributos")}
+            className={`px-3.5 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shrink-0 cursor-pointer touch-manipulation select-none active:scale-95 ${
               activeTab === "tributos"
-                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 ring-2 ring-indigo-400"
                 : "bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800"
             }`}
           >
-            <Landmark className="w-3.5 h-3.5" />
+            <Landmark className="w-4 h-4" />
             <span>1. O Leão (MEI & Simples Nacional)</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setActiveTab("funcionarios")}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all shrink-0 cursor-pointer ${
+            onClick={() => handleSelectTab("funcionarios")}
+            className={`px-3.5 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shrink-0 cursor-pointer touch-manipulation select-none active:scale-95 ${
               activeTab === "funcionarios"
-                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                : "bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30 ring-2 ring-blue-400"
+                : "bg-slate-800/80 text-blue-300 hover:text-white hover:bg-slate-800"
             }`}
           >
-            <Users className="w-3.5 h-3.5" />
-            <span>2. Funcionários, Diárias & Rescisão</span>
+            <Users className="w-4 h-4" />
+            <span>2. Funcionários, Diárias & Rescisão 👥</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setActiveTab("tempo_dinheiro")}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all shrink-0 cursor-pointer ${
+            onClick={() => handleSelectTab("tempo_dinheiro")}
+            className={`px-3.5 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shrink-0 cursor-pointer touch-manipulation select-none active:scale-95 ${
               activeTab === "tempo_dinheiro"
-                ? "bg-amber-600 text-white shadow-lg shadow-amber-600/30"
-                : "bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-amber-600 text-white shadow-lg shadow-amber-600/30 ring-2 ring-amber-400"
+                : "bg-slate-800/80 text-amber-300 hover:text-white hover:bg-slate-800"
             }`}
           >
-            <Wrench className="w-3.5 h-3.5" />
-            <span>3. Oficina & Obra: Tempo é Dinheiro</span>
+            <Wrench className="w-4 h-4" />
+            <span>3. Oficina & Obra: Tempo é Dinheiro 🔧⏱️</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setActiveTab("bar_doses")}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all shrink-0 cursor-pointer ${
+            onClick={() => handleSelectTab("bar_doses")}
+            className={`px-3.5 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shrink-0 cursor-pointer touch-manipulation select-none active:scale-95 ${
               activeTab === "bar_doses"
-                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/30"
-                : "bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 ring-2 ring-emerald-400"
+                : "bg-slate-800/80 text-emerald-300 hover:text-white hover:bg-slate-800"
             }`}
           >
-            <Wine className="w-3.5 h-3.5" />
-            <span>4. Bar, Doses de 51 & Baldes</span>
+            <Beer className="w-4 h-4" />
+            <span>4. Bar, Doses de 51 & Baldes 🍻</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setActiveTab("livro_caixa")}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all shrink-0 cursor-pointer ${
+            onClick={() => handleSelectTab("livro_caixa")}
+            className={`px-3.5 py-2.5 min-h-[44px] rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shrink-0 cursor-pointer touch-manipulation select-none active:scale-95 ${
               activeTab === "livro_caixa"
-                ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
-                : "bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30 ring-2 ring-purple-400"
+                : "bg-slate-800/80 text-purple-300 hover:text-white hover:bg-slate-800"
             }`}
           >
-            <FileText className="w-3.5 h-3.5" />
-            <span>5. Livro Caixa & Direitos do Consumidor</span>
+            <FileText className="w-4 h-4" />
+            <span>5. Livro Caixa & Direitos do Consumidor 📖</span>
           </button>
         </div>
       </div>
@@ -585,9 +606,9 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                     { label: "🍰 Doces / Festas", cnae: "5620-1/04", regime: "simples_comercio" as const },
                     { label: "🛒 Minimercado / Padaria", cnae: "4712-1/00", regime: "simples_comercio" as const },
                     { label: "🧠 Psicologia / T.O.", cnae: "8650-0/03", regime: "simples_servicos" as const }
-                  ].map((p) => (
+                  ].map((p, idx) => (
                     <button
-                      key={p.cnae}
+                      key={`${p.cnae}_${idx}`}
                       type="button"
                       onClick={() => {
                         setEmpresaCnpjCnae(`${p.cnae} - ${p.label}`);
@@ -818,6 +839,37 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
             </div>
 
             <div className="space-y-3">
+              {/* Presets Rápidos Touch de Funções */}
+              <div>
+                <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+                  Preenchimento Rápido com 1 Toque:
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { label: "🛠️ Ajudante Diarista", nome: "Ajudante Geral", tipo: "diarista" as const, valor: 100, extras: 0 },
+                    { label: "👤 Vendedor Balcão", nome: "Vendedor Balconista", tipo: "clt" as const, valor: 1518, extras: 4 },
+                    { label: "🔧 Mecânico Geral", nome: "Mecânico Geral", tipo: "clt" as const, valor: 2400, extras: 8 },
+                    { label: "🍹 Garçom / Barman", nome: "Garçom / Barman", tipo: "freelancer" as const, valor: 130, extras: 0 },
+                    { label: "🍰 Confeiteira / Cozinha", nome: "Confeiteira", tipo: "clt" as const, valor: 1800, extras: 2 }
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setNomeFuncionario(preset.nome);
+                        setTipoContrato(preset.tipo);
+                        setSalarioBase(preset.valor);
+                        setHorasExtras50(preset.extras);
+                        showNotification(`Preset "${preset.label}" aplicado! 👤`, "info");
+                      }}
+                      className="px-2 py-1.5 min-h-[36px] bg-slate-800 hover:bg-slate-700 active:scale-95 border border-white/5 rounded-lg text-left text-[10px] text-slate-300 hover:text-white truncate transition-all touch-manipulation cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">
                   Nome do Funcionário / Prestador:
@@ -826,7 +878,7 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                   type="text"
                   value={nomeFuncionario}
                   onChange={(e) => setNomeFuncionario(e.target.value)}
-                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none"
+                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-indigo-400"
                 />
               </div>
 
@@ -838,8 +890,8 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                   <button
                     type="button"
                     onClick={() => setTipoContrato("clt")}
-                    className={`py-2 px-1 text-[10px] font-black rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
-                      tipoContrato === "clt" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-800 border-white/5 text-slate-400"
+                    className={`py-2 px-1 min-h-[40px] text-[10px] font-black rounded-lg border uppercase tracking-wider transition-all cursor-pointer touch-manipulation active:scale-95 ${
+                      tipoContrato === "clt" ? "bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/30" : "bg-slate-800 border-white/5 text-slate-400"
                     }`}
                   >
                     CLT Mensal
@@ -847,8 +899,8 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                   <button
                     type="button"
                     onClick={() => setTipoContrato("diarista")}
-                    className={`py-2 px-1 text-[10px] font-black rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
-                      tipoContrato === "diarista" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-800 border-white/5 text-slate-400"
+                    className={`py-2 px-1 min-h-[40px] text-[10px] font-black rounded-lg border uppercase tracking-wider transition-all cursor-pointer touch-manipulation active:scale-95 ${
+                      tipoContrato === "diarista" ? "bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/30" : "bg-slate-800 border-white/5 text-slate-400"
                     }`}
                   >
                     Diarista
@@ -856,8 +908,8 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                   <button
                     type="button"
                     onClick={() => setTipoContrato("freelancer")}
-                    className={`py-2 px-1 text-[10px] font-black rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
-                      tipoContrato === "freelancer" ? "bg-indigo-600 border-indigo-500 text-white" : "bg-slate-800 border-white/5 text-slate-400"
+                    className={`py-2 px-1 min-h-[40px] text-[10px] font-black rounded-lg border uppercase tracking-wider transition-all cursor-pointer touch-manipulation active:scale-95 ${
+                      tipoContrato === "freelancer" ? "bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/30" : "bg-slate-800 border-white/5 text-slate-400"
                     }`}
                   >
                     Freelancer
@@ -866,39 +918,95 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                  {tipoContrato === "clt" ? "Salário Base (R$):" : "Valor por Diária (R$):"}
-                </label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                    {tipoContrato === "clt" ? "Salário Base (R$):" : "Valor por Diária (R$):"}
+                  </label>
+                  <span className="text-xs font-mono font-black text-emerald-400">{formatCurrency(salarioBase)}</span>
+                </div>
                 <input
                   type="number"
                   value={salarioBase}
                   onChange={(e) => setSalarioBase(Number(e.target.value))}
                   className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
                 />
+                {/* Touch Steppers de Salário */}
+                <div className="grid grid-cols-4 gap-1 mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSalarioBase(Math.max(0, salarioBase - 100))}
+                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
+                  >
+                    -100
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSalarioBase(Math.max(0, salarioBase - 50))}
+                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
+                  >
+                    -50
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSalarioBase(salarioBase + 50)}
+                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
+                  >
+                    +50
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSalarioBase(salarioBase + 100)}
+                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
+                  >
+                    +100
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                    Horas Extras 50% (Normais):
+                    Horas Extras 50%:
                   </label>
-                  <input
-                    type="number"
-                    value={horasExtras50}
-                    onChange={(e) => setHorasExtras50(Number(e.target.value))}
-                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                  />
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setHorasExtras50(Math.max(0, horasExtras50 - 1))}
+                      className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="flex-1 text-center font-mono font-bold text-xs text-white">{horasExtras50}h</span>
+                    <button
+                      type="button"
+                      onClick={() => setHorasExtras50(horasExtras50 + 1)}
+                      className="w-8 h-8 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                    Horas Extras 100% (Domingo):
+                    Horas Extras 100% (Dom):
                   </label>
-                  <input
-                    type="number"
-                    value={horasExtras100}
-                    onChange={(e) => setHorasExtras100(Number(e.target.value))}
-                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                  />
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setHorasExtras100(Math.max(0, horasExtras100 - 1))}
+                      className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="flex-1 text-center font-mono font-bold text-xs text-white">{horasExtras100}h</span>
+                    <button
+                      type="button"
+                      onClick={() => setHorasExtras100(horasExtras100 + 1)}
+                      className="w-8 h-8 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -909,7 +1017,7 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                     type="checkbox"
                     checked={valeTransporte}
                     onChange={(e) => setValeTransporte(e.target.checked)}
-                    className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
+                    className="w-5 h-5 accent-indigo-500 rounded cursor-pointer touch-manipulation"
                   />
                 </div>
               )}
@@ -993,6 +1101,35 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                   <span className="block text-[10px] text-slate-400">Recebi e dou plena quitação</span>
                 </div>
               </div>
+
+              {/* BOTÕES TOUCH DE ENVIO & IMPRESSÃO */}
+              <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = `🧾 *COMPROVANTE DE PAGAMENTO DE SALÁRIO / DIÁRIA*\n` +
+                      `👤 *Colaborador:* ${nomeFuncionario}\n` +
+                      `📋 *Contrato:* ${tipoContrato.toUpperCase()}\n` +
+                      `💰 *Valor Líquido:* ${formatCurrency(folhaCalc.liquido)}\n` +
+                      `📅 *Data:* ${new Date().toLocaleDateString("pt-BR")}\n\n` +
+                      `_Calculadora Cérebro Inteligente - Gestão & Contabilidade_`;
+                    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, "_blank");
+                    showNotification("Abrindo WhatsApp para enviar comprovante...", "info");
+                  }}
+                  className="flex-1 py-3 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 touch-manipulation min-h-[44px]"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Enviar Recibo no WhatsApp 📱</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/20 touch-manipulation min-h-[44px]"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Imprimir Recibo 🖨️</span>
+                </button>
+              </div>
             </div>
 
             {/* SIMULADOR DE RESCISÃO TRABALHISTA */}
@@ -1043,6 +1180,40 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
             </div>
 
             <div className="space-y-3">
+              {/* Presets Rápidos de Serviços de Oficina & Obra */}
+              <div>
+                <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+                  Preenchimento Rápido com 1 Toque:
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { label: "🚗 Troca de Óleo & Filtros", nome: "Troca de Óleo e Filtros", cobrado: 90, dias: 1, ajudantes: 0, diaria: 0, marmita: 0 },
+                    { label: "⚙️ Freios & Suspensão", nome: "Revisão Freios e Suspensão", cobrado: 380, dias: 1, ajudantes: 1, diaria: 80, marmita: 25 },
+                    { label: "🔧 Retífica de Motor / Câmbio", nome: "Retífica de Motor / Câmbio", cobrado: 1800, dias: 3, ajudantes: 1, diaria: 90, marmita: 25 },
+                    { label: "🔨 Funilaria & Pintura", nome: "Funilaria e Pintura Automotiva", cobrado: 1400, dias: 4, ajudantes: 1, diaria: 90, marmita: 25 },
+                    { label: "🧱 Reforma de Alvenaria", nome: "Empreitada de Alvenaria / Obra", cobrado: 3500, dias: 5, ajudantes: 2, diaria: 90, marmita: 30 },
+                    { label: "⚡ Elétrica & Injeção", nome: "Diagnóstico Elétrico e Injeção", cobrado: 450, dias: 1, ajudantes: 1, diaria: 80, marmita: 25 }
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setServicoNome(preset.nome);
+                        setValorCobrado(preset.cobrado);
+                        setDiasGastos(preset.dias);
+                        setNumAjudantes(preset.ajudantes);
+                        setDiariaAjudante(preset.diaria);
+                        setGastoMarmitaDia(preset.marmita);
+                        showNotification(`Preset "${preset.label}" aplicado! 🔧`, "info");
+                      }}
+                      className="px-2 py-1.5 min-h-[36px] bg-slate-800 hover:bg-slate-700 active:scale-95 border border-white/5 rounded-lg text-left text-[10px] text-amber-300 hover:text-white truncate transition-all touch-manipulation cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">
                   Serviço / Conserto Realizado:
@@ -1051,20 +1222,54 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                   type="text"
                   value={servicoNome}
                   onChange={(e) => setServicoNome(e.target.value)}
-                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none"
+                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-400"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                  Valor que Cobrou do Cliente (R$):
-                </label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                    Valor que Cobrou do Cliente (R$):
+                  </label>
+                  <span className="text-xs font-mono font-black text-emerald-400">{formatCurrency(valorCobrado)}</span>
+                </div>
                 <input
                   type="number"
                   value={valorCobrado}
                   onChange={(e) => setValorCobrado(Number(e.target.value))}
                   className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
                 />
+                {/* Touch Steppers de Valor Cobrado */}
+                <div className="grid grid-cols-4 gap-1 mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setValorCobrado(Math.max(0, valorCobrado - 100))}
+                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
+                  >
+                    -100
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setValorCobrado(Math.max(0, valorCobrado - 50))}
+                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
+                  >
+                    -50
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setValorCobrado(valorCobrado + 50)}
+                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
+                  >
+                    +50
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setValorCobrado(valorCobrado + 100)}
+                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
+                  >
+                    +100
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -1072,48 +1277,92 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                   <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
                     Quantos Dias Levou:
                   </label>
-                  <input
-                    type="number"
-                    value={diasGastos}
-                    onChange={(e) => setDiasGastos(Number(e.target.value))}
-                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                  />
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setDiasGastos(Math.max(1, diasGastos - 1))}
+                      className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="flex-1 text-center font-mono font-bold text-xs text-white">{diasGastos}d</span>
+                    <button
+                      type="button"
+                      onClick={() => setDiasGastos(diasGastos + 1)}
+                      className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
                     Quantos Ajudantes:
                   </label>
-                  <input
-                    type="number"
-                    value={numAjudantes}
-                    onChange={(e) => setNumAjudantes(Number(e.target.value))}
-                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                  />
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setNumAjudantes(Math.max(0, numAjudantes - 1))}
+                      className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="flex-1 text-center font-mono font-bold text-xs text-white">{numAjudantes}</span>
+                    <button
+                      type="button"
+                      onClick={() => setNumAjudantes(numAjudantes + 1)}
+                      className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                    Diária do Ajudante (R$):
+                    Diária Ajudante (R$):
                   </label>
-                  <input
-                    type="number"
-                    value={diariaAjudante}
-                    onChange={(e) => setDiariaAjudante(Number(e.target.value))}
-                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                  />
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setDiariaAjudante(Math.max(0, diariaAjudante - 10))}
+                      className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      -10
+                    </button>
+                    <span className="flex-1 text-center font-mono font-bold text-xs text-white">R${diariaAjudante}</span>
+                    <button
+                      type="button"
+                      onClick={() => setDiariaAjudante(diariaAjudante + 10)}
+                      className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      +10
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                    Marmita / Almoço Dia (R$):
+                    Marmita / Dia (R$):
                   </label>
-                  <input
-                    type="number"
-                    value={gastoMarmitaDia}
-                    onChange={(e) => setGastoMarmitaDia(Number(e.target.value))}
-                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                  />
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setGastoMarmitaDia(Math.max(0, gastoMarmitaDia - 5))}
+                      className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      -5
+                    </button>
+                    <span className="flex-1 text-center font-mono font-bold text-xs text-white">R${gastoMarmitaDia}</span>
+                    <button
+                      type="button"
+                      onClick={() => setGastoMarmitaDia(gastoMarmitaDia + 5)}
+                      className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      +5
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1121,12 +1370,28 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">
                   Lucro que o Patrão Merece Tirar por Dia (R$):
                 </label>
-                <input
-                  type="number"
-                  value={lucroDesejadoMestre}
-                  onChange={(e) => setLucroDesejadoMestre(Number(e.target.value))}
-                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                />
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setLucroDesejadoMestre(Math.max(50, lucroDesejadoMestre - 20))}
+                    className="w-9 h-9 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                  >
+                    -20
+                  </button>
+                  <input
+                    type="number"
+                    value={lucroDesejadoMestre}
+                    onChange={(e) => setLucroDesejadoMestre(Number(e.target.value))}
+                    className="flex-1 bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none text-center"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setLucroDesejadoMestre(lucroDesejadoMestre + 20)}
+                    className="w-9 h-9 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                  >
+                    +20
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1183,6 +1448,18 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                 </div>
               </div>
 
+              {/* ANÁLISE DE TEMPO: VALOR POR HORA */}
+              <div className="grid grid-cols-2 gap-3 mb-4 p-3 bg-slate-800/50 rounded-xl border border-white/5">
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase block">Tempo Total Dedicado</span>
+                  <span className="text-sm font-black text-amber-300 font-mono">{diasGastos * 8} horas ({diasGastos} dias de 8h)</span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase block">Cobrado por Hora de Oficina</span>
+                  <span className="text-sm font-black text-white font-mono">{formatCurrency(valorCobrado / (diasGastos * 8))}/h</span>
+                </div>
+              </div>
+
               {/* RECOMENDAÇÃO DO PREÇO JUSTO */}
               <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2">
                 <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase">
@@ -1198,9 +1475,38 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                   </span>
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed pt-1">
-                  O cliente chora, mas quem fica 3 dias mexendo numa moto e cobra só {formatCurrency(valorCobrado)} está tirando dinheiro do leite dos próprios filhos. 
-                  Com {diasGastos} dias de trabalho, o valor mínimo de mão de obra precisa cobrir os ajudantes e o tempo que a oficina ficou ocupada!
+                  O cliente chora, mas quem fica {diasGastos} dias mexendo num conserto e cobra só {formatCurrency(valorCobrado)} está pagando para trabalhar.
+                  O valor mínimo de mão de obra precisa cobrir os ajudantes e o tempo que a oficina ficou ocupada!
                 </p>
+              </div>
+
+              {/* BOTÕES TOUCH DE ENVIO E IMPRESSÃO DA OFICINA */}
+              <div className="pt-3 flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = `🔧 *DIAGNÓSTICO & ORÇAMENTO DE SERVIÇO - OFICINA*\n` +
+                      `⚙️ *Serviço:* ${servicoNome}\n` +
+                      `⏱️ *Tempo Estimado:* ${diasGastos} dias (${diasGastos * 8} horas)\n` +
+                      `💰 *Valor Total do Serviço:* ${formatCurrency(valorCobrado)}\n` +
+                      `📅 *Data:* ${new Date().toLocaleDateString("pt-BR")}\n\n` +
+                      `_Calculadora Cérebro Inteligente - Gestão de Oficinas_`;
+                    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, "_blank");
+                    showNotification("Abrindo WhatsApp para enviar orçamento...", "info");
+                  }}
+                  className="flex-1 py-3 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 touch-manipulation min-h-[44px]"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Enviar Orçamento no WhatsApp 📱</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="py-3 px-4 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-600/20 touch-manipulation min-h-[44px]"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Imprimir Ordem de Serviço 🖨️</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1211,170 +1517,330 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
       {/* ABA 4: BAR, DOSES DE 51 & BALDES DE CERVEJA */}
       {/* ========================================== */}
       {activeTab === "bar_doses" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-left">
-          {/* CALCULADORA DE DOSES DE 51 COM CHORINHO */}
-          <div className="bg-slate-900/90 border border-white/10 p-5 rounded-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
-                <Wine className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-base font-black text-white">
-                  Dose de Garrafa (51, Dreher, Conhaque)
-                </h3>
-              </div>
-              <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-300 font-bold rounded-full">
-                O Teste da Garrafa Real
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                  Preço Pago na Garrafa (R$):
-                </label>
-                <input
-                  type="number"
-                  value={precoGarrafa}
-                  onChange={(e) => setPrecoGarrafa(Number(e.target.value))}
-                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                  Preço da Dose no Balcão (R$):
-                </label>
-                <input
-                  type="number"
-                  value={precoDoseVenda}
-                  onChange={(e) => setPrecoDoseVenda(Number(e.target.value))}
-                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                />
-              </div>
-            </div>
-
-            {/* CONTADOR DO TESTE DA GARRAFA REAL */}
-            <div className="bg-slate-800/70 p-4 rounded-xl border border-white/5 space-y-2.5">
-              <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider block">
-                Contador de Doses Servidas (Para quem não tem copo dosador):
-              </span>
-              <p className="text-[9.5px] text-slate-400 leading-normal">
-                Abra uma garrafa teste. Cada vez que servir uma dose com seu chorinho normal no balcão, dê um toque no botão:
-              </p>
-              
-              <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="space-y-4 text-left">
+          {/* PRESETS RÁPIDOS DE BEBIDAS DO BAR */}
+          <div className="bg-slate-900/90 border border-white/10 p-3.5 rounded-2xl">
+            <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+              Cardápio Rápido do Bar com 1 Toque:
+            </span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {[
+                { label: "🥃 Cachaça 51", nome: "Cachaça 51 (965ml)", garrafa: 16.50, dose: 4.00, doses: 18, fardo: 48, avulso: 7, balde: 25, qtd: 4 },
+                { label: "🥃 Velho Barreiro", nome: "Velho Barreiro (910ml)", garrafa: 15.00, dose: 3.50, doses: 18, fardo: 48, avulso: 7, balde: 25, qtd: 4 },
+                { label: "🥃 Dreher / Conhaque", nome: "Dreher / Conhaque (900ml)", garrafa: 22.00, dose: 5.00, doses: 16, fardo: 48, avulso: 7, balde: 25, qtd: 4 },
+                { label: "🍸 Vodka Smirnoff", nome: "Vodka Smirnoff (998ml)", garrafa: 42.00, dose: 8.00, doses: 18, fardo: 48, avulso: 7, balde: 25, qtd: 4 },
+                { label: "🥃 Whisky Red Label", nome: "Whisky Red Label (1L)", garrafa: 92.00, dose: 15.00, doses: 18, fardo: 48, avulso: 7, balde: 25, qtd: 4 },
+                { label: "🍺 Balde 4 Cracudinhas", nome: "Balde 4 Cracudinhas", garrafa: 16.50, dose: 4.00, doses: 18, fardo: 38.00, avulso: 5.00, balde: 18.00, qtd: 4 },
+                { label: "🍺 Balde 5 Litrinhos", nome: "Balde 5 Litrinhos", garrafa: 16.50, dose: 4.00, doses: 18, fardo: 45.00, avulso: 6.00, balde: 26.00, qtd: 5 }
+              ].map((b, idx) => (
                 <button
+                  key={idx}
                   type="button"
-                  onClick={() => setDosesServidasContador(Math.max(1, dosesServidasContador - 1))}
-                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl font-mono font-black text-lg text-white cursor-pointer"
+                  onClick={() => {
+                    setBebidaNome(b.nome);
+                    setPrecoGarrafa(b.garrafa);
+                    setPrecoDoseVenda(b.dose);
+                    setDosesServidasContador(b.doses);
+                    setFardoPreco(b.fardo);
+                    setPrecoAvulso(b.avulso);
+                    setPrecoBaldePromo(b.balde);
+                    setQtdBalde(b.qtd);
+                    showNotification(`Preset "${b.label}" carregado! 🍻`, "info");
+                  }}
+                  className="px-2 py-2 min-h-[38px] bg-slate-800 hover:bg-slate-700 active:scale-95 border border-white/5 rounded-lg text-left text-[10px] text-emerald-300 hover:text-white truncate transition-all touch-manipulation cursor-pointer"
                 >
-                  -1
+                  {b.label}
                 </button>
-                <div className="text-center">
-                  <span className="text-3xl font-black text-white font-mono">{dosesServidasContador}</span>
-                  <span className="block text-[9px] uppercase font-bold text-slate-400">Doses Reais da Garrafa</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setDosesServidasContador(dosesServidasContador + 1)}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-mono font-black text-lg text-white cursor-pointer"
-                >
-                  +1 Dose
-                </button>
-              </div>
-            </div>
-
-            {/* APURAÇÃO REAL DA GARRAFA */}
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="p-2.5 bg-slate-800/60 rounded-xl">
-                <span className="text-[8.5px] text-slate-400 uppercase font-bold block">Custo por Dose</span>
-                <span className="text-xs font-black text-white font-mono">{formatCurrency(barCalc.custoDoseReal)}</span>
-              </div>
-              <div className="p-2.5 bg-slate-800/60 rounded-xl">
-                <span className="text-[8.5px] text-slate-400 uppercase font-bold block">Apurado na Garrafa</span>
-                <span className="text-xs font-black text-white font-mono">{formatCurrency(barCalc.apuradoGarrafaReal)}</span>
-              </div>
-              <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-                <span className="text-[8.5px] text-emerald-400 uppercase font-bold block">Lucro Limpo</span>
-                <span className="text-xs font-black text-emerald-400 font-mono">+{formatCurrency(barCalc.lucroGarrafaReal)}</span>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* SIMULADOR DE BALDE DE CERVEJA (CRACUDINHA / LITRINHO) */}
-          <div className="bg-slate-900/90 border border-white/10 p-5 rounded-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-amber-400" />
-                <h3 className="text-base font-black text-white">
-                  Balde de Cerveja (Cracudinha / Litrinho)
-                </h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* CALCULADORA DE DOSES DE 51 COM CHORINHO */}
+            <div className="bg-slate-900/90 border border-white/10 p-5 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <Wine className="w-5 h-5 text-emerald-400" />
+                  <h3 className="text-base font-black text-white">
+                    {bebidaNome}
+                  </h3>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-300 font-bold rounded-full">
+                  O Teste da Garrafa Real
+                </span>
               </div>
-              <span className="text-[10px] px-2 py-0.5 bg-amber-500/20 text-amber-300 font-bold rounded-full">
-                Combo com Gelo
-              </span>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider">
+                      Preço da Garrafa:
+                    </label>
+                    <span className="text-xs font-mono font-bold text-white">{formatCurrency(precoGarrafa)}</span>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={precoGarrafa}
+                    onChange={(e) => setPrecoGarrafa(Number(e.target.value))}
+                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
+                  />
+                  <div className="flex gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPrecoGarrafa(Math.max(1, precoGarrafa - 1))}
+                      className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded text-[10px] font-bold border border-white/5 touch-manipulation"
+                    >
+                      - R$1
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrecoGarrafa(precoGarrafa + 1)}
+                      className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded text-[10px] font-bold border border-white/5 touch-manipulation"
+                    >
+                      + R$1
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider">
+                      Dose no Balcão:
+                    </label>
+                    <span className="text-xs font-mono font-bold text-emerald-400">{formatCurrency(precoDoseVenda)}</span>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={precoDoseVenda}
+                    onChange={(e) => setPrecoDoseVenda(Number(e.target.value))}
+                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
+                  />
+                  <div className="flex gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPrecoDoseVenda(Math.max(0.5, precoDoseVenda - 0.5))}
+                      className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded text-[10px] font-bold border border-white/5 touch-manipulation"
+                    >
+                      - 0,50
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrecoDoseVenda(precoDoseVenda + 0.5)}
+                      className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded text-[10px] font-bold border border-white/5 touch-manipulation"
+                    >
+                      + 0,50
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* CONTADOR DO TESTE DA GARRAFA REAL */}
+              <div className="bg-slate-800/70 p-4 rounded-xl border border-white/5 space-y-2.5">
+                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider block">
+                  Contador de Doses Servidas (Para quem não tem copo dosador):
+                </span>
+                <p className="text-[9.5px] text-slate-400 leading-normal">
+                  Abra uma garrafa teste. Cada vez que servir uma dose com seu chorinho normal no balcão, dê um toque no botão:
+                </p>
+                
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setDosesServidasContador(Math.max(1, dosesServidasContador - 1))}
+                    className="px-4 py-3 min-h-[48px] min-w-[54px] bg-slate-700 hover:bg-slate-600 active:scale-95 rounded-xl font-mono font-black text-lg text-white cursor-pointer touch-manipulation flex items-center justify-center"
+                  >
+                    -1
+                  </button>
+                  <div className="text-center">
+                    <span className="text-3xl font-black text-white font-mono">{dosesServidasContador}</span>
+                    <span className="block text-[9px] uppercase font-bold text-slate-400">Doses Reais da Garrafa</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDosesServidasContador(dosesServidasContador + 1)}
+                    className="px-4 py-3 min-h-[48px] bg-emerald-600 hover:bg-emerald-500 active:scale-95 rounded-xl font-mono font-black text-base text-white cursor-pointer touch-manipulation flex items-center justify-center gap-1 shadow-lg shadow-emerald-600/30"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>1 Dose</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* APURAÇÃO REAL DA GARRAFA */}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="p-2.5 bg-slate-800/60 rounded-xl">
+                  <span className="text-[8.5px] text-slate-400 uppercase font-bold block">Custo por Dose</span>
+                  <span className="text-xs font-black text-white font-mono">{formatCurrency(barCalc.custoDoseReal)}</span>
+                </div>
+                <div className="p-2.5 bg-slate-800/60 rounded-xl">
+                  <span className="text-[8.5px] text-slate-400 uppercase font-bold block">Apurado na Garrafa</span>
+                  <span className="text-xs font-black text-white font-mono">{formatCurrency(barCalc.apuradoGarrafaReal)}</span>
+                </div>
+                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                  <span className="text-[8.5px] text-emerald-400 uppercase font-bold block">Lucro Limpo</span>
+                  <span className="text-xs font-black text-emerald-400 font-mono">+{formatCurrency(barCalc.lucroGarrafaReal)}</span>
+                </div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                  Custo do Fardo (12 un):
-                </label>
-                <input
-                  type="number"
-                  value={fardoPreco}
-                  onChange={(e) => setFardoPreco(Number(e.target.value))}
-                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                />
+            {/* SIMULADOR DE BALDE DE CERVEJA (CRACUDINHA / LITRINHO) */}
+            <div className="bg-slate-900/90 border border-white/10 p-5 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <Beer className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-base font-black text-white">
+                    Balde de Cerveja (Cracudinha / Litrinho)
+                  </h3>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 bg-amber-500/20 text-amber-300 font-bold rounded-full">
+                  Combo com Gelo
+                </span>
               </div>
-              <div>
-                <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                  Preço da Unidade Avulsa:
-                </label>
-                <input
-                  type="number"
-                  value={precoAvulso}
-                  onChange={(e) => setPrecoAvulso(Number(e.target.value))}
-                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                />
-              </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                  Preço do Balde na Promoção:
-                </label>
-                <input
-                  type="number"
-                  value={precoBaldePromo}
-                  onChange={(e) => setPrecoBaldePromo(Number(e.target.value))}
-                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
+                    Custo do Fardo (12 un):
+                  </label>
+                  <input
+                    type="number"
+                    value={fardoPreco}
+                    onChange={(e) => setFardoPreco(Number(e.target.value))}
+                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
+                  />
+                  <div className="flex gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setFardoPreco(Math.max(1, fardoPreco - 2))}
+                      className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded text-[10px] font-bold border border-white/5 touch-manipulation"
+                    >
+                      - R$2
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFardoPreco(fardoPreco + 2)}
+                      className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded text-[10px] font-bold border border-white/5 touch-manipulation"
+                    >
+                      + R$2
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
+                    Preço da Unidade Avulsa:
+                  </label>
+                  <input
+                    type="number"
+                    value={precoAvulso}
+                    onChange={(e) => setPrecoAvulso(Number(e.target.value))}
+                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
+                  />
+                  <div className="flex gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPrecoAvulso(Math.max(0.5, precoAvulso - 0.5))}
+                      className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded text-[10px] font-bold border border-white/5 touch-manipulation"
+                    >
+                      - 0,50
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrecoAvulso(precoAvulso + 0.5)}
+                      className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded text-[10px] font-bold border border-white/5 touch-manipulation"
+                    >
+                      + 0,50
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                  Cervejas no Balde (un):
-                </label>
-                <input
-                  type="number"
-                  value={qtdBalde}
-                  onChange={(e) => setQtdBalde(Number(e.target.value))}
-                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                />
-              </div>
-            </div>
 
-            <div className="p-4 bg-slate-800/60 rounded-xl border border-white/5 space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-400">4 garrafas avulsas a {formatCurrency(precoAvulso)} dariam:</span>
-                <span className="font-mono font-bold text-white">{formatCurrency(barCalc.valorAvulsoEquivalente)}</span>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
+                    Preço do Balde na Promoção:
+                  </label>
+                  <input
+                    type="number"
+                    value={precoBaldePromo}
+                    onChange={(e) => setPrecoBaldePromo(Number(e.target.value))}
+                    className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
+                  />
+                  <div className="flex gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPrecoBaldePromo(Math.max(1, precoBaldePromo - 1))}
+                      className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded text-[10px] font-bold border border-white/5 touch-manipulation"
+                    >
+                      - R$1
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrecoBaldePromo(precoBaldePromo + 1)}
+                      className="flex-1 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded text-[10px] font-bold border border-white/5 touch-manipulation"
+                    >
+                      + R$1
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
+                    Cervejas no Balde (un):
+                  </label>
+                  <div className="flex items-center gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setQtdBalde(Math.max(1, qtdBalde - 1))}
+                      className="w-9 h-9 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="flex-1 text-center font-mono font-bold text-sm text-white">{qtdBalde} un</span>
+                    <button
+                      type="button"
+                      onClick={() => setQtdBalde(qtdBalde + 1)}
+                      className="w-9 h-9 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Desconto que o cliente ganha no combo:</span>
-                <span className="font-mono font-bold text-amber-400">-{formatCurrency(barCalc.descontoClienteBalde)}</span>
+
+              <div className="p-4 bg-slate-800/60 rounded-xl border border-white/5 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">{qtdBalde} garrafas avulsas a {formatCurrency(precoAvulso)} dariam:</span>
+                  <span className="font-mono font-bold text-white">{formatCurrency(barCalc.valorAvulsoEquivalente)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Desconto que o cliente ganha no combo:</span>
+                  <span className="font-mono font-bold text-amber-400">-{formatCurrency(barCalc.descontoClienteBalde)}</span>
+                </div>
+                <div className="flex justify-between border-t border-white/5 pt-2">
+                  <span className="text-slate-300 font-bold">Lucro Limpo no Balde com Gelo:</span>
+                  <span className="font-mono font-black text-emerald-400 text-sm">+{formatCurrency(barCalc.lucroBalde)} ({barCalc.margemBalde.toFixed(1)}%)</span>
+                </div>
               </div>
-              <div className="flex justify-between border-t border-white/5 pt-2">
-                <span className="text-slate-300 font-bold">Lucro Limpo no Balde com Gelo:</span>
-                <span className="font-mono font-black text-emerald-400 text-sm">+{formatCurrency(barCalc.lucroBalde)} ({barCalc.margemBalde.toFixed(1)}%)</span>
+
+              {/* BOTÃO TOUCH DE WHATSAPP DO BAR */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = `🍻 *TABELA DE PREÇOS DO BALCÃO & BAR*\n` +
+                      `🥃 *${bebidaNome}:* ${formatCurrency(precoDoseVenda)} a dose\n` +
+                      `🍺 *Balde com ${qtdBalde} Cervejas + Gelo:* ${formatCurrency(precoBaldePromo)}\n` +
+                      `🍺 *Cerveja Avulsa:* ${formatCurrency(precoAvulso)}\n` +
+                      `📅 *Atualizado em:* ${new Date().toLocaleDateString("pt-BR")}\n\n` +
+                      `_Calculadora Cérebro Inteligente - Bar & Adega_`;
+                    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, "_blank");
+                    showNotification("Abrindo WhatsApp para enviar cardápio...", "info");
+                  }}
+                  className="w-full py-3 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 touch-manipulation min-h-[44px]"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Compartilhar Preços do Bar no WhatsApp 📱</span>
+                </button>
               </div>
             </div>
           </div>

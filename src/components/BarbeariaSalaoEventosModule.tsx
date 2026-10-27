@@ -399,9 +399,30 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   onOpenPDV
 }) => {
   // Aba Ativa
-  const [activeTab, setActiveTab] = useState<"profissionais" | "agenda" | "aniversarios" | "encomendas" | "empresa">("profissionais");
+  const [activeTab, setActiveTab] = useState<"profissionais" | "agenda" | "aniversarios" | "encomendas" | "empresa">(() => {
+    try {
+      const savedTab = localStorage.getItem("barbearia_active_tab");
+      if (savedTab && ["profissionais", "agenda", "aniversarios", "encomendas", "empresa"].includes(savedTab)) {
+        return savedTab as any;
+      }
+    } catch {}
+    return "profissionais";
+  });
   const [agendaViewMode, setAgendaViewMode] = useState<"timeline" | "lista">("timeline");
   const [selectedAgendaDate, setSelectedAgendaDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+
+  useEffect(() => {
+    const handleTabSync = () => {
+      try {
+        const savedTab = localStorage.getItem("barbearia_active_tab");
+        if (savedTab && ["profissionais", "agenda", "aniversarios", "encomendas", "empresa"].includes(savedTab)) {
+          setActiveTab(savedTab as any);
+        }
+      } catch {}
+    };
+    window.addEventListener("barbearia_prof_filter_changed", handleTabSync);
+    return () => window.removeEventListener("barbearia_prof_filter_changed", handleTabSync);
+  }, []);
 
   // Filtro de Segmento Selecionado: todos os segmentos suportados
   const [segmentFilter, setSegmentFilter] = useState<"todos" | NegocioSegmento>(() => {

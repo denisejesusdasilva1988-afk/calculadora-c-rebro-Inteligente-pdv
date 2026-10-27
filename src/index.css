@@ -148,10 +148,23 @@ html[data-theme="light"] .bg-slate-950 {
   background-color: #f8fafc !important;
 }
 
+/* Touch Screen Optimization for Mobile & POS devices (Eliminates 300ms tap delay & improves responsiveness) */
+button, 
+[role="button"], 
+a, 
+input, 
+select, 
+textarea, 
+.touch-manipulation,
+.clickable-card {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
 html[data-theme="light"] .bg-slate-900 {
   background-color: #ffffff !important;
   color: #0f172a !important;
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08);
 }
 
 html[data-theme="light"] .bg-slate-850,
@@ -160,7 +173,23 @@ html[data-theme="light"] .bg-slate-800 {
   color: #0f172a !important;
 }
 
-html[data-theme="light"] .text-white {
+/* Ensure buttons with colored/dark backgrounds keep pristine white text for maximum readability */
+html[data-theme="light"] button:not(.bg-white):not(.bg-slate-100):not(.bg-transparent):not(.bg-slate-200) .text-white,
+html[data-theme="light"] [class*="bg-emerald-"] .text-white,
+html[data-theme="light"] [class*="bg-purple-"] .text-white,
+html[data-theme="light"] [class*="bg-indigo-"] .text-white,
+html[data-theme="light"] [class*="bg-blue-"] .text-white,
+html[data-theme="light"] [class*="bg-rose-"] .text-white,
+html[data-theme="light"] [class*="bg-amber-600"] .text-white,
+html[data-theme="light"] [class*="bg-red-"] .text-white,
+html[data-theme="light"] [class*="bg-slate-900"] .text-white,
+html[data-theme="light"] [class*="bg-slate-950"] .text-white,
+html[data-theme="light"] .text-white-forced {
+  color: #ffffff !important;
+}
+
+/* On standard light surfaces, convert text-white to bold readable dark text */
+html[data-theme="light"] div:not([class*="bg-emerald-"]):not([class*="bg-purple-"]):not([class*="bg-indigo-"]):not([class*="bg-blue-"]):not([class*="bg-red-"]):not([class*="bg-rose-"]):not([class*="bg-slate-900"]):not([class*="bg-slate-950"]) > .text-white:not(.text-white-forced) {
   color: #0f172a !important;
 }
 
@@ -177,7 +206,8 @@ html[data-theme="light"] .text-slate-300 {
 }
 
 html[data-theme="light"] .text-slate-400 {
-  color: #64748b !important;
+  color: #475569 !important;
+  font-weight: 600 !important;
 }
 
 html[data-theme="light"] .border-white\/10,
@@ -185,7 +215,7 @@ html[data-theme="light"] .border-white\/5,
 html[data-theme="light"] .border-white\/15,
 html[data-theme="light"] .border-white\/20,
 html[data-theme="light"] .border-white\/30 {
-  border-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
 }
 
 html[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
@@ -193,12 +223,12 @@ html[data-theme="light"] select,
 html[data-theme="light"] textarea {
   background-color: #ffffff !important;
   color: #0f172a !important;
-  border-color: #cbd5e1 !important;
+  border-color: #94a3b8 !important;
 }
 
 html[data-theme="light"] input::placeholder,
 html[data-theme="light"] textarea::placeholder {
-  color: #94a3b8 !important;
+  color: #64748b !important;
 }
 
 /* 2. PALETAS DE CORES EXCLUSIVAS (MODO ESCURO / DARK) */

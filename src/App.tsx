@@ -32,6 +32,7 @@ import {
   X,
   Calculator,
   Calendar,
+  Clock,
   Folder,
   Archive,
   Eraser,
@@ -547,6 +548,19 @@ function handleFirestoreError(
     return;
   }
 
+  // Gracefully handle offline or network unavailable states without crashing or logging fatal errors
+  if (
+    errorCode === "unavailable" ||
+    errorMessage.toLowerCase().includes("client is offline") ||
+    errorMessage.toLowerCase().includes("failed to get document because the client is offline") ||
+    errorMessage.toLowerCase().includes("offline")
+  ) {
+    console.warn(
+      `[Firestore Offline] Cliente offline para operação ${operationType} em "${path || 'doc'}". Continuando em modo local resiliente.`
+    );
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: errorMessage,
     authInfo: {
@@ -569,11 +583,6 @@ function handleFirestoreError(
     `Firestore Error [${errorCode || "unknown"}]: `,
     JSON.stringify(errInfo),
   );
-
-  if (errorCode === "unavailable") {
-    // Optionally notify the UI about the connection loss
-    // (This is handled by setIsOnline in the background connection test)
-  }
 
   throw new Error(JSON.stringify(errInfo));
 }
@@ -1526,6 +1535,13 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showAllTabs, setShowAllTabs] = useState(false);
   const [pdvActiveSubTab, setPdvActiveSubTab] = useState<string | null>(null);
+  const [contabilidadeActiveTab, setContabilidadeActiveTab] = useState<"tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa">(() => {
+    try {
+      return (localStorage.getItem("contabilidade_active_tab") as any) || "tributos";
+    } catch {
+      return "tributos";
+    }
+  });
   const [selectedNiche, setSelectedNiche] = useState<string>(() => {
     try { return localStorage.getItem("pdv_selected_segment") || "comercio_geral"; } catch { return "comercio_geral"; }
   });
@@ -1667,7 +1683,17 @@ export default function App() {
     return true;
   };
 
-  const handleSetNotepadMode = (mode: any, checkoutOnly?: boolean) => {
+  const handleSetNotepadMode = (
+    mode: any,
+    checkoutOnly?: boolean,
+    contabilidadeTab?: "tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa"
+  ) => {
+    if (contabilidadeTab) {
+      setContabilidadeActiveTab(contabilidadeTab);
+      try {
+        localStorage.setItem("contabilidade_active_tab", contabilidadeTab);
+      } catch {}
+    }
     // 1. Subscription plan access gate (Freemium rules requested by user)
     const isOwnerOrAdmin = isAdmin || (user?.email && user.email.toLowerCase().includes("denise"));
 
@@ -5917,10 +5943,28 @@ export default function App() {
       setIsCloudLoaded(true);
       return;
     }
+    if (getIsFirestoreQuotaPaused()) {
+      console.warn("[App Offline] Cota do Firestore pausada ou cliente offline. Carregando dados locais com segurança.");
+      loadFromLocalStorage(userId);
+      setIsCloudLoaded(true);
+      return;
+    }
     const path = `userData/${userId}`;
     try {
       const docRef = doc(db, "userData", userId);
-      const docSnap = await getDoc(docRef);
+      let docSnap: any;
+      try {
+        docSnap = await getDoc(docRef);
+      } catch (getErr: any) {
+        const getMsg = getErr?.message || String(getErr);
+        if (getErr?.code === "unavailable" || getMsg.toLowerCase().includes("offline") || getMsg.toLowerCase().includes("client is offline")) {
+          console.warn("[App Offline] Sem conexão para buscar dados da nuvem. Carregando dados locais do usuário.");
+          loadFromLocalStorage(userId);
+          setIsCloudLoaded(true);
+          return;
+        }
+        throw getErr;
+      }
       
       const suffix = `_user_${userId}`;
       const guestSuffix = `_guest`;
@@ -10591,57 +10635,108 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ROW 5: CONTABILIDADE, TRIBUTOS & ESCRITÓRIO DO PROPRIETÁRIO */}
+              {/* ROW 5: CONTABILIDADE, FUNCIONÁRIOS, OFICINA, BAR & TEMPO */}
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar px-2 items-stretch mt-1.5">
                 <div className="flex-shrink-0 flex items-center justify-center gap-2 px-4 shadow-sm bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-950 border border-indigo-500/30 rounded-l-2xl min-w-[130px]">
                   <Landmark className="w-4 h-4 text-indigo-400 animate-pulse" />
                   <span className="text-[10px] sm:text-[11px] font-black uppercase text-indigo-300 tracking-wider">
-                    5. Contabilidade
+                    5. Negócios
                   </span>
                 </div>
+                {/* 1. O LEÃO & TRIBUTOS */}
                 <button
                   type="button"
-                  onClick={() => handleSetNotepadMode("contabilidade")}
-                  className={`flex-1 min-w-[180px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wide transition-all duration-200 cursor-pointer text-center ${
-                    notepadMode === "contabilidade"
+                  onClick={() => handleSetNotepadMode("contabilidade", false, "tributos")}
+                  className={`flex-1 min-w-[160px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 px-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center select-none active:scale-95 touch-manipulation ${
+                    notepadMode === "contabilidade" && contabilidadeActiveTab === "tributos"
                       ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-[0_-8px_20px_-4px_rgba(99,102,241,0.35)] border-2 border-indigo-400 scale-[1.02] z-20"
                       : "bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-500/20 text-indigo-200 hover:text-white"
                   }`}
-                  title="O Leão da Receita Federal, MEI, Simples Nacional, Folha de Funcionários e Rescisão"
+                  title="O Leão da Receita Federal: Simples Nacional, MEI, Alíquotas e Faturamento"
                 >
                   <div className="flex items-center gap-1.5">
-                    <Landmark className={`w-4 h-4 ${notepadMode === "contabilidade" ? "text-white animate-bounce" : "text-indigo-400"}`} />
-                    <span>O Leão & Tributos 🏛️⚖️</span>
+                    <Landmark className={`w-4 h-4 ${notepadMode === "contabilidade" && contabilidadeActiveTab === "tributos" ? "text-white animate-bounce" : "text-indigo-400"}`} />
+                    <span>O Leão & Tributos 🏛️</span>
                   </div>
                 </button>
+                {/* 2. FUNCIONÁRIOS & CLT */}
                 <button
                   type="button"
-                  onClick={() => handleSetNotepadMode("contabilidade")}
-                  className={`flex-1 min-w-[160px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-extrabold text-[10.5px] uppercase tracking-wide transition-all duration-200 cursor-pointer text-center ${
-                    notepadMode === "contabilidade"
-                      ? "bg-slate-900 text-amber-300 border border-amber-500/30"
-                      : "bg-slate-900/60 hover:bg-slate-900/90 border border-white/5 text-slate-300 hover:text-white"
+                  onClick={() => handleSetNotepadMode("contabilidade", false, "funcionarios")}
+                  className={`flex-1 min-w-[170px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 px-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center select-none active:scale-95 touch-manipulation ${
+                    notepadMode === "contabilidade" && contabilidadeActiveTab === "funcionarios"
+                      ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-[0_-8px_20px_-4px_rgba(59,130,246,0.35)] border-2 border-blue-400 scale-[1.02] z-20"
+                      : "bg-slate-900/70 hover:bg-slate-800 border border-blue-500/30 text-blue-300 hover:text-white"
                   }`}
-                  title="Folha de Pagamento, Horas Extras, DSR e Rescisão com FGTS e Seguro Desemprego"
+                  title="Funcionários: Folha de Pagamento, Diárias de Ajudante, Horas Extras, Rescisão Trabalhista e Recibos"
                 >
                   <div className="flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5 text-indigo-400" />
+                    <Users className={`w-4 h-4 ${notepadMode === "contabilidade" && contabilidadeActiveTab === "funcionarios" ? "text-white animate-bounce" : "text-blue-400"}`} />
                     <span>Funcionários & CLT 👥</span>
                   </div>
                 </button>
+                {/* 3. OFICINA MECÂNICA */}
                 <button
                   type="button"
-                  onClick={() => handleSetNotepadMode("contabilidade")}
-                  className={`flex-1 min-w-[170px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-extrabold text-[10.5px] uppercase tracking-wide transition-all duration-200 cursor-pointer text-center ${
-                    notepadMode === "contabilidade"
-                      ? "bg-slate-900 text-emerald-300 border border-emerald-500/30"
-                      : "bg-slate-900/60 hover:bg-slate-900/90 border border-white/5 text-slate-300 hover:text-white"
+                  onClick={() => handleSetNotepadMode("contabilidade", false, "tempo_dinheiro")}
+                  className={`flex-1 min-w-[175px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 px-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center select-none active:scale-95 touch-manipulation ${
+                    notepadMode === "contabilidade" && contabilidadeActiveTab === "tempo_dinheiro"
+                      ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-[0_-8px_20px_-4px_rgba(245,158,11,0.35)] border-2 border-amber-400 scale-[1.02] z-20"
+                      : "bg-slate-900/70 hover:bg-slate-800 border border-amber-500/30 text-amber-300 hover:text-white"
                   }`}
-                  title="Oficina, Balcão de Bar, Doses de Cachaça com Chorinho, Carnes e Custo Real de Mão de Obra"
+                  title="Oficina Mecânica & Obras: Consertos, Mão de Obra, Ajudantes e Diagnóstico"
                 >
                   <div className="flex items-center gap-1.5">
-                    <Wrench className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Oficina & Bar: Tempo é R$ ⏱️🍻</span>
+                    <Wrench className={`w-4 h-4 ${notepadMode === "contabilidade" && contabilidadeActiveTab === "tempo_dinheiro" ? "text-white animate-bounce" : "text-amber-400"}`} />
+                    <span>Oficinas & Obras 🔧</span>
+                  </div>
+                </button>
+                {/* 4. TEMPO É DINHEIRO */}
+                <button
+                  type="button"
+                  onClick={() => handleSetNotepadMode("contabilidade", false, "tempo_dinheiro")}
+                  className={`flex-1 min-w-[165px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 px-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center select-none active:scale-95 touch-manipulation ${
+                    notepadMode === "contabilidade" && contabilidadeActiveTab === "tempo_dinheiro"
+                      ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-[0_-8px_20px_-4px_rgba(249,115,22,0.35)] border-2 border-orange-400 scale-[1.02] z-20"
+                      : "bg-slate-900/70 hover:bg-slate-800 border border-orange-500/30 text-orange-300 hover:text-white"
+                  }`}
+                  title="Tempo é Dinheiro: Quanto cobrar por dia e hora para não pagar para trabalhar"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Clock className={`w-4 h-4 ${notepadMode === "contabilidade" && contabilidadeActiveTab === "tempo_dinheiro" ? "text-white animate-spin" : "text-orange-400"}`} />
+                    <span>Tempo é Dinheiro ⏱️</span>
+                  </div>
+                </button>
+                {/* 5. BAR, DOSES & BALDES */}
+                <button
+                  type="button"
+                  onClick={() => handleSetNotepadMode("contabilidade", false, "bar_doses")}
+                  className={`flex-1 min-w-[170px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 px-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center select-none active:scale-95 touch-manipulation ${
+                    notepadMode === "contabilidade" && contabilidadeActiveTab === "bar_doses"
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-[0_-8px_20px_-4px_rgba(16,185,129,0.35)] border-2 border-emerald-400 scale-[1.02] z-20"
+                      : "bg-slate-900/70 hover:bg-slate-800 border border-emerald-500/30 text-emerald-300 hover:text-white"
+                  }`}
+                  title="Bar & Bebidas: Dose de 51 com chorinho, Baldes de Cerveja, Chopp e Margem Real"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Beer className={`w-4 h-4 ${notepadMode === "contabilidade" && contabilidadeActiveTab === "bar_doses" ? "text-white animate-bounce" : "text-emerald-400"}`} />
+                    <span>Bar, Doses & Baldes 🍻</span>
+                  </div>
+                </button>
+                {/* 6. LIVRO CAIXA */}
+                <button
+                  type="button"
+                  onClick={() => handleSetNotepadMode("contabilidade", false, "livro_caixa")}
+                  className={`flex-1 min-w-[155px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 px-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center select-none active:scale-95 touch-manipulation ${
+                    notepadMode === "contabilidade" && contabilidadeActiveTab === "livro_caixa"
+                      ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-[0_-8px_20px_-4px_rgba(168,85,247,0.35)] border-2 border-purple-400 scale-[1.02] z-20"
+                      : "bg-slate-900/70 hover:bg-slate-800 border border-purple-500/30 text-purple-300 hover:text-white"
+                  }`}
+                  title="Livro Caixa Oficial, Entradas, Saídas e Direitos do Consumidor"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <FileText className={`w-4 h-4 ${notepadMode === "contabilidade" && contabilidadeActiveTab === "livro_caixa" ? "text-white animate-bounce" : "text-purple-400"}`} />
+                    <span>Livro Caixa & Direitos 📖</span>
                   </div>
                 </button>
               </div>
@@ -11748,7 +11843,8 @@ export default function App() {
                     />
                   ) : notepadMode === "contabilidade" ? (
                     <ContabilidadeTributosModule
-                      key="contabilidade-module"
+                      key={`contabilidade-module-${contabilidadeActiveTab}`}
+                      initialTab={contabilidadeActiveTab}
                       onBack={() => handleSetNotepadMode("notes")}
                       formatCurrency={formatCurrency}
                       monthlyRevenueDefault={excelTotal > 0 ? excelTotal : 18500}
@@ -15360,6 +15456,8 @@ export default function App() {
             isNicheLocked={isNicheLocked}
             onToggleNicheLock={toggleNicheLock}
             customNiches={customNiches}
+            contabilidadeActiveTab={contabilidadeActiveTab}
+            setContabilidadeActiveTab={setContabilidadeActiveTab}
             storeName={storeName}
             storeCnpjCpf={storeCnpjCpf}
             setStoreName={setStoreName}

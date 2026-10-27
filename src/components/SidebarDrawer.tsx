@@ -6,6 +6,8 @@ import {
   Store,
   Tag,
   Calendar,
+  Clock,
+  FileText,
   Layers,
   ShoppingBag,
   RotateCcw,
@@ -92,6 +94,8 @@ interface SidebarDrawerProps {
   currentTier?: string;
   isNicheLocked?: boolean;
   onToggleNicheLock?: () => void;
+  contabilidadeActiveTab?: string;
+  setContabilidadeActiveTab?: (tab: any) => void;
 }
 
 export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
@@ -119,9 +123,12 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onOpenPaywall,
   currentTier = "free",
   isNicheLocked = false,
-  onToggleNicheLock
+  onToggleNicheLock,
+  contabilidadeActiveTab = "tributos",
+  setContabilidadeActiveTab
 }) => {
   const [isNicheDropdownOpen, setIsNicheDropdownOpen] = useState(false);
+  const [isAba5Open, setIsAba5Open] = useState(true);
   const [isAba7Open, setIsAba7Open] = useState(true);
 
   let gestaoRole: string | null = null;
@@ -187,6 +194,26 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       console.error("Erro ao salvar PIN do proprietário:", e);
     }
   };
+
+  // Carrega a lista de profissionais da equipe para acesso direto na barra lateral
+  const storedProfessionals = useMemo(() => {
+    try {
+      const storagePrefix = currentUserId ? `barbearia_${currentUserId}_` : "barbearia_guest_";
+      const raw = localStorage.getItem(`${storagePrefix}profissionais`) || localStorage.getItem("barbearia_guest_profissionais");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return [
+      { id: "prof_denise", nome: "Denise (Responsável)", apelido: "Denise", especialidade: "Atendimento Geral & Gestão", fotoUrl: "", categoria: "salao" },
+      { id: "prof_barbeiro", nome: "Barbeiro", apelido: "Barbeiro", especialidade: "Corte Masculino & Barba", fotoUrl: "", categoria: "barbearia" },
+      { id: "prof_salao", nome: "Cabeleireira", apelido: "Salão", especialidade: "Escova, Cortes & Mechas", fotoUrl: "", categoria: "salao" },
+      { id: "prof_manicure", nome: "Manicure", apelido: "Manicure", especialidade: "Unhas, Gel & Esmaltação", fotoUrl: "", categoria: "manicure" }
+    ];
+  }, [currentUserId]);
 
   const handleProprietarioClick = () => {
     // 1. License / Paywall check ("Apenas para quem pagar o aplicativo")
@@ -674,6 +701,14 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       if (setPdvCheckoutOnly) {
         setPdvCheckoutOnly(checkoutOnly);
       }
+    }
+    if (mode === "contabilidade" && subTab !== null) {
+      if (setContabilidadeActiveTab) {
+        setContabilidadeActiveTab(subTab);
+      }
+      try {
+        localStorage.setItem("contabilidade_active_tab", subTab);
+      } catch {}
     }
     if (subTab !== null) {
       setPdvActiveSubTab(subTab);
@@ -1227,6 +1262,59 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-black">GRÁTIS</span>
                   </button>
 
+                  {/* 🌟 PROFISSIONAIS DA EQUIPE (SELEÇÃO DIRETA NO SIDEBAR) */}
+                  <div className="bg-slate-950/80 border border-purple-500/30 rounded-2xl p-2.5 space-y-2 shadow-md">
+                    <div className="flex items-center justify-between px-1">
+                      <span className="text-[10px] font-black uppercase text-purple-300 tracking-wider flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Profissionais da Equipe ✂️</span>
+                      </span>
+                      <span className="text-[8px] font-black uppercase bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30">
+                        Agenda Direta
+                      </span>
+                    </div>
+
+                    <div className="space-y-1">
+                      {storedProfessionals.map((prof: any) => (
+                        <button
+                          key={prof.id}
+                          type="button"
+                          onClick={() => {
+                            try {
+                              localStorage.setItem("barbearia_active_prof_filter", prof.id);
+                              localStorage.setItem("barbearia_active_tab", "agenda");
+                              window.dispatchEvent(new Event("barbearia_prof_filter_changed"));
+                            } catch {}
+                            handleNavigate("barbearia_salao");
+                            showNotification(`📅 Agenda aberta para ${prof.apelido || prof.nome}!`, "success");
+                          }}
+                          className="w-full flex items-center justify-between p-2 rounded-xl bg-slate-900/90 hover:bg-purple-950/40 border border-white/5 hover:border-purple-500/40 transition-all cursor-pointer text-left group active:scale-98"
+                        >
+                          <div className="flex items-center gap-2.5 truncate">
+                            <div className="w-7 h-7 rounded-lg bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shrink-0 text-xs font-black text-purple-300">
+                              {prof.fotoUrl ? (
+                                <img src={prof.fotoUrl} alt={prof.nome} className="w-full h-full object-cover rounded-lg" />
+                              ) : (
+                                (prof.apelido || prof.nome || "P").charAt(0).toUpperCase()
+                              )}
+                            </div>
+                            <div className="truncate">
+                              <span className="text-[11px] font-black text-white group-hover:text-purple-300 uppercase block truncate leading-tight">
+                                {prof.apelido || prof.nome}
+                              </span>
+                              <span className="text-[9px] font-bold text-slate-400 block truncate leading-none mt-0.5">
+                                {prof.especialidade || "Atendimento & Serviços"}
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-[8.5px] font-black text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded shrink-0">
+                            Ver Agenda 🗓️
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* 6. Salão, Barbearia, Equipe & Encomendas de Festas */}
                   <div className="space-y-1">
                     <button
@@ -1679,25 +1767,130 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
                   </button>
 
-                  {/* 🌟 12. Contabilidade & O Leão (Aba 5) */}
-                  <button
-                    id="sidebar-btn-contabilidade-drawer"
-                    onClick={() => handleNavigate("contabilidade")}
-                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer text-left ${
-                      notepadMode === "contabilidade"
-                        ? "bg-indigo-600/25 border border-indigo-500/40 text-indigo-200 font-extrabold shadow-[0_0_15px_rgba(99,102,241,0.25)]"
-                        : "hover:bg-white/5 border border-transparent text-slate-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Landmark className="w-5 h-5 text-indigo-400 shrink-0" />
-                      <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
-                        Contabilidade & O Leão 🏛️
-                        <span className="text-[8px] bg-indigo-500 text-white font-black px-1.5 py-0.5 rounded">ABA 5</span>
-                      </span>
-                    </div>
-                    <ChevronRight className="w-3.5 h-3.5 opacity-50" />
-                  </button>
+                  {/* 🌟 12. Contabilidade, Funcionários, Oficina, Bar & Tempo (Aba 5) */}
+                  <div className="bg-indigo-950/30 border border-indigo-500/25 rounded-2xl p-1.5 space-y-1">
+                    <button
+                      id="sidebar-btn-contabilidade-drawer"
+                      onClick={() => setIsAba5Open(!isAba5Open)}
+                      className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
+                        notepadMode === "contabilidade"
+                          ? "bg-indigo-600/30 text-indigo-200 font-extrabold shadow-[0_0_12px_rgba(99,102,241,0.2)]"
+                          : "hover:bg-white/5 text-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Landmark className="w-5 h-5 text-indigo-400 shrink-0 animate-pulse" />
+                        <div>
+                          <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5 text-white">
+                            Contabilidade & Negócios 🏛️
+                            <span className="text-[8px] bg-indigo-500 text-white font-black px-1.5 py-0.5 rounded">ABA 5</span>
+                          </span>
+                          <span className="text-[9.5px] text-slate-400 block font-normal">Tributos, Funcionários, Oficina, Bar & Tempo</span>
+                        </div>
+                      </div>
+                      <ChevronDown className={`w-4 h-4 text-indigo-300 transition-transform duration-200 ${isAba5Open ? "rotate-180" : ""}`} />
+                    </button>
+
+                    {isAba5Open && (
+                      <div className="pl-2 pr-1 py-1 space-y-1 border-t border-white/5 animate-fadeIn">
+                        {/* 1. O Leão */}
+                        <button
+                          onClick={() => handleNavigate("contabilidade", "tributos")}
+                          className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all text-left cursor-pointer ${
+                            notepadMode === "contabilidade" && contabilidadeActiveTab === "tributos"
+                              ? "bg-indigo-600 text-white font-black shadow-md"
+                              : "text-slate-300 hover:text-white hover:bg-white/5"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Landmark className="w-4 h-4 text-indigo-400" />
+                            <span>1. O Leão (MEI & Simples Nacional)</span>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 opacity-40" />
+                        </button>
+
+                        {/* 2. Funcionários */}
+                        <button
+                          onClick={() => handleNavigate("contabilidade", "funcionarios")}
+                          className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all text-left cursor-pointer ${
+                            notepadMode === "contabilidade" && contabilidadeActiveTab === "funcionarios"
+                              ? "bg-blue-600 text-white font-black shadow-md"
+                              : "text-blue-300 hover:text-white hover:bg-white/5"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Users className="w-4 h-4 text-blue-400" />
+                            <span>2. Funcionários, Diárias & Rescisão 👥</span>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 opacity-40" />
+                        </button>
+
+                        {/* 3. Oficina Mecânica */}
+                        <button
+                          onClick={() => handleNavigate("contabilidade", "tempo_dinheiro")}
+                          className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all text-left cursor-pointer ${
+                            notepadMode === "contabilidade" && contabilidadeActiveTab === "tempo_dinheiro"
+                              ? "bg-amber-600 text-white font-black shadow-md"
+                              : "text-amber-300 hover:text-white hover:bg-white/5"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Wrench className="w-4 h-4 text-amber-400" />
+                            <span>3. Oficina Mecânica & Obras 🔧</span>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 opacity-40" />
+                        </button>
+
+                        {/* 4. Tempo é Dinheiro */}
+                        <button
+                          onClick={() => handleNavigate("contabilidade", "tempo_dinheiro")}
+                          className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all text-left cursor-pointer ${
+                            notepadMode === "contabilidade" && contabilidadeActiveTab === "tempo_dinheiro"
+                              ? "bg-orange-600 text-white font-black shadow-md"
+                              : "text-orange-300 hover:text-white hover:bg-white/5"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-orange-400" />
+                            <span>4. Tempo é Dinheiro (Mão de Obra) ⏱️</span>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 opacity-40" />
+                        </button>
+
+                        {/* 5. Bar & Bebidas */}
+                        <button
+                          onClick={() => handleNavigate("contabilidade", "bar_doses")}
+                          className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all text-left cursor-pointer ${
+                            notepadMode === "contabilidade" && contabilidadeActiveTab === "bar_doses"
+                              ? "bg-emerald-600 text-white font-black shadow-md"
+                              : "text-emerald-300 hover:text-white hover:bg-white/5"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Beer className="w-4 h-4 text-emerald-400" />
+                            <span>5. Bar, Doses de 51 & Baldes 🍻</span>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 opacity-40" />
+                        </button>
+
+                        {/* 6. Livro Caixa */}
+                        <button
+                          onClick={() => handleNavigate("contabilidade", "livro_caixa")}
+                          className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all text-left cursor-pointer ${
+                            notepadMode === "contabilidade" && contabilidadeActiveTab === "livro_caixa"
+                              ? "bg-purple-600 text-white font-black shadow-md"
+                              : "text-purple-300 hover:text-white hover:bg-white/5"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-purple-400" />
+                            <span>6. Livro Caixa & Direitos 📖</span>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 opacity-40" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
                   {/* 🌟 13. Comandos do Balcão & Gaveta (Aba 6) */}
                   <button

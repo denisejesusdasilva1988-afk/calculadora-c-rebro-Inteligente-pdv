@@ -101,10 +101,27 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
     return new Date().toISOString().slice(0, 10);
   });
 
-  // Profissional selecionado na barra de avatares (primeiro por padrão ou "todos")
+  // Profissional selecionado na barra de avatares (respeita seleção da barra lateral ou primeiro)
   const [selectedProfId, setSelectedProfId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("barbearia_active_prof_filter");
+      if (saved && (saved === "todos" || profissionais.some((p) => p.id === saved))) {
+        return saved;
+      }
+    } catch {}
     return profissionais[0]?.id || "todos";
   });
+
+  useEffect(() => {
+    const handleProfChange = () => {
+      try {
+        const saved = localStorage.getItem("barbearia_active_prof_filter");
+        if (saved) setSelectedProfId(saved);
+      } catch {}
+    };
+    window.addEventListener("barbearia_prof_filter_changed", handleProfChange);
+    return () => window.removeEventListener("barbearia_prof_filter_changed", handleProfChange);
+  }, []);
 
   // Modal de Configuração da Agenda do Profissional
   const [isConfigAgendaModalOpen, setIsConfigAgendaModalOpen] = useState(false);
