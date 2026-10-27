@@ -36,7 +36,14 @@ import {
   Layers,
   Wallet,
   Save,
-  Tag
+  Tag,
+  Eye,
+  Maximize2,
+  Clock,
+  Check,
+  Package,
+  Grid,
+  List
 } from "lucide-react";
 import { PDVTransaction, CartItem } from "./PDVModule";
 
@@ -222,6 +229,10 @@ export function PDVSalesTransitionStepper({
   const [creditInstallments, setCreditInstallments] = useState<number>(1);
   const [cpfNota, setCpfNota] = useState<string>("");
   const [displayLimit, setDisplayLimit] = useState<number>(60);
+  // --- Product Inspection / Zoom & Display Density States ---
+  const [inspectingProduct, setInspectingProduct] = useState<any | null>(null);
+  const [inspectingQty, setInspectingQty] = useState<number>(1);
+  const [cardDisplayDensity, setCardDisplayDensity] = useState<"comfort" | "compact">("comfort");
 
   // --- Touch-Screen Product Register States ---
   const [isTouchRegisterOpen, setIsTouchRegisterOpen] = useState(false);
@@ -700,8 +711,57 @@ export function PDVSalesTransitionStepper({
               })}
             </div>
 
-            {/* Products Visual Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 max-h-[500px] overflow-y-auto no-scrollbar pr-0.5 pb-2">
+            {/* Density & View Controls Bar */}
+            <div className="flex items-center justify-between gap-2 px-1 py-1">
+              <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400">
+                <span className="text-white font-black">{activeProductsList.length}</span>
+                <span>{activeProductsList.length === 1 ? "item disponível" : "itens disponíveis"}</span>
+                {selectedCategory !== "Todos" && (
+                  <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md text-[10px] font-black uppercase">
+                    {selectedCategory}
+                  </span>
+                )}
+              </div>
+
+              {/* View Mode Toggle: Comfort (Large / High Visibility) vs Compact (2 Columns) */}
+              <div className="flex items-center bg-slate-950 border border-white/10 rounded-xl p-1 gap-1 text-[10px] font-black">
+                <button
+                  type="button"
+                  onClick={() => setCardDisplayDensity("comfort")}
+                  className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                    cardDisplayDensity === "comfort"
+                      ? "bg-emerald-500 text-slate-950 shadow-md font-black"
+                      : "text-slate-400 hover:text-white hover:bg-white/5"
+                  }`}
+                  title="Modo Ampliado: Alta Legibilidade sem cortes de texto"
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Modo Amplo (Sem Cortes)</span>
+                  <span className="sm:hidden">Amplo 📱</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCardDisplayDensity("compact")}
+                  className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                    cardDisplayDensity === "compact"
+                      ? "bg-emerald-500 text-slate-950 shadow-md font-black"
+                      : "text-slate-400 hover:text-white hover:bg-white/5"
+                  }`}
+                  title="Modo Grade: 2 colunas"
+                >
+                  <Grid className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Grade Dupla</span>
+                  <span className="sm:hidden">Grade 🗂️</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Products Visual Grid / List */}
+            <div className={`max-h-[520px] overflow-y-auto no-scrollbar pr-0.5 pb-2 ${
+              cardDisplayDensity === "comfort"
+                ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"
+                : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-2.5"
+            }`}>
               {activeProductsList.length === 0 ? (
                 <div className="col-span-full py-14 text-center text-slate-400 text-xs uppercase font-bold border-2 border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center gap-2.5">
                   <ShoppingBag className="w-8 h-8 text-slate-500" />
@@ -731,69 +791,255 @@ export function PDVSalesTransitionStepper({
                   {activeProductsList.slice(0, displayLimit).map((product) => {
                     const hasQuick = Boolean(product.quickCode);
                     const hasBarcode = Boolean(product.barcode);
+                    const isService = Boolean(product.isService || product.category === "Serviços" || product.durationMinutes);
 
+                    if (cardDisplayDensity === "comfort") {
+                      /* ===================================================
+                         COMFORT MODE: CARDS AMPLOS & 100% LEGÍVEIS
+                         - Imagem ampla com botão de Zoom
+                         - Nome completo sem cortes
+                         - Duração/Tempo de atendimento
+                         - Preço e Botão separados sem sobreposição
+                         =================================================== */
+                      return (
+                        <div
+                          key={product.id}
+                          className="bg-slate-950/80 hover:bg-slate-950 border border-white/10 hover:border-emerald-500/40 p-3.5 rounded-2xl flex flex-col justify-between text-left transition-all shadow-sm group hover:shadow-lg hover:shadow-emerald-500/5 relative"
+                        >
+                          <div>
+                            {/* Badges Top Line */}
+                            <div className="flex items-center justify-between gap-1 mb-2.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {hasQuick && (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-400 font-mono text-[9px] font-black">
+                                    #{product.quickCode}
+                                  </span>
+                                )}
+                                <span className="text-[9px] font-bold uppercase text-slate-400 bg-white/5 px-2 py-0.5 rounded border border-white/5">
+                                  {product.category || "Item"}
+                                </span>
+                                {isService && (
+                                  <span className="px-1.5 py-0.5 rounded bg-blue-500/20 border border-blue-500/30 text-blue-300 text-[9px] font-black flex items-center gap-1">
+                                    <Clock className="w-2.5 h-2.5" />
+                                    {product.durationMinutes ? `${product.durationMinutes} min` : "Serviço"}
+                                  </span>
+                                )}
+                              </div>
+
+                              {hasBarcode && (
+                                <span className="flex items-center gap-0.5 text-[9px] font-mono text-slate-400 shrink-0">
+                                  <Barcode className="w-3 h-3 text-slate-500" />
+                                  <span>{product.barcode.slice(-4)}</span>
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Product Image & Name */}
+                            <div className="flex items-start gap-3 mb-3">
+                              {/* Clickable Image to Zoom */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setInspectingProduct(product);
+                                  setInspectingQty(1);
+                                }}
+                                className="relative group/zoom shrink-0 cursor-pointer focus:outline-none"
+                                title="Toque para ampliar foto e ver todos os detalhes"
+                              >
+                                {product.imageUrl && product.imageUrl.startsWith("data:") ? (
+                                  <img 
+                                    src={product.imageUrl} 
+                                    alt={product.name} 
+                                    className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover border border-white/10 group-hover/zoom:border-emerald-400 transition-all shadow-md" 
+                                  />
+                                ) : (
+                                  <span className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-slate-900 border border-white/10 flex items-center justify-center text-2xl group-hover/zoom:border-emerald-400 transition-all shadow-md">
+                                    {product.imageUrl || (isService ? "✂️" : "🛍️")}
+                                  </span>
+                                )}
+                                <span className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover/zoom:opacity-100 rounded-xl flex items-center justify-center text-white transition-opacity">
+                                  <Maximize2 className="w-4 h-4 text-emerald-400" />
+                                </span>
+                              </button>
+
+                              {/* Title & Specs */}
+                              <div className="flex-1 min-w-0">
+                                <h4 
+                                  onClick={() => {
+                                    setInspectingProduct(product);
+                                    setInspectingQty(1);
+                                  }}
+                                  className="text-xs sm:text-sm font-black text-white uppercase group-hover:text-emerald-400 transition-colors leading-snug cursor-pointer line-clamp-2"
+                                  title={product.name}
+                                >
+                                  {product.name}
+                                </h4>
+
+                                {(product.size || product.color || product.brand) && (
+                                  <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[10px] text-slate-400">
+                                    {product.size && <span className="bg-slate-900 px-1.5 py-0.5 rounded border border-white/5 font-bold">Tam: {product.size}</span>}
+                                    {product.color && <span className="bg-slate-900 px-1.5 py-0.5 rounded border border-white/5 font-bold">{product.color}</span>}
+                                    {product.brand && <span className="text-slate-500 font-medium">{product.brand}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Price & Action Row */}
+                          <div className="pt-2.5 border-t border-white/10 flex items-center justify-between gap-2 mt-auto">
+                            <div>
+                              <span className="block text-[8px] uppercase font-bold text-slate-500">Valor Unitário</span>
+                              <span className="font-mono font-black text-emerald-400 text-sm sm:text-base">
+                                {formatCurrency(product.price)}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              {/* Inspect / Zoom Button */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setInspectingProduct(product);
+                                  setInspectingQty(1);
+                                }}
+                                className="px-2.5 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-slate-300 hover:text-white border border-white/10 rounded-xl text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer"
+                                title="Ver detalhes completos e foto ampliada"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                                <span className="hidden sm:inline">Detalhes</span>
+                              </button>
+
+                              {/* Direct Add Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleAddToCart(product.name, product.price, product.id, {
+                                  size: product.size,
+                                  color: product.color,
+                                  unit: product.unit,
+                                  quickCode: product.quickCode,
+                                  description: product.description,
+                                  brand: product.brand,
+                                  isService: product.isService,
+                                  durationMinutes: product.durationMinutes,
+                                  costPrice: product.costPrice
+                                })}
+                                className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-[11px] uppercase rounded-xl transition-all shadow-md shadow-emerald-500/10 flex items-center gap-1 cursor-pointer"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Adicionar</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    /* ===================================================
+                       COMPACT MODE: GRADE DUPLA (2 COLUNAS)
+                       - Estruturado verticalmente para NUNCA sobrepor preço e botão
+                       - Botão de Zoom 🔍 no topo
+                       =================================================== */
                     return (
                       <div
                         key={product.id}
-                        onClick={() => handleAddToCart(product.name, product.price, product.id, {
-                          size: product.size,
-                          color: product.color,
-                          unit: product.unit,
-                          quickCode: product.quickCode,
-                          description: product.description,
-                          brand: product.brand
-                        })}
-                        className="bg-slate-950/70 hover:bg-slate-950 border border-white/10 hover:border-emerald-500/40 p-3 rounded-2xl flex flex-col justify-between text-left transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer shadow-sm group min-h-[140px]"
+                        className="bg-slate-950/80 hover:bg-slate-950 border border-white/10 hover:border-emerald-500/40 p-2.5 rounded-2xl flex flex-col justify-between text-left transition-all shadow-sm group hover:shadow-lg relative"
                       >
                         <div>
-                          {/* Badges top */}
-                          <div className="flex items-center justify-between gap-1 mb-2">
+                          {/* Top row: Badge and Zoom icon */}
+                          <div className="flex items-center justify-between gap-1 mb-1.5">
                             {hasQuick ? (
                               <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-400 font-mono text-[9px] font-black">
                                 #{product.quickCode}
                               </span>
                             ) : (
-                              <span className="text-[8px] font-bold uppercase text-slate-500 truncate max-w-[80px]">
+                              <span className="text-[8px] font-bold uppercase text-slate-500 truncate max-w-[70px]">
                                 {product.category || "Item"}
                               </span>
                             )}
 
-                            {hasBarcode && (
-                              <span className="flex items-center gap-0.5 text-[8.5px] font-mono text-slate-400">
-                                <Barcode className="w-3 h-3 text-slate-500" />
-                                <span className="truncate max-w-[65px]">{product.barcode.slice(-4)}</span>
-                              </span>
-                            )}
+                            {/* Direct Zoom icon */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setInspectingProduct(product);
+                                setInspectingQty(1);
+                              }}
+                              className="p-1 rounded-md bg-white/5 hover:bg-white/10 text-slate-400 hover:text-emerald-400 cursor-pointer transition-colors"
+                              title="Ampliar foto e ver dados"
+                            >
+                              <Maximize2 className="w-3 h-3" />
+                            </button>
                           </div>
 
-                          {/* Product Image / Emoji */}
-                          <div className="flex items-center gap-2 mb-2">
+                          {/* Image centered */}
+                          <div 
+                            onClick={() => {
+                              setInspectingProduct(product);
+                              setInspectingQty(1);
+                            }}
+                            className="flex justify-center mb-1.5 cursor-pointer"
+                          >
                             {product.imageUrl && product.imageUrl.startsWith("data:") ? (
                               <img 
                                 src={product.imageUrl} 
                                 alt={product.name} 
-                                className="w-9 h-9 rounded-xl object-cover shrink-0 border border-white/10" 
+                                className="w-12 h-12 rounded-xl object-cover border border-white/10 group-hover:border-emerald-400 transition-all shadow-sm" 
                               />
                             ) : (
-                              <span className="w-9 h-9 rounded-xl bg-slate-900 border border-white/5 flex items-center justify-center text-lg shrink-0">
-                                {product.imageUrl || "🛍️"}
+                              <span className="w-12 h-12 rounded-xl bg-slate-900 border border-white/5 flex items-center justify-center text-xl group-hover:border-emerald-400 transition-all">
+                                {product.imageUrl || (isService ? "✂️" : "🛍️")}
                               </span>
                             )}
-
-                            <h4 className="text-xs font-black text-white uppercase group-hover:text-emerald-400 transition-colors line-clamp-2 leading-tight">
-                              {product.name}
-                            </h4>
                           </div>
+
+                          {/* Product Name */}
+                          <h4 
+                            onClick={() => {
+                              setInspectingProduct(product);
+                              setInspectingQty(1);
+                            }}
+                            className="text-[11px] font-black text-white uppercase group-hover:text-emerald-400 transition-colors line-clamp-2 leading-tight text-center mb-1 cursor-pointer"
+                            title={product.name}
+                          >
+                            {product.name}
+                          </h4>
+
+                          {isService && product.durationMinutes && (
+                            <div className="text-center mb-1">
+                              <span className="px-1 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[8px] font-black inline-flex items-center gap-0.5">
+                                <Clock className="w-2.5 h-2.5" /> {product.durationMinutes}m
+                              </span>
+                            </div>
+                          )}
                         </div>
 
-                        {/* Price & Add */}
-                        <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                          <span className="font-mono font-black text-emerald-400 text-xs">
+                        {/* Price & Add stacked vertically so they NEVER collide */}
+                        <div className="pt-2 border-t border-white/5 space-y-1 mt-auto">
+                          <div className="font-mono font-black text-emerald-400 text-xs text-center">
                             {formatCurrency(product.price)}
-                          </span>
-                          <span className="text-[9px] font-black uppercase text-slate-400 group-hover:text-emerald-400 flex items-center gap-0.5">
-                            <Plus className="w-3 h-3" /> Adicionar
-                          </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleAddToCart(product.name, product.price, product.id, {
+                              size: product.size,
+                              color: product.color,
+                              unit: product.unit,
+                              quickCode: product.quickCode,
+                              description: product.description,
+                              brand: product.brand,
+                              isService: product.isService,
+                              durationMinutes: product.durationMinutes,
+                              costPrice: product.costPrice
+                            })}
+                            className="w-full py-1.5 bg-emerald-500/15 hover:bg-emerald-500 border border-emerald-500/30 text-emerald-300 hover:text-slate-950 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Adicionar</span>
+                          </button>
                         </div>
                       </div>
                     );
@@ -1999,7 +2245,22 @@ export function PDVSalesTransitionStepper({
                           activeReceipt.items.map((it, idx) => (
                             <tr key={idx} className="py-1">
                               <td className="py-1 pr-1">
-                                <span className="font-bold block">{it.name.toUpperCase()}</span>
+                                <span className="font-bold block">
+                                  {it.name.toUpperCase()}
+                                  {((it as any).durationMinutes && (it as any).durationMinutes > 0) && (
+                                    <span className="text-[8.5px] font-bold text-emerald-700 ml-1">
+                                      ⏱️ {(it as any).durationMinutes >= 60 ? `${Math.floor((it as any).durationMinutes/60)}h${(it as any).durationMinutes%60 ? `${(it as any).durationMinutes%60}m` : ''}` : `${(it as any).durationMinutes} min`}
+                                    </span>
+                                  )}
+                                  {(it as any).isSinglePiece && (
+                                    <span className="text-[8px] font-bold text-purple-700 ml-1">[Peça Única]</span>
+                                  )}
+                                  {(it as any).isConsignado && (
+                                    <span className="text-[8px] font-bold text-amber-700 ml-1">
+                                      [Consig{(it as any).consignorName ? `: ${(it as any).consignorName}` : ''}]
+                                    </span>
+                                  )}
+                                </span>
                                 <span className="text-[9px] text-slate-600">
                                   {it.quickCode && `#${it.quickCode} • `}{it.quantity} {it.unit || "un"}
                                 </span>
@@ -2026,8 +2287,21 @@ export function PDVSalesTransitionStepper({
                   <div className="py-3 border-b-2 border-dashed border-slate-400 space-y-1.5">
                     <div className="flex justify-between font-bold text-xs">
                       <span>FORMA PAGTO:</span>
-                      <span>{(activeReceipt?.paymentMethod || cartPaymentMethod).toUpperCase().replace("_", " ")}</span>
+                      <span>{((activeReceipt?.paymentMethod || cartPaymentMethod) === "misto" ? "2 FORMAS (MISTO)" : (activeReceipt?.paymentMethod || cartPaymentMethod).toUpperCase().replace("_", " "))}</span>
                     </div>
+
+                    {activeReceipt?.splitDetails && (
+                      <div className="bg-slate-50 border-l-2 border-slate-700 p-1.5 text-[9.5px] space-y-0.5">
+                        <div className="flex justify-between">
+                          <span>• 1ª Forma ({(activeReceipt.splitDetails.method1 || "dinheiro").toUpperCase()}):</span>
+                          <span className="font-mono font-bold">{formatCurrency(activeReceipt.splitDetails.amount1 || 0)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>• 2ª Forma ({String(activeReceipt.splitDetails.method2 || "pix").toUpperCase().replace("_", " ")}):</span>
+                          <span className="font-mono font-bold">{formatCurrency(activeReceipt.splitDetails.amount2 || 0)}</span>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex justify-between items-baseline font-black text-sm text-slate-950 pt-1 border-t border-slate-200">
                       <span>VALOR TOTAL:</span>
@@ -2537,6 +2811,217 @@ export function PDVSalesTransitionStepper({
                   Cancelar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL DE AMPLIAÇÃO / ZOOM E INSPEÇÃO DETALHADA DO PRODUTO / SERVIÇO
+          Permite ao operador ler sem cortes, ampliar imagem, conferir dados e lançar
+          ========================================================================= */}
+      {inspectingProduct && (
+        <div 
+          className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200"
+          onClick={() => setInspectingProduct(null)}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-slate-900 border border-white/15 rounded-3xl max-w-lg w-full p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto"
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono text-xs font-black">
+                  {inspectingProduct.quickCode ? `#${inspectingProduct.quickCode}` : "ITEM"}
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-xs font-black uppercase">
+                  {inspectingProduct.category || "Geral"}
+                </span>
+                {(inspectingProduct.isService || inspectingProduct.category === "Serviços" || inspectingProduct.durationMinutes) && (
+                  <span className="px-2.5 py-1 rounded-lg bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs font-black flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    {inspectingProduct.durationMinutes ? `${inspectingProduct.durationMinutes} min` : "Serviço"}
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setInspectingProduct(null)}
+                className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white flex items-center justify-center transition-all cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Photo / Visual Zoom Area */}
+            <div className="w-full bg-slate-950 rounded-2xl border border-white/10 p-3 flex flex-col items-center justify-center overflow-hidden min-h-[160px] relative">
+              {inspectingProduct.imageUrl && inspectingProduct.imageUrl.startsWith("data:") ? (
+                <img 
+                  src={inspectingProduct.imageUrl} 
+                  alt={inspectingProduct.name} 
+                  className="max-h-72 w-full object-contain rounded-xl shadow-lg transition-transform hover:scale-105 duration-300"
+                />
+              ) : (
+                <div className="py-6 flex flex-col items-center justify-center gap-2">
+                  <span className="text-6xl drop-shadow-lg">
+                    {inspectingProduct.imageUrl || (inspectingProduct.isService ? "✂️" : "🛍️")}
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                    Sem Foto Cadastrada
+                  </span>
+                </div>
+              )}
+              <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-slate-900/80 border border-white/10 text-[9px] font-bold text-slate-400 flex items-center gap-1 backdrop-blur-sm">
+                <Maximize2 className="w-2.5 h-2.5 text-emerald-400" />
+                <span>Zoom Visual Ativo</span>
+              </div>
+            </div>
+
+            {/* Full Product Name - 100% Readable */}
+            <div>
+              <span className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">Identificação Completa</span>
+              <h3 className="text-lg sm:text-xl font-black text-white uppercase leading-snug break-words mt-0.5">
+                {inspectingProduct.name}
+              </h3>
+            </div>
+
+            {/* Badges and Attributes Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-950/60 p-3 rounded-2xl border border-white/5 text-xs">
+              <div>
+                <span className="text-[9px] font-bold uppercase text-slate-500 block">Preço Unitário</span>
+                <span className="font-mono font-black text-emerald-400 text-base">
+                  {formatCurrency(inspectingProduct.price)}
+                </span>
+              </div>
+
+              {inspectingProduct.costPrice ? (
+                <div>
+                  <span className="text-[9px] font-bold uppercase text-slate-500 block">Custo Estimado</span>
+                  <span className="font-mono font-bold text-slate-300">
+                    {formatCurrency(inspectingProduct.costPrice)}
+                  </span>
+                </div>
+              ) : (
+                <div>
+                  <span className="text-[9px] font-bold uppercase text-slate-500 block">Unidade</span>
+                  <span className="font-bold text-slate-300">{inspectingProduct.unit || "UN"}</span>
+                </div>
+              )}
+
+              {inspectingProduct.barcode && (
+                <div className="col-span-2 sm:col-span-1">
+                  <span className="text-[9px] font-bold uppercase text-slate-500 block">Código EAN/Barra</span>
+                  <span className="font-mono font-bold text-slate-300 text-[11px] truncate block">
+                    {inspectingProduct.barcode}
+                  </span>
+                </div>
+              )}
+
+              {inspectingProduct.size && (
+                <div>
+                  <span className="text-[9px] font-bold uppercase text-slate-500 block">Tamanho</span>
+                  <span className="font-black text-amber-400">{inspectingProduct.size}</span>
+                </div>
+              )}
+
+              {inspectingProduct.color && (
+                <div>
+                  <span className="text-[9px] font-bold uppercase text-slate-500 block">Cor / Estampa</span>
+                  <span className="font-bold text-slate-300">{inspectingProduct.color}</span>
+                </div>
+              )}
+
+              {inspectingProduct.durationMinutes && (
+                <div>
+                  <span className="text-[9px] font-bold uppercase text-slate-500 block">Tempo do Serviço</span>
+                  <span className="font-bold text-blue-400 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {inspectingProduct.durationMinutes} min
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Description if present */}
+            {inspectingProduct.description && (
+              <div className="space-y-1">
+                <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Descrição / Instruções:</span>
+                <div className="bg-slate-950 p-3 rounded-xl border border-white/5 text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
+                  {inspectingProduct.description}
+                </div>
+              </div>
+            )}
+
+            {/* Quantity Selector Stepper */}
+            <div className="flex items-center justify-between p-3.5 bg-slate-950 rounded-2xl border border-white/10">
+              <div>
+                <span className="text-[9px] font-black uppercase text-slate-400 block tracking-wider">Quantidade a Lançar</span>
+                <span className="text-xs font-bold text-emerald-400">
+                  Subtotal: {formatCurrency(inspectingProduct.price * inspectingQty)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setInspectingQty((q) => Math.max(1, q - 1))}
+                  className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-black flex items-center justify-center border border-white/10 cursor-pointer shadow-sm transition-all"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <span className="font-mono text-xl font-black text-white w-10 text-center select-none">
+                  {inspectingQty}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setInspectingQty((q) => q + 1)}
+                  className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-black flex items-center justify-center border border-white/10 cursor-pointer shadow-sm transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="pt-2 border-t border-white/10 space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  handleAddToCart(
+                    inspectingProduct.name,
+                    inspectingProduct.price,
+                    inspectingProduct.id,
+                    {
+                      size: inspectingProduct.size,
+                      color: inspectingProduct.color,
+                      unit: inspectingProduct.unit,
+                      quickCode: inspectingProduct.quickCode,
+                      description: inspectingProduct.description,
+                      brand: inspectingProduct.brand,
+                      isService: inspectingProduct.isService,
+                      durationMinutes: inspectingProduct.durationMinutes,
+                      costPrice: inspectingProduct.costPrice
+                    },
+                    inspectingQty
+                  );
+                  showNotification(`${inspectingQty}x "${inspectingProduct.name}" adicionado com sucesso! 🛒⚡`, "success");
+                  setInspectingProduct(null);
+                }}
+                className="w-full min-h-[50px] bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 active:scale-98 text-slate-950 rounded-2xl font-black text-sm uppercase tracking-wide transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <ShoppingCart className="w-5 h-5 text-slate-950" />
+                <span>Adicionar ao Carrinho ({inspectingQty} un) • {formatCurrency(inspectingProduct.price * inspectingQty)}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setInspectingProduct(null)}
+                className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl font-bold text-xs uppercase transition-all cursor-pointer text-center"
+              >
+                Voltar à Lista de Itens
+              </button>
             </div>
           </div>
         </div>

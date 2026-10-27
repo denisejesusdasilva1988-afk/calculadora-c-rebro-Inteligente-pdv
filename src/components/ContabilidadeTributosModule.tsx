@@ -36,7 +36,7 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
   onBack,
   formatCurrency = (v) => `R$ ${v.toFixed(2).replace(".", ",")}`,
   monthlyRevenueDefault = 0,
-  showNotification = () => {},
+  showNotification = (_msg?: string, _type?: any) => {},
   initialTab = "tributos"
 }) => {
   // Sub-abas do módulo
@@ -51,6 +51,12 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
   // ==========================================
   // ESTADO 1: TRIBUTOS FEDERAIS & SIMPLES NACIONAL / MEI
   // ==========================================
+  const [empresaCnpjCnae, setEmpresaCnpjCnae] = useState<string>(() => {
+    try {
+      return localStorage.getItem("pdv_empresa_cnae_cnpj") || "";
+    } catch { return ""; }
+  });
+  const [selectedCnaePreset, setSelectedCnaePreset] = useState<string>("");
   const [regime, setRegime] = useState<"mei" | "simples_comercio" | "simples_servicos">("simples_comercio");
   const [faturamentoMes, setFaturamentoMes] = useState<number>(monthlyRevenueDefault > 0 ? monthlyRevenueDefault : 18500);
   const [faturamento12Meses, setFaturamento12Meses] = useState<number>(18500 * 12);
@@ -534,7 +540,70 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
           <div className="lg:col-span-1 bg-slate-900/90 border border-white/10 p-4 sm:p-5 rounded-2xl space-y-4">
             <div className="flex items-center gap-2 text-indigo-400 font-black text-xs uppercase tracking-wider">
               <Landmark className="w-4 h-4" />
-              <span>Enquadramento Tributário</span>
+              <span>Enquadramento Tributário & CNAE</span>
+            </div>
+
+            {/* Aviso Legal & Preventivo Obrigatório */}
+            <div className="bg-amber-500/10 border border-amber-500/30 p-3 rounded-xl text-amber-200 text-[10.5px] leading-relaxed space-y-1">
+              <strong className="block font-black uppercase text-amber-300 flex items-center gap-1.5">
+                <span>⚠️</span>
+                <span>Aviso Legal Preventivo da Contadora Digital:</span>
+              </strong>
+              <p className="text-slate-300 text-[10px]">
+                Esta calculadora atua como um cérebro contábil de apoio à decisão para planejamento e provisionamento financeiro. Devido a possíveis alíquotas municipais de ISS, créditos estaduais de ICMS ou acordos sindicais, os cálculos <strong>são estimativos e podem conter pequenas variações</strong>. Consulte sempre seu escritório de contabilidade credenciado no CRC para guias e declarações oficiais.
+              </p>
+            </div>
+
+            {/* Campo CNAE ou CNPJ e Presets de Segmentos */}
+            <div className="bg-slate-950/60 p-3 rounded-xl border border-white/5 space-y-2">
+              <label className="text-[10px] font-black text-amber-300 uppercase tracking-wider block">
+                CNAE Principal ou CNPJ da Empresa:
+              </label>
+              <input
+                type="text"
+                value={empresaCnpjCnae}
+                onChange={(e) => {
+                  setEmpresaCnpjCnae(e.target.value);
+                  localStorage.setItem("pdv_empresa_cnae_cnpj", e.target.value);
+                }}
+                placeholder="Ex: 9602-5/01 (Salão) ou 4781-4/00 (Brechó)"
+                className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white outline-none focus:border-amber-400"
+              />
+
+              {/* Botões de CNAE Rápido por Segmento */}
+              <div className="pt-1">
+                <span className="text-[9px] text-slate-400 font-bold uppercase block mb-1">
+                  Atividades & CNAEs Mais Utilizados:
+                </span>
+                <div className="grid grid-cols-2 gap-1 text-[9.5px]">
+                  {[
+                    { label: "✂️ Cabeleireiro / Salão", cnae: "9602-5/01", regime: "simples_servicos" as const },
+                    { label: "👗 Brechó / Roupas", cnae: "4781-4/00", regime: "simples_comercio" as const },
+                    { label: "🔧 Mecânica / Oficina", cnae: "4520-0/01", regime: "simples_servicos" as const },
+                    { label: "💈 Barbearia Masculina", cnae: "9602-5/01", regime: "simples_servicos" as const },
+                    { label: "🦷 Consultório Odonto", cnae: "8630-5/04", regime: "simples_servicos" as const },
+                    { label: "🍰 Doces / Festas", cnae: "5620-1/04", regime: "simples_comercio" as const },
+                    { label: "🛒 Minimercado / Padaria", cnae: "4712-1/00", regime: "simples_comercio" as const },
+                    { label: "🧠 Psicologia / T.O.", cnae: "8650-0/03", regime: "simples_servicos" as const }
+                  ].map((p) => (
+                    <button
+                      key={p.cnae}
+                      type="button"
+                      onClick={() => {
+                        setEmpresaCnpjCnae(`${p.cnae} - ${p.label}`);
+                        setSelectedCnaePreset(p.cnae);
+                        setRegime(p.regime);
+                        localStorage.setItem("pdv_empresa_cnae_cnpj", `${p.cnae} - ${p.label}`);
+                        showNotification(`CNAE ${p.cnae} aplicado! Regime configurado para ${p.regime === "simples_comercio" ? "Comércio (Anexo I)" : "Serviços (Anexo III)"}. 🏛️`, "info");
+                      }}
+                      className="px-2 py-1.5 bg-slate-900 hover:bg-slate-800 border border-white/5 hover:border-amber-400/40 text-slate-300 hover:text-white rounded-lg text-left transition-all truncate cursor-pointer"
+                      title={`${p.label} (CNAE ${p.cnae})`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="space-y-3">

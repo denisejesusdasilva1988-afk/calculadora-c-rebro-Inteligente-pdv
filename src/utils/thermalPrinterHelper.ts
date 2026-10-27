@@ -214,13 +214,18 @@ export function buildThermalReceiptHtml(params: {
           const spec = [it.size, it.color, it.description].filter(Boolean).join(" ");
           const unit = it.unit || "un";
           const qk = it.quickCode ? `#${it.quickCode} ` : "";
+          const durStr = ((it as any).durationMinutes && (it as any).durationMinutes > 0)
+            ? ` [⏱️ ${(it as any).durationMinutes >= 60 ? `${Math.floor((it as any).durationMinutes / 60)}h${(it as any).durationMinutes % 60 ? `${(it as any).durationMinutes % 60}min` : ''}` : `${(it as any).durationMinutes} min`}]`
+            : ((it as any).isService ? ' [SERVIÇO]' : '');
+          const singlePieceStr = (it as any).isSinglePiece ? ' [PEÇA ÚNICA]' : '';
+          const consignadoStr = (it as any).isConsignado ? ` [CONSIGNAÇÃO${(it as any).consignorName ? `: ${(it as any).consignorName}` : ''}]` : '';
           const itemTotal = (it.price * it.quantity).toFixed(2).replace(".", ",");
           const unitPrice = it.price.toFixed(2).replace(".", ",");
 
           return `
             <tr>
               <td colspan="3" style="padding-top: 3px; font-weight: ${boldWeight}; font-size: ${fontBasePx}px; word-break: break-word;">
-                ${qk}${it.name.toUpperCase()}
+                ${qk}${it.name.toUpperCase()}${durStr}${singlePieceStr}${consignadoStr}
               </td>
             </tr>
             <tr style="border-bottom: 1px dotted #444;">
@@ -300,15 +305,28 @@ export function buildThermalReceiptHtml(params: {
         <div style="border-top: 1px dashed #000; padding-top: 4px; margin-top: 4px; line-height: 1.35;">
           <div style="display: flex; justify-content: space-between; font-size: ${fontBasePx}px;">
             <span>PAGAMENTO:</span>
-            <span style="font-weight: ${boldWeight}; text-transform: uppercase;">${effectiveTx.paymentMethod.replace("_", " ")}</span>
+            <span style="font-weight: ${boldWeight}; text-transform: uppercase;">${effectiveTx.paymentMethod === 'misto' ? '2 FORMAS (MISTO)' : effectiveTx.paymentMethod.replace("_", " ")}</span>
           </div>
+
+          ${(effectiveTx as any).splitDetails ? `
+            <div style="font-size: ${fontSmallPx}px; margin-top: 3px; padding: 2px 4px; border-left: 2px solid #000;">
+              <div style="display: flex; justify-content: space-between;">
+                <span>• 1ª FORMA (${String((effectiveTx as any).splitDetails.method1 || 'DINHEIRO').toUpperCase()}):</span>
+                <span style="font-family: monospace; font-weight: ${boldWeight};">R$ ${Number((effectiveTx as any).splitDetails.amount1 || 0).toFixed(2).replace('.', ',')}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-top: 1px;">
+                <span>• 2ª FORMA (${String((effectiveTx as any).splitDetails.method2 || 'PIX').toUpperCase().replace('_', ' ')}):</span>
+                <span style="font-family: monospace; font-weight: ${boldWeight};">R$ ${Number((effectiveTx as any).splitDetails.amount2 || 0).toFixed(2).replace('.', ',')}</span>
+              </div>
+            </div>
+          ` : ''}
 
           <div style="display: flex; justify-content: space-between; font-size: ${fontHeaderPx}px; font-weight: ${boldWeight}; margin: 3px 0; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 0;">
             <span>TOTAL R$:</span>
             <span style="font-family: monospace;">R$ ${subtotalFormatted}</span>
           </div>
 
-          ${effectiveTx.paymentMethod === 'dinheiro' && effectiveTx.amountPaid && effectiveTx.amountPaid > 0 ? `
+          ${(effectiveTx.paymentMethod === 'dinheiro' || effectiveTx.paymentMethod === 'misto') && effectiveTx.amountPaid && effectiveTx.amountPaid > 0 ? `
             <div style="display: flex; justify-content: space-between; font-size: ${fontSmallPx}px; margin-top: 2px;">
               <span>VALOR RECEBIDO:</span>
               <span style="font-family: monospace;">R$ ${amountPaidFormatted}</span>

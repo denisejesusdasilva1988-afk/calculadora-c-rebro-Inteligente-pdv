@@ -145,6 +145,12 @@ import {
   removeScopedItem,
   clearLegacyUnscopedData
 } from "../utils/userScopedStorage";
+import {
+  isQuotaExhaustedError,
+  getIsFirestoreQuotaPaused,
+  markFirestoreQuotaPaused,
+  getFirestoreUpgradeUrl
+} from "../utils/firestoreQuotaManager";
 
 // Self-contained lightweight debounce function
 function debounce<T extends (...args: any[]) => void>(func: T, wait: number) {
@@ -480,16 +486,40 @@ export interface PDVTransaction {
   type: "entrada" | "saida";
   amount: number;
   description: string;
-  paymentMethod: "dinheiro" | "pix" | "cartao_debito" | "cartao_credito" | "fiado";
+  paymentMethod: "dinheiro" | "pix" | "cartao_debito" | "cartao_credito" | "fiado" | "misto" | string;
   category: "venda" | "suprimento" | "sangria" | "despesa" | "troco" | "outros";
   date: string; // pt-BR date time format
   timestamp: number;
   clientName?: string;
-  items?: { name: string; price: number; quantity: number; size?: string; color?: string; unit?: string; quickCode?: string; description?: string; brand?: string }[];
+  items?: { 
+    name: string; 
+    price: number; 
+    quantity: number; 
+    size?: string; 
+    color?: string; 
+    unit?: string; 
+    quickCode?: string; 
+    description?: string; 
+    brand?: string;
+    isService?: boolean;
+    durationMinutes?: number;
+    costPrice?: number;
+    isSinglePiece?: boolean;
+    isConsignado?: boolean;
+    consignorName?: string;
+    consignorFeePercent?: number;
+    professionalName?: string;
+  }[];
   isDeleted?: boolean;
   deletedAt?: number;
   amountPaid?: number;
   changeAmount?: number;
+  splitDetails?: {
+    method1: string;
+    amount1: number;
+    method2: string;
+    amount2: number;
+  };
 }
 
 export interface CustomProduct {
@@ -514,6 +544,11 @@ export interface CustomProduct {
   section?: string;
   isService?: boolean;
   durationMinutes?: number;
+  costPrice?: number;
+  isSinglePiece?: boolean;
+  isConsignado?: boolean;
+  consignorName?: string;
+  consignorFeePercent?: number;
 }
 
 export interface CartItem {
@@ -528,6 +563,14 @@ export interface CartItem {
   description?: string;
   brand?: string;
   quickCode?: string;
+  isService?: boolean;
+  durationMinutes?: number;
+  costPrice?: number;
+  isSinglePiece?: boolean;
+  isConsignado?: boolean;
+  consignorName?: string;
+  consignorFeePercent?: number;
+  professionalName?: string;
 }
 
 interface PDVModuleProps {
@@ -558,38 +601,61 @@ interface PDVModuleProps {
 }
 
 // Predefined product catalog by business segment (niche)
-const defaultProductsByNiche: Record<string, { name: string; price: number }[]> = {
+const defaultProductsByNiche: Record<string, { name: string; price: number; isService?: boolean; durationMinutes?: number; costPrice?: number; isSinglePiece?: boolean; isConsignado?: boolean; consignorName?: string; consignorFeePercent?: number }[]> = {
+  brecho: [
+    { name: "Vestido Vintage Floral (Peça Única)", price: 45.0, isSinglePiece: true },
+    { name: "Jaqueta Jeans Oversized (Peça Única)", price: 85.0, isSinglePiece: true },
+    { name: "Calça Jeans Mom / Wide Leg", price: 50.0, isSinglePiece: true },
+    { name: "Camisa Social Linho (Consignação)", price: 40.0, isConsignado: true, consignorName: "Ana Maria", consignorFeePercent: 40 },
+    { name: "Blusa Tricot / Lã Usada", price: 35.0, isSinglePiece: true },
+    { name: "Bolsa Couro Legítimo Seminova", price: 75.0, isSinglePiece: true },
+    { name: "Salto / Sapato Festa Seminovo", price: 60.0, isSinglePiece: true },
+    { name: "Cinto / Lenço / Acessório Vintage", price: 18.0 }
+  ],
+  oficina_mecanica: [
+    { name: "Troca de Óleo e Filtro (Mão de Obra + Óleo)", price: 180.0, isService: true, durationMinutes: 45, costPrice: 90.0 },
+    { name: "Alinhamento e Balanceamento 4 Rodas", price: 120.0, isService: true, durationMinutes: 60, costPrice: 20.0 },
+    { name: "Revisão e Troca de Pastilhas de Freio", price: 220.0, isService: true, durationMinutes: 90, costPrice: 85.0 },
+    { name: "Diagnóstico com Scanner Eletrônico", price: 100.0, isService: true, durationMinutes: 30, costPrice: 0.0 },
+    { name: "Limpeza de Bicos Injetores Ultrassom", price: 150.0, isService: true, durationMinutes: 60, costPrice: 25.0 },
+    { name: "Substituição Correia Dentada e Tensor", price: 380.0, isService: true, durationMinutes: 150, costPrice: 140.0 },
+    { name: "Carga de Gás do Ar Condicionado", price: 160.0, isService: true, durationMinutes: 45, costPrice: 50.0 },
+    { name: "Mão de Obra Mecânica Geral (Hora)", price: 100.0, isService: true, durationMinutes: 60 }
+  ],
   salao_beleza: [
-    { name: "Corte de Cabelo Feminino", price: 60.0 },
-    { name: "Escova & Chapinha", price: 45.0 },
-    { name: "Maquiagem Social", price: 80.0 },
-    { name: "Hidratação Profunda", price: 55.0 },
-    { name: "Pé + Mão Completo", price: 40.0 },
-    { name: "Tintura Capilar", price: 95.0 }
+    { name: "Cabelos Platinados / Nevou Completo", price: 220.0, isService: true, durationMinutes: 210, costPrice: 80.0 },
+    { name: "Corte de Cabelo Feminino", price: 60.0, isService: true, durationMinutes: 45 },
+    { name: "Escova & Chapinha", price: 45.0, isService: true, durationMinutes: 40 },
+    { name: "Maquiagem Social", price: 80.0, isService: true, durationMinutes: 60 },
+    { name: "Hidratação Profunda", price: 55.0, isService: true, durationMinutes: 50, costPrice: 15.0 },
+    { name: "Pé + Mão Completo", price: 40.0, isService: true, durationMinutes: 60 },
+    { name: "Tintura Capilar", price: 95.0, isService: true, durationMinutes: 90, costPrice: 35.0 }
   ],
   barbearia: [
-    { name: "Corte Masculino Degradê", price: 35.0 },
-    { name: "Barba com Toalha Quente", price: 25.0 },
-    { name: "Combo Cabelo + Barba", price: 55.0 },
-    { name: "Sobrancelha Navalhada", price: 15.0 },
-    { name: "Lavagem Capilar Especial", price: 10.0 },
-    { name: "Platinado / Nevou", price: 80.0 }
+    { name: "Cabelos Platinados / Nevou Completo", price: 220.0, isService: true, durationMinutes: 210, costPrice: 80.0 },
+    { name: "Corte Masculino Degradê", price: 35.0, isService: true, durationMinutes: 35 },
+    { name: "Barba com Toalha Quente", price: 25.0, isService: true, durationMinutes: 30 },
+    { name: "Combo Cabelo + Barba", price: 55.0, isService: true, durationMinutes: 50 },
+    { name: "Sobrancelha Navalhada", price: 15.0, isService: true, durationMinutes: 15 },
+    { name: "Lavagem Capilar Especial", price: 10.0, isService: true, durationMinutes: 15 },
+    { name: "Platinado / Nevou", price: 80.0, isService: true, durationMinutes: 120, costPrice: 30.0 }
   ],
   manicure: [
-    { name: "Mão Simples", price: 20.0 },
-    { name: "Pé Simples", price: 25.0 },
-    { name: "Pé + Mão Tradicional", price: 40.0 },
-    { name: "Alongamento em Gel", price: 120.0 },
-    { name: "Manutenção de Alongamento", price: 70.0 },
-    { name: "Decoração / Nail Art", price: 15.0 }
+    { name: "Mão Simples", price: 20.0, isService: true, durationMinutes: 30 },
+    { name: "Pé Simples", price: 25.0, isService: true, durationMinutes: 35 },
+    { name: "Pé + Mão Tradicional", price: 40.0, isService: true, durationMinutes: 60 },
+    { name: "Alongamento em Gel", price: 120.0, isService: true, durationMinutes: 120, costPrice: 30.0 },
+    { name: "Manutenção de Alongamento", price: 70.0, isService: true, durationMinutes: 75, costPrice: 15.0 },
+    { name: "Decoração / Nail Art", price: 15.0, isService: true, durationMinutes: 20 }
   ],
   cabeleireiro: [
-    { name: "Corte Feminino / Masculino", price: 50.0 },
-    { name: "Escova Modeladora", price: 40.0 },
-    { name: "Luzes / Mechas", price: 180.0 },
-    { name: "Botox Capilar / Selagem", price: 120.0 },
-    { name: "Hidratação & Reconstrução", price: 65.0 },
-    { name: "Lavagem & Secagem Rápida", price: 25.0 }
+    { name: "Cabelos Platinados / Nevou Completo", price: 220.0, isService: true, durationMinutes: 210, costPrice: 80.0 },
+    { name: "Corte Feminino / Masculino", price: 50.0, isService: true, durationMinutes: 45 },
+    { name: "Escova Modeladora", price: 40.0, isService: true, durationMinutes: 40 },
+    { name: "Luzes / Mechas", price: 180.0, isService: true, durationMinutes: 180, costPrice: 60.0 },
+    { name: "Botox Capilar / Selagem", price: 120.0, isService: true, durationMinutes: 120, costPrice: 40.0 },
+    { name: "Hidratação & Reconstrução", price: 65.0, isService: true, durationMinutes: 60, costPrice: 20.0 },
+    { name: "Lavagem & Secagem Rápida", price: 25.0, isService: true, durationMinutes: 25 }
   ],
   odontologia: [
     { name: "Limpeza & Profilaxia com Ultrassom", price: 150.0 },
@@ -1733,6 +1799,14 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
 
   const localHandleFirestoreError = (error: any, operationType: OperationType, path: string | null) => {
+    if (isQuotaExhaustedError(error)) {
+      markFirestoreQuotaPaused();
+      console.warn(
+        `[Firestore Quota Circuit-Breaker] Limite diário gratuito atingido no PDV (${path || "db"}). Operando 100% no modo Local / Offline-First.`
+      );
+      return;
+    }
+
     const auth = getAuth();
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorCode = error?.code;
@@ -2087,7 +2161,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       console.error("Error saving offline audit log:", e);
     }
 
-    if (!isLoggedIn || !userId || userId === "guest_visitor" || !db) {
+    if (!isLoggedIn || !userId || userId === "guest_visitor" || !db || getIsFirestoreQuotaPaused()) {
       console.log(`[Offline Audit Log] Success: ${action} - ${description}`);
       if (gestaoActiveTab === "permissoes") {
         fetchAuditLogs();
@@ -2110,7 +2184,10 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       if (gestaoActiveTab === "permissoes") {
         fetchAuditLogs();
       }
-    } catch (e) {
+    } catch (e: any) {
+      if (isQuotaExhaustedError(e)) {
+        markFirestoreQuotaPaused();
+      }
       console.error("[Audit Log] Error writing audit log:", e);
     }
   }, [isLoggedIn, userId, db, gestaoUserStaffName, gestaoUserRole, isOwnerMode, gestaoActiveTab, fetchAuditLogs]);
@@ -4693,13 +4770,22 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       text += `*CLIENTE:* ${tx.clientName.toUpperCase()}\n`;
     }
     text += `=================================\n`;
-    text += `*PRODUTOS:*\n`;
+    text += `*ITENS / SERVIÇOS:*\n`;
     
     if (tx.items && tx.items.length > 0) {
       tx.items.forEach(item => {
         const specs = [item.size, item.color, item.description].filter(Boolean).join(" - ");
         const unitLabel = item.unit ? ` ${item.unit}` : " un";
-        text += `- ${item.quantity}${unitLabel} x ${item.name.toUpperCase()}`;
+        let durationLabel = "";
+        if (item.isService && item.durationMinutes) {
+          const hours = Math.floor(item.durationMinutes / 60);
+          const mins = item.durationMinutes % 60;
+          durationLabel = hours > 0 ? (mins > 0 ? ` [⏱️ ${hours}h${mins}m]` : ` [⏱️ ${hours}h]`) : ` [⏱️ ${mins}min]`;
+        }
+        let singlePieceLabel = item.isSinglePiece ? " [PEÇA ÚNICA]" : "";
+        let consignadoLabel = item.isConsignado ? ` [CONSIGNAÇÃO${item.consignorName ? `: ${item.consignorName}` : ""}]` : "";
+        let profLabel = item.professionalName ? ` (Prof: ${item.professionalName})` : "";
+        text += `- ${item.quantity}${unitLabel} x ${item.name.toUpperCase()}${durationLabel}${singlePieceLabel}${consignadoLabel}${profLabel}`;
         if (specs) {
           text += ` (${specs})`;
         }
@@ -4710,7 +4796,17 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     }
     
     text += `=================================\n`;
-    text += `*FORMA PAGTO:* ${tx.paymentMethod.toUpperCase().replace("_", " ")}\n`;
+    if (tx.paymentMethod === "misto" || tx.splitDetails) {
+      const d1 = tx.splitDetails?.amount1 || 0;
+      const m1 = (tx.splitDetails?.method1 || "dinheiro").toUpperCase();
+      const d2 = tx.splitDetails?.amount2 || 0;
+      const m2 = (tx.splitDetails?.method2 || "pix").toUpperCase();
+      text += `*FORMA PAGTO:* 2 FORMAS (PAGAMENTO MISTO)\n`;
+      text += `  • 1ª Forma (${m1}): ${formatCurrency(d1)}\n`;
+      text += `  • 2ª Forma (${m2}): ${formatCurrency(d2)}\n`;
+    } else {
+      text += `*FORMA PAGTO:* ${tx.paymentMethod.toUpperCase().replace("_", " ")}\n`;
+    }
     text += `*VALOR TOTAL:* *${formatCurrency(tx.amount)}*\n`;
     if (tx.paymentMethod === "dinheiro" && tx.amountPaid && tx.amountPaid > 0) {
       text += `*VALOR RECEBIDO:* ${formatCurrency(tx.amountPaid)}\n`;
@@ -5125,6 +5221,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   ) => {
     const qtyToAdd = customQty && customQty > 0 ? customQty : 1;
     const prod = customProducts.find(p => (productId && p.id === productId) || p.name.toUpperCase() === name.toUpperCase());
+    const defaultCatalogItem = (defaultProductsByNiche[selectedNiche] || []).find(p => p.name.toUpperCase() === name.toUpperCase());
 
     const finalSize = extra?.size ?? prod?.size;
     const finalColor = extra?.color ?? prod?.color;
@@ -5132,6 +5229,13 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     const finalQuickCode = extra?.quickCode ?? prod?.quickCode;
     const finalDesc = extra?.description ?? prod?.description;
     const finalBrand = extra?.brand ?? prod?.brand;
+    const finalIsService = prod?.isService ?? defaultCatalogItem?.isService ?? (prod?.category === "Serviços");
+    const finalDuration = prod?.durationMinutes ?? defaultCatalogItem?.durationMinutes;
+    const finalCost = prod?.costPrice ?? defaultCatalogItem?.costPrice;
+    const finalIsSinglePiece = prod?.isSinglePiece ?? defaultCatalogItem?.isSinglePiece;
+    const finalIsConsignado = prod?.isConsignado ?? defaultCatalogItem?.isConsignado;
+    const finalConsignorName = prod?.consignorName ?? defaultCatalogItem?.consignorName;
+    const finalConsignorFee = prod?.consignorFeePercent ?? defaultCatalogItem?.consignorFeePercent;
 
     setCart(prev => {
       const exists = prev.find(item => item.name === name || (productId && item.productId === productId));
@@ -5144,7 +5248,14 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           unit: item.unit || finalUnit,
           quickCode: item.quickCode || finalQuickCode,
           description: item.description || finalDesc,
-          brand: item.brand || finalBrand
+          brand: item.brand || finalBrand,
+          isService: item.isService ?? finalIsService,
+          durationMinutes: item.durationMinutes ?? finalDuration,
+          costPrice: item.costPrice ?? finalCost,
+          isSinglePiece: item.isSinglePiece ?? finalIsSinglePiece,
+          isConsignado: item.isConsignado ?? finalIsConsignado,
+          consignorName: item.consignorName ?? finalConsignorName,
+          consignorFeePercent: item.consignorFeePercent ?? finalConsignorFee
         } : item);
       }
       return [...prev, { 
@@ -5158,10 +5269,18 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         unit: finalUnit,
         quickCode: finalQuickCode,
         description: finalDesc,
-        brand: finalBrand
+        brand: finalBrand,
+        isService: finalIsService,
+        durationMinutes: finalDuration,
+        costPrice: finalCost,
+        isSinglePiece: finalIsSinglePiece,
+        isConsignado: finalIsConsignado,
+        consignorName: finalConsignorName,
+        consignorFeePercent: finalConsignorFee
       }];
     });
-    showNotification(`+1 "${name.toUpperCase()}" colocado na comanda! 🛒`, "success");
+    const servicePill = finalIsService ? (finalDuration ? ` [⏱️ ${finalDuration >= 60 ? `${Math.floor(finalDuration/60)}h${finalDuration%60 ? `${finalDuration%60}m` : ''}` : `${finalDuration}min`}]` : " [Serviço]") : "";
+    showNotification(`+1 "${name.toUpperCase()}"${servicePill} colocado na comanda! 🛒`, "success");
   };
 
   const handleUpdateCartQty = (id: string, delta: number) => {
@@ -5486,7 +5605,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       type: "entrada",
       amount: debtAmount, // only record the remaining debt as fiado!
       description: desc,
-      paymentMethod: splitPaymentEnabled ? "dinheiro" : cartPaymentMethod,
+      paymentMethod: splitPaymentEnabled ? "misto" : cartPaymentMethod,
       category: "venda",
       date: saleDateStr,
       timestamp: saleTimestamp,
@@ -5500,10 +5619,24 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         unit: item.unit,
         quickCode: item.quickCode,
         description: item.description,
-        brand: item.brand
+        brand: item.brand,
+        isService: item.isService,
+        durationMinutes: item.durationMinutes,
+        costPrice: item.costPrice,
+        isSinglePiece: item.isSinglePiece,
+        isConsignado: item.isConsignado,
+        consignorName: item.consignorName,
+        consignorFeePercent: item.consignorFeePercent,
+        professionalName: item.professionalName
       })),
       amountPaid: (cartPaymentMethod === "dinheiro" || splitPaymentEnabled) ? clientPaidNum : undefined,
       changeAmount: (cartPaymentMethod === "dinheiro" || splitPaymentEnabled) ? finalChangeNum : undefined,
+      splitDetails: splitPaymentEnabled ? {
+        method1: "dinheiro",
+        amount1: parsePortugueseNumber(splitCashAmount || "0") || 0,
+        method2: splitSecondaryMethod || "pix",
+        amount2: parsePortugueseNumber(splitSecondaryAmount || "0") || 0
+      } : undefined,
       ...feeDetails
     };
 

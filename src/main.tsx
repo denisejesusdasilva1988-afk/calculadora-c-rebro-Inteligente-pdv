@@ -1,7 +1,10 @@
+import './utils/setupConsoleInterceptor';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+
+import { isQuotaExhaustedError, markFirestoreQuotaPaused } from './utils/firestoreQuotaManager';
 
 // Safe storage wrapper to prevent quota or private mode errors from throwing unhandled exceptions
 try {
@@ -24,13 +27,20 @@ const isCameraBenignError = (str: string) => {
   );
 };
 
-// Global protection against camera scanner async transition race conditions & hardware conflicts
+// Global protection against camera scanner async transition race conditions & hardware conflicts & Firestore Quota limits
 window.addEventListener('unhandledrejection', (event) => {
   const reason = event.reason;
   const reasonStr = typeof reason === 'string' ? reason : (reason?.message || String(reason || ''));
   if (isCameraBenignError(reasonStr)) {
     event.preventDefault();
     console.warn('Proteção de Scanner: suprimido aviso transitório de câmera/leitor:', reasonStr);
+    return;
+  }
+  if (isQuotaExhaustedError(reason)) {
+    event.preventDefault();
+    markFirestoreQuotaPaused();
+    console.warn('Proteção de Cota Firestore: Disjuntor acionado. Operando com segurança no modo Local / Offline-First.');
+    return;
   }
 });
 
@@ -39,6 +49,13 @@ window.addEventListener('error', (event) => {
   if (isCameraBenignError(errorMsg)) {
     event.preventDefault();
     console.warn('Proteção de Scanner: suprimido erro transitório de câmera/leitor:', errorMsg);
+    return;
+  }
+  if (isQuotaExhaustedError(event.error || errorMsg)) {
+    event.preventDefault();
+    markFirestoreQuotaPaused();
+    console.warn('Proteção de Cota Firestore: Disjuntor acionado. Operando com segurança no modo Local / Offline-First.');
+    return;
   }
 });
 
@@ -62,6 +79,11 @@ class GlobalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
     const msg = error?.message || String(error || '');
     if (isCameraBenignError(msg)) {
       console.warn('GlobalErrorBoundary: ignorada falha transitória do leitor de câmera:', msg);
+      return { hasError: false, error: null };
+    }
+    if (isQuotaExhaustedError(error)) {
+      markFirestoreQuotaPaused();
+      console.warn('GlobalErrorBoundary: ignorada limitação de cota da nuvem, operando 100% no modo local.');
       return { hasError: false, error: null };
     }
     return { hasError: true, error };

@@ -184,6 +184,8 @@ import {
   getDocFromServer,
   persistentLocalCache,
   persistentMultipleTabManager,
+  disableNetwork,
+  setLogLevel,
 } from "firebase/firestore";
 import {
   getAuth,
@@ -214,6 +216,7 @@ import {
   getIsFirestoreQuotaPaused,
   markFirestoreQuotaPaused,
   getFirestoreUpgradeUrl,
+  registerFirestoreInstance,
 } from "./utils/firestoreQuotaManager";
 
 // Reconstruct apiKey dynamically to bypass aggressive static scanners (e.g., Netlify) that block on "AIza" keys
@@ -238,31 +241,53 @@ try {
 }
 
 try {
+  setLogLevel("silent");
+} catch {}
+
+try {
   if (app) {
-    try {
+    if (getIsFirestoreQuotaPaused()) {
+      // Quando a cota diária do Firestore está pausada, inicializa apenas em memória e desativa rede
       db = initializeFirestore(
         app,
         {
-          experimentalForceLongPolling: true,
-          localCache: persistentLocalCache({
-            tabManager: persistentMultipleTabManager(),
-          }),
+          localCache: memoryLocalCache(),
         },
         firebaseConfig.firestoreDatabaseId,
       );
-    } catch (e) {
-      console.warn("Falha ao inicializar persistentLocalCache no Firestore, usando fallback de memória:", e);
+      if (db) {
+        disableNetwork(db).catch(() => {});
+        registerFirestoreInstance(db, disableNetwork);
+      }
+    } else {
       try {
         db = initializeFirestore(
           app,
           {
             experimentalForceLongPolling: true,
-            localCache: memoryLocalCache(),
+            localCache: persistentLocalCache({
+              tabManager: persistentMultipleTabManager(),
+            }),
           },
           firebaseConfig.firestoreDatabaseId,
         );
-      } catch (err) {
-        db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+      } catch (e) {
+        console.warn("Falha ao inicializar persistentLocalCache no Firestore, usando fallback de memória:", e);
+        try {
+          db = initializeFirestore(
+            app,
+            {
+              experimentalForceLongPolling: true,
+              localCache: memoryLocalCache(),
+            },
+            firebaseConfig.firestoreDatabaseId,
+          );
+        } catch (err) {
+          db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+        }
+      }
+      if (db) {
+        registerFirestoreInstance(db, disableNetwork);
       }
     }
   }
@@ -2682,6 +2707,23 @@ export default function App() {
     null,
   );
   const [showLegal, setShowLegal] = useState<"terms" | "privacy" | null>(null);
+  const isDirectClientPortalAccess = useMemo<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const hash = window.location.hash.toLowerCase();
+      return (
+        params.has("agendar") ||
+        params.get("portal") === "agenda" ||
+        params.get("marcar") === "true" ||
+        hash === "#agenda" ||
+        hash === "#agendar"
+      );
+    } catch {
+      return false;
+    }
+  }, []);
+
   const [showClientPublicAgendaPortal, setShowClientPublicAgendaPortal] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -7594,6 +7636,95 @@ export default function App() {
 
     return list;
   }, [balance, exceededBy, parsedItems]);
+
+  // 🛡️ BLINDAGEM MÁXIMA DA AGENDA PÚBLICA (ZERO VAZAMENTO)
+  // Se o link foi aberto diretamente por um cliente (?agendar=true, ?portal=agenda, #agenda, etc.),
+  // renderizamos estritamente o portal público e encerramos a renderização aqui.
+  // Nenhum componente interno do proprietário (PDV, Caixa, Bloco, Faturamento) é montado no DOM.
+  if (isDirectClientPortalAccess && showClientPublicAgendaPortal) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-start">
+        <ClientPublicAgendaPortal
+          companyName={(() => {
+            const cloudName = cloudPortalData?.companyName;
+            if (cloudName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(cloudName)) return cloudName;
+            const profileName = loadCompanyProfile(user?.uid).name;
+            if (profileName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(profileName)) return profileName;
+            const pdvName = localStorage.getItem("pdv_store_name");
+            if (pdvName && !["Barbearia, Salão & Festas", "Barbearia & Salão"].includes(pdvName)) return pdvName;
+            return "";
+          })()}
+          companyLogo={
+            cloudPortalData?.companyLogo ||
+            loadCompanyProfile(user?.uid).logoUrl ||
+            localStorage.getItem("pdv_company_logo") ||
+            ""
+          }
+          companyPhone={
+            cloudPortalData?.companyPhone ||
+            loadCompanyProfile(user?.uid).whatsapp ||
+            loadCompanyProfile(user?.uid).phone ||
+            localStorage.getItem("pdv_store_phone") ||
+            ""
+          }
+          profissionais={
+            cloudPortalData?.profissionais && cloudPortalData.profissionais.length > 0
+              ? cloudPortalData.profissionais
+              : getClientPortalProfissionais()
+          }
+          agendamentos={
+            cloudPortalData?.agendamentos && cloudPortalData.agendamentos.length > 0
+              ? cloudPortalData.agendamentos
+              : getClientPortalAgendamentos()
+          }
+          isOnlineBookingActive={(() => {
+            if (cloudPortalData?.isOnlineBookingActive !== undefined) {
+              return cloudPortalData.isOnlineBookingActive;
+            }
+            try {
+              const saved = localStorage.getItem("barbearia_link_publico_ativo");
+              return saved !== null ? saved === "true" : true;
+            } catch {
+              return true;
+            }
+          })()}
+          businessSegment={(() => {
+            try {
+              const params = new URLSearchParams(window.location.search);
+              let seg = params.get("segmento");
+              if (seg === "festas") seg = "encomendas";
+              if (seg) return seg as any;
+              const saved = localStorage.getItem("barbearia_selected_segment") || localStorage.getItem("pdv_business_segment");
+              if (saved && saved !== "todos") return (saved === "festas" ? "encomendas" : saved) as any;
+              const profs = cloudPortalData?.profissionais || getClientPortalProfissionais();
+              if (profs && profs.length > 0 && profs[0].categoria && profs[0].categoria !== "todos") {
+                return (profs[0].categoria === "festas" ? "encomendas" : profs[0].categoria) as any;
+              }
+            } catch {}
+            return "salao";
+          })()}
+          storeId={(() => {
+            try {
+              const s = new URLSearchParams(window.location.search).get("loja");
+              if (s) return s;
+            } catch {}
+            return user?.uid || localStorage.getItem("pdv_store_id") || "loja_denise";
+          })()}
+          db={db}
+          onSaveAgendamento={(ag) => {
+            handleClientSaveAgendamento(ag);
+            showNotification("Agendamento registrado com sucesso! ✂️📅", "success");
+          }}
+          onSaveEncomenda={(enc) => {
+            handleClientSaveEncomenda(enc);
+            showNotification("Encomenda de festa registrada com sucesso! 🍰🎉", "success");
+          }}
+          onClosePortal={undefined}
+          formatCurrency={formatCurrency}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center pb-32">

@@ -834,7 +834,7 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
       <div className="w-full max-w-xl space-y-6">
         
         {/* Top bar com fechar (se for modal ou preview do dono) */}
-        {onClosePortal && (
+        {onClosePortal ? (
           <div className="flex justify-between items-center bg-slate-900/80 px-4 py-2 rounded-2xl border border-white/10 text-xs">
             <span className="text-amber-400 font-bold flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" />
@@ -847,6 +847,14 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
               <X className="w-4 h-4" />
               <span>Fechar</span>
             </button>
+          </div>
+        ) : (
+          <div className="flex justify-between items-center bg-emerald-950/40 border border-emerald-500/20 px-4 py-2 rounded-2xl text-[11px]">
+            <span className="text-emerald-400 font-bold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Portal Oficial de Agendamento Online</span>
+            </span>
+            <span className="text-slate-400 text-[10px] uppercase font-mono font-bold">100% Protegido</span>
           </div>
         )}
 

@@ -1250,7 +1250,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
 
   // Balanço Diário da Agenda: Faturamento, Gastos com Produtos, Lucro Líquido e Tempo de Trabalho
   const metricasDia = useMemo(() => {
-    const doDia = agendamentos.filter((a) => a.data === selectedAgendaDate);
+    const doDia = filteredAgendamentos.filter((a) => a.data === selectedAgendaDate);
     const ativos = doDia.filter((a) => a.status !== "cancelado");
     const concluidos = doDia.filter((a) => a.status === "concluido");
     const cancelados = doDia.filter((a) => a.status === "cancelado");
@@ -1320,7 +1320,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       proximo,
       minutosParaProximo
     };
-  }, [agendamentos, selectedAgendaDate]);
+  }, [filteredAgendamentos, selectedAgendaDate]);
 
   // Análise de Aniversários
   const hoje = new Date();
