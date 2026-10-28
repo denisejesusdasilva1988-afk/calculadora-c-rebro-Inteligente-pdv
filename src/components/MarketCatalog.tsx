@@ -84,21 +84,21 @@ const ItemCard = React.memo(({
   return (
     <div 
       onClick={() => updateSuperList(it.name, "checked", !data.checked)}
-      className={`rounded-[2.2rem] border-3 transition-all p-6 flex flex-col gap-5 relative overflow-hidden group hover:scale-[1.01] cursor-pointer active:scale-[0.99] ${isChecked ? "bg-emerald-50/90 border-emerald-500 shadow-md shadow-emerald-500/10" : "bg-white border-slate-300 hover:border-slate-400"} ${data.urgente ? "ring-4 ring-red-500/30 border-red-500 animate-pulse" : ""} ${data.emFalta && !data.urgente ? "ring-4 ring-amber-500/20 border-amber-500" : ""}`}
+      className={`rounded-2xl sm:rounded-3xl border-2 sm:border-3 transition-all p-3.5 sm:p-5 flex flex-col gap-3 sm:gap-4 relative overflow-hidden group cursor-pointer active:scale-[0.99] ${isChecked ? "bg-emerald-50/90 border-emerald-500 shadow-md shadow-emerald-500/10" : "bg-white border-slate-300 hover:border-slate-400"} ${data.urgente ? "ring-2 sm:ring-4 ring-red-500/30 border-red-500 animate-pulse" : ""} ${data.emFalta && !data.urgente ? "ring-2 sm:ring-4 ring-amber-500/20 border-amber-500" : ""}`}
     >
-      <div className="flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
+      <div className="flex items-center justify-between gap-3 sm:gap-4 flex-wrap sm:flex-nowrap">
         {/* Left Side: Checkbox and Text Names */}
-        <div className="flex items-center gap-4 min-w-0 flex-1">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
           {/* Large Checkbox Container */}
           <div 
             onClick={(e) => {
               e.stopPropagation();
               updateSuperList(it.name, "checked", !data.checked);
             }}
-            className={`w-16 h-16 rounded-2xl border-3 flex items-center justify-center transition-all shrink-0 ${isChecked ? "bg-emerald-500 border-emerald-600 text-white font-extrabold shadow-md shadow-emerald-500/20" : "bg-slate-100 border-slate-350 hover:border-slate-500 flex items-center justify-center text-transparent"}`}
+            className={`w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl border-2 sm:border-3 flex items-center justify-center transition-all shrink-0 ${isChecked ? "bg-emerald-500 border-emerald-600 text-white font-extrabold shadow-md shadow-emerald-500/20" : "bg-slate-100 border-slate-350 hover:border-slate-500 flex items-center justify-center text-transparent"}`}
           >
             {isChecked ? (
-              <svg className="w-8 h-8 stroke-[4px] drop-shadow-sm" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-6 h-6 sm:w-8 sm:h-8 stroke-[3.5px] drop-shadow-sm" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             ) : null}
@@ -106,17 +106,17 @@ const ItemCard = React.memo(({
 
           <div className="min-w-0">
             {showCategoryLabel && it.catName && (
-              <span className="text-xs font-black leading-none text-slate-500 uppercase tracking-widest block mb-1">
+              <span className="text-[10px] sm:text-xs font-black leading-none text-slate-500 uppercase tracking-widest block mb-1">
                 {it.catName}
               </span>
             )}
             {/* What's written on the list (Item name in uppercase, bold and bright) */}
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-sans font-black text-slate-900 text-lg sm:text-xl tracking-wide uppercase leading-tight">
+              <p className="font-sans font-black text-slate-900 text-base sm:text-lg tracking-wide uppercase leading-snug break-words">
                 {displayName}
               </p>
               {data.urgente && (
-                <span className="bg-red-550 text-white text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider flex items-center gap-1 shadow-md">
+                <span className="bg-red-500 text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider flex items-center gap-1 shadow-sm">
                   🚨 Urgente
                 </span>
               )}

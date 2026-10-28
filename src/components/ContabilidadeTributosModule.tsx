@@ -26,7 +26,9 @@ import {
   Beer,
   Plus,
   Minus,
-  Check
+  Check,
+  Zap,
+  Hammer
 } from "lucide-react";
 
 interface ContabilidadeTributosProps {
@@ -224,10 +226,17 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
   const [nomeFuncionario, setNomeFuncionario] = useState<string>("Carlos Eduardo (Balcão/Mecânico)");
   const [cargoFuncionario, setCargoFuncionario] = useState<string>("Auxiliar de Operações");
 
-  // Rescisão
-  const [mesesTrabalhados, setMesesTrabalhados] = useState<number>(14);
-  const [motivoRescisao, setMotivoRescisao] = useState<"sem_justa_causa" | "pedido_demissao">("sem_justa_causa");
-  const [avisoPrevio, setAvisoPrevio] = useState<"indenizado" | "trabalhado">("indenizado");
+  // Rescisão Trabalhista Completa & Editável
+  const [dataAdmissao, setDataAdmissao] = useState<string>(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 1);
+    d.setMonth(d.getMonth() - 2);
+    return d.toISOString().slice(0, 10);
+  });
+  const [dataDemissao, setDataDemissao] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [motivoRescisao, setMotivoRescisao] = useState<"sem_justa_causa" | "com_justa_causa" | "pedido_demissao" | "acordo_comum">("sem_justa_causa");
+  const [avisoPrevio, setAvisoPrevio] = useState<"indenizado" | "trabalhado" | "dispensado">("indenizado");
+  const [temFeriasVencidas, setTemFeriasVencidas] = useState<boolean>(false);
 
   const folhaCalc = useMemo(() => {
     if (tipoContrato === "diarista" || tipoContrato === "freelancer") {
@@ -296,71 +305,198 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
     };
   }, [tipoContrato, salarioBase, diasTrabalhados, horasExtras50, horasExtras100, adicionalNoturnoHoras, diasFalta, valeTransporte]);
 
-  // Cálculo da Rescisão
+  // Cálculo da Rescisão Trabalhista com Datas e Regras Oficiais CLT
   const rescisaoCalc = useMemo(() => {
+    let diffDays = 0;
+    let diffMonths = 0;
+    let diffYears = 0;
+    let diasTrabalhadosMesRescisao = 30;
+
+    try {
+      const dAdm = new Date(dataAdmissao + "T12:00:00");
+      const dDem = new Date(dataDemissao + "T12:00:00");
+      if (!isNaN(dAdm.getTime()) && !isNaN(dDem.getTime()) && dDem >= dAdm) {
+        const msDiff = dDem.getTime() - dAdm.getTime();
+        diffDays = Math.floor(msDiff / (1000 * 60 * 60 * 24));
+        diffMonths = Math.max(1, Math.floor(diffDays / 30.4375));
+        diffYears = Math.floor(diffMonths / 12);
+        diasTrabalhadosMesRescisao = Math.min(30, Math.max(1, dDem.getDate()));
+      } else {
+        diffMonths = 14;
+        diffYears = 1;
+        diffDays = 425;
+        diasTrabalhadosMesRescisao = 15;
+      }
+    } catch {
+      diffMonths = 14;
+      diffYears = 1;
+      diffDays = 425;
+    }
+
     const valorDia = salarioBase / 30;
-    const diasSaldoSalario = 15; // meio mês como exemplo
-    const saldoSalario = valorDia * diasSaldoSalario;
-    
-    // 13º proporcional
-    const mesesAno = mesesTrabalhados % 12 || 12;
-    const decimoTerceiro = (salarioBase / 12) * mesesAno;
+    const saldoSalario = valorDia * diasTrabalhadosMesRescisao;
 
-    // Férias proporcionais + 1/3
-    const feriasProp = (salarioBase / 12) * mesesAno;
-    const tercoFerias = feriasProp / 3;
+    // 13º proporcional no ano corrente da demissão (contando meses com >= 15 dias)
+    let mesesNoAno = 1;
+    try {
+      const dDem = new Date(dataDemissao + "T12:00:00");
+      const dAdm = new Date(dataAdmissao + "T12:00:00");
+      const mesmoAno = dAdm.getFullYear() === dDem.getFullYear();
+      const mesInicio = mesmoAno ? dAdm.getMonth() + 1 : 1;
+      const mesFim = dDem.getMonth() + 1;
+      const diasUltimoMes = dDem.getDate();
+      mesesNoAno = Math.max(1, mesFim - mesInicio + (diasUltimoMes >= 15 ? 1 : 0));
+    } catch {
+      mesesNoAno = diffMonths % 12 || 12;
+    }
+    const decimoTerceiro = (salarioBase / 12) * Math.min(12, mesesNoAno);
 
-    // Aviso Prévio (30 dias + 3 dias por ano)
-    const anosCompletos = Math.floor(mesesTrabalhados / 12);
-    const diasAviso = Math.min(90, 30 + (anosCompletos * 3));
-    const valorAvisoPrevio = avisoPrevio === "indenizado" && motivoRescisao === "sem_justa_causa"
-      ? (salarioBase / 30) * diasAviso 
-      : 0;
+    // Férias proporcionais + 1/3 (meses no período aquisitivo atual)
+    const mesesPeriodoAquisitivo = diffMonths % 12 || 12;
+    const feriasProp = (salarioBase / 12) * Math.min(12, mesesPeriodoAquisitivo);
+    const tercoFeriasProp = feriasProp / 3;
 
-    // Multa 40% FGTS
-    const saldoFgtEstimado = (salarioBase * 0.08) * mesesTrabalhados;
-    const multaFgts = motivoRescisao === "sem_justa_causa" ? saldoFgtEstimado * 0.40 : 0;
+    // Férias vencidas integrais (+ 1/3) se houver
+    const feriasVencidas = temFeriasVencidas ? salarioBase : 0;
+    const tercoFeriasVencidas = temFeriasVencidas ? salarioBase / 3 : 0;
 
-    const totalRescisao = saldoSalario + decimoTerceiro + feriasProp + tercoFerias + valorAvisoPrevio;
+    // Aviso Prévio Proporcional (Lei 12.506/2011: 30 dias + 3 dias por ano completo trabalhado, até 90 dias)
+    const diasAviso = Math.min(90, 30 + (diffYears * 3));
+    let valorAvisoPrevio = 0;
+    if (motivoRescisao === "sem_justa_causa") {
+      if (avisoPrevio === "indenizado") {
+        valorAvisoPrevio = (salarioBase / 30) * diasAviso;
+      }
+    } else if (motivoRescisao === "acordo_comum") {
+      if (avisoPrevio === "indenizado") {
+        valorAvisoPrevio = ((salarioBase / 30) * diasAviso) * 0.5; // Art. 484-A CLT: 50%
+      }
+    }
+
+    // FGTS & Multa Rescisória
+    const saldoFgtsEstimado = (salarioBase * 0.08) * diffMonths;
+    let percentualMulta = 0;
+    if (motivoRescisao === "sem_justa_causa") {
+      percentualMulta = 0.40;
+    } else if (motivoRescisao === "acordo_comum") {
+      percentualMulta = 0.20;
+    }
+    const multaFgts = saldoFgtsEstimado * percentualMulta;
+
+    // Regras de Verbas Líquidas
+    let totalVerbas = saldoSalario;
+    if (motivoRescisao === "com_justa_causa") {
+      totalVerbas = saldoSalario + feriasVencidas + tercoFeriasVencidas;
+    } else if (motivoRescisao === "pedido_demissao") {
+      totalVerbas = saldoSalario + decimoTerceiro + feriasProp + tercoFeriasProp + feriasVencidas + tercoFeriasVencidas;
+    } else if (motivoRescisao === "acordo_comum") {
+      totalVerbas = saldoSalario + (decimoTerceiro * 0.5) + feriasProp + tercoFeriasProp + feriasVencidas + tercoFeriasVencidas + valorAvisoPrevio;
+    } else {
+      totalVerbas = saldoSalario + decimoTerceiro + feriasProp + tercoFeriasProp + feriasVencidas + tercoFeriasVencidas + valorAvisoPrevio;
+    }
 
     return {
+      diasTrabalhadosTotal: diffDays,
+      mesesTrabalhadosTotal: diffMonths,
+      anosTrabalhadosTotal: diffYears,
+      diasTrabalhadosMesRescisao,
       diasAviso,
       saldoSalario,
       decimoTerceiro,
-      feriasComTerco: feriasProp + tercoFerias,
+      feriasComTerco: feriasProp + tercoFeriasProp,
+      feriasVencidasComTerco: feriasVencidas + tercoFeriasVencidas,
       valorAvisoPrevio,
+      saldoFgtsEstimado,
       multaFgts,
-      totalPagarAoFuncionario: totalRescisao,
-      custoTotalComMultaFgts: totalRescisao + multaFgts
+      totalPagarAoFuncionario: totalVerbas,
+      custoTotalComMultaFgts: totalVerbas + multaFgts
     };
-  }, [salarioBase, mesesTrabalhados, motivoRescisao, avisoPrevio]);
+  }, [salarioBase, dataAdmissao, dataDemissao, motivoRescisao, avisoPrevio, temFeriasVencidas]);
 
   // ==========================================
   // ESTADO 3: OFICINA, MECÂNICO, PEDREIRO ("TEMPO É DINHEIRO")
   // ==========================================
-  const [servicoNome, setServicoNome] = useState<string>("Troca de Embreagem de Moto / Cabeçote");
-  const [valorCobrado, setValorCobrado] = useState<number>(200);
-  const [diasGastos, setDiasGastos] = useState<number>(3);
-  const [numAjudantes, setNumAjudantes] = useState<number>(2);
+  // Alternância entre: Serviços Rápidos (Mecânica com minutos/ajudante) vs Obra/Diárias Longas
+  const [modoOficina, setModoOficina] = useState<"rapido" | "diaria">("rapido");
+
+  // Modo Serviços Rápidos (Oficina Mecânica Real com ajudante e peças)
+  const [servicoNome, setServicoNome] = useState<string>("Troca de Pastilhas de Freio + Sangria");
+  const [tempoMecanicoMin, setTempoMecanicoMin] = useState<number>(45); // Mecânico faz o serviço principal
+  const [tempoAjudanteMin, setTempoAjudanteMin] = useState<number>(30); // Ajudante sangra / lava peças
+  const [valorHoraMecanico, setValorHoraMecanico] = useState<number>(50); // R$ 50/hora
+  const [valorHoraAjudante, setValorHoraAjudante] = useState<number>(15); // R$ 15/hora
+  const [custoFixoHoraOficina, setCustoFixoHoraOficina] = useState<number>(10); // R$ 10/hora luz/compressor/aluguel
+  const [custoPecasServico, setCustoPecasServico] = useState<number>(120); // Pastilhas, fluido, óleo
+  const [margemPecasPct, setMargemPecasPct] = useState<number>(25); // +25% na peça
+  const [margemMaoDeObraPct, setMargemMaoDeObraPct] = useState<number>(30); // +30% lucro mão de obra
+  const [servicosRapidosPorDia, setServicosRapidosPorDia] = useState<number>(4); // Oficina atende 4 a 6 carros no dia
+
+  // Modo Obra Longa / Diárias (Empreitada / Retífica completa)
+  const [valorCobrado, setValorCobrado] = useState<number>(650);
+  const [diasGastos, setDiasGastos] = useState<number>(2);
+  const [numAjudantes, setNumAjudantes] = useState<number>(1);
   const [diariaAjudante, setDiariaAjudante] = useState<number>(80);
   const [gastoMarmitaDia, setGastoMarmitaDia] = useState<number>(25);
-  const [custoFixoDiaOficina, setCustoFixoDiaOficina] = useState<number>(45); // Luz, ferramentas, aluguel
-  const [lucroDesejadoMestre, setLucroDesejadoMestre] = useState<number>(150); // O que o dono quer tirar por dia limpo
+  const [custoFixoDiaOficina, setCustoFixoDiaOficina] = useState<number>(45);
+  const [lucroDesejadoMestre, setLucroDesejadoMestre] = useState<number>(180);
 
   const tempoDinheiroCalc = useMemo(() => {
+    if (modoOficina === "rapido") {
+      // 1. Custo Real da Mão de Obra deste Serviço Específico (fracionado por minutos)
+      const custoTempoMecanico = (tempoMecanicoMin / 60) * valorHoraMecanico;
+      const custoTempoAjudante = (tempoAjudanteMin / 60) * valorHoraAjudante;
+      const custoFixoTempo = (tempoMecanicoMin / 60) * custoFixoHoraOficina;
+      const custoMaoDeObraPuro = custoTempoMecanico + custoTempoAjudante + custoFixoTempo;
+
+      // 2. Preço de Venda da Mão de Obra com Margem Justa (que o cliente realmente aceita pagar)
+      const precoMaoDeObraSugerido = custoMaoDeObraPuro * (1 + margemMaoDeObraPct / 100);
+
+      // 3. Peças com Margem
+      const precoPecasVenda = custoPecasServico * (1 + margemPecasPct / 100);
+      const lucroPecas = precoPecasVenda - custoPecasServico;
+
+      // 4. Preço Total Cobrado do Cliente
+      const precoTotalServico = precoMaoDeObraSugerido + precoPecasVenda;
+      const custoTotalReal = custoMaoDeObraPuro + custoPecasServico;
+      const lucroLimpoServico = precoTotalServico - custoTotalReal;
+
+      // 5. Projeção Diária com múltiplos serviços
+      const faturamentoDiaProjetado = precoTotalServico * servicosRapidosPorDia;
+      const lucroLimpoDiaProjetado = lucroLimpoServico * servicosRapidosPorDia;
+
+      return {
+        modo: "rapido" as const,
+        custoTempoMecanico,
+        custoTempoAjudante,
+        custoFixoTempo,
+        custoMaoDeObraPuro,
+        precoMaoDeObraSugerido,
+        precoPecasVenda,
+        lucroPecas,
+        precoTotalServico,
+        custoTotalReal,
+        lucroReal: lucroLimpoServico,
+        margemRealPct: precoTotalServico > 0 ? (lucroLimpoServico / precoTotalServico) * 100 : 0,
+        tevePrejuizo: lucroLimpoServico < 0,
+        precoJustoMinimo: precoTotalServico,
+        diariaRealQueSobrouParaDono: lucroLimpoDiaProjetado,
+        faturamentoDiaProjetado,
+        lucroLimpoDiaProjetado
+      };
+    }
+
+    // Modo Diária / Obra Longa
     const custoAjudantes = diasGastos * (numAjudantes * diariaAjudante);
     const custoAlimentacao = diasGastos * (gastoMarmitaDia * (numAjudantes + 1));
     const custoFixoTotal = diasGastos * custoFixoDiaOficina;
     const custoTotalReal = custoAjudantes + custoAlimentacao + custoFixoTotal;
     
-    // Lucro que realmente sobrou
     const lucroReal = valorCobrado - custoTotalReal;
     const margemRealPct = (lucroReal / (valorCobrado || 1)) * 100;
-
-    // Quanto ele DEVERIA ter cobrado para sobrar o lucro que ele merece
     const precoJustoMinimo = custoTotalReal + (lucroDesejadoMestre * diasGastos);
 
     return {
+      modo: "diaria" as const,
       custoAjudantes,
       custoAlimentacao,
       custoFixoTotal,
@@ -369,9 +505,38 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
       margemRealPct,
       tevePrejuizo: lucroReal < 0,
       precoJustoMinimo,
-      diariaRealQueSobrouParaDono: lucroReal / diasGastos
+      diariaRealQueSobrouParaDono: lucroReal / (diasGastos || 1),
+      faturamentoDiaProjetado: valorCobrado,
+      lucroLimpoDiaProjetado: lucroReal,
+      // Fallback props for quick service references
+      custoTempoMecanico: 0,
+      custoTempoAjudante: 0,
+      custoFixoTempo: 0,
+      custoMaoDeObraPuro: 0,
+      precoMaoDeObraSugerido: valorCobrado,
+      precoPecasVenda: 0,
+      lucroPecas: 0,
+      precoTotalServico: valorCobrado
     };
-  }, [valorCobrado, diasGastos, numAjudantes, diariaAjudante, gastoMarmitaDia, custoFixoDiaOficina, lucroDesejadoMestre]);
+  }, [
+    modoOficina,
+    tempoMecanicoMin,
+    tempoAjudanteMin,
+    valorHoraMecanico,
+    valorHoraAjudante,
+    custoFixoHoraOficina,
+    custoPecasServico,
+    margemPecasPct,
+    margemMaoDeObraPct,
+    servicosRapidosPorDia,
+    valorCobrado,
+    diasGastos,
+    numAjudantes,
+    diariaAjudante,
+    gastoMarmitaDia,
+    custoFixoDiaOficina,
+    lucroDesejadoMestre
+  ]);
 
   // ==========================================
   // ESTADO 4: BAR, DESTILADOS (51, DREHER) & BALDE DE CERVEJA
@@ -1132,36 +1297,180 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
               </div>
             </div>
 
-            {/* SIMULADOR DE RESCISÃO TRABALHISTA */}
-            <div className="bg-slate-900/90 border border-white/10 p-4 rounded-2xl space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  Calculadora de Rescisão Trabalhista (Demissão)
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono">{mesesTrabalhados} meses de casa</span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                <div className="p-2 bg-slate-800/60 rounded-lg">
-                  <span className="text-[9px] text-slate-400 block font-bold">Férias + 1/3</span>
-                  <span className="font-mono font-bold text-white">{formatCurrency(rescisaoCalc.feriasComTerco)}</span>
+            {/* CALCULADORA COMPLETA DE RESCISÃO TRABALHISTA (CLT) */}
+            <div className="bg-slate-900/90 border border-amber-500/30 p-5 rounded-2xl space-y-4 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+                <div>
+                  <span className="text-[10px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    Cálculo Oficial de Rescisão Trabalhista (CLT)
+                  </span>
+                  <h4 className="text-sm font-black text-white">
+                    {nomeFuncionario} • {rescisaoCalc.anosTrabalhadosTotal} ano(s), {rescisaoCalc.mesesTrabalhadosTotal % 12} mês(es) e {rescisaoCalc.diasTrabalhadosTotal % 30} dia(s)
+                  </h4>
                 </div>
-                <div className="p-2 bg-slate-800/60 rounded-lg">
-                  <span className="text-[9px] text-slate-400 block font-bold">13º Proporcional</span>
+                <div className="text-right">
+                  <span className="text-[9.5px] text-slate-400 block font-bold uppercase">Total a Pagar ao Colaborador</span>
+                  <span className="text-xl font-black text-emerald-400 font-mono">
+                    {formatCurrency(rescisaoCalc.totalPagarAoFuncionario)}
+                  </span>
+                </div>
+              </div>
+
+              {/* CAMPOS DE DATA E MOTIVO DA DEMISSÃO */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-950/60 p-3.5 rounded-xl border border-white/5">
+                <div>
+                  <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider block mb-1">
+                    📅 Início (Assinou Carteira):
+                  </label>
+                  <input
+                    type="date"
+                    value={dataAdmissao}
+                    onChange={(e) => setDataAdmissao(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white outline-none focus:border-amber-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider block mb-1">
+                    📅 Último Dia na Empresa:
+                  </label>
+                  <input
+                    type="date"
+                    value={dataDemissao}
+                    onChange={(e) => setDataDemissao(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white outline-none focus:border-amber-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider block mb-1">
+                    Motivo do Término:
+                  </label>
+                  <select
+                    value={motivoRescisao}
+                    onChange={(e) => setMotivoRescisao(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white outline-none focus:border-amber-400"
+                  >
+                    <option value="sem_justa_causa">Dispensa Sem Justa Causa (Pela Empresa)</option>
+                    <option value="pedido_demissao">Pedido de Demissão (Pelo Funcionário)</option>
+                    <option value="com_justa_causa">Dispensa Com Justa Causa</option>
+                    <option value="acordo_comum">Acordo Mútuo (Art. 484-A CLT)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider block mb-1">
+                    Aviso Prévio:
+                  </label>
+                  <select
+                    value={avisoPrevio}
+                    onChange={(e) => setAvisoPrevio(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white outline-none focus:border-amber-400"
+                  >
+                    <option value="indenizado">Indenizado pela Empresa (Paga em Dinheiro)</option>
+                    <option value="trabalhado">Trabalhado pelo Funcionário</option>
+                    <option value="dispensado">Dispensado / Não Aplicável</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* OPÇÃO DE FÉRIAS VENCIDAS */}
+              <div className="flex items-center justify-between bg-slate-950/40 p-2.5 rounded-xl border border-white/5">
+                <label className="text-xs text-slate-300 font-bold flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={temFeriasVencidas}
+                    onChange={(e) => setTemFeriasVencidas(e.target.checked)}
+                    className="w-4 h-4 accent-amber-500 rounded"
+                  />
+                  <span>Possui 1 período de Férias Vencidas não gozadas (+ 1/3 Constitucional)?</span>
+                </label>
+                <span className="text-xs font-mono font-bold text-amber-300">
+                  {temFeriasVencidas ? `+ ${formatCurrency(rescisaoCalc.feriasVencidasComTerco)}` : "Não"}
+                </span>
+              </div>
+
+              {/* DISCRIMINAÇÃO DETALHADA DAS VERBAS RESCISÓRIAS */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="p-2.5 bg-slate-950/80 rounded-xl border border-white/5">
+                  <span className="text-[9px] text-slate-400 block font-bold">Saldo de Salário ({rescisaoCalc.diasTrabalhadosMesRescisao}d)</span>
+                  <span className="font-mono font-bold text-white">{formatCurrency(rescisaoCalc.saldoSalario)}</span>
+                </div>
+                <div className="p-2.5 bg-slate-950/80 rounded-xl border border-white/5">
+                  <span className="text-[9px] text-slate-400 block font-bold">13º Salário Proporcional</span>
                   <span className="font-mono font-bold text-white">{formatCurrency(rescisaoCalc.decimoTerceiro)}</span>
                 </div>
-                <div className="p-2 bg-slate-800/60 rounded-lg">
-                  <span className="text-[9px] text-slate-400 block font-bold">Aviso Prévio ({rescisaoCalc.diasAviso}d)</span>
-                  <span className="font-mono font-bold text-white">{formatCurrency(rescisaoCalc.valorAvisoPrevio)}</span>
+                <div className="p-2.5 bg-slate-950/80 rounded-xl border border-white/5">
+                  <span className="text-[9px] text-slate-400 block font-bold">Férias Prop. + 1/3</span>
+                  <span className="font-mono font-bold text-white">{formatCurrency(rescisaoCalc.feriasComTerco)}</span>
                 </div>
-                <div className="p-2 bg-slate-800/60 rounded-lg">
-                  <span className="text-[9px] text-slate-400 block font-bold">Multa 40% FGTS</span>
-                  <span className="font-mono font-bold text-amber-400">{formatCurrency(rescisaoCalc.multaFgts)}</span>
+                <div className="p-2.5 bg-slate-950/80 rounded-xl border border-white/5">
+                  <span className="text-[9px] text-slate-400 block font-bold">Aviso Prévio ({rescisaoCalc.diasAviso}d Lei 12.506)</span>
+                  <span className="font-mono font-bold text-emerald-400">{formatCurrency(rescisaoCalc.valorAvisoPrevio)}</span>
                 </div>
               </div>
-              <div className="flex justify-between items-center pt-2 text-xs font-bold border-t border-white/5">
-                <span className="text-slate-300">Custo Total Estimado da Rescisão:</span>
-                <span className="text-base text-rose-400 font-mono font-black">{formatCurrency(rescisaoCalc.custoTotalComMultaFgts)}</span>
+
+              {/* FGTS E CUSTO TOTAL EMPRESA */}
+              <div className="bg-slate-950/90 p-3 rounded-xl border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-black block">Multa Rescisória do FGTS (Guia GRRF / Caixa):</span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="font-mono text-amber-400 font-bold">
+                      {motivoRescisao === "sem_justa_causa" ? "Multa 40%: " : motivoRescisao === "acordo_comum" ? "Multa 20%: " : "Sem Multa: "}
+                      {formatCurrency(rescisaoCalc.multaFgts)}
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono">(Saldo base FGTS estimado: {formatCurrency(rescisaoCalc.saldoFgtsEstimado)})</span>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 uppercase font-black block">Custo Total para a Empresa:</span>
+                  <span className="text-base text-rose-400 font-mono font-black">{formatCurrency(rescisaoCalc.custoTotalComMultaFgts)}</span>
+                </div>
+              </div>
+
+              {/* BOTÕES DE COMPARTILHAMENTO DE RESCISÃO */}
+              <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const motivoLabel = motivoRescisao === "sem_justa_causa" ? "Dispensa Sem Justa Causa" :
+                      motivoRescisao === "pedido_demissao" ? "Pedido de Demissão" :
+                      motivoRescisao === "com_justa_causa" ? "Dispensa Com Justa Causa" : "Acordo Mútuo (Art. 484-A)";
+                    
+                    const text = `📋 *DEMONSTRATIVO DE RESCISÃO CONTRATUAL (CLT)*\n` +
+                      `👤 *Colaborador:* ${nomeFuncionario}\n` +
+                      `📅 *Período Trabalhado:* ${dataAdmissao.split("-").reverse().join("/")} até ${dataDemissao.split("-").reverse().join("/")}\n` +
+                      `⏱️ *Tempo Total:* ${rescisaoCalc.anosTrabalhadosTotal} ano(s), ${rescisaoCalc.mesesTrabalhadosTotal % 12} mês(es) e ${rescisaoCalc.diasTrabalhadosTotal % 30} dia(s)\n` +
+                      `📄 *Motivo:* ${motivoLabel}\n` +
+                      `━━━━━━━━━━━━━━━━━━━━\n` +
+                      `• Saldo de Salário (${rescisaoCalc.diasTrabalhadosMesRescisao} dias): ${formatCurrency(rescisaoCalc.saldoSalario)}\n` +
+                      `• 13º Salário Proporcional: ${formatCurrency(rescisaoCalc.decimoTerceiro)}\n` +
+                      `• Férias Proporcionais + 1/3: ${formatCurrency(rescisaoCalc.feriasComTerco)}\n` +
+                      (temFeriasVencidas ? `• Férias Vencidas + 1/3: ${formatCurrency(rescisaoCalc.feriasVencidasComTerco)}\n` : "") +
+                      `• Aviso Prévio Proporcional (${rescisaoCalc.diasAviso} dias): ${formatCurrency(rescisaoCalc.valorAvisoPrevio)}\n` +
+                      `━━━━━━━━━━━━━━━━━━━━\n` +
+                      `💰 *TOTAL LÍQUIDO DA RESCISÃO:* ${formatCurrency(rescisaoCalc.totalPagarAoFuncionario)}\n` +
+                      (rescisaoCalc.multaFgts > 0 ? `🏛️ *Multa FGTS na Caixa:* ${formatCurrency(rescisaoCalc.multaFgts)}\n` : "") +
+                      `\n_Calculadora Cérebro Inteligente • Gestão & Contabilidade_`;
+                    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, "_blank");
+                    showNotification("Rescisão pronta para envio no WhatsApp! 📱", "success");
+                  }}
+                  className="flex-1 py-2.5 px-3 bg-amber-600 hover:bg-amber-500 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-amber-600/20 touch-manipulation"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Compartilhar Rescisão no WhatsApp 📲</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer border border-white/10 touch-manipulation"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Imprimir Rescisão 🖨️</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1169,54 +1478,115 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
       )}
 
       {/* ========================================== */}
-      {/* ABA 3: OFICINA & OBRA: TEMPO É DINHEIRO */}
+      {/* ABA 3: OFICINA MECÂNICA & OBRAS: TEMPO É DINHEIRO */}
       {/* ========================================== */}
       {activeTab === "tempo_dinheiro" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-left">
-          <div className="lg:col-span-1 bg-slate-900/90 border border-white/10 p-5 rounded-2xl space-y-4">
-            <div className="flex items-center gap-2 text-amber-400 font-black text-xs uppercase tracking-wider">
-              <Clock className="w-4 h-4" />
-              <span>O Caso da Oficina / Empreitada</span>
-            </div>
+        <div className="space-y-4 text-left">
+          {/* SELETOR DE MODO DA OFICINA: SERVIÇOS RÁPIDOS DO DIA vs OBRA LONGA/RETÍFICA */}
+          <div className="bg-slate-900 border border-white/10 p-1.5 rounded-2xl flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => setModoOficina("rapido")}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation active:scale-95 ${
+                modoOficina === "rapido"
+                  ? "bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Zap className="w-4 h-4" />
+              <span>1. Serviços Rápidos do Dia (Minutos, Ajudante & Peças) ⚡</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoOficina("diaria")}
+              className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation active:scale-95 ${
+                modoOficina === "diaria"
+                  ? "bg-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Hammer className="w-4 h-4" />
+              <span>2. Empreitada / Obra Longa (Dias) 🏗️</span>
+            </button>
+          </div>
 
-            <div className="space-y-3">
-              {/* Presets Rápidos de Serviços de Oficina & Obra */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* PAINEL ESQUERDO: CONFIGURAÇÃO DO SERVIÇO */}
+            <div className="lg:col-span-1 bg-slate-900/90 border border-white/10 p-5 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between text-amber-400 font-black text-xs uppercase tracking-wider border-b border-white/10 pb-2">
+                <span className="flex items-center gap-1.5">
+                  <Wrench className="w-4 h-4" />
+                  {modoOficina === "rapido" ? "Serviço Rápido de Oficina" : "Empreitada / Retífica Longa"}
+                </span>
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full">
+                  {modoOficina === "rapido" ? "Minutos / Horas" : "Dias de Trabalho"}
+                </span>
+              </div>
+
+              {/* PRESETS RÁPIDOS DE OFICINA COM RATEIO MECÂNICO + AJUDANTE + PEÇAS */}
               <div>
                 <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
-                  Preenchimento Rápido com 1 Toque:
+                  Presets Rápidos de Oficina (1 Toque):
                 </span>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    { label: "🚗 Troca de Óleo & Filtros", nome: "Troca de Óleo e Filtros", cobrado: 90, dias: 1, ajudantes: 0, diaria: 0, marmita: 0 },
-                    { label: "⚙️ Freios & Suspensão", nome: "Revisão Freios e Suspensão", cobrado: 380, dias: 1, ajudantes: 1, diaria: 80, marmita: 25 },
-                    { label: "🔧 Retífica de Motor / Câmbio", nome: "Retífica de Motor / Câmbio", cobrado: 1800, dias: 3, ajudantes: 1, diaria: 90, marmita: 25 },
-                    { label: "🔨 Funilaria & Pintura", nome: "Funilaria e Pintura Automotiva", cobrado: 1400, dias: 4, ajudantes: 1, diaria: 90, marmita: 25 },
-                    { label: "🧱 Reforma de Alvenaria", nome: "Empreitada de Alvenaria / Obra", cobrado: 3500, dias: 5, ajudantes: 2, diaria: 90, marmita: 30 },
-                    { label: "⚡ Elétrica & Injeção", nome: "Diagnóstico Elétrico e Injeção", cobrado: 450, dias: 1, ajudantes: 1, diaria: 80, marmita: 25 }
-                  ].map((preset, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setServicoNome(preset.nome);
-                        setValorCobrado(preset.cobrado);
-                        setDiasGastos(preset.dias);
-                        setNumAjudantes(preset.ajudantes);
-                        setDiariaAjudante(preset.diaria);
-                        setGastoMarmitaDia(preset.marmita);
-                        showNotification(`Preset "${preset.label}" aplicado! 🔧`, "info");
-                      }}
-                      className="px-2 py-1.5 min-h-[36px] bg-slate-800 hover:bg-slate-700 active:scale-95 border border-white/5 rounded-lg text-left text-[10px] text-amber-300 hover:text-white truncate transition-all touch-manipulation cursor-pointer"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
+                  {modoOficina === "rapido" ? (
+                    [
+                      { label: "🚗 Troca de Óleo + Filtro", nome: "Troca de Óleo e Filtro de Óleo", tMec: 30, tAjud: 10, pecas: 130, margP: 25, margM: 30 },
+                      { label: "🛑 Pastilhas de Freio", nome: "Troca de Pastilhas e Sangria de Freio", tMec: 45, tAjud: 30, pecas: 120, margP: 25, margM: 35 },
+                      { label: "⚙️ Correia Dentada", nome: "Troca de Correia Dentada e Tensor", tMec: 150, tAjud: 60, pecas: 260, margP: 20, margM: 35 },
+                      { label: "🔩 Kit Embreagem", nome: "Troca de Embreagem e Atuador", tMec: 210, tAjud: 90, pecas: 380, margP: 20, margM: 35 },
+                      { label: "🔌 Scanner & Injeção", nome: "Diagnóstico Computadorizado / Scanner", tMec: 30, tAjud: 0, pecas: 0, margP: 0, margM: 40 },
+                      { label: "🔋 Bateria & Alternador", nome: "Troca de Bateria e Teste do Alternador", tMec: 25, tAjud: 10, pecas: 340, margP: 20, margM: 30 }
+                    ].map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setServicoNome(preset.nome);
+                          setTempoMecanicoMin(preset.tMec);
+                          setTempoAjudanteMin(preset.tAjud);
+                          setCustoPecasServico(preset.pecas);
+                          setMargemPecasPct(preset.margP);
+                          setMargemMaoDeObraPct(preset.margM);
+                          showNotification(`Preset "${preset.label}" aplicado! 🚗🔧`, "info");
+                        }}
+                        className="px-2 py-1.5 min-h-[38px] bg-slate-800 hover:bg-slate-700 active:scale-95 border border-white/5 rounded-lg text-left text-[10px] text-amber-300 hover:text-white truncate transition-all touch-manipulation cursor-pointer"
+                      >
+                        {preset.label}
+                      </button>
+                    ))
+                  ) : (
+                    [
+                      { label: "🔧 Retífica de Motor", nome: "Retífica Completa de Motor", cobrado: 2200, dias: 3, ajudantes: 1, diaria: 90, marmita: 25 },
+                      { label: "🔨 Funilaria & Pintura", nome: "Funilaria e Pintura Geral", cobrado: 1800, dias: 4, ajudantes: 1, diaria: 90, marmita: 25 },
+                      { label: "🧱 Reforma de Alvenaria", nome: "Reforma de Alvenaria / Pedreiro", cobrado: 3500, dias: 5, ajudantes: 2, diaria: 90, marmita: 30 },
+                      { label: "⚡ Elétrica Completa", nome: "Revisão e Chicote Elétrico Geral", cobrado: 950, dias: 2, ajudantes: 1, diaria: 80, marmita: 25 }
+                    ].map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setServicoNome(preset.nome);
+                          setValorCobrado(preset.cobrado);
+                          setDiasGastos(preset.dias);
+                          setNumAjudantes(preset.ajudantes);
+                          setDiariaAjudante(preset.diaria);
+                          setGastoMarmitaDia(preset.marmita);
+                          showNotification(`Preset "${preset.label}" aplicado! 🏗️`, "info");
+                        }}
+                        className="px-2 py-1.5 min-h-[38px] bg-slate-800 hover:bg-slate-700 active:scale-95 border border-white/5 rounded-lg text-left text-[10px] text-amber-300 hover:text-white truncate transition-all touch-manipulation cursor-pointer"
+                      >
+                        {preset.label}
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
 
+              {/* NOME DO SERVIÇO */}
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                  Serviço / Conserto Realizado:
+                  Serviço / Reparo:
                 </label>
                 <input
                   type="text"
@@ -1226,287 +1596,323 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                 />
               </div>
 
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                    Valor que Cobrou do Cliente (R$):
-                  </label>
-                  <span className="text-xs font-mono font-black text-emerald-400">{formatCurrency(valorCobrado)}</span>
-                </div>
-                <input
-                  type="number"
-                  value={valorCobrado}
-                  onChange={(e) => setValorCobrado(Number(e.target.value))}
-                  className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
-                />
-                {/* Touch Steppers de Valor Cobrado */}
-                <div className="grid grid-cols-4 gap-1 mt-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setValorCobrado(Math.max(0, valorCobrado - 100))}
-                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
-                  >
-                    -100
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setValorCobrado(Math.max(0, valorCobrado - 50))}
-                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
-                  >
-                    -50
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setValorCobrado(valorCobrado + 50)}
-                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
-                  >
-                    +50
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setValorCobrado(valorCobrado + 100)}
-                    className="py-1.5 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[10px] font-bold text-slate-300 border border-white/5 touch-manipulation cursor-pointer"
-                  >
-                    +100
-                  </button>
-                </div>
-              </div>
+              {modoOficina === "rapido" ? (
+                /* INPUTS DO MODO RÁPIDO (MINUTOS DE CADA UM E PEÇAS) */
+                <div className="space-y-3.5">
+                  {/* Tempo Mecânico vs Ajudante */}
+                  <div className="grid grid-cols-2 gap-2 bg-slate-950/60 p-3 rounded-xl border border-white/5">
+                    <div>
+                      <label className="text-[9.5px] font-black text-amber-300 uppercase tracking-wider block mb-1">
+                        👨‍🔧 Mecânico (Minutos):
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setTempoMecanicoMin(Math.max(10, tempoMecanicoMin - 15))}
+                          className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="flex-1 text-center font-mono font-bold text-xs text-white">{tempoMecanicoMin} min</span>
+                        <button
+                          type="button"
+                          onClick={() => setTempoMecanicoMin(tempoMecanicoMin + 15)}
+                          className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <span className="text-[9px] text-slate-400 block text-center mt-1">
+                        R$ {valorHoraMecanico}/h ({formatCurrency((tempoMecanicoMin / 60) * valorHoraMecanico)})
+                      </span>
+                    </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                    Quantos Dias Levou:
-                  </label>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setDiasGastos(Math.max(1, diasGastos - 1))}
-                      className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="flex-1 text-center font-mono font-bold text-xs text-white">{diasGastos}d</span>
-                    <button
-                      type="button"
-                      onClick={() => setDiasGastos(diasGastos + 1)}
-                      className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
+                    <div>
+                      <label className="text-[9.5px] font-black text-blue-300 uppercase tracking-wider block mb-1">
+                        🤝 Ajudante (Minutos):
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setTempoAjudanteMin(Math.max(0, tempoAjudanteMin - 15))}
+                          className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="flex-1 text-center font-mono font-bold text-xs text-white">{tempoAjudanteMin} min</span>
+                        <button
+                          type="button"
+                          onClick={() => setTempoAjudanteMin(tempoAjudanteMin + 15)}
+                          className="w-8 h-8 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <span className="text-[9px] text-slate-400 block text-center mt-1">
+                        R$ {valorHoraAjudante}/h ({formatCurrency((tempoAjudanteMin / 60) * valorHoraAjudante)})
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                    Quantos Ajudantes:
-                  </label>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setNumAjudantes(Math.max(0, numAjudantes - 1))}
-                      className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="flex-1 text-center font-mono font-bold text-xs text-white">{numAjudantes}</span>
-                    <button
-                      type="button"
-                      onClick={() => setNumAjudantes(numAjudantes + 1)}
-                      className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                    Diária Ajudante (R$):
-                  </label>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setDiariaAjudante(Math.max(0, diariaAjudante - 10))}
-                      className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
-                    >
-                      -10
-                    </button>
-                    <span className="flex-1 text-center font-mono font-bold text-xs text-white">R${diariaAjudante}</span>
-                    <button
-                      type="button"
-                      onClick={() => setDiariaAjudante(diariaAjudante + 10)}
-                      className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
-                    >
-                      +10
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                    Marmita / Dia (R$):
-                  </label>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setGastoMarmitaDia(Math.max(0, gastoMarmitaDia - 5))}
-                      className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
-                    >
-                      -5
-                    </button>
-                    <span className="flex-1 text-center font-mono font-bold text-xs text-white">R${gastoMarmitaDia}</span>
-                    <button
-                      type="button"
-                      onClick={() => setGastoMarmitaDia(gastoMarmitaDia + 5)}
-                      className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
-                    >
-                      +5
-                    </button>
-                  </div>
-                </div>
-              </div>
+                  {/* Peças e Margem sobre Peças */}
+                  <div className="bg-slate-950/60 p-3 rounded-xl border border-white/5 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[9.5px] font-black text-slate-300 uppercase tracking-wider">
+                        Custo das Peças / Fluídos (R$):
+                      </label>
+                      <span className="text-xs font-mono font-black text-emerald-400">{formatCurrency(custoPecasServico)}</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={custoPecasServico}
+                      onChange={(e) => setCustoPecasServico(Math.max(0, Number(e.target.value)))}
+                      className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-bold text-white font-mono outline-none"
+                    />
+                    <div className="grid grid-cols-4 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setCustoPecasServico(Math.max(0, custoPecasServico - 50))}
+                        className="py-1 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[9.5px] font-bold text-slate-300 border border-white/5 cursor-pointer"
+                      >
+                        -50
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustoPecasServico(Math.max(0, custoPecasServico - 20))}
+                        className="py-1 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[9.5px] font-bold text-slate-300 border border-white/5 cursor-pointer"
+                      >
+                        -20
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustoPecasServico(custoPecasServico + 20)}
+                        className="py-1 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[9.5px] font-bold text-slate-300 border border-white/5 cursor-pointer"
+                      >
+                        +20
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustoPecasServico(custoPecasServico + 50)}
+                        className="py-1 px-1 bg-slate-800 hover:bg-slate-700 active:scale-95 rounded-lg text-[9.5px] font-bold text-slate-300 border border-white/5 cursor-pointer"
+                      >
+                        +50
+                      </button>
+                    </div>
 
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">
-                  Lucro que o Patrão Merece Tirar por Dia (R$):
-                </label>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setLucroDesejadoMestre(Math.max(50, lucroDesejadoMestre - 20))}
-                    className="w-9 h-9 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
-                  >
-                    -20
-                  </button>
-                  <input
-                    type="number"
-                    value={lucroDesejadoMestre}
-                    onChange={(e) => setLucroDesejadoMestre(Number(e.target.value))}
-                    className="flex-1 bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none text-center"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setLucroDesejadoMestre(lucroDesejadoMestre + 20)}
-                    className="w-9 h-9 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
-                  >
-                    +20
-                  </button>
+                    <div className="flex justify-between items-center pt-1 text-[10px]">
+                      <span className="text-slate-400">Margem sobre a Peça:</span>
+                      <span className="font-mono font-bold text-amber-300">+{margemPecasPct}% (Venda: {formatCurrency(tempoDinheiroCalc.precoPecasVenda)})</span>
+                    </div>
+                  </div>
+
+                  {/* Volume de Serviços no Dia */}
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">
+                      Quantidade de Serviços Rápidos Feitos no Dia:
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setServicosRapidosPorDia(Math.max(1, servicosRapidosPorDia - 1))}
+                        className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="flex-1 text-center font-mono font-bold text-xs text-white">{servicosRapidosPorDia} serviços por dia</span>
+                      <button
+                        type="button"
+                        onClick={() => setServicosRapidosPorDia(servicosRapidosPorDia + 1)}
+                        className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* INPUTS DO MODO OBRA LONGA (DIAS DE TRABALHO) */
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                        Valor Cobrado na Empreitada (R$):
+                      </label>
+                      <span className="text-xs font-mono font-black text-emerald-400">{formatCurrency(valorCobrado)}</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={valorCobrado}
+                      onChange={(e) => setValorCobrado(Number(e.target.value))}
+                      className="w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white font-mono outline-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
+                        Quantos Dias Levou:
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setDiasGastos(Math.max(1, diasGastos - 1))}
+                          className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="flex-1 text-center font-mono font-bold text-xs text-white">{diasGastos}d</span>
+                        <button
+                          type="button"
+                          onClick={() => setDiasGastos(diasGastos + 1)}
+                          className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block mb-1">
+                        Quantos Ajudantes:
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setNumAjudantes(Math.max(0, numAjudantes - 1))}
+                          className="w-8 h-8 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="flex-1 text-center font-mono font-bold text-xs text-white">{numAjudantes}</span>
+                        <button
+                          type="button"
+                          onClick={() => setNumAjudantes(numAjudantes + 1)}
+                          className="w-8 h-8 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold rounded-lg touch-manipulation flex items-center justify-center cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
 
-          <div className="lg:col-span-2 space-y-4">
-            <div className={`p-5 rounded-2xl border ${
-              tempoDinheiroCalc.tevePrejuizo 
-                ? "bg-rose-950/40 border-rose-500/40 text-white" 
-                : "bg-slate-900/90 border-white/10 text-white"
-            }`}>
-              <div className="flex justify-between items-center border-b border-white/10 pb-3">
-                <div>
-                  <span className={`text-[10px] font-black uppercase tracking-wider block ${
-                    tempoDinheiroCalc.tevePrejuizo ? "text-rose-400" : "text-emerald-400"
-                  }`}>
-                    {tempoDinheiroCalc.tevePrejuizo ? "🚨 ALERTA VERMELHO: PAGANDO PARA TRABALHAR!" : "Resultado da Operação"}
-                  </span>
-                  <h3 className="text-lg font-black">
-                    Diagnóstico Financeiro do Serviço
-                  </h3>
+            {/* PAINEL DIREITO: DIAGNÓSTICO FINANCEIRO & ORÇAMENTO OFICIAL */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="bg-slate-900/90 border border-white/10 p-5 rounded-2xl text-white space-y-4 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+                  <div>
+                    <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider block">
+                      {modoOficina === "rapido" ? "Preço Justo ao Cliente (Sem Cobrar Preço Altíssimo)" : "Resultado da Empreitada"}
+                    </span>
+                    <h3 className="text-lg font-black text-white">
+                      {servicoNome}
+                    </h3>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 block uppercase font-bold">
+                      {modoOficina === "rapido" ? "Preço Sugerido ao Cliente" : "Lucro Real do Serviço"}
+                    </span>
+                    <span className="text-2xl font-black text-emerald-400 font-mono">
+                      {formatCurrency(tempoDinheiroCalc.precoTotalServico)}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-400 block uppercase font-bold">Lucro Líquido Real</span>
-                  <span className={`text-2xl font-black font-mono ${
-                    tempoDinheiroCalc.tevePrejuizo ? "text-rose-400" : "text-emerald-400"
-                  }`}>
-                    {formatCurrency(tempoDinheiroCalc.lucroReal)}
-                  </span>
-                </div>
-              </div>
 
-              {/* DETALHES DE GASTO OCULTO */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
-                <div className="p-3 bg-slate-800/60 rounded-xl border border-white/5">
-                  <span className="text-[9px] text-slate-400 uppercase font-bold block">Diárias Pagas a Ajudantes</span>
-                  <span className="text-base font-black text-white font-mono">
-                    {formatCurrency(tempoDinheiroCalc.custoAjudantes)}
-                  </span>
-                  <span className="text-[9px] text-slate-500 block mt-0.5">{numAjudantes} ajudantes x {diasGastos} dias</span>
-                </div>
-                <div className="p-3 bg-slate-800/60 rounded-xl border border-white/5">
-                  <span className="text-[9px] text-slate-400 uppercase font-bold block">Marmitas e Bebidas</span>
-                  <span className="text-base font-black text-white font-mono">
-                    {formatCurrency(tempoDinheiroCalc.custoAlimentacao)}
-                  </span>
-                  <span className="text-[9px] text-slate-500 block mt-0.5">Alimentação diária</span>
-                </div>
-                <div className="p-3 bg-slate-800/60 rounded-xl border border-white/5">
-                  <span className="text-[9px] text-slate-400 uppercase font-bold block">Custo Total que Saiu do Bolso</span>
-                  <span className="text-base font-black text-rose-400 font-mono">
-                    {formatCurrency(tempoDinheiroCalc.custoTotalReal)}
-                  </span>
-                  <span className="text-[9px] text-slate-500 block mt-0.5">Sem contar o seu tempo</span>
-                </div>
-              </div>
+                {/* RATEIO DA MÃO DE OBRA E PEÇAS */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="p-3 bg-slate-950/80 rounded-xl border border-white/5">
+                    <span className="text-[9px] text-amber-400 uppercase font-black block">Mecânico Especializado</span>
+                    <span className="text-base font-black text-white font-mono mt-0.5 block">
+                      {formatCurrency(tempoDinheiroCalc.custoTempoMecanico || 0)}
+                    </span>
+                    <span className="text-[9px] text-slate-400 block mt-0.5">{tempoMecanicoMin} min de serviço</span>
+                  </div>
 
-              {/* ANÁLISE DE TEMPO: VALOR POR HORA */}
-              <div className="grid grid-cols-2 gap-3 mb-4 p-3 bg-slate-800/50 rounded-xl border border-white/5">
-                <div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase block">Tempo Total Dedicado</span>
-                  <span className="text-sm font-black text-amber-300 font-mono">{diasGastos * 8} horas ({diasGastos} dias de 8h)</span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase block">Cobrado por Hora de Oficina</span>
-                  <span className="text-sm font-black text-white font-mono">{formatCurrency(valorCobrado / (diasGastos * 8))}/h</span>
-                </div>
-              </div>
+                  <div className="p-3 bg-slate-950/80 rounded-xl border border-white/5">
+                    <span className="text-[9px] text-blue-400 uppercase font-black block">Auxiliar / Ajudante</span>
+                    <span className="text-base font-black text-white font-mono mt-0.5 block">
+                      {formatCurrency(tempoDinheiroCalc.custoTempoAjudante || 0)}
+                    </span>
+                    <span className="text-[9px] text-slate-400 block mt-0.5">{tempoAjudanteMin} min desmontar/lavar</span>
+                  </div>
 
-              {/* RECOMENDAÇÃO DO PREÇO JUSTO */}
-              <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2">
-                <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase">
-                  <Sparkles className="w-4 h-4" />
-                  <span>Quanto Você DEVERIA Ter Cobrado por esse Serviço:</span>
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-black text-white font-mono">
-                    {formatCurrency(tempoDinheiroCalc.precoJustoMinimo)}
-                  </span>
-                  <span className="text-xs text-amber-300">
-                    (Para pagar custos e sobrar {formatCurrency(lucroDesejadoMestre)}/dia pro seu sustento)
-                  </span>
-                </div>
-                <p className="text-xs text-slate-300 leading-relaxed pt-1">
-                  O cliente chora, mas quem fica {diasGastos} dias mexendo num conserto e cobra só {formatCurrency(valorCobrado)} está pagando para trabalhar.
-                  O valor mínimo de mão de obra precisa cobrir os ajudantes e o tempo que a oficina ficou ocupada!
-                </p>
-              </div>
+                  <div className="p-3 bg-slate-950/80 rounded-xl border border-white/5">
+                    <span className="text-[9px] text-purple-400 uppercase font-black block">Peças / Fluídos (Venda)</span>
+                    <span className="text-base font-black text-purple-300 font-mono mt-0.5 block">
+                      {formatCurrency(tempoDinheiroCalc.precoPecasVenda || 0)}
+                    </span>
+                    <span className="text-[9px] text-emerald-400 block mt-0.5">Lucro: +{formatCurrency(tempoDinheiroCalc.lucroPecas || 0)}</span>
+                  </div>
 
-              {/* BOTÕES TOUCH DE ENVIO E IMPRESSÃO DA OFICINA */}
-              <div className="pt-3 flex flex-col sm:flex-row gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const text = `🔧 *DIAGNÓSTICO & ORÇAMENTO DE SERVIÇO - OFICINA*\n` +
-                      `⚙️ *Serviço:* ${servicoNome}\n` +
-                      `⏱️ *Tempo Estimado:* ${diasGastos} dias (${diasGastos * 8} horas)\n` +
-                      `💰 *Valor Total do Serviço:* ${formatCurrency(valorCobrado)}\n` +
-                      `📅 *Data:* ${new Date().toLocaleDateString("pt-BR")}\n\n` +
-                      `_Calculadora Cérebro Inteligente - Gestão de Oficinas_`;
-                    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, "_blank");
-                    showNotification("Abrindo WhatsApp para enviar orçamento...", "info");
-                  }}
-                  className="flex-1 py-3 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 touch-manipulation min-h-[44px]"
-                >
-                  <Share2 className="w-4 h-4" />
-                  <span>Enviar Orçamento no WhatsApp 📱</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="py-3 px-4 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-600/20 touch-manipulation min-h-[44px]"
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>Imprimir Ordem de Serviço 🖨️</span>
-                </button>
+                  <div className="p-3 bg-slate-950/80 rounded-xl border border-white/5">
+                    <span className="text-[9px] text-emerald-400 uppercase font-black block">Lucro Limpo Deste Serviço</span>
+                    <span className="text-base font-black text-emerald-400 font-mono mt-0.5 block">
+                      {formatCurrency(tempoDinheiroCalc.lucroReal)}
+                    </span>
+                    <span className="text-[9px] text-slate-400 block mt-0.5">Margem: {tempoDinheiroCalc.margemRealPct.toFixed(0)}%</span>
+                  </div>
+                </div>
+
+                {/* PROJEÇÃO DO DIA DA OFICINA (MÚLTIPLOS SERVIÇOS) */}
+                <div className="p-4 bg-gradient-to-r from-amber-950/40 via-slate-950/80 to-emerald-950/40 border border-amber-500/30 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-xs font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      Projeção do Caixa do Dia ({servicosRapidosPorDia} Serviços Concluídos):
+                    </span>
+                    <span className="text-xs font-mono font-bold text-slate-300">
+                      Entrada no Caixa: <strong className="text-white font-black">{formatCurrency(tempoDinheiroCalc.faturamentoDiaProjetado || 0)}</strong>
+                    </span>
+                  </div>
+
+                  <div className="flex items-baseline justify-between pt-1 border-t border-white/10 flex-wrap gap-2">
+                    <span className="text-xs text-slate-300">
+                      Lucro Líquido Real que SOBRA LIMPO no Bolso do Dono hoje:
+                    </span>
+                    <span className="text-2xl font-black text-emerald-400 font-mono">
+                      {formatCurrency(tempoDinheiroCalc.lucroLimpoDiaProjetado || 0)} / dia
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Cobrando <strong>{formatCurrency(tempoDinheiroCalc.precoTotalServico)}</strong> por serviço rápido (preço justo que qualquer cliente aceita pagar sem reclamar), atendendo {servicosRapidosPorDia} carros no dia, a oficina fatura bem e você não toma prejuízo!
+                  </p>
+                </div>
+
+                {/* BOTÕES DE COMPARTILHAMENTO DE ORÇAMENTO / OS */}
+                <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const text = `🔧 *ORDEM DE SERVIÇO & ORÇAMENTO - OFICINA MECÂNICA*\n` +
+                        `🚗 *Serviço:* ${servicoNome}\n` +
+                        `━━━━━━━━━━━━━━━━━━━━\n` +
+                        `👨‍🔧 *Mão de Obra do Mecânico:* ${formatCurrency(tempoDinheiroCalc.custoTempoMecanico || 0)} (${tempoMecanicoMin} min)\n` +
+                        (tempoAjudanteMin > 0 ? `🤝 *Ajudante / Desmontagem:* ${formatCurrency(tempoDinheiroCalc.custoTempoAjudante || 0)} (${tempoAjudanteMin} min)\n` : "") +
+                        (custoPecasServico > 0 ? `⚙️ *Peças & Fluídos Aplicados:* ${formatCurrency(tempoDinheiroCalc.precoPecasVenda || 0)}\n` : "") +
+                        `━━━━━━━━━━━━━━━━━━━━\n` +
+                        `💰 *VALOR TOTAL DO SERVIÇO:* ${formatCurrency(tempoDinheiroCalc.precoTotalServico)}\n` +
+                        `📅 *Data:* ${new Date().toLocaleDateString("pt-BR")}\n\n` +
+                        `_Oficina Mecânica Especializada • Gestão Inteligente_`;
+                      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, "_blank");
+                      showNotification("Orçamento de oficina pronto para envio no WhatsApp! 📱", "success");
+                    }}
+                    className="flex-1 py-3 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 touch-manipulation min-h-[44px]"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    <span>Enviar Orçamento no WhatsApp 📲</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="py-3 px-4 bg-amber-600 hover:bg-amber-500 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-600/20 touch-manipulation min-h-[44px]"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Imprimir OS da Oficina 🖨️</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

@@ -836,6 +836,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
 
         if (db) {
           safeFirestoreSetDoc(doc(db, "agendas_publicas", storeId), publicData);
+          safeFirestoreSetDoc(doc(db, "agendas_publicas", "default"), publicData);
           if (userId && userId !== "guest_visitor") {
             safeFirestoreSetDoc(doc(db, "userData", userId), {
               barbeariaProfissionais: cleanProfs,
@@ -900,19 +901,17 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
 
   const getSegmentAgendaUrl = (seg: NegocioSegmento) => {
     if (typeof window === "undefined") return "";
-    return `${window.location.origin}${window.location.pathname}?agendar=true&segmento=${seg}&loja=${storeId}`;
+    return `${window.location.origin}/?agenda=${seg}${storeId ? `&loja=${storeId}` : ""}`;
   };
 
   const getProfAgendaUrl = (prof: ProfissionalBarbearia) => {
     if (typeof window === "undefined") return "";
-    const base = `${window.location.origin}${window.location.pathname}?agendar=true`;
     const cat = prof.categoria || (segmentFilter !== "todos" ? segmentFilter : "salao");
-    return `${base}&segmento=${cat}&loja=${storeId}&prof=${prof.id}`;
+    return `${window.location.origin}/?agenda=${cat}&prof=${encodeURIComponent(prof.id)}${storeId ? `&loja=${storeId}` : ""}`;
   };
 
   const clientAgendaUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
-    const base = `${window.location.origin}${window.location.pathname}?agendar=true`;
     let seg = segmentFilter !== "todos" ? segmentFilter : null;
     if (!seg) {
       const savedSeg = localStorage.getItem("barbearia_selected_segment") || localStorage.getItem("pdv_business_segment");
@@ -922,7 +921,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       seg = profissionais[0].categoria;
     }
     const finalSeg = seg || "salao";
-    return `${base}&segmento=${finalSeg}&loja=${storeId}`;
+    return `${window.location.origin}/?agenda=${finalSeg}${storeId ? `&loja=${storeId}` : ""}`;
   }, [segmentFilter, storeId, profissionais]);
 
   const handleCopyClientAgendaLink = () => {
@@ -940,11 +939,34 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
     }
     const currentSeg = segmentFilter !== "todos" ? segmentFilter : "barbearia";
     const segConfig = NEGOCIOS_SEGMENTOS_CONFIG[currentSeg];
-    const segNome = segConfig ? segConfig.nomeCompleto : "nosso estabelecimento";
+    const segNome = segConfig ? segConfig.nomeCompleto : "Atendimento Especializado";
     const msg = encodeURIComponent(
-      `Olá! Agora você pode agendar seu horário em *${companyName}* (${segNome}) diretamente pelo nosso link exclusivo e 100% focado no seu atendimento:\n\n` +
-      `👉 ${clientAgendaUrl}\n\n` +
-      `Escolha o profissional, o serviço e o melhor horário para você com rapidez e sem filas! Esperamos por você! ✨`
+      `💈✨ *AGENDAMENTO ONLINE – ${companyName.toUpperCase()}* ✨💈\n\n` +
+      `Olá! Agora você pode agendar seu horário com nossa equipe de forma rápida, moderna e sem filas.\n\n` +
+      `📅 *Segmento:* ${segNome}\n` +
+      `✂️ *Serviços:* Cortes, Barba, Procedimentos & Bem-Estar\n` +
+      `⏰ *Disponibilidade:* Horários flexíveis em tempo real\n\n` +
+      `👉 *Clique no link para escolher o profissional e seu horário:*\n` +
+      `${clientAgendaUrl}\n\n` +
+      `📲 Confirmação instantânea direto no seu WhatsApp. Esperamos por você!`
+    );
+    window.open(`https://wa.me/?text=${msg}`, "_blank");
+  };
+
+  const handleShareProfOnWhatsApp = (prof: ProfissionalBarbearia) => {
+    const profUrl = getProfAgendaUrl(prof);
+    const cat = prof.categoria || (segmentFilter !== "todos" ? segmentFilter : "salao");
+    const segConfig = NEGOCIOS_SEGMENTOS_CONFIG[cat];
+    const segNome = segConfig ? segConfig.nomeCompleto : "Atendimento Especializado";
+    const msg = encodeURIComponent(
+      `⭐ *AGENDAMENTO EXCLUSIVO COM ${prof.nome.toUpperCase()}* ⭐\n\n` +
+      `Olá! Para sua comodidade e agilidade, agora você pode agendar seu horário diretamente comigo em *${companyName}* (${segNome}):\n\n` +
+      `👤 *Profissional:* ${prof.nome}\n` +
+      `✂️ *Especialidade:* ${prof.especialidade || "Especialista em Atendimento"}\n` +
+      `✨ *Local:* ${companyName}\n\n` +
+      `👉 *Acesse minha agenda e reserve seu melhor horário:*\n` +
+      `${profUrl}\n\n` +
+      `📲 Escolha o serviço, a data e o horário livre. Te espero lá!`
     );
     window.open(`https://wa.me/?text=${msg}`, "_blank");
   };
@@ -1957,6 +1979,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       localStorage.setItem(`agenda_publica_${storeId}`, JSON.stringify(publicData));
       if (db) {
         safeFirestoreSetDoc(doc(db, "agendas_publicas", storeId), publicData);
+        safeFirestoreSetDoc(doc(db, "agendas_publicas", "default"), publicData);
       }
     } catch (e) {
       console.warn("Erro ao sincronizar dados da empresa na agenda pública:", e);
@@ -2497,19 +2520,31 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                     </div>
 
                     {/* Link Único e Pessoal da Agenda deste Profissional para Redes Sociais */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const profUrl = getProfAgendaUrl(prof);
-                        navigator.clipboard.writeText(profUrl);
-                        showNotification(`Link único da agenda de ${prof.nome} copiado! 📋 Deixe no Instagram ou WhatsApp do profissional.`, "success");
-                      }}
-                      className="w-full bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 text-[10.5px] font-bold py-2 px-3 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                      title="Copiar link único deste profissional para colocar na bio do Instagram ou WhatsApp dele"
-                    >
-                      <Copy className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Copiar Link Exclusivo da Agenda de {prof.nome.split(" ")[0]} 🔗</span>
-                    </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 w-full">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const profUrl = getProfAgendaUrl(prof);
+                          navigator.clipboard.writeText(profUrl);
+                          showNotification(`Link único da agenda de ${prof.nome} copiado! 📋 Envie para clientes ou use na bio.`, "success");
+                        }}
+                        className="bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 text-[10.5px] font-bold py-2 px-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        title="Copiar link limpo deste profissional"
+                      >
+                        <Copy className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="truncate">Copiar Link ({prof.nome.split(" ")[0]}) 🔗</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleShareProfOnWhatsApp(prof)}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10.5px] py-2 px-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-950/40"
+                        title="Enviar no WhatsApp convite com apresentação profissional deste membro da equipe"
+                      >
+                        <Share2 className="w-3.5 h-3.5 text-white" />
+                        <span className="truncate">Enviar WhatsApp 📲</span>
+                      </button>
+                    </div>
 
                     <div className="flex items-center justify-between gap-1.5 pt-1 flex-wrap">
                       {/* BOTÃO EDITAR PERFIL & FOTO */}

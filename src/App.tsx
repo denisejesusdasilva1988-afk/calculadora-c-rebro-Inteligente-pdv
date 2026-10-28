@@ -2740,8 +2740,10 @@ export default function App() {
       const hash = window.location.hash.toLowerCase();
       return (
         params.has("agendar") ||
+        params.has("agenda") ||
+        params.has("marcar") ||
+        params.has("prof") ||
         params.get("portal") === "agenda" ||
-        params.get("marcar") === "true" ||
         hash === "#agenda" ||
         hash === "#agendar"
       );
@@ -2757,8 +2759,10 @@ export default function App() {
       const hash = window.location.hash.toLowerCase();
       return (
         params.has("agendar") ||
+        params.has("agenda") ||
+        params.has("marcar") ||
+        params.has("prof") ||
         params.get("portal") === "agenda" ||
-        params.get("marcar") === "true" ||
         hash === "#agenda" ||
         hash === "#agendar"
       );
@@ -2780,8 +2784,7 @@ export default function App() {
     if (!showClientPublicAgendaPortal || !db) return;
     try {
       const params = new URLSearchParams(window.location.search);
-      const lojaId = params.get("loja");
-      if (!lojaId) return;
+      const lojaId = params.get("loja") || localStorage.getItem("pdv_store_id") || "default";
 
       let isMounted = true;
       getDoc(doc(db, "agendas_publicas", lojaId))
@@ -2794,6 +2797,16 @@ export default function App() {
                 localStorage.setItem(`agenda_publica_${lojaId}`, JSON.stringify(data));
               } catch {}
             }
+          } else if (lojaId !== "default") {
+            // Se não encontrou pelo ID específico, tenta o default
+            getDoc(doc(db, "agendas_publicas", "default"))
+              .then((defaultSnap) => {
+                if (defaultSnap.exists() && isMounted) {
+                  const defaultData = defaultSnap.data();
+                  if (defaultData) setCloudPortalData(defaultData);
+                }
+              })
+              .catch(() => {});
           }
         })
         .catch((err) => console.warn("Aviso ao sincronizar agenda pública da nuvem:", err));
@@ -4188,8 +4201,10 @@ export default function App() {
 
         if (
           params.has("agendar") ||
+          params.has("agenda") ||
+          params.has("marcar") ||
+          params.has("prof") ||
           params.get("portal") === "agenda" ||
-          params.get("marcar") === "true" ||
           hash === "#agenda" ||
           hash === "#agendar"
         ) {
@@ -7687,7 +7702,7 @@ export default function App() {
   // Nenhum componente interno do proprietário (PDV, Caixa, Bloco, Faturamento) é montado no DOM.
   if (isDirectClientPortalAccess && showClientPublicAgendaPortal) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-start">
+      <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-950 text-white flex flex-col items-center justify-start box-border">
         <ClientPublicAgendaPortal
           companyName={(() => {
             const cloudName = cloudPortalData?.companyName;

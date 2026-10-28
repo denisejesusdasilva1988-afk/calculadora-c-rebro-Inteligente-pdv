@@ -262,7 +262,7 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
     if (typeof window !== "undefined") {
       try {
         const params = new URLSearchParams(window.location.search);
-        let seg = params.get("segmento") as string;
+        let seg = (params.get("agenda") || params.get("segmento") || params.get("marcar") || "") as string;
         if (seg === "festas") seg = "encomendas";
         if (
           seg === "barbearia" ||
@@ -323,18 +323,20 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
   const [formError, setFormError] = useState<string>("");
   const [copiedMessage, setCopiedMessage] = useState<boolean>(false);
 
-  // Ler profissional do link público (?prof=id ou ?segmento=...)
+  // Ler profissional do link público (?prof=id ou ?prof=nome ou ?agenda=...)
   useEffect(() => {
     if (typeof window !== "undefined") {
       try {
         const params = new URLSearchParams(window.location.search);
         const pId = params.get("prof");
         if (pId) {
-          const match = profissionais.find((p) => p.id === pId);
+          const match = profissionais.find(
+            (p) => p.id === pId || p.nome.toLowerCase().includes(pId.toLowerCase())
+          );
           if (match) {
             setSelectedProfId(match.id);
             if (match.categoria && match.categoria !== "todos") {
-              setSelectedSegment(match.categoria as any);
+              setSelectedSegment((match.categoria === "festas" ? "encomendas" : match.categoria) as any);
             }
           }
         }
@@ -830,36 +832,36 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-start p-4 sm:p-6 font-sans">
-      <div className="w-full max-w-xl space-y-6">
+    <div className="min-h-screen w-full max-w-full bg-slate-950 text-white flex flex-col items-center justify-start p-2 sm:p-4 font-sans overflow-x-hidden box-border">
+      <div className="w-full max-w-lg space-y-3 px-1 sm:px-0 box-border">
         
         {/* Top bar com fechar (se for modal ou preview do dono) */}
         {onClosePortal ? (
-          <div className="flex justify-between items-center bg-slate-900/80 px-4 py-2 rounded-2xl border border-white/10 text-xs">
-            <span className="text-amber-400 font-bold flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Modo Visualização do Cliente (Link do WhatsApp)</span>
+          <div className="flex justify-between items-center bg-slate-900/80 px-3 py-1.5 rounded-xl border border-white/10 text-xs w-full box-border">
+            <span className="text-amber-400 font-bold flex items-center gap-1.5 truncate">
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Modo Visualização do Cliente</span>
             </span>
             <button
               onClick={onClosePortal}
-              className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px] font-bold"
+              className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px] font-bold shrink-0 ml-2"
             >
               <X className="w-4 h-4" />
               <span>Fechar</span>
             </button>
           </div>
         ) : (
-          <div className="flex justify-between items-center bg-emerald-950/40 border border-emerald-500/20 px-4 py-2 rounded-2xl text-[11px]">
-            <span className="text-emerald-400 font-bold flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Portal Oficial de Agendamento Online</span>
+          <div className="flex justify-between items-center bg-emerald-950/40 border border-emerald-500/20 px-3 py-1.5 rounded-xl text-[10.5px] w-full box-border">
+            <span className="text-emerald-400 font-bold flex items-center gap-1.5 truncate">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <span className="truncate">Portal Oficial de Agendamento Online</span>
             </span>
-            <span className="text-slate-400 text-[10px] uppercase font-mono font-bold">100% Protegido</span>
+            <span className="text-slate-400 text-[9px] uppercase font-mono font-bold shrink-0 ml-1">100% Protegido</span>
           </div>
         )}
 
         {/* CABEÇALHO DO ESTABELECIMENTO */}
-        <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-indigo-950/60 border border-white/10 rounded-3xl p-6 text-center shadow-2xl relative overflow-hidden space-y-4">
+        <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-indigo-950/60 border border-white/10 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 text-center shadow-2xl relative overflow-hidden space-y-3 w-full box-border">
           <div className="flex flex-col items-center">
             {companyLogo ? (
               <img
@@ -897,13 +899,13 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
 
           {/* Se o link for exclusivo do segmento (enviado pelo WhatsApp da barbearia, salão, etc.), exibe APENAS esse negócio */}
           {isExclusiveSegment ? (
-            <div className="bg-slate-950/90 border border-amber-500/30 rounded-2xl p-3.5 flex items-center justify-center gap-3 shadow-lg">
+            <div className="bg-slate-950/90 border border-amber-500/30 rounded-2xl p-2.5 sm:p-3.5 flex items-center justify-center gap-2.5 shadow-lg w-full box-border">
               <span className="text-2xl shrink-0">{infoSegmento.icone}</span>
-              <div className="text-left min-w-0">
-                <span className="text-xs font-black uppercase text-amber-300 tracking-wider block truncate">
+              <div className="text-left min-w-0 flex-1">
+                <span className="text-[11px] sm:text-xs font-black uppercase text-amber-300 tracking-wider block break-words whitespace-normal leading-tight">
                   Agenda Exclusiva • {infoSegmento.nomeCompleto}
                 </span>
-                <span className="text-[11px] text-slate-300 block line-clamp-2">
+                <span className="text-[10px] sm:text-[11px] text-slate-300 block break-words whitespace-normal mt-0.5 leading-snug">
                   Atendimento 100% focado no seu horário. Escolha o profissional e agende sem filas!
                 </span>
               </div>
@@ -1171,41 +1173,41 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
         ) : selectedSegment !== "encomendas" ? (
           <div className="space-y-4">
             {/* Seletor de Modo: Ver Grade da Agenda (Foto) vs Formulário */}
-            <div className="flex bg-slate-900 border border-white/10 p-1.5 rounded-2xl gap-1.5">
+            <div className="grid grid-cols-2 bg-slate-900 border border-white/10 p-1 rounded-xl gap-1.5 w-full box-border">
               <button
                 type="button"
                 onClick={() => setViewModeSalao("timeline")}
-                className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                className={`py-2 px-1.5 rounded-lg text-[10.5px] sm:text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
                   viewModeSalao === "timeline"
-                    ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black"
+                    ? "bg-amber-500 text-slate-950 shadow-md font-black"
                     : "text-slate-400 hover:text-white"
                 }`}
               >
-                <Calendar className="w-4 h-4" />
-                <span>Grade da Agenda (Ver Horários Marcados) 📅</span>
+                <Calendar className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Grade de Horários 📅</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewModeSalao("form")}
-                className={`py-2.5 px-3.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`py-2 px-1.5 rounded-lg text-[10.5px] sm:text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
                   viewModeSalao === "form"
-                    ? "bg-slate-800 text-white border border-white/10"
+                    ? "bg-slate-800 text-white border border-white/10 font-black"
                     : "text-slate-400 hover:text-white"
                 }`}
               >
-                <span>Formulário Rápido</span>
+                <span className="truncate">Formulário Rápido ✍️</span>
               </button>
             </div>
 
             {viewModeSalao === "timeline" ? (
               /* GRADE DA AGENDA IGUAL À FOTO ENVIADA PELO USUÁRIO */
-              <div className="space-y-3">
-                <div className="bg-slate-900/90 border border-amber-500/30 p-3.5 rounded-2xl text-xs text-amber-300 font-medium flex items-center justify-between gap-2 flex-wrap shadow-lg">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>Toque em qualquer <strong>Horário Disponível (Livre)</strong> para marcar sua vaga!</span>
+              <div className="space-y-3 w-full box-border">
+                <div className="bg-slate-900/90 border border-amber-500/30 p-2.5 sm:p-3 rounded-xl text-[11px] text-amber-300 font-medium flex items-center justify-between gap-2 shadow-lg w-full box-border">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="text-[10.5px] sm:text-xs truncate sm:whitespace-normal">Toque no <strong>Horário Livre</strong> para marcar</span>
                   </div>
-                  <span className="text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full font-bold">
+                  <span className="text-[9px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full font-bold shrink-0">
                     [AGENDADO] = Ocupado
                   </span>
                 </div>

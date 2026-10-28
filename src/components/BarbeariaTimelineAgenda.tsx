@@ -471,51 +471,51 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
   }, [activeProf]);
 
   return (
-    <div className="w-full max-w-2xl mx-auto bg-slate-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl font-sans text-left">
-      {/* 1. CABEÇALHO DO APLICATIVO (EXATAMENTE COMO NA FOTO) */}
-      <div className="bg-slate-950 px-5 py-4 border-b border-white/10 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-slate-400">
+    <div className="w-full max-w-2xl mx-auto bg-slate-900 border border-white/10 rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl font-sans text-left box-border">
+      {/* 1. CABEÇALHO DO APLICATIVO */}
+      <div className="bg-slate-950 px-3 sm:px-5 py-2.5 sm:py-4 border-b border-white/10 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white/5 flex items-center justify-center text-slate-400 shrink-0">
             <CalendarIcon className="w-4 h-4 text-amber-400" />
           </div>
-          <h2 className="text-white font-black text-lg tracking-tight">
+          <h2 className="text-white font-black text-base sm:text-lg tracking-tight">
             Agenda
           </h2>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {onOpenComunicados && !isClientView && (
             <button
               type="button"
               onClick={onOpenComunicados}
-              className="bg-amber-500/20 hover:bg-amber-500/30 active:scale-95 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+              className="bg-amber-500/20 hover:bg-amber-500/30 active:scale-95 text-amber-300 border border-amber-500/40 px-2.5 py-1 rounded-xl text-[11px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shadow-sm"
               title="Abrir Comunicados & Lembretes da Agenda para WhatsApp"
             >
-              <Megaphone className="w-3.5 h-3.5 text-amber-400" />
+              <Megaphone className="w-3 h-3 text-amber-400" />
               <span className="hidden sm:inline">Comunicados WhatsApp 📢</span>
               <span className="sm:hidden">Avisos 📢</span>
             </button>
           )}
           {isClientView && (
-            <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black uppercase px-2.5 py-1 rounded-full">
+            <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9.5px] font-black uppercase px-2 py-0.5 rounded-full shrink-0">
               Visão dos Clientes
             </span>
           )}
-          <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center text-xs font-bold">
-            <User className="w-3.5 h-3.5 text-slate-300" />
+          <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center text-xs font-bold shrink-0">
+            <User className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-300" />
           </div>
         </div>
       </div>
 
       {/* 2. NAVEGADOR DE DATA: < [ 📅 ter, 13/10/2026 ▾ ] > E BOTÃO FILTRO */}
-      <div className="bg-slate-900 px-4 py-3 border-b border-white/5 flex items-center justify-between gap-2">
+      <div className="bg-slate-900 px-2.5 sm:px-4 py-2 sm:py-3 border-b border-white/5 flex items-center justify-between gap-1.5 sm:gap-2">
         <button
           type="button"
           onClick={() => handleNavDay(-1)}
-          className="w-9 h-9 rounded-xl bg-slate-950 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+          className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-950 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-white flex items-center justify-center transition-all cursor-pointer shrink-0"
           title="Dia Anterior"
         >
-          <ChevronLeft className="w-5 h-5" />
+          <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
 
         {/* Input / Botão de Seleção da Data */}
@@ -641,7 +641,7 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
       )}
 
       {/* 4. GRADE VERTICAL DA AGENDA DE HORÁRIOS (TIMELINE DA FOTO) */}
-      <div className="p-3 sm:p-5 space-y-1 bg-slate-950/40 min-h-[480px]">
+      <div className="p-2 sm:p-4 space-y-1 bg-slate-950/40 min-h-[440px]">
         {dynamicTimelineSlots.map((slotHora) => {
           // 1. Verificar se há agendamento para este horário ou que cobre este horário
           const agendamentoDoSlot = agendamentosDoDia.find((ag) => {
@@ -754,7 +754,7 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
                       </span>
                     </div>
 
-                    <div className="text-xs font-black text-white uppercase tracking-tight truncate">
+                    <div className="text-xs font-black text-white uppercase tracking-tight break-words">
                       {isClientView ? (
                         /* Na visão do cliente protege o nome completo por privacidade */
                         <span>
@@ -767,10 +767,10 @@ export const BarbeariaTimelineAgenda: React.FC<BarbeariaTimelineAgendaProps> = (
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-blue-200/80 pt-0.5">
+                    <div className="flex items-center justify-between text-[11px] text-blue-200/90 pt-0.5 flex-wrap gap-1">
                       <span className="flex items-center gap-1">
-                        <User className="w-3 h-3 text-blue-400" />
-                        <span>{agendamentoDoSlot.profissionalNome}</span>
+                        <User className="w-3 h-3 text-blue-400 shrink-0" />
+                        <span className="truncate max-w-[140px] sm:max-w-none">{agendamentoDoSlot.profissionalNome}</span>
                       </span>
                       {!isClientView && (
                         <span className="font-mono font-bold text-emerald-400">

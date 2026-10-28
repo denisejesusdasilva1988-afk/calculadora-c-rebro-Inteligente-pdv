@@ -130,6 +130,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   const [isNicheDropdownOpen, setIsNicheDropdownOpen] = useState(false);
   const [isAba5Open, setIsAba5Open] = useState(true);
   const [isAba7Open, setIsAba7Open] = useState(true);
+  const [isAgendasDrawerOpen, setIsAgendasDrawerOpen] = useState(true);
 
   let gestaoRole: string | null = null;
   let gestaoName = "";
@@ -722,6 +723,26 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
         el.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     }, 150);
+  };
+
+  const handleOpenProfissionalAgenda = (profId: string, categoria?: string) => {
+    try {
+      localStorage.setItem("barbearia_active_prof_filter", profId);
+      if (categoria && categoria !== "todos") {
+        localStorage.setItem("barbearia_selected_segment", categoria);
+      }
+    } catch {}
+    handleNavigate("barbearia_salao");
+    showNotification("Abrindo agenda do profissional! ✂️📅", "info");
+  };
+
+  const handleOpenSegmentoAgenda = (seg: string) => {
+    try {
+      localStorage.setItem("barbearia_selected_segment", seg);
+      localStorage.setItem("barbearia_active_prof_filter", "todos");
+    } catch {}
+    handleNavigate("barbearia_salao");
+    showNotification(`Abrindo agenda de ${seg}! 📅✨`, "info");
   };
 
   const handleWhatsApp = () => {
@@ -1766,6 +1787,121 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
                   </button>
+
+                  {/* 🌟 11B. AGENDAS DOS PROFISSIONAIS & CLIENTES (BARBEARIA, SALÃO, MANICURE, ETC.) */}
+                  <div className="bg-amber-950/20 border border-amber-500/25 rounded-2xl p-1.5 space-y-1">
+                    <button
+                      id="sidebar-btn-agendas-profissionais"
+                      onClick={() => setIsAgendasDrawerOpen(!isAgendasDrawerOpen)}
+                      className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
+                        notepadMode === "barbearia_salao"
+                          ? "bg-amber-500/25 text-amber-200 font-extrabold shadow-[0_0_12px_rgba(245,158,11,0.2)]"
+                          : "hover:bg-white/5 text-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Calendar className="w-5 h-5 text-amber-400 shrink-0" />
+                        <div>
+                          <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5 text-white">
+                            Agendas & Profissionais 💈📅
+                            <span className="text-[8px] bg-amber-500 text-slate-950 font-black px-1.5 py-0.5 rounded">EQUIPE</span>
+                          </span>
+                          <span className="text-[9.5px] text-slate-400 block font-normal">Barbeiros, Salão, Manicure, Estética & Festas</span>
+                        </div>
+                      </div>
+                      <ChevronDown className={`w-4 h-4 text-amber-300 transition-transform duration-200 ${isAgendasDrawerOpen ? "rotate-180" : ""}`} />
+                    </button>
+
+                    {isAgendasDrawerOpen && (
+                      <div className="pl-2 pr-1 py-1 space-y-2 border-t border-white/5 animate-fadeIn">
+                        {/* Botão Principal: Abrir Grade Geral */}
+                        <button
+                          onClick={() => handleNavigate("barbearia_salao")}
+                          className="w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-all text-left cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-amber-400" />
+                            <span>Abrir Grade Geral da Agenda 📅</span>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+                        </button>
+
+                        {/* Lista dos Profissionais Cadastrados */}
+                        <div className="space-y-1 pt-1">
+                          <span className="text-[9.5px] font-black uppercase text-slate-400 tracking-wider block px-1">
+                            Profissionais da Equipe ({storedProfessionals.length}):
+                          </span>
+                          {storedProfessionals.map((prof: any) => (
+                            <button
+                              key={prof.id}
+                              onClick={() => handleOpenProfissionalAgenda(prof.id, prof.categoria)}
+                              className="w-full flex items-center justify-between p-2 rounded-lg text-xs font-medium bg-slate-900/60 hover:bg-slate-800 text-slate-200 hover:text-white transition-all text-left cursor-pointer border border-white/5"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                {prof.fotoUrl ? (
+                                  <img src={prof.fotoUrl} alt={prof.nome} className="w-6 h-6 rounded-full object-cover border border-amber-400/40 shrink-0" />
+                                ) : (
+                                  <div className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-[10px] font-black shrink-0 border border-amber-500/30">
+                                    {prof.nome?.slice(0, 1)?.toUpperCase() || "P"}
+                                  </div>
+                                )}
+                                <div className="truncate min-w-0">
+                                  <span className="font-bold text-white block truncate">{prof.nome}</span>
+                                  <span className="text-[10px] text-amber-400/80 block truncate">{prof.especialidade || "Profissional"}</span>
+                                </div>
+                              </div>
+                              <ChevronRight className="w-3.5 h-3.5 opacity-40 shrink-0" />
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Atalhos Rápidos por Segmento */}
+                        <div className="space-y-1 pt-1 border-t border-white/5">
+                          <span className="text-[9.5px] font-black uppercase text-slate-400 tracking-wider block px-1">
+                            Segmentos da Agenda:
+                          </span>
+                          <div className="grid grid-cols-2 gap-1 text-[11px]">
+                            <button
+                              onClick={() => handleOpenSegmentoAgenda("barbearia")}
+                              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-amber-300 font-bold text-left flex items-center gap-1.5 transition-all"
+                            >
+                              <span>💈</span> <span>Barbearia</span>
+                            </button>
+                            <button
+                              onClick={() => handleOpenSegmentoAgenda("salao")}
+                              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-purple-300 font-bold text-left flex items-center gap-1.5 transition-all"
+                            >
+                              <span>💇‍♀️</span> <span>Salão</span>
+                            </button>
+                            <button
+                              onClick={() => handleOpenSegmentoAgenda("manicure")}
+                              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-pink-300 font-bold text-left flex items-center gap-1.5 transition-all"
+                            >
+                              <span>💅</span> <span>Manicure</span>
+                            </button>
+                            <button
+                              onClick={() => handleOpenSegmentoAgenda("esteticista")}
+                              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-teal-300 font-bold text-left flex items-center gap-1.5 transition-all"
+                            >
+                              <span>✨</span> <span>Estética</span>
+                            </button>
+                            <button
+                              onClick={() => handleOpenSegmentoAgenda("podologia")}
+                              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-cyan-300 font-bold text-left flex items-center gap-1.5 transition-all"
+                            >
+                              <span>🦶</span> <span>Podologia</span>
+                            </button>
+                            <button
+                              onClick={() => handleOpenSegmentoAgenda("festas")}
+                              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-rose-300 font-bold text-left flex items-center gap-1.5 transition-all"
+                            >
+                              <span>🎂</span> <span>Festas</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {/* 🌟 12. Contabilidade, Funcionários, Oficina, Bar & Tempo (Aba 5) */}
                   <div className="bg-indigo-950/30 border border-indigo-500/25 rounded-2xl p-1.5 space-y-1">
