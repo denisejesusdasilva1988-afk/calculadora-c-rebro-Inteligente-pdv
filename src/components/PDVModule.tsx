@@ -50,6 +50,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
+  CalendarDays,
+  Clock,
   Zap,
   Smartphone,
   Monitor,
@@ -520,6 +522,12 @@ export interface PDVTransaction {
     method2: string;
     amount2: number;
   };
+  dueDate?: string;
+  dueTime?: string;
+  dueNotes?: string;
+  fiadoFeePercent?: number;
+  fiadoFeeAmount?: number;
+  lateInterestPercent?: number;
 }
 
 export interface CustomProduct {
@@ -1256,7 +1264,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     return getScopedItem("pdv_allow_retroactive_sales", userId) === "true";
   });
 
-  const [fiadoSortMode, setFiadoSortMode] = useState<"name" | "balance">("name");
+  const [fiadoSortMode, setFiadoSortMode] = useState<"name" | "balance" | "dueDate">("dueDate");
 
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(() => {
     try {
@@ -2352,12 +2360,16 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   // --- New states for Caderneta de Fiado & Pricing Calculator ---
   const [fiadoSearchQuery, setFiadoSearchQuery] = useState("");
-  const [fiadoViewMode, setFiadoViewMode] = useState<"lista" | "pastas">("pastas");
+  const [fiadoViewMode, setFiadoViewMode] = useState<"lista" | "pastas" | "agenda">("pastas");
+  const [fiadoStatusFilter, setFiadoStatusFilter] = useState<"todos" | "vencidos" | "vence_hoje" | "a_vencer">("todos");
   const [returnSearchQuery, setReturnSearchQuery] = useState("");
   const [inventorySearch, setInventorySearch] = useState("");
   const [activeFiadoClient, setActiveFiadoClient] = useState<string | null>(null);
   const [editingClientPhone, setEditingClientPhone] = useState("");
   const [editingClientTerm, setEditingClientTerm] = useState<"diario" | "semanal" | "mensal" | "flexivel">("flexivel");
+  const [editingAgreedDate, setEditingAgreedDate] = useState<string>("");
+  const [editingAgreedTime, setEditingAgreedTime] = useState<string>("14:00");
+  const [editingAgreedNotes, setEditingAgreedNotes] = useState<string>("");
   const [fiadoPaymentAmount, setFiadoPaymentAmount] = useState("");
   const [fiadoPaymentMethod, setFiadoPaymentMethod] = useState<"dinheiro" | "pix" | "cartao_debito" | "cartao_credito">("dinheiro");
 
@@ -2368,15 +2380,96 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       const profile = clientProfiles[key] || { clientName, phone: "", paymentTerm: "flexivel" };
       setEditingClientPhone(profile.phone || "");
       setEditingClientTerm((profile.paymentTerm as any) || "flexivel");
+      
+      const ledgerEntry = (fiadoLedger as any)[key];
+      const initialDate = (profile as any).agreedDueDate || ledgerEntry?.earliestDueDate || (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 15);
+        return d.toISOString().split("T")[0];
+      })();
+      setEditingAgreedDate(initialDate);
+      setEditingAgreedTime((profile as any).agreedDueTime || ledgerEntry?.earliestDueTime || "14:00");
+      setEditingAgreedNotes((profile as any).agreedNotes || ledgerEntry?.earliestDueNotes || "");
     } else {
       setEditingClientPhone("");
       setEditingClientTerm("flexivel");
+      setEditingAgreedDate("");
+      setEditingAgreedTime("14:00");
+      setEditingAgreedNotes("");
     }
   };
   
   // Checkout partial upfront payment states for Fiado
   const [fiadoUpfrontAmount, setFiadoUpfrontAmount] = useState("");
   const [fiadoUpfrontMethod, setFiadoUpfrontMethod] = useState<"dinheiro" | "pix">("dinheiro");
+
+  // Data e Horário Previstos de Pagamento / Vencimento do Fiado no Checkout (YYYY-MM-DD e HH:mm)
+  const [fiadoDueDate, setFiadoDueDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split("T")[0];
+  });
+  const [fiadoDueTime, setFiadoDueTime] = useState<string>("14:00");
+  const [fiadoDueNotes, setFiadoDueNotes] = useState<string>("");
+
+  // Taxa de Aumento / Acréscimo para Fiado (%)
+  const [fiadoSurchargePercent, setFiadoSurchargePercent] = useState<string>(() => {
+    try {
+      return localStorage.getItem("pdv_fiado_default_surcharge") || "0";
+    } catch {
+      return "0";
+    }
+  });
+
+  // Taxa de Juros por Atraso (% ao mês)
+  const [fiadoLateInterestPercent, setFiadoLateInterestPercent] = useState<string>(() => {
+    try {
+      return localStorage.getItem("pdv_fiado_late_interest") || "1";
+    } catch {
+      return "1";
+    }
+  });
+
+  const setQuickFiadoDueDate = (daysOrDay: number | "dia5" | "dia10") => {
+    const d = new Date();
+    if (typeof daysOrDay === "number") {
+      d.setDate(d.getDate() + daysOrDay);
+    } else if (daysOrDay === "dia5") {
+      if (d.getDate() >= 5) {
+        d.setMonth(d.getMonth() + 1);
+      }
+      d.setDate(5);
+    } else if (daysOrDay === "dia10") {
+      if (d.getDate() >= 10) {
+        d.setMonth(d.getMonth() + 1);
+      }
+      d.setDate(10);
+    }
+    setFiadoDueDate(d.toISOString().split("T")[0]);
+  };
+
+  const setQuickEditingAgreedDate = (daysOrDay: number | "hoje" | "amanha" | "dia5" | "dia10" | "dia20" | "fimMes") => {
+    const d = new Date();
+    if (typeof daysOrDay === "number") {
+      d.setDate(d.getDate() + daysOrDay);
+    } else if (daysOrDay === "hoje") {
+      // keeps today
+    } else if (daysOrDay === "amanha") {
+      d.setDate(d.getDate() + 1);
+    } else if (daysOrDay === "dia5") {
+      if (d.getDate() >= 5) d.setMonth(d.getMonth() + 1);
+      d.setDate(5);
+    } else if (daysOrDay === "dia10") {
+      if (d.getDate() >= 10) d.setMonth(d.getMonth() + 1);
+      d.setDate(10);
+    } else if (daysOrDay === "dia20") {
+      if (d.getDate() >= 20) d.setMonth(d.getMonth() + 1);
+      d.setDate(20);
+    } else if (daysOrDay === "fimMes") {
+      d.setMonth(d.getMonth() + 1, 0);
+    }
+    setEditingAgreedDate(d.toISOString().split("T")[0]);
+  };
 
   // --- Card Machine & Payment Method Custom Fee Rates ---
   const [paymentRates, setPaymentRates] = useState<Record<string, number>>(() => {
@@ -5598,9 +5691,44 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       desc += ` | PAGAMENTO DIVIDIDO: ${formatCurrency(cashPart)} em DINHEIRO + ${formatCurrency(secPart)} em ${splitSecondaryMethod.toUpperCase().replace("_", " ")}`;
     }
 
-    const debtAmount = cartTotal - upfrontAmount;
+    let fiadoFeePct = 0;
+    let fiadoFeeVal = 0;
+    let baseCartDebt = cartTotal;
+
+    if (cartPaymentMethod === "fiado") {
+      fiadoFeePct = parseFloat(fiadoSurchargePercent) || 0;
+      if (fiadoFeePct > 0) {
+        fiadoFeeVal = (cartTotal * fiadoFeePct) / 100;
+        baseCartDebt = cartTotal + fiadoFeeVal;
+        desc += ` | TAXA FIADO: +${fiadoFeePct}% (+${formatCurrency(fiadoFeeVal)})`;
+      }
+      if (fiadoDueDate) {
+        const parts = fiadoDueDate.split("-");
+        if (parts.length === 3) {
+          desc += ` | COMBINADO: ${parts[2]}/${parts[1]}/${parts[0]} às ${fiadoDueTime || "14:00"}${fiadoDueNotes.trim() ? ` (${fiadoDueNotes.trim()})` : ""}`;
+        }
+      }
+    }
+
+    const debtAmount = Math.max(0, baseCartDebt - upfrontAmount);
     if (upfrontAmount > 0) {
       desc += ` | PARCIAL FIADO: DEVE ${formatCurrency(debtAmount)} (SINAL PAGO: ${formatCurrency(upfrontAmount)} VIA ${fiadoUpfrontMethod.toUpperCase()})`;
+    }
+
+    if (cartPaymentMethod === "fiado" && clientName.trim()) {
+      const cKey = clientName.trim().toUpperCase();
+      const existingProf = clientProfiles[cKey] || { clientName: clientName.trim() };
+      const updatedProf = {
+        ...clientProfiles,
+        [cKey]: {
+          ...existingProf,
+          agreedDueDate: fiadoDueDate,
+          agreedDueTime: fiadoDueTime || "14:00",
+          agreedNotes: fiadoDueNotes.trim() || (existingProf as any).agreedNotes
+        }
+      };
+      setClientProfiles(updatedProf);
+      try { localStorage.setItem("pdv_client_profiles", JSON.stringify(updatedProf)); } catch {}
     }
 
     const saleTimestamp = retroactiveSaleDate ? new Date(retroactiveSaleDate + "T12:00:00").getTime() : Date.now();
@@ -5631,6 +5759,12 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       date: saleDateStr,
       timestamp: saleTimestamp,
       clientName: clientName.trim() || undefined,
+      dueDate: cartPaymentMethod === "fiado" ? fiadoDueDate : undefined,
+      dueTime: cartPaymentMethod === "fiado" ? (fiadoDueTime || "14:00") : undefined,
+      dueNotes: cartPaymentMethod === "fiado" && fiadoDueNotes.trim() ? fiadoDueNotes.trim() : undefined,
+      fiadoFeePercent: cartPaymentMethod === "fiado" && fiadoFeePct > 0 ? fiadoFeePct : undefined,
+      fiadoFeeAmount: cartPaymentMethod === "fiado" && fiadoFeeVal > 0 ? fiadoFeeVal : undefined,
+      lateInterestPercent: cartPaymentMethod === "fiado" ? (parseFloat(fiadoLateInterestPercent) || 0) : undefined,
       items: cart.map(item => ({ 
         name: item.name, 
         price: item.price, 
@@ -6221,30 +6355,19 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const handleConfirmReturn = (
     returnedItems: { name: string; quantity: number; price: number }[],
     refundAmount: number,
-    restock: boolean
+    restock: boolean,
+    replacementItems?: { name: string; quantity: number; price: number }[],
+    differenceAmount?: number,
+    exchangePaymentMethod?: string
   ) => {
     if (!activeReturnTransaction) return;
 
-    // Create a refund outgoing transaction
-    const desc = `ESTORNO/DEVOLUÇÃO DE ITENS: ` + returnedItems.map(it => `${it.name.toUpperCase()} (x${it.quantity})`).join(", ") + ` | COMPRA ORIGINAL ID: ${activeReturnTransaction.id.substring(0, 10)}`;
-    const refundTx: PDVTransaction = {
-      id: "pdv_tx_return_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
-      type: "saida",
-      amount: refundAmount,
-      description: desc,
-      paymentMethod: activeReturnTransaction.paymentMethod,
-      category: "despesa",
-      date: new Date().toLocaleString("pt-BR"),
-      timestamp: Date.now(),
-      clientName: activeReturnTransaction.clientName,
-    };
-
-    // Update product stock if restock is requested
     let updatedStock = { ...productStockData };
+
+    // 1. Reabastecer estoque dos itens devolvidos (ex: Brahma volta +1 para prateleira)
     if (restock) {
       returnedItems.forEach(item => {
-        // Try to find the custom product ID by name
-        const match = customProducts.find(p => p.name.toUpperCase() === item.name.toUpperCase());
+        const match = customProducts.find(p => p.name.toUpperCase().trim() === item.name.toUpperCase().trim());
         if (match) {
           const current = updatedStock[match.id] || { stockQty: 0 };
           updatedStock[match.id] = {
@@ -6253,15 +6376,80 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           };
         }
       });
-      setProductStockData(updatedStock);
     }
 
-    const nextTxs = [refundTx, ...transactions];
+    // 2. Se for troca de produto (ex: levou Antártica), dar baixa no estoque dos novos itens (ex: Antártica -1)
+    const isExchange = Boolean(replacementItems && replacementItems.length > 0);
+    if (isExchange && replacementItems) {
+      replacementItems.forEach(item => {
+        const match = customProducts.find(p => p.name.toUpperCase().trim() === item.name.toUpperCase().trim());
+        if (match) {
+          const current = updatedStock[match.id] || { stockQty: 0 };
+          updatedStock[match.id] = {
+            ...current,
+            stockQty: Math.max(0, (current.stockQty || 0) - item.quantity),
+            salesCount: (current.salesCount || 0) + item.quantity
+          };
+        }
+      });
+    }
+    setProductStockData(updatedStock);
+
+    // 3. Lançamento financeiro no caixa
+    let txDesc = "";
+    let txType: "entrada" | "saida" = "saida";
+    let txAmount = 0;
+
+    if (isExchange && replacementItems) {
+      const diff = differenceAmount || 0;
+      const returnedText = returnedItems.map(it => `${it.name.toUpperCase()} (x${it.quantity})`).join(", ");
+      const replacedText = replacementItems.map(it => `${it.name.toUpperCase()} (x${it.quantity})`).join(", ");
+
+      if (diff > 0) {
+        // Cliente pagou a mais (produto novo mais caro) -> Entrada no caixa
+        txType = "entrada";
+        txAmount = diff;
+        txDesc = `🔁 TROCA DE PRODUTO: Devolveu [${returnedText}] e levou [${replacedText}] | Diferença Paga: +${formatCurrency(diff)} | Cupom Orig: ${activeReturnTransaction.id.substring(0, 10)}`;
+      } else if (diff < 0) {
+        // Produto novo mais barato -> Devolvido troco ao cliente -> Saída de caixa
+        txType = "saida";
+        txAmount = Math.abs(diff);
+        txDesc = `🔁 TROCA DE PRODUTO: Devolveu [${returnedText}] e levou [${replacedText}] | Troco Devolvido: -${formatCurrency(Math.abs(diff))} | Cupom Orig: ${activeReturnTransaction.id.substring(0, 10)}`;
+      } else {
+        // Mesmo valor -> Transação de registro de troca
+        txType = "entrada";
+        txAmount = 0;
+        txDesc = `🔁 TROCA DE PRODUTO (MESMO VALOR): Devolveu [${returnedText}] e levou [${replacedText}] | Saldo R$ 0,00 | Cupom Orig: ${activeReturnTransaction.id.substring(0, 10)}`;
+      }
+    } else {
+      // Devolução simples com estorno
+      txDesc = `ESTORNO/DEVOLUÇÃO DE ITENS: ` + returnedItems.map(it => `${it.name.toUpperCase()} (x${it.quantity})`).join(", ") + ` | COMPRA ORIGINAL ID: ${activeReturnTransaction.id.substring(0, 10)}`;
+      txType = "saida";
+      txAmount = refundAmount;
+    }
+
+    const nextTx: PDVTransaction = {
+      id: "pdv_tx_return_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      type: txType,
+      amount: txAmount,
+      description: txDesc,
+      paymentMethod: exchangePaymentMethod || activeReturnTransaction.paymentMethod,
+      category: isExchange ? "outros" : "despesa",
+      date: new Date().toLocaleString("pt-BR"),
+      timestamp: Date.now(),
+      clientName: activeReturnTransaction.clientName,
+    };
+
+    const nextTxs = [nextTx, ...transactions];
     setTransactions(nextTxs);
     saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, updatedStock);
     pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, updatedStock);
 
-    showNotification(`Devolução confirmada! Registrada saída de ${formatCurrency(refundAmount)} de caixa. ${restock ? "Itens retornados ao estoque." : ""}`, "success");
+    if (isExchange) {
+      showNotification(`🔁 Troca confirmada! Estoque de [${returnedItems.map(i=>i.name).join(", ")}] devolvido (+1) e novo produto lançado com baixa (-1). Caixa ajustado!`, "success");
+    } else {
+      showNotification(`Devolução confirmada! Registrada saída de ${formatCurrency(refundAmount)} de caixa. ${restock ? "Itens retornados ao estoque." : ""}`, "success");
+    }
     setActiveReturnTransaction(null);
     setIsReturnModalOpen(false);
   };
@@ -6728,14 +6916,24 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     }).slice(0, 10);
   }, [activeProductsList]);
 
-  // --- Compiled Caderneta de Fiado ---
+  // --- Compiled Caderneta de Fiado com Prazos, Juros e Previsão ---
   const fiadoLedger = useMemo(() => {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const now = new Date();
     const ledger: Record<string, {
       clientName: string;
       totalDebt: number;
       totalPaid: number;
       balance: number;
       txs: PDVTransaction[];
+      earliestDueDate?: string;
+      earliestDueTime?: string;
+      earliestDueNotes?: string;
+      isOverdue: boolean;
+      isDueToday: boolean;
+      isOverdueHourToday?: boolean;
+      daysOverdue: number;
+      calculatedLateInterest: number;
     }> = {};
 
     transactions.forEach(tx => {
@@ -6750,7 +6948,11 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           totalDebt: 0,
           totalPaid: 0,
           balance: 0,
-          txs: []
+          txs: [],
+          isOverdue: false,
+          isDueToday: false,
+          daysOverdue: 0,
+          calculatedLateInterest: 0
         };
       }
 
@@ -6770,10 +6972,103 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       const entry = ledger[client];
       entry.balance = entry.totalDebt - entry.totalPaid;
       entry.txs.sort((a, b) => b.timestamp - a.timestamp);
+
+      if (entry.balance > 0) {
+        // Priority to client profile agreed date, or earliest debt transaction with due date
+        const profile = clientProfiles[client] as any;
+        let earliestDate = profile?.agreedDueDate;
+        let earliestTime = profile?.agreedDueTime || "14:00";
+        let earliestNotes = profile?.agreedNotes || "";
+
+        const fiadoDebtsWithDate = entry.txs
+          .filter(t => t.paymentMethod === "fiado" && t.dueDate)
+          .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
+
+        if (!earliestDate && fiadoDebtsWithDate.length > 0 && fiadoDebtsWithDate[0].dueDate) {
+          earliestDate = fiadoDebtsWithDate[0].dueDate;
+          earliestTime = fiadoDebtsWithDate[0].dueTime || earliestTime;
+          earliestNotes = fiadoDebtsWithDate[0].dueNotes || earliestNotes;
+        }
+
+        if (earliestDate) {
+          entry.earliestDueDate = earliestDate;
+          entry.earliestDueTime = earliestTime;
+          entry.earliestDueNotes = earliestNotes;
+
+          if (earliestDate < todayStr) {
+            entry.isOverdue = true;
+            const diffMs = new Date(todayStr + "T00:00:00").getTime() - new Date(earliestDate + "T00:00:00").getTime();
+            entry.daysOverdue = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+            // Monthly late interest rate
+            const monthlyRate = fiadoDebtsWithDate[0]?.lateInterestPercent !== undefined 
+              ? fiadoDebtsWithDate[0].lateInterestPercent 
+              : (parseFloat(fiadoLateInterestPercent) || 1);
+            const dailyRate = monthlyRate / 30;
+            entry.calculatedLateInterest = Math.max(0, parseFloat(((entry.balance * dailyRate * entry.daysOverdue) / 100).toFixed(2)));
+          } else if (earliestDate === todayStr) {
+            entry.isDueToday = true;
+            if (earliestTime) {
+              const [h, m] = earliestTime.split(":").map(Number);
+              if (!isNaN(h) && !isNaN(m)) {
+                if (now.getHours() > h || (now.getHours() === h && now.getMinutes() > m)) {
+                  entry.isOverdueHourToday = true;
+                }
+              }
+            }
+          }
+        }
+      }
     });
 
     return ledger;
-  }, [transactions]);
+  }, [transactions, fiadoLateInterestPercent, clientProfiles]);
+
+  // Previsão de Recebimento de Fiados do Comerciante
+  const fiadoForecastSummary = useMemo(() => {
+    let totalNaRua = 0;
+    let totalVencido = 0;
+    let totalVenceHoje = 0;
+    let totalAVencer = 0;
+    let countVencidos = 0;
+    let countVenceHoje = 0;
+    let countAVencer = 0;
+
+    (Object.values(fiadoLedger) as any[]).forEach((entry) => {
+      if (entry.balance > 0) {
+        totalNaRua += entry.balance;
+        if (entry.isOverdue) {
+          totalVencido += entry.balance;
+          countVencidos++;
+        } else if (entry.isDueToday) {
+          totalVenceHoje += entry.balance;
+          countVenceHoje++;
+        } else {
+          totalAVencer += entry.balance;
+          countAVencer++;
+        }
+      }
+    });
+
+    return {
+      totalNaRua,
+      totalVencido,
+      totalVenceHoje,
+      totalAVencer,
+      countVencidos,
+      countVenceHoje,
+      countAVencer
+    };
+  }, [fiadoLedger]);
+
+  // Helper para formatar data de vencimento do fiado (YYYY-MM-DD para DD/MM/AAAA)
+  const formatFiadoDueDate = (dateStr?: string) => {
+    if (!dateStr) return "";
+    const parts = dateStr.split("-");
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateStr;
+  };
 
   // --- Record repayment/payment of fiado ---
   const handleRecordFiadoPayment = (client: string, amount: number, method: "dinheiro" | "pix" | "cartao_debito" | "cartao_credito") => {
@@ -6820,7 +7115,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     showNotification(`Estoque updated! Nova quantidade: ${nextQty} un. 📦`, "success");
   };
 
-  // --- Save / Update Client Details (Cycle and Contact) ---
+  // --- Save / Update Client Details (Cycle, Contact, Agreed Due Date and Hour) ---
   const handleSaveClientDetails = (clientName: string, cycle: "diario" | "semanal" | "mensal" | "flexivel", phone: string) => {
     const key = clientName.trim().toUpperCase();
     const existing = clientProfiles[key] || { clientName };
@@ -6846,6 +7141,62 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       }
     }
     showNotification(`Dados de cobrança de "${clientName}" atualizados! 📂✅`, "success");
+  };
+
+  // --- Salvar Data, Horário e Combinado Específico do Fiado ---
+  const handleSaveAgreedSchedule = (
+    clientName: string,
+    dueDate: string,
+    dueTime: string,
+    dueNotes: string,
+    cycle?: "diario" | "semanal" | "mensal" | "flexivel",
+    phone?: string
+  ) => {
+    const key = clientName.trim().toUpperCase();
+    const existing = clientProfiles[key] || { clientName };
+    const updatedProfiles = {
+      ...clientProfiles,
+      [key]: {
+        ...existing,
+        paymentTerm: cycle || (existing as any).paymentTerm || "flexivel",
+        phone: phone !== undefined ? phone : existing.phone,
+        agreedDueDate: dueDate,
+        agreedDueTime: dueTime || "14:00",
+        agreedNotes: dueNotes
+      }
+    };
+    setClientProfiles(updatedProfiles);
+    localStorage.setItem("pdv_client_profiles", JSON.stringify(updatedProfiles));
+
+    // Also update all open fiado debt transactions for this client so that the ledger and forecast are 100% synced
+    const nextTxs = transactions.map(t => {
+      if (!t.isDeleted && t.paymentMethod === "fiado" && t.clientName?.trim().toUpperCase() === key) {
+        return {
+          ...t,
+          dueDate: dueDate || t.dueDate,
+          dueTime: dueTime || t.dueTime,
+          dueNotes: dueNotes !== undefined ? dueNotes : t.dueNotes
+        };
+      }
+      return t;
+    });
+    setTransactions(nextTxs);
+    saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, productStockData);
+    pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, productStockData);
+
+    if (isLoggedIn && userId && userId !== "guest_visitor" && db) {
+      try {
+        const userDocRef = doc(db, "userData", userId);
+        const cleanedProfiles = cleanUndefinedForFirestore(updatedProfiles);
+        setDoc(userDocRef, { pdvClientProfiles: cleanedProfiles }, { merge: true })
+          .catch(err => console.error("Erro ao sincronizar cadastro:", err));
+      } catch (err) {
+        console.warn("Erro ao preparar sincronização:", err);
+      }
+    }
+
+    const formattedDate = formatFiadoDueDate(dueDate);
+    showNotification(`Combinado de "${clientName}" agendado para ${formattedDate} às ${dueTime || "14:00"}! 📅⏰✅`, "success");
   };
 
   // --- Apply Calculated Pricing to Product ---
@@ -12724,8 +13075,112 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   </div>
                 )}
 
-                {/* Search Bar, Layout Toggle, and Sort options for Clients */}
-                <div className="flex flex-col gap-3.5 bg-slate-950/40 p-4 rounded-xl border border-white/5 text-left">
+                {/* Painel de Previsão de Recebimento de Fiados 📅 */}
+                <div className="space-y-2 text-left">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-purple-300 flex items-center gap-1.5 font-sans">
+                      📅 Previsão de Recebimento de Fiados
+                    </span>
+                    <span className="text-[9px] font-bold">
+                      {fiadoForecastSummary.countVencidos > 0 ? (
+                        <span className="text-rose-400 font-black animate-pulse">⚠️ {fiadoForecastSummary.countVencidos} fiados vencidos aguardando acerto</span>
+                      ) : (
+                        <span className="text-emerald-400 font-bold">✅ Todos os prazos em dia</span>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                    {/* Card 1: Total na Rua */}
+                    <button
+                      type="button"
+                      onClick={() => setFiadoStatusFilter("todos")}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        fiadoStatusFilter === "todos"
+                          ? "bg-purple-950/70 border-purple-500 shadow-md shadow-purple-500/10"
+                          : "bg-slate-950/60 border-white/5 hover:border-purple-500/30"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-slate-400 mb-1">
+                        <span className="text-[8.5px] font-black uppercase tracking-wider">Total na Rua 💰</span>
+                        <span className="text-[8px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded font-black">Geral</span>
+                      </div>
+                      <div className="text-sm sm:text-base font-black font-mono text-purple-300 truncate">
+                        {formatCurrency(fiadoForecastSummary.totalNaRua)}
+                      </div>
+                      <span className="text-[8px] text-slate-400 block mt-0.5 font-medium">Caderneta ativa</span>
+                    </button>
+
+                    {/* Card 2: Vencidos */}
+                    <button
+                      type="button"
+                      onClick={() => setFiadoStatusFilter(fiadoStatusFilter === "vencidos" ? "todos" : "vencidos")}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        fiadoStatusFilter === "vencidos"
+                          ? "bg-rose-950/80 border-rose-500 shadow-md shadow-rose-500/20"
+                          : "bg-slate-950/60 border-white/5 hover:border-rose-500/30"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-slate-400 mb-1">
+                        <span className="text-[8.5px] font-black uppercase tracking-wider text-rose-300">Vencidos ⚠️</span>
+                        <span className="text-[8px] bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded font-black font-mono">
+                          {fiadoForecastSummary.countVencidos} cli
+                        </span>
+                      </div>
+                      <div className="text-sm sm:text-base font-black font-mono text-rose-400 truncate">
+                        {formatCurrency(fiadoForecastSummary.totalVencido)}
+                      </div>
+                      <span className="text-[8px] text-rose-400/90 block mt-0.5 font-bold">Passou da data! Cobrar 🚨</span>
+                    </button>
+
+                    {/* Card 3: Vence Hoje */}
+                    <button
+                      type="button"
+                      onClick={() => setFiadoStatusFilter(fiadoStatusFilter === "vence_hoje" ? "todos" : "vence_hoje")}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        fiadoStatusFilter === "vence_hoje"
+                          ? "bg-amber-950/80 border-amber-500 shadow-md shadow-amber-500/20"
+                          : "bg-slate-950/60 border-white/5 hover:border-amber-500/30"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-slate-400 mb-1">
+                        <span className="text-[8.5px] font-black uppercase tracking-wider text-amber-300">Vence Hoje 📅</span>
+                        <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black font-mono">
+                          {fiadoForecastSummary.countVenceHoje} cli
+                        </span>
+                      </div>
+                      <div className="text-sm sm:text-base font-black font-mono text-amber-300 truncate">
+                        {formatCurrency(fiadoForecastSummary.totalVenceHoje)}
+                      </div>
+                      <span className="text-[8px] text-amber-300/90 block mt-0.5 font-bold">Previsão para hoje</span>
+                    </button>
+
+                    {/* Card 4: A Vencer */}
+                    <button
+                      type="button"
+                      onClick={() => setFiadoStatusFilter(fiadoStatusFilter === "a_vencer" ? "todos" : "a_vencer")}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        fiadoStatusFilter === "a_vencer"
+                          ? "bg-emerald-950/80 border-emerald-500 shadow-md shadow-emerald-500/20"
+                          : "bg-slate-950/60 border-white/5 hover:border-emerald-500/30"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-slate-400 mb-1">
+                        <span className="text-[8.5px] font-black uppercase tracking-wider text-emerald-300">A Vencer ⏳</span>
+                        <span className="text-[8px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-black font-mono">
+                          {fiadoForecastSummary.countAVencer} cli
+                        </span>
+                      </div>
+                      <div className="text-sm sm:text-base font-black font-mono text-emerald-400 truncate">
+                        {formatCurrency(fiadoForecastSummary.totalAVencer)}
+                      </div>
+                      <span className="text-[8px] text-emerald-400/90 block mt-0.5 font-medium">Prazos futuros</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search Bar, Layout Toggle, Status Filters, and Sort options */}
+                <div className="flex flex-col gap-3 bg-slate-950/40 p-4 rounded-xl border border-white/5 text-left">
                   <div className="flex flex-col sm:flex-row gap-3">
                     <div className="relative flex-1">
                       <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
@@ -12747,13 +13202,13 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     )}
 
                     {/* Layout Switcher buttons */}
-                    <div className="flex bg-slate-900 p-0.5 rounded-lg border border-white/5">
+                    <div className="flex bg-slate-900 p-0.5 rounded-lg border border-white/5 gap-0.5">
                       <button
                         type="button"
                         onClick={() => setFiadoViewMode("pastas")}
-                        className={`px-3 py-1 text-[10px] font-black uppercase rounded-md cursor-pointer transition-all ${
+                        className={`px-2.5 py-1 text-[10px] font-black uppercase rounded-md cursor-pointer transition-all ${
                           fiadoViewMode === "pastas"
-                            ? "bg-purple-600 text-slate-950"
+                            ? "bg-purple-600 text-slate-950 shadow-sm"
                             : "text-slate-400 hover:text-slate-250"
                         }`}
                       >
@@ -12762,41 +13217,116 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       <button
                         type="button"
                         onClick={() => setFiadoViewMode("lista")}
-                        className={`px-3 py-1 text-[10px] font-black uppercase rounded-md cursor-pointer transition-all ${
+                        className={`px-2.5 py-1 text-[10px] font-black uppercase rounded-md cursor-pointer transition-all ${
                           fiadoViewMode === "lista"
-                            ? "bg-purple-600 text-slate-950"
+                            ? "bg-purple-600 text-slate-950 shadow-sm"
                             : "text-slate-400 hover:text-slate-250"
                         }`}
                       >
                         📋 Lista
                       </button>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center justify-between text-[9px] font-black tracking-widest uppercase border-t border-white/5 pt-2.5">
-                    <span className="text-slate-500">Ordenar por:</span>
-                    <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => setFiadoSortMode("name")}
-                        className={`px-2.5 py-1 border rounded-lg cursor-pointer ${
-                          fiadoSortMode === "name" 
-                            ? "bg-purple-500/20 border-purple-500/30 text-purple-400" 
+                        onClick={() => setFiadoViewMode("agenda")}
+                        className={`px-2.5 py-1 text-[10px] font-black uppercase rounded-md cursor-pointer transition-all flex items-center gap-1 ${
+                          fiadoViewMode === "agenda"
+                            ? "bg-amber-500 text-slate-950 shadow-sm font-black"
+                            : "text-amber-400/80 hover:text-amber-300"
+                        }`}
+                        title="Agenda com Dia e Horário Combinados com cada Cliente"
+                      >
+                        <Clock className="w-3 h-3" />
+                        <span>📅 Agenda & Horários</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Status Filters & Sorting row */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 border-t border-white/5 pt-2.5">
+                    {/* Status Filters */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[8.5px] font-black uppercase text-slate-500">Filtrar:</span>
+                      <button
+                        type="button"
+                        onClick={() => setFiadoStatusFilter("todos")}
+                        className={`px-2 py-0.5 text-[8.5px] font-black uppercase rounded-md border transition-all cursor-pointer ${
+                          fiadoStatusFilter === "todos"
+                            ? "bg-purple-600 text-slate-950 border-purple-400"
+                            : "bg-slate-900 text-slate-400 border-white/5 hover:text-white"
+                        }`}
+                      >
+                        Todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFiadoStatusFilter("vencidos")}
+                        className={`px-2 py-0.5 text-[8.5px] font-black uppercase rounded-md border transition-all cursor-pointer ${
+                          fiadoStatusFilter === "vencidos"
+                            ? "bg-rose-600 text-white border-rose-400"
+                            : "bg-slate-900 text-rose-400 border-rose-500/20 hover:bg-rose-950/30"
+                        }`}
+                      >
+                        ⚠️ Vencidos ({fiadoForecastSummary.countVencidos})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFiadoStatusFilter("vence_hoje")}
+                        className={`px-2 py-0.5 text-[8.5px] font-black uppercase rounded-md border transition-all cursor-pointer ${
+                          fiadoStatusFilter === "vence_hoje"
+                            ? "bg-amber-500 text-slate-950 border-amber-300"
+                            : "bg-slate-900 text-amber-300 border-amber-500/20 hover:bg-amber-950/30"
+                        }`}
+                      >
+                        📅 Vence Hoje ({fiadoForecastSummary.countVenceHoje})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFiadoStatusFilter("a_vencer")}
+                        className={`px-2 py-0.5 text-[8.5px] font-black uppercase rounded-md border transition-all cursor-pointer ${
+                          fiadoStatusFilter === "a_vencer"
+                            ? "bg-emerald-600 text-white border-emerald-400"
+                            : "bg-slate-900 text-emerald-400 border-emerald-500/20 hover:bg-emerald-950/30"
+                        }`}
+                      >
+                        ⏳ A Vencer ({fiadoForecastSummary.countAVencer})
+                      </button>
+                    </div>
+
+                    {/* Sorting */}
+                    <div className="flex items-center gap-1.5 self-end md:self-auto">
+                      <span className="text-[8.5px] font-black uppercase text-slate-500">Ordem:</span>
+                      <button
+                        type="button"
+                        onClick={() => setFiadoSortMode("dueDate")}
+                        className={`px-2 py-0.5 text-[8.5px] font-black border rounded-md cursor-pointer ${
+                          fiadoSortMode === "dueDate" 
+                            ? "bg-purple-500/20 border-purple-500/40 text-purple-300" 
                             : "bg-slate-900 border-white/10 text-slate-400 hover:text-slate-200"
                         }`}
                       >
-                        NOME (A-Z)
+                        DATA PREVISTA 📅
                       </button>
                       <button
                         type="button"
                         onClick={() => setFiadoSortMode("balance")}
-                        className={`px-2.5 py-1 border rounded-lg cursor-pointer ${
+                        className={`px-2 py-0.5 text-[8.5px] font-black border rounded-md cursor-pointer ${
                           fiadoSortMode === "balance" 
-                            ? "bg-purple-500/20 border-purple-500/30 text-purple-400" 
+                            ? "bg-purple-500/20 border-purple-500/40 text-purple-300" 
                             : "bg-slate-900 border-white/10 text-slate-400 hover:text-slate-200"
                         }`}
                       >
-                        SALDO DEVEDOR 💰
+                        SALDO 💰
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFiadoSortMode("name")}
+                        className={`px-2 py-0.5 text-[8.5px] font-black border rounded-md cursor-pointer ${
+                          fiadoSortMode === "name" 
+                            ? "bg-purple-500/20 border-purple-500/40 text-purple-300" 
+                            : "bg-slate-900 border-white/10 text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        A-Z
                       </button>
                     </div>
                   </div>
@@ -12812,10 +13342,28 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 ) : fiadoViewMode === "pastas" ? (
                   /* 📂 Physical Office Folders Layout Grid */
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 text-left">
-                    {(Object.values(fiadoLedger) as { clientName: string; totalDebt: number; totalPaid: number; balance: number; txs: PDVTransaction[] }[])
-                      .filter(entry => entry.clientName.toLowerCase().includes(fiadoSearchQuery.toLowerCase().trim()))
+                    {(Object.values(fiadoLedger) as any[])
+                      .filter(entry => {
+                        const matchesSearch = entry.clientName.toLowerCase().includes(fiadoSearchQuery.toLowerCase().trim());
+                        if (!matchesSearch) return false;
+                        if (fiadoStatusFilter === "vencidos") return entry.isOverdue && entry.balance > 0;
+                        if (fiadoStatusFilter === "vence_hoje") return entry.isDueToday && entry.balance > 0;
+                        if (fiadoStatusFilter === "a_vencer") return !entry.isOverdue && !entry.isDueToday && entry.balance > 0;
+                        return true;
+                      })
                       .sort((a, b) => {
                         if (fiadoSortMode === "balance") {
+                          return b.balance - a.balance;
+                        } else if (fiadoSortMode === "dueDate") {
+                          if (a.isOverdue && !b.isOverdue) return -1;
+                          if (!a.isOverdue && b.isOverdue) return 1;
+                          if (a.isDueToday && !b.isDueToday) return -1;
+                          if (!a.isDueToday && b.isDueToday) return 1;
+                          if (a.earliestDueDate && b.earliestDueDate) {
+                            return a.earliestDueDate.localeCompare(b.earliestDueDate);
+                          }
+                          if (a.earliestDueDate && !b.earliestDueDate) return -1;
+                          if (!a.earliestDueDate && b.earliestDueDate) return 1;
                           return b.balance - a.balance;
                         } else {
                           return a.clientName.localeCompare(b.clientName);
@@ -12827,8 +13375,19 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         const key = entry.clientName.trim().toUpperCase();
                         const profile = clientProfiles[key] || { clientName: entry.clientName, phone: "", paymentTerm: "flexivel" };
                         
-                        // WhatsApp Billing message
-                        const waMessage = `Olá *${entry.clientName}*! Passando de forma amigável para lembrar da nossa caderneta do comércio. Atualmente consta um saldo pendente de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*. Se tiver alguma dúvida ou quiser efetuar o pagamento via Pix, sinta-se à vontade! Muito obrigado pela preferência e parceria de sempre! 😊🛍️`;
+                        // Contextual WhatsApp Billing message with scheduled due date, hour, notes and overdue interest
+                        let waMessage = "";
+                        const timePart = entry.earliestDueTime ? ` às *${entry.earliestDueTime}*` : "";
+                        const notesPart = entry.earliestDueNotes ? ` (Combinado: "${entry.earliestDueNotes}")` : "";
+                        if (entry.isOverdue) {
+                          waMessage = `Olá *${entry.clientName}*! Passando de forma amigável para lembrar do acerto combinado na caderneta que venceu em *${formatFiadoDueDate(entry.earliestDueDate)}*${timePart}${notesPart} (atrasado há ${entry.daysOverdue} ${entry.daysOverdue === 1 ? "dia" : "dias"}). O saldo atual pendente é de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*${entry.calculatedLateInterest > 0 ? ` (+ R$ ${entry.calculatedLateInterest.toFixed(2).replace(".", ",")} de juros de atraso)` : ""}. Se tiver alguma dúvida ou quiser efetuar o pagamento via Pix, sinta-se à vontade! Agradecemos muito a sua parceria! 😊🛍️`;
+                        } else if (entry.isDueToday) {
+                          waMessage = `Olá *${entry.clientName}*! Tudo bem? Hoje (*${formatFiadoDueDate(entry.earliestDueDate)}*${timePart})${notesPart} é o dia e horário combinados para o acerto da caderneta no valor de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*. Se desejar realizar o pagamento via Pix ou passar no caixa, estamos à disposição! Muito obrigado pela preferência de sempre! 😊🛍️`;
+                        } else if (entry.earliestDueDate) {
+                          waMessage = `Olá *${entry.clientName}*! Passando de forma amigável para confirmar o nosso combinado para o dia *${formatFiadoDueDate(entry.earliestDueDate)}*${timePart}${notesPart}. O saldo atual é de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*. Qualquer dúvida estamos à disposição! Muito obrigado! 😊🛍️`;
+                        } else {
+                          waMessage = `Olá *${entry.clientName}*! Passando de forma amigável para lembrar da nossa caderneta do comércio. Atualmente consta um saldo pendente de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*. Se tiver alguma dúvida ou quiser efetuar o pagamento via Pix, sinta-se à vontade! Muito obrigado pela preferência e parceria de sempre! 😊🛍️`;
+                        }
                         const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(waMessage)}`;
 
                         return (
@@ -12841,7 +13400,11 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                   isExpanded 
                                     ? "bg-purple-600 text-slate-950 border-purple-500/30" 
                                     : hasDebt 
-                                      ? "bg-rose-950/80 text-rose-300 border-rose-900/30 hover:bg-rose-900/90" 
+                                      ? entry.isOverdue
+                                        ? "bg-rose-950 text-rose-300 border-rose-800/40 hover:bg-rose-900"
+                                        : entry.isDueToday
+                                          ? "bg-amber-950 text-amber-300 border-amber-800/40 hover:bg-amber-900"
+                                          : "bg-purple-950/80 text-purple-300 border-purple-900/30 hover:bg-purple-900/90" 
                                       : "bg-slate-900/80 text-slate-400 border-white/5 hover:bg-slate-800"
                                 }`}
                               >
@@ -12855,15 +13418,19 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                               isExpanded 
                                 ? "bg-slate-900/95 border-purple-500/30 shadow-[0_0_15px_rgba(147,51,234,0.15)]" 
                                 : hasDebt 
-                                  ? "bg-slate-950/70 border-rose-900/20 hover:border-rose-500/20" 
+                                  ? entry.isOverdue
+                                    ? "bg-slate-950/80 border-rose-900/40 hover:border-rose-500/40 shadow-sm shadow-rose-950/50"
+                                    : entry.isDueToday
+                                      ? "bg-slate-950/80 border-amber-900/40 hover:border-amber-500/40 shadow-sm shadow-amber-950/50"
+                                      : "bg-slate-950/70 border-purple-900/20 hover:border-purple-500/20" 
                                   : "bg-slate-950/40 border-white/5 hover:border-white/10"
                             }`}>
                               {/* Inside Card Header */}
                               <div className="space-y-2">
                                 <div className="flex justify-between items-start gap-2">
                                   <span className="text-[11px] font-black text-white uppercase tracking-wide truncate">{entry.clientName}</span>
-                                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border shrink-0 ${hasDebt ? "bg-rose-500/10 text-rose-400 border-rose-500/15" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/15"}`}>
-                                    {hasDebt ? "Pendente ⚠️" : "Quitado ✅"}
+                                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border shrink-0 ${hasDebt ? (entry.isOverdue ? "bg-rose-500/20 text-rose-300 border-rose-500/30" : entry.isDueToday ? "bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse" : "bg-purple-500/20 text-purple-300 border-purple-500/30") : "bg-emerald-500/10 text-emerald-400 border-emerald-500/15"}`}>
+                                    {hasDebt ? (entry.isOverdue ? "Atrasado ⚠️" : entry.isDueToday ? "Vence Hoje 📅" : "A Vencer ⏳") : "Quitado ✅"}
                                   </span>
                                 </div>
 
@@ -12881,6 +13448,74 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                     </span>
                                   </div>
                                 </div>
+
+                                {/* Data e Horário Combinados com o Cliente */}
+                                {hasDebt && (
+                                  <div className="pt-0.5">
+                                    {entry.isOverdue ? (
+                                      <div className="bg-rose-950/70 border border-rose-500/30 rounded-lg p-2 space-y-1">
+                                        <div className="flex items-center justify-between text-[8.5px] font-black uppercase text-rose-300">
+                                          <span className="flex items-center gap-1">⚠️ Vencido há {entry.daysOverdue} {entry.daysOverdue === 1 ? "dia" : "dias"}</span>
+                                          <div className="flex items-center gap-1 font-mono text-white">
+                                            <span>{formatFiadoDueDate(entry.earliestDueDate)}</span>
+                                            {entry.earliestDueTime && <span className="text-amber-300">às {entry.earliestDueTime}</span>}
+                                          </div>
+                                        </div>
+                                        {entry.earliestDueNotes && (
+                                          <p className="text-[8px] text-rose-200/90 italic truncate">
+                                            💬 "{entry.earliestDueNotes}"
+                                          </p>
+                                        )}
+                                        {entry.calculatedLateInterest > 0 && (
+                                          <div className="flex items-center justify-between text-[8px] font-bold text-amber-300 border-t border-rose-900/40 pt-0.5">
+                                            <span>Juros sugeridos ({fiadoLateInterestPercent}% a.m.):</span>
+                                            <span className="font-mono font-black">+ {formatCurrency(entry.calculatedLateInterest)}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : entry.isDueToday ? (
+                                      <div className="bg-amber-950/70 border border-amber-500/40 rounded-lg p-2 space-y-1 animate-pulse">
+                                        <div className="flex items-center justify-between text-[8.5px] font-black uppercase text-amber-300">
+                                          <span className="flex items-center gap-1">
+                                            <Clock className="w-3 h-3 text-amber-400" />
+                                            {entry.isOverdueHourToday ? "⚠️ HORÁRIO COMBINADO PASSOU!" : "🔔 VENCE HOJE!"}
+                                          </span>
+                                          <div className="flex items-center gap-1 font-mono text-white">
+                                            <span>{formatFiadoDueDate(entry.earliestDueDate)}</span>
+                                            {entry.earliestDueTime && <span className="bg-amber-500/20 px-1 py-0.5 rounded text-amber-300 font-bold">às {entry.earliestDueTime}</span>}
+                                          </div>
+                                        </div>
+                                        {entry.earliestDueNotes && (
+                                          <p className="text-[8px] text-amber-200/90 italic truncate">
+                                            💬 "{entry.earliestDueNotes}"
+                                          </p>
+                                        )}
+                                      </div>
+                                    ) : entry.earliestDueDate ? (
+                                      <div className="bg-purple-950/40 border border-purple-500/20 rounded-lg p-2 space-y-0.5">
+                                        <div className="flex items-center justify-between text-[8.5px] font-bold uppercase text-purple-300">
+                                          <span className="flex items-center gap-1">
+                                            <Calendar className="w-3 h-3 text-purple-400" />
+                                            Combinado:
+                                          </span>
+                                          <div className="flex items-center gap-1 font-mono text-white font-black">
+                                            <span>{formatFiadoDueDate(entry.earliestDueDate)}</span>
+                                            {entry.earliestDueTime && <span className="text-amber-300 font-mono">às {entry.earliestDueTime}</span>}
+                                          </div>
+                                        </div>
+                                        {entry.earliestDueNotes && (
+                                          <p className="text-[8px] text-purple-200/80 italic truncate">
+                                            💬 "{entry.earliestDueNotes}"
+                                          </p>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="bg-slate-900/60 border border-white/5 rounded-lg px-2 py-1 text-[8px] text-slate-400 font-medium text-center">
+                                        🗓️ Data prevista a combinar
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
 
                                 {profile.phone && (
                                   <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block leading-none">
@@ -12916,11 +13551,138 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                               {/* Expanded folder contents */}
                               {isExpanded && (
                                 <div className="mt-4 border-t border-white/5 pt-3 space-y-4 animate-in fade-in duration-150">
-                                  {/* Doc 1: Custom billing cycle configurations */}
-                                  <div className="bg-slate-950 p-3 rounded-lg border border-white/5 space-y-2.5 text-left">
-                                    <span className="text-[9px] font-black text-purple-300 uppercase tracking-wide block">⚙️ Configurações de Prazo & Cadastro</span>
+                                  {/* Doc 1: Custom billing cycle configurations & Interactive Schedule */}
+                                  <div className="bg-slate-950 p-3 rounded-lg border border-purple-500/30 space-y-3 text-left">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[9.5px] font-black text-purple-300 uppercase tracking-wide flex items-center gap-1">
+                                        <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                                        <span>📅 Agendar Data & Horário Combinados</span>
+                                      </span>
+                                      <span className="text-[8px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded font-bold">
+                                        Personalizado
+                                      </span>
+                                    </div>
                                     
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                    {/* SELETOR DE DATA NO CALENDÁRIO COM ATALHOS */}
+                                    <div className="space-y-1.5">
+                                      <div className="flex items-center justify-between">
+                                        <label className="text-[8.5px] text-slate-300 font-black uppercase flex items-center gap-1">
+                                          <span>Escolha o Dia no Calendário:</span>
+                                        </label>
+                                        <span className="text-[8px] text-slate-400">Data exata do cliente</span>
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <input
+                                          type="date"
+                                          value={editingAgreedDate}
+                                          onChange={(e) => setEditingAgreedDate(e.target.value)}
+                                          className="bg-slate-900 border border-purple-500/40 rounded-lg px-2.5 py-1 text-[11px] text-white font-mono font-bold outline-none focus:border-purple-400 cursor-pointer"
+                                        />
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                          <button
+                                            type="button"
+                                            onClick={() => setQuickEditingAgreedDate("hoje")}
+                                            className="px-1.5 py-0.5 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded text-[8px] font-black text-purple-300 cursor-pointer"
+                                          >
+                                            Hoje
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setQuickEditingAgreedDate("amanha")}
+                                            className="px-1.5 py-0.5 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded text-[8px] font-black text-purple-300 cursor-pointer"
+                                          >
+                                            Amanhã
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setQuickEditingAgreedDate(7)}
+                                            className="px-1.5 py-0.5 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded text-[8px] font-black text-purple-300 cursor-pointer"
+                                          >
+                                            +7d
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setQuickEditingAgreedDate(15)}
+                                            className="px-1.5 py-0.5 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded text-[8px] font-black text-purple-300 cursor-pointer"
+                                          >
+                                            +15d
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setQuickEditingAgreedDate("dia5")}
+                                            className="px-1.5 py-0.5 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded text-[8px] font-black text-purple-300 cursor-pointer"
+                                          >
+                                            Dia 5
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setQuickEditingAgreedDate("dia10")}
+                                            className="px-1.5 py-0.5 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded text-[8px] font-black text-purple-300 cursor-pointer"
+                                          >
+                                            Dia 10
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setQuickEditingAgreedDate("fimMes")}
+                                            className="px-1.5 py-0.5 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded text-[8px] font-black text-purple-300 cursor-pointer"
+                                          >
+                                            Fim Mês
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* SELETOR DE HORÁRIO COMBINADO */}
+                                    <div className="space-y-1.5">
+                                      <div className="flex items-center justify-between">
+                                        <label className="text-[8.5px] text-slate-300 font-black uppercase flex items-center gap-1">
+                                          <Clock className="w-3 h-3 text-amber-400" />
+                                          <span>Horário Combinado (Hora e Minuto):</span>
+                                        </label>
+                                        <span className="text-[8px] text-amber-300 font-bold font-mono">
+                                          {editingAgreedTime || "14:00"}
+                                        </span>
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <input
+                                          type="time"
+                                          value={editingAgreedTime}
+                                          onChange={(e) => setEditingAgreedTime(e.target.value)}
+                                          className="bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-1 text-[11px] text-amber-300 font-mono font-bold outline-none focus:border-amber-400 cursor-pointer"
+                                        />
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                          {(["09:00", "11:30", "14:00", "17:00", "18:30", "20:00"] as const).map(h => (
+                                            <button
+                                              key={h}
+                                              type="button"
+                                              onClick={() => setEditingAgreedTime(h)}
+                                              className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-bold border transition-all cursor-pointer ${
+                                                editingAgreedTime === h 
+                                                  ? "bg-amber-500 text-slate-950 border-amber-400 shadow-sm"
+                                                  : "bg-slate-900 text-slate-400 border-white/5 hover:text-white"
+                                              }`}
+                                            >
+                                              {h}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* OBSERVAÇÃO DO COMBINADO */}
+                                    <div className="space-y-1">
+                                      <label className="text-[8px] text-slate-400 font-black uppercase">Observação / Detalhes do Combinado:</label>
+                                      <input
+                                        type="text"
+                                        placeholder="Ex: Paga após receber adiantamento / passa depois das 18h"
+                                        value={editingAgreedNotes}
+                                        onChange={(e) => setEditingAgreedNotes(e.target.value)}
+                                        className="w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-[10px] text-slate-200 outline-none"
+                                      />
+                                    </div>
+
+                                    {/* TELEFONE E CICLO */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 border-t border-white/5">
                                       <div className="space-y-1">
                                         <label className="text-[8px] text-slate-400 font-black uppercase">Telefone WhatsApp:</label>
                                         <input
@@ -12928,7 +13690,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                           placeholder="Ex: (11) 99999-9999"
                                           value={editingClientPhone}
                                           onChange={(e) => setEditingClientPhone(e.target.value)}
-                                          className="w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-[10px] text-white outline-none"
+                                          className="w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-[10px] text-white outline-none font-mono"
                                         />
                                       </div>
 
@@ -12949,10 +13711,18 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                                     <button
                                       type="button"
-                                      onClick={() => handleSaveClientDetails(entry.clientName, editingClientTerm, editingClientPhone)}
-                                      className="w-full bg-purple-600/25 hover:bg-purple-600/40 text-purple-300 border border-purple-500/20 py-1 rounded text-[8.5px] font-black uppercase tracking-wider cursor-pointer"
+                                      onClick={() => handleSaveAgreedSchedule(
+                                        entry.clientName, 
+                                        editingAgreedDate, 
+                                        editingAgreedTime, 
+                                        editingAgreedNotes, 
+                                        editingClientTerm, 
+                                        editingClientPhone
+                                      )}
+                                      className="w-full bg-purple-600 hover:bg-purple-500 text-slate-950 font-black py-1.5 rounded-lg text-[9px] uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
                                     >
-                                      Salvar Dados de Cadastro 💾
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-slate-950" />
+                                      <span>Salvar Data, Horário e Combinado deste Fiado 💾</span>
                                     </button>
                                   </div>
 
@@ -13020,13 +13790,26 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                                         } else {
                                           itemsBreakdown = tx.description;
                                         }
-                                        const singleWaMessage = `Olá *${entry.clientName}*! Segue o comprovante detalhado da sua compra realizada em *${tx.date}*:\n\n🛍️ *Itens:* ${itemsBreakdown}\n💰 *Total:* R$ ${tx.amount.toFixed(2).replace(".", ",")}\n\nAgradecemos a parceria! 😊`;
+                                        const dueDateText = tx.dueDate ? `\n📅 *Vencimento Combinado:* ${formatFiadoDueDate(tx.dueDate)}` : "";
+                                        const singleWaMessage = `Olá *${entry.clientName}*! Segue o comprovante detalhado da sua compra realizada em *${tx.date}*:\n\n🛍️ *Itens:* ${itemsBreakdown}\n💰 *Total:* R$ ${tx.amount.toFixed(2).replace(".", ",")}${dueDateText}\n\nAgradecemos a parceria! 😊`;
                                         const singleWaUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(singleWaMessage)}`;
 
                                         return (
                                           <div key={tx.id} className="bg-slate-950 p-2.5 text-[10px] rounded-lg border border-white/5 flex flex-col gap-2">
                                             <div className="flex items-center justify-between">
-                                              <span className="text-[8px] text-slate-500 font-bold">{tx.date}</span>
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="text-[8px] text-slate-500 font-bold">{tx.date}</span>
+                                                {isDebtTx && tx.dueDate && (
+                                                  <span className="text-[8px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1 py-0.5 rounded font-black font-mono">
+                                                    📅 Venc: {formatFiadoDueDate(tx.dueDate)}
+                                                  </span>
+                                                )}
+                                                {isDebtTx && tx.fiadoFeePercent && tx.fiadoFeePercent > 0 && (
+                                                  <span className="text-[8px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1 py-0.5 rounded font-bold font-mono">
+                                                    +{tx.fiadoFeePercent}% taxa ({formatCurrency(tx.fiadoFeeAmount || 0)})
+                                                  </span>
+                                                )}
+                                              </div>
                                               <span className={`font-black font-mono ${isDebtTx ? "text-rose-400" : "text-emerald-400"}`}>
                                                 {isDebtTx ? `+ R$ ${tx.amount.toFixed(2).replace(".", ",")}` : `- R$ ${tx.amount.toFixed(2).replace(".", ",")}`}
                                               </span>
@@ -13090,13 +13873,31 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         );
                       })}
                   </div>
-                ) : (
+                ) : fiadoViewMode === "lista" ? (
                   /* 📋 Traditional Simple List View */
                   <div className="space-y-3.5">
-                    {(Object.values(fiadoLedger) as { clientName: string; totalDebt: number; totalPaid: number; balance: number; txs: PDVTransaction[] }[])
-                      .filter(entry => entry.clientName.toLowerCase().includes(fiadoSearchQuery.toLowerCase().trim()))
+                    {(Object.values(fiadoLedger) as any[])
+                      .filter(entry => {
+                        const matchesSearch = entry.clientName.toLowerCase().includes(fiadoSearchQuery.toLowerCase().trim());
+                        if (!matchesSearch) return false;
+                        if (fiadoStatusFilter === "vencidos") return entry.isOverdue && entry.balance > 0;
+                        if (fiadoStatusFilter === "vence_hoje") return entry.isDueToday && entry.balance > 0;
+                        if (fiadoStatusFilter === "a_vencer") return !entry.isOverdue && !entry.isDueToday && entry.balance > 0;
+                        return true;
+                      })
                       .sort((a, b) => {
                         if (fiadoSortMode === "balance") {
+                          return b.balance - a.balance;
+                        } else if (fiadoSortMode === "dueDate") {
+                          if (a.isOverdue && !b.isOverdue) return -1;
+                          if (!a.isOverdue && b.isOverdue) return 1;
+                          if (a.isDueToday && !b.isDueToday) return -1;
+                          if (!a.isDueToday && b.isDueToday) return 1;
+                          if (a.earliestDueDate && b.earliestDueDate) {
+                            return a.earliestDueDate.localeCompare(b.earliestDueDate);
+                          }
+                          if (a.earliestDueDate && !b.earliestDueDate) return -1;
+                          if (!a.earliestDueDate && b.earliestDueDate) return 1;
                           return b.balance - a.balance;
                         } else {
                           return a.clientName.localeCompare(b.clientName);
@@ -13108,26 +13909,78 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                         const key = entry.clientName.trim().toUpperCase();
                         const profile = clientProfiles[key] || { clientName: entry.clientName, phone: "", paymentTerm: "flexivel" };
                         
-                        // WhatsApp Billing message
-                        const waMessage = `Olá *${entry.clientName}*! Passando de forma amigável para lembrar da nossa caderneta do comércio. Atualmente consta um saldo pendente de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*. Se tiver alguma dúvida ou quiser efetuar o pagamento via Pix, sinta-se à vontade! Muito obrigado pela preferência e parceria de sempre! 😊🛍️`;
+                        // Contextual WhatsApp Billing message with scheduled due date, exact hour and notes
+                        const timePart = entry.earliestDueTime ? ` às *${entry.earliestDueTime}*` : "";
+                        const notesPart = entry.earliestDueNotes ? ` (Combinado: ${entry.earliestDueNotes})` : "";
+                        let waMessage = "";
+                        if (entry.isOverdue) {
+                          waMessage = `Olá *${entry.clientName}*! Passando de forma amigável para lembrar do acerto combinado na caderneta que venceu em *${formatFiadoDueDate(entry.earliestDueDate)}*${timePart}${notesPart} (atrasado há ${entry.daysOverdue} ${entry.daysOverdue === 1 ? "dia" : "dias"}). O saldo atual pendente é de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*${entry.calculatedLateInterest > 0 ? ` (+ R$ ${entry.calculatedLateInterest.toFixed(2).replace(".", ",")} de juros de atraso)` : ""}. Se tiver alguma dúvida ou quiser efetuar o pagamento via Pix, sinta-se à vontade! Agradecemos muito a sua parceria! 😊🛍️`;
+                        } else if (entry.isDueToday) {
+                          waMessage = `Olá *${entry.clientName}*! Tudo bem? Hoje (*${formatFiadoDueDate(entry.earliestDueDate)}*${timePart}) é a data e horário combinados para o acerto da caderneta no valor de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*${notesPart}. Se desejar realizar o pagamento via Pix ou passar no caixa, estamos à disposição! Muito obrigado pela preferência de sempre! 😊🛍️`;
+                        } else if (entry.earliestDueDate) {
+                          waMessage = `Olá *${entry.clientName}*! Passando de forma amigável para confirmar a data e horário combinados do acerto da sua comanda na caderneta para *${formatFiadoDueDate(entry.earliestDueDate)}*${timePart}${notesPart}. O saldo atual é de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*. Qualquer dúvida estamos à disposição! Muito obrigado! 😊🛍️`;
+                        } else {
+                          waMessage = `Olá *${entry.clientName}*! Passando de forma amigável para lembrar da nossa caderneta do comércio. Atualmente consta um saldo pendente de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*. Se tiver alguma dúvida ou quiser efetuar o pagamento via Pix, sinta-se à vontade! Muito obrigado pela preferência e parceria de sempre! 😊🛍️`;
+                        }
                         const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(waMessage)}`;
 
                         return (
                           <div 
                             key={entry.clientName}
-                            className="bg-slate-950 rounded-xl border border-white/5 overflow-hidden"
+                            className={`rounded-xl border overflow-hidden transition-all ${
+                              hasDebt 
+                                ? entry.isOverdue
+                                  ? "bg-slate-950 border-rose-900/50 shadow-sm shadow-rose-950/40"
+                                  : entry.isDueToday
+                                    ? "bg-slate-950 border-amber-900/50 shadow-sm shadow-amber-950/40"
+                                    : "bg-slate-950 border-white/5"
+                                : "bg-slate-950 border-white/5"
+                            }`}
                           >
                             <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
-                              <div className="space-y-1">
+                              <div className="space-y-1.5">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-xs font-black text-white uppercase">{entry.clientName}</span>
-                                  <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${hasDebt ? "bg-rose-500/10 text-rose-400 border-rose-500/15" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/15"}`}>
-                                    {hasDebt ? "Pendente" : "Quitado ✅"}
+                                  <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${hasDebt ? (entry.isOverdue ? "bg-rose-500/20 text-rose-300 border-rose-500/30" : entry.isDueToday ? "bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse" : "bg-purple-500/20 text-purple-300 border-purple-500/30") : "bg-emerald-500/10 text-emerald-400 border-emerald-500/15"}`}>
+                                    {hasDebt ? (entry.isOverdue ? "Atrasado ⚠️" : entry.isDueToday ? "Vence Hoje 📅" : "A Vencer ⏳") : "Quitado ✅"}
                                   </span>
                                   <span className="px-1.5 py-0.5 bg-purple-500/10 text-purple-400 border border-purple-500/15 rounded text-[8px] font-black uppercase">
                                     🗓️ Ciclo: {profile.paymentTerm === "diario" ? "Diário" : profile.paymentTerm === "semanal" ? "Semanal" : profile.paymentTerm === "mensal" ? "Mensal" : "Flexível"}
                                   </span>
                                 </div>
+
+                                {/* Due Date badge for list view */}
+                                {hasDebt && (
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {entry.isOverdue ? (
+                                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-950/60 border border-rose-500/30 text-[8.5px] font-black uppercase text-rose-300">
+                                        <span>⚠️ Venceu há {entry.daysOverdue} {entry.daysOverdue === 1 ? "dia" : "dias"} ({formatFiadoDueDate(entry.earliestDueDate)}{entry.earliestDueTime ? ` às ${entry.earliestDueTime}` : ""})</span>
+                                        {entry.calculatedLateInterest > 0 && (
+                                          <span className="text-amber-300 font-mono font-bold">+ {formatCurrency(entry.calculatedLateInterest)} juros ({fiadoLateInterestPercent}%)</span>
+                                        )}
+                                      </div>
+                                    ) : entry.isDueToday ? (
+                                      <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[8.5px] font-black uppercase ${entry.isOverdueHourToday ? "bg-rose-950/80 border-rose-500/60 text-rose-300 animate-pulse" : "bg-amber-950/60 border-amber-500/40 text-amber-300 animate-pulse"}`}>
+                                        <Clock className="w-3 h-3 text-amber-400" />
+                                        <span>📅 VENCE HOJE ({formatFiadoDueDate(entry.earliestDueDate)}{entry.earliestDueTime ? ` às ${entry.earliestDueTime}` : ""})</span>
+                                        {entry.isOverdueHourToday && <span className="bg-rose-600 text-white px-1 py-0.2 rounded text-[7.5px]">HORÁRIO PASSOU!</span>}
+                                      </div>
+                                    ) : entry.earliestDueDate ? (
+                                      <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-950/40 border border-purple-500/20 text-[8.5px] font-bold uppercase text-purple-300">
+                                        <CalendarDays className="w-3 h-3 text-purple-400" />
+                                        <span>⏳ Previsão: <strong className="text-white">{formatFiadoDueDate(entry.earliestDueDate)}</strong> {entry.earliestDueTime ? `às ${entry.earliestDueTime}` : ""}</span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-[8px] text-slate-500 font-bold">🗓️ Previsão a combinar</span>
+                                    )}
+                                    {entry.earliestDueNotes && (
+                                      <span className="text-[8px] text-slate-400 bg-slate-900 border border-white/5 px-1.5 py-0.5 rounded italic">
+                                        💬 {entry.earliestDueNotes}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+
                                 <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
                                   {entry.txs.filter(t => t.paymentMethod === "fiado").length} Compras | {entry.txs.filter(t => t.description.includes("QUITAÇÃO")).length} Pagamentos
                                 </p>
@@ -13168,6 +14021,97 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                             {/* Expanded Management View for Simple List Layout */}
                             {isExpanded && (
                               <div className="px-3.5 pb-4 pt-2 border-t border-white/5 bg-slate-900/30 space-y-4">
+                                
+                                {/* 📅 Interactive Calendar & Exact Time Scheduler */}
+                                <div className="bg-gradient-to-r from-purple-950/40 via-indigo-950/30 to-purple-950/40 p-3 rounded-xl border border-purple-500/30 space-y-3 text-left">
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <span className="text-[10px] font-black text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                                      <CalendarDays className="w-3.5 h-3.5 text-purple-400" />
+                                      Agendar Data & Horário Combinados do Pagamento
+                                    </span>
+                                    {entry.earliestDueDate && (
+                                      <span className="text-[8.5px] px-2 py-0.5 rounded bg-purple-900/60 text-purple-200 border border-purple-400/30 font-bold font-mono">
+                                        Atual: {formatFiadoDueDate(entry.earliestDueDate)} {entry.earliestDueTime ? `às ${entry.earliestDueTime}` : ""}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                    <div className="space-y-1">
+                                      <label className="text-[8.5px] text-slate-300 font-bold uppercase flex items-center gap-1">
+                                        <Calendar className="w-3 h-3 text-purple-400" />
+                                        Data Combinada com {entry.clientName}:
+                                      </label>
+                                      <input
+                                        type="date"
+                                        value={editingAgreedDate}
+                                        onChange={(e) => setEditingAgreedDate(e.target.value)}
+                                        className="w-full bg-slate-900 border border-purple-500/30 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-purple-400 cursor-pointer"
+                                      />
+                                      <div className="flex flex-wrap gap-1 pt-1">
+                                        <button type="button" onClick={() => setQuickEditingAgreedDate(0)} className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[7.5px] font-bold">Hoje</button>
+                                        <button type="button" onClick={() => setQuickEditingAgreedDate(1)} className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[7.5px] font-bold">Amanhã</button>
+                                        <button type="button" onClick={() => setQuickEditingAgreedDate(7)} className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[7.5px] font-bold">+7 Dias</button>
+                                        <button type="button" onClick={() => setQuickEditingAgreedDate(15)} className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[7.5px] font-bold">+15 Dias</button>
+                                        <button type="button" onClick={() => setQuickEditingAgreedDate(30)} className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[7.5px] font-bold">+30 Dias</button>
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                      <label className="text-[8.5px] text-slate-300 font-bold uppercase flex items-center gap-1">
+                                        <Clock className="w-3 h-3 text-cyan-400" />
+                                        Horário Combinado (Hora Exata):
+                                      </label>
+                                      <input
+                                        type="time"
+                                        value={editingAgreedTime}
+                                        onChange={(e) => setEditingAgreedTime(e.target.value)}
+                                        className="w-full bg-slate-900 border border-cyan-500/30 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-cyan-400 cursor-pointer"
+                                      />
+                                      <div className="flex flex-wrap gap-1 pt-1">
+                                        {["09:00", "11:30", "14:00", "17:00", "18:30", "20:00"].map((h) => (
+                                          <button
+                                            key={h}
+                                            type="button"
+                                            onClick={() => setEditingAgreedTime(h)}
+                                            className={`px-1.5 py-0.5 rounded text-[7.5px] font-bold font-mono ${editingAgreedTime === h ? "bg-cyan-500 text-slate-950" : "bg-slate-800 hover:bg-slate-700 text-slate-300"}`}
+                                          >
+                                            {h}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <label className="text-[8.5px] text-slate-300 font-bold uppercase">
+                                      Observações do Combinado (Ex: "Passa após o almoço", "Pagamento de adiantamento"):
+                                    </label>
+                                    <input
+                                      type="text"
+                                      placeholder="Ex: Combinou pagar na saída do serviço às 18h via Pix"
+                                      value={editingAgreedNotes}
+                                      onChange={(e) => setEditingAgreedNotes(e.target.value)}
+                                      className="w-full bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1 text-[10.5px] text-slate-200 outline-none"
+                                    />
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveAgreedSchedule(
+                                      entry.clientName,
+                                      editingAgreedDate,
+                                      editingAgreedTime,
+                                      editingAgreedNotes,
+                                      editingClientTerm,
+                                      editingClientPhone
+                                    )}
+                                    className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black py-2 rounded-lg text-[9.5px] uppercase tracking-wider shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                                  >
+                                    <CalendarDays className="w-3.5 h-3.5" />
+                                    Salvar Data, Horário e Combinado deste Fiado 💾
+                                  </button>
+                                </div>
                                 
                                 {/* Cycle and contact profile configurations */}
                                 <div className="bg-slate-950 p-3 rounded-xl border border-white/5 space-y-2.5 text-left">
@@ -13338,6 +14282,399 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                             </div>
                           );
                         })}
+                    </div>
+                  ) : (
+                    /* 📅 Agenda & Horários View Mode */
+                    <div className="space-y-4 text-left">
+                      {/* Summary Banner for the Agenda */}
+                      <div className="bg-gradient-to-r from-purple-950/60 via-slate-900 to-indigo-950/60 p-3.5 rounded-2xl border border-purple-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                            <CalendarDays className="w-4 h-4 text-purple-400" />
+                            Agenda de Pagamentos & Horários Combinados
+                          </h4>
+                          <p className="text-[10px] text-slate-300">
+                            Acompanhe quem combinou pagar hoje hora por hora, quem está atrasado e os próximos recebimentos agendados.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] px-2.5 py-1 bg-slate-950 border border-white/10 rounded-lg text-slate-300 font-bold">
+                            Total Fiados: <strong className="text-purple-300">{(Object.values(fiadoLedger) as any[]).filter(e => e.balance > 0).length} clientes</strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* SECTION 1: VENCEM HOJE (CRONOGRAMA POR HORÁRIO) */}
+                      {(() => {
+                        const dueTodayEntries = (Object.values(fiadoLedger) as any[])
+                          .filter(e => e.isDueToday && e.balance > 0)
+                          .sort((a, b) => (a.earliestDueTime || "23:59").localeCompare(b.earliestDueTime || "23:59"));
+
+                        return (
+                          <div className="bg-slate-950 p-3.5 rounded-2xl border border-amber-500/30 shadow-md space-y-3">
+                            <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="p-1 rounded bg-amber-500/20 text-amber-300">
+                                  <Clock className="w-4 h-4" />
+                                </span>
+                                <div>
+                                  <h5 className="text-[11px] font-black text-amber-300 uppercase tracking-wider">
+                                    Vencem Hoje (Cronograma de Horários)
+                                  </h5>
+                                  <span className="text-[9px] text-slate-400 font-bold">
+                                    {dueTodayEntries.length} {dueTodayEntries.length === 1 ? "cliente agendado" : "clientes agendados"} para hoje
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+                                Total: {formatCurrency(dueTodayEntries.reduce((acc: number, c: any) => acc + (c.balance || 0), 0))}
+                              </span>
+                            </div>
+
+                            {dueTodayEntries.length === 0 ? (
+                              <div className="p-4 rounded-xl bg-slate-900/40 text-center border border-white/5 space-y-1">
+                                <p className="text-[10px] text-slate-400 font-bold">Nenhum pagamento agendado especificamente para hoje.</p>
+                                <p className="text-[9px] text-slate-500">Veja abaixo os próximos dias ou consulte as pastas.</p>
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                {dueTodayEntries.map(entry => {
+                                  const key = entry.clientName.trim().toUpperCase();
+                                  const profile = clientProfiles[key] || { clientName: entry.clientName, phone: "", paymentTerm: "flexivel" };
+                                  const isExpanded = activeFiadoClient === entry.clientName;
+                                  const timeStr = entry.earliestDueTime || "Horário flexível";
+                                  const waMsg = `Olá *${entry.clientName}*! Tudo bem? Hoje (*${formatFiadoDueDate(entry.earliestDueDate)}*${entry.earliestDueTime ? ` às *${entry.earliestDueTime}*` : ""}) é a data e horário combinados para o acerto da caderneta no valor de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*${entry.earliestDueNotes ? ` (${entry.earliestDueNotes})` : ""}. Ficamos no aguardo e agradecemos a parceria! 😊🛍️`;
+                                  const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(waMsg)}`;
+
+                                  return (
+                                    <div
+                                      key={entry.clientName}
+                                      className={`p-3 rounded-xl border transition-all ${entry.isOverdueHourToday ? "bg-rose-950/20 border-rose-500/40" : "bg-slate-900/60 border-amber-500/20"}`}
+                                    >
+                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                        <div className="flex items-center gap-3">
+                                          <div className={`px-2.5 py-1.5 rounded-lg border font-mono font-black text-center ${entry.isOverdueHourToday ? "bg-rose-900/50 border-rose-500 text-rose-200" : "bg-amber-900/40 border-amber-500/40 text-amber-200"}`}>
+                                            <span className="block text-[8px] uppercase tracking-wider text-slate-300">Horário</span>
+                                            <span className="text-xs">{timeStr}</span>
+                                          </div>
+                                          <div className="space-y-0.5">
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-xs font-black text-white uppercase">{entry.clientName}</span>
+                                              {entry.isOverdueHourToday ? (
+                                                <span className="px-1.5 py-0.2 rounded bg-rose-600 text-white text-[7.5px] font-black uppercase">
+                                                  Horário Passou ⚠️
+                                                </span>
+                                              ) : (
+                                                <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[7.5px] font-black uppercase">
+                                                  Aguardando ⏳
+                                                </span>
+                                              )}
+                                            </div>
+                                            {entry.earliestDueNotes && (
+                                              <p className="text-[9px] text-amber-200/90 italic">
+                                                💬 Combinado: {entry.earliestDueNotes}
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-3 justify-between sm:justify-end">
+                                          <div className="text-right">
+                                            <span className="text-[8.5px] text-slate-400 uppercase block font-bold">A Pagar</span>
+                                            <span className="text-xs font-black text-rose-300 mono-display">
+                                              {formatCurrency(entry.balance)}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-1.5">
+                                            <a
+                                              href={waUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-[8.5px] font-black uppercase flex items-center gap-1"
+                                              title="Enviar WhatsApp"
+                                            >
+                                              <Send className="w-3 h-3 text-emerald-400" />
+                                              <span>WhatsApp</span>
+                                            </a>
+                                            <button
+                                              onClick={() => handleSelectActiveFiadoClient(isExpanded ? null : entry.clientName)}
+                                              className="p-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg text-[8.5px] font-black uppercase tracking-wider cursor-pointer"
+                                            >
+                                              {isExpanded ? "Fechar 🔼" : "Editar / Pagar ✍️"}
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Inline quick editor when expanded in agenda */}
+                                      {isExpanded && (
+                                        <div className="mt-3 pt-3 border-t border-white/5 space-y-3">
+                                          <div className="bg-slate-950 p-2.5 rounded-lg border border-purple-500/20 space-y-2">
+                                            <span className="text-[9px] font-black text-purple-300 uppercase block">Reagendar Horário ou Data:</span>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                              <div>
+                                                <label className="text-[8px] text-slate-400 font-bold uppercase block">Nova Data:</label>
+                                                <input
+                                                  type="date"
+                                                  value={editingAgreedDate}
+                                                  onChange={(e) => setEditingAgreedDate(e.target.value)}
+                                                  className="w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs text-white"
+                                                />
+                                              </div>
+                                              <div>
+                                                <label className="text-[8px] text-slate-400 font-bold uppercase block">Novo Horário:</label>
+                                                <input
+                                                  type="time"
+                                                  value={editingAgreedTime}
+                                                  onChange={(e) => setEditingAgreedTime(e.target.value)}
+                                                  className="w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs text-white"
+                                                />
+                                              </div>
+                                            </div>
+                                            <input
+                                              type="text"
+                                              placeholder="Observação do combinado..."
+                                              value={editingAgreedNotes}
+                                              onChange={(e) => setEditingAgreedNotes(e.target.value)}
+                                              className="w-full bg-slate-900 border border-white/10 rounded px-2 py-1 text-[10px] text-white"
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => handleSaveAgreedSchedule(
+                                                entry.clientName,
+                                                editingAgreedDate,
+                                                editingAgreedTime,
+                                                editingAgreedNotes,
+                                                profile.paymentTerm,
+                                                profile.phone
+                                              )}
+                                              className="w-full bg-purple-600 hover:bg-purple-500 text-white font-black py-1 rounded text-[8.5px] uppercase"
+                                            >
+                                              Salvar Novo Horário / Data 💾
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* SECTION 2: ATRASADOS / VENCIDOS */}
+                      {(() => {
+                        const overdueEntries = (Object.values(fiadoLedger) as any[])
+                          .filter(e => e.isOverdue && e.balance > 0)
+                          .sort((a, b) => b.daysOverdue - a.daysOverdue);
+
+                        if (overdueEntries.length === 0) return null;
+
+                        return (
+                          <div className="bg-slate-950 p-3.5 rounded-2xl border border-rose-500/30 shadow-md space-y-3">
+                            <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="p-1 rounded bg-rose-500/20 text-rose-300">
+                                  <AlertTriangle className="w-4 h-4" />
+                                </span>
+                                <div>
+                                  <h5 className="text-[11px] font-black text-rose-300 uppercase tracking-wider">
+                                    Em Atraso (Data do Combinado Passou)
+                                  </h5>
+                                  <span className="text-[9px] text-slate-400 font-bold">
+                                    {overdueEntries.length} {overdueEntries.length === 1 ? "cliente com data vencida" : "clientes com datas vencidas"}
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                Total: {formatCurrency(overdueEntries.reduce((acc: number, c: any) => acc + (c.balance || 0), 0))}
+                              </span>
+                            </div>
+
+                            <div className="space-y-2">
+                              {overdueEntries.map(entry => {
+                                const waMsg = `Olá *${entry.clientName}*! Passando de forma amigável para lembrar do acerto combinado que venceu em *${formatFiadoDueDate(entry.earliestDueDate)}* (atrasado há ${entry.daysOverdue} ${entry.daysOverdue === 1 ? "dia" : "dias"}). O saldo pendente é de *R$ ${entry.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*${entry.calculatedLateInterest > 0 ? ` (+ R$ ${entry.calculatedLateInterest.toFixed(2).replace(".", ",")} de juros de atraso)` : ""}. Se tiver alguma dúvida ou quiser efetuar o pagamento via Pix, sinta-se à vontade! Agradecemos muito a sua parceria! 😊🛍️`;
+                                const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(waMsg)}`;
+                                const isExpanded = activeFiadoClient === entry.clientName;
+
+                                return (
+                                  <div
+                                    key={entry.clientName}
+                                    className="p-3 rounded-xl border border-rose-500/20 bg-rose-950/15 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                                  >
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-xs font-black text-white uppercase">{entry.clientName}</span>
+                                        <span className="px-1.5 py-0.2 rounded bg-rose-500/20 border border-rose-500/40 text-rose-300 text-[8px] font-black uppercase">
+                                          Atrasado há {entry.daysOverdue} {entry.daysOverdue === 1 ? "dia" : "dias"}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2 text-[8.5px] text-slate-300 font-bold">
+                                        <span>📅 Era para: <strong className="text-white">{formatFiadoDueDate(entry.earliestDueDate)}</strong> {entry.earliestDueTime ? `às ${entry.earliestDueTime}` : ""}</span>
+                                        {entry.earliestDueNotes && <span className="italic text-slate-400">({entry.earliestDueNotes})</span>}
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-3 justify-between sm:justify-end">
+                                      <div className="text-right">
+                                        <span className="text-[8.5px] text-slate-400 uppercase block font-bold">Saldo</span>
+                                        <span className="text-xs font-black text-rose-400 mono-display">
+                                          {formatCurrency(entry.balance)}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <a
+                                          href={waUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-[8.5px] font-black uppercase flex items-center gap-1"
+                                        >
+                                          <Send className="w-3 h-3 text-emerald-400" />
+                                          <span>Cobrança</span>
+                                        </a>
+                                        <button
+                                          onClick={() => {
+                                            setFiadoViewMode("pastas");
+                                            handleSelectActiveFiadoClient(entry.clientName);
+                                          }}
+                                          className="p-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg text-[8.5px] font-black uppercase tracking-wider cursor-pointer"
+                                        >
+                                          Abrir Pasta 📁
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* SECTION 3: PRÓXIMAS DATAS E HORÁRIOS AGENDADOS (A VENCER) */}
+                      {(() => {
+                        const upcomingEntries = (Object.values(fiadoLedger) as any[])
+                          .filter(e => !e.isOverdue && !e.isDueToday && e.earliestDueDate && e.balance > 0)
+                          .sort((a, b) => (a.earliestDueDate + (a.earliestDueTime || "")).localeCompare(b.earliestDueDate + (b.earliestDueTime || "")));
+
+                        return (
+                          <div className="bg-slate-950 p-3.5 rounded-2xl border border-white/5 space-y-3">
+                            <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="p-1 rounded bg-purple-500/20 text-purple-300">
+                                  <CalendarDays className="w-4 h-4" />
+                                </span>
+                                <div>
+                                  <h5 className="text-[11px] font-black text-purple-300 uppercase tracking-wider">
+                                    Próximos Pagamentos Agendados
+                                  </h5>
+                                  <span className="text-[9px] text-slate-400 font-bold">
+                                    {upcomingEntries.length} {upcomingEntries.length === 1 ? "cliente com data futura combinada" : "clientes com datas futuras combinadas"}
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                                Previsão: {formatCurrency(upcomingEntries.reduce((acc: number, c: any) => acc + (c.balance || 0), 0))}
+                              </span>
+                            </div>
+
+                            {upcomingEntries.length === 0 ? (
+                              <div className="p-4 rounded-xl bg-slate-900/30 text-center border border-white/5">
+                                <p className="text-[10px] text-slate-400 font-bold">Nenhum pagamento com data futura agendada no momento.</p>
+                                <p className="text-[9px] text-slate-500">Ao realizar uma venda fiado ou editar uma pasta, escolha a data e o horário combinados com o cliente!</p>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                {upcomingEntries.map(entry => {
+                                  return (
+                                    <div
+                                      key={entry.clientName}
+                                      className="p-3 rounded-xl border border-white/5 bg-slate-900/40 space-y-2 hover:border-purple-500/30 transition-all"
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-xs font-black text-white uppercase">{entry.clientName}</span>
+                                        <span className="text-xs font-black text-emerald-400 mono-display">
+                                          {formatCurrency(entry.balance)}
+                                        </span>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-950/60 border border-purple-500/20 text-[9px] font-bold text-purple-300">
+                                          <Calendar className="w-3 h-3 text-purple-400" />
+                                          <span>{formatFiadoDueDate(entry.earliestDueDate)}</span>
+                                        </div>
+                                        {entry.earliestDueTime && (
+                                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/20 text-[9px] font-bold text-cyan-300 font-mono">
+                                            <Clock className="w-3 h-3 text-cyan-400" />
+                                            <span>{entry.earliestDueTime}</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {entry.earliestDueNotes && (
+                                        <p className="text-[8.5px] text-slate-400 italic">
+                                          💬 {entry.earliestDueNotes}
+                                        </p>
+                                      )}
+
+                                      <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-white/5">
+                                        <button
+                                          onClick={() => {
+                                            setFiadoViewMode("pastas");
+                                            handleSelectActiveFiadoClient(entry.clientName);
+                                          }}
+                                          className="w-full py-1 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/20 rounded text-[8.5px] font-black uppercase tracking-wider cursor-pointer"
+                                        >
+                                          Ver Pasta / Reagendar 📅
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* SECTION 4: CLIENTES SEM DATA COMBINADA (FLEXÍVEIS) */}
+                      {(() => {
+                        const unscheduledEntries = (Object.values(fiadoLedger) as any[])
+                          .filter(e => !e.earliestDueDate && e.balance > 0);
+
+                        if (unscheduledEntries.length === 0) return null;
+
+                        return (
+                          <div className="bg-slate-950/60 p-3 rounded-2xl border border-white/5 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                                🗓️ Cadernetas Sem Data Fixada (Prazo Flexível) ({unscheduledEntries.length})
+                              </span>
+                              <span className="text-[8.5px] text-slate-500">
+                                Clique para definir o dia e horário combinado
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {unscheduledEntries.map(e => (
+                                <button
+                                  key={e.clientName}
+                                  onClick={() => {
+                                    setFiadoViewMode("pastas");
+                                    handleSelectActiveFiadoClient(e.clientName);
+                                  }}
+                                  className="px-2.5 py-1 bg-slate-900 hover:bg-purple-950/40 text-slate-300 hover:text-purple-300 border border-white/5 rounded-lg text-[9px] font-bold flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <span>{e.clientName}</span>
+                                  <span className="text-rose-400 font-mono">({formatCurrency(e.balance)})</span>
+                                  <span className="text-purple-400">+ Agendar</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -20071,55 +21408,204 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   </div>
                 )}
 
-                {/* Partial/Upfront payment panel shown ONLY when Fiado payment mode is selected */}
+                {/* Fiado Detailed Configuration Panel (Agendamento de Vencimento, Taxa de Aumento e Entrada) */}
                 {cartPaymentMethod === "fiado" && cart.length > 0 && (
-                  <div className="flex flex-col gap-2 border-t border-white/10 pt-2.5 text-xs">
-                    <span className="text-[10.5px] font-black text-purple-400 uppercase tracking-wide block">
-                      PAGAMENTO PARCIAL / SINAL 💵⚡
-                    </span>
-                    <p className="text-[10px] text-slate-400">
-                      Insira o valor pago na hora. O valor que ficar faltando vai para a Caderneta.
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2.5 mt-0.5">
-                      <div className="flex items-center gap-1">
-                        <span className="text-[12px] text-slate-300 font-bold">Pago: R$</span>
+                  <div className="flex flex-col gap-3 border-t border-purple-500/30 pt-3 text-xs bg-purple-950/20 p-3 rounded-2xl border border-purple-500/20">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-purple-300 uppercase tracking-wide flex items-center gap-1.5">
+                        <span>📕 Configuração do Fiado (Data & Taxas)</span>
+                      </span>
+                      <span className="text-[9px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-bold">
+                        Caderneta
+                      </span>
+                    </div>
+
+                    {/* 1. AGENDAR DATA E HORÁRIO DE PAGAMENTO (COMBINADO COM O CLIENTE) */}
+                    <div className="space-y-1.5 text-left">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black uppercase text-slate-300 flex items-center gap-1">
+                          <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Data & Horário Combinados (Vencimento):</span>
+                        </label>
+                        <span className="text-[9px] text-purple-300 font-bold">Dia e Hora exatos</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          value={fiadoDueDate}
+                          onChange={(e) => setFiadoDueDate(e.target.value)}
+                          className="bg-slate-900 border border-purple-500/40 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono font-bold outline-none focus:border-purple-400 cursor-pointer"
+                          title="Escolha o dia de pagamento no calendário"
+                        />
+                        <div className="flex items-center gap-1 bg-slate-900 border border-purple-500/40 rounded-xl px-2.5 py-1">
+                          <Clock className="w-3.5 h-3.5 text-amber-400" />
+                          <input
+                            type="time"
+                            value={fiadoDueTime}
+                            onChange={(e) => setFiadoDueTime(e.target.value)}
+                            className="bg-transparent text-xs text-amber-300 font-mono font-bold outline-none cursor-pointer"
+                            title="Horário combinado com o cliente"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setQuickFiadoDueDate(7)}
+                            className="px-2 py-1 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded-lg text-[9px] font-black text-purple-300 cursor-pointer"
+                          >
+                            +7 dias
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setQuickFiadoDueDate(15)}
+                            className="px-2 py-1 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded-lg text-[9px] font-black text-purple-300 cursor-pointer"
+                          >
+                            +15 dias
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setQuickFiadoDueDate("dia5")}
+                            className="px-2 py-1 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded-lg text-[9px] font-black text-purple-300 cursor-pointer"
+                          >
+                            Dia 5
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setQuickFiadoDueDate("dia10")}
+                            className="px-2 py-1 bg-slate-900 hover:bg-purple-900/50 border border-white/10 rounded-lg text-[9px] font-black text-purple-300 cursor-pointer"
+                          >
+                            Dia 10
+                          </button>
+                        </div>
+                      </div>
+                      <div className="pt-1">
                         <input
                           type="text"
-                          value={fiadoUpfrontAmount}
-                          onChange={(e) => setFiadoUpfrontAmount(e.target.value)}
-                          className="bg-slate-900 border border-white/10 rounded px-2 py-1 text-[12.5px] font-mono text-purple-300 outline-none font-bold w-24"
-                          placeholder="0,00"
+                          placeholder="Observação do combinado (ex: Prometeu pagar às 14h após o almoço / adiantamento)"
+                          value={fiadoDueNotes}
+                          onChange={(e) => setFiadoDueNotes(e.target.value)}
+                          className="w-full bg-slate-900 border border-white/10 rounded-xl px-2.5 py-1 text-[10px] text-slate-200 outline-none placeholder:text-slate-500 font-medium"
                         />
                       </div>
-                      
-                      {parsePortugueseNumber(fiadoUpfrontAmount) > 0 && (
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10.5px] text-slate-400">Via:</span>
-                          {(["dinheiro", "pix"] as const).map((m) => (
+                    </div>
+
+                    {/* 2. TAXA DE AUMENTO / ACRÉSCIMO PARA FIADOS */}
+                    <div className="space-y-1.5 text-left pt-2 border-t border-white/5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black uppercase text-slate-300 flex items-center gap-1">
+                          <Percent className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Taxa de Aumento para Fiado (%):</span>
+                        </label>
+                        <span className="text-[9px] text-slate-400">
+                          {parseFloat(fiadoSurchargePercent) > 0 ? `+${fiadoSurchargePercent}% de acréscimo` : "Sem acréscimo (0%)"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 bg-slate-900 border border-white/10 rounded-xl px-2 py-1">
+                          <input
+                            type="text"
+                            value={fiadoSurchargePercent}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/[^0-9.]/g, "");
+                              setFiadoSurchargePercent(val);
+                              try { localStorage.setItem("pdv_fiado_default_surcharge", val); } catch {}
+                            }}
+                            className="w-12 bg-transparent text-xs text-amber-300 font-mono font-bold outline-none text-center"
+                            placeholder="0"
+                          />
+                          <span className="text-xs font-bold text-slate-400">%</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {(["0", "5", "10", "15"] as const).map((pct) => (
                             <button
-                              key={m}
+                              key={pct}
                               type="button"
-                              onClick={() => setFiadoUpfrontMethod(m)}
-                              className={`px-1.5 py-0.5 text-[9px] font-black rounded border cursor-pointer ${
-                                fiadoUpfrontMethod === m
-                                  ? "bg-purple-600/30 border-purple-500 text-purple-300"
-                                  : "bg-slate-900 border-white/10 text-slate-400 hover:text-white"
+                              onClick={() => {
+                                setFiadoSurchargePercent(pct);
+                                try { localStorage.setItem("pdv_fiado_default_surcharge", pct); } catch {}
+                              }}
+                              className={`px-2 py-1 rounded-lg text-[9px] font-black border cursor-pointer transition-all ${
+                                fiadoSurchargePercent === pct
+                                  ? "bg-amber-500 text-slate-950 border-amber-400 shadow-sm"
+                                  : "bg-slate-900 text-slate-400 border-white/10 hover:text-white"
                               }`}
                             >
-                              {m === "dinheiro" ? "DINHEIRO" : "PIX"}
+                              {pct === "0" ? "0%" : `+${pct}%`}
                             </button>
                           ))}
                         </div>
+                      </div>
+
+                      {parseFloat(fiadoSurchargePercent) > 0 && (
+                        <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] flex justify-between items-center">
+                          <span className="text-slate-300 font-medium">Acréscimo do Fiado:</span>
+                          <span className="text-amber-400 font-mono font-black">
+                            +{formatCurrency((cartTotal * (parseFloat(fiadoSurchargePercent) || 0)) / 100)}
+                          </span>
+                        </div>
                       )}
                     </div>
-                    {fiadoUpfrontAmount.trim() && parsePortugueseNumber(fiadoUpfrontAmount) > 0 && (
-                      <div className="flex justify-between items-center text-[11px] bg-purple-950/20 p-2 rounded-lg border border-purple-500/10 mt-1">
-                        <span className="text-slate-300 font-semibold">Vai para o Fiado:</span>
-                        <span className="font-mono font-black text-rose-450">
-                          {formatCurrency(Math.max(0, cartTotal - (parsePortugueseNumber(fiadoUpfrontAmount) || 0)))}
-                        </span>
+
+                    {/* 3. PAGAMENTO PARCIAL / SINAL NA HORA */}
+                    <div className="space-y-1.5 text-left pt-2 border-t border-white/5">
+                      <span className="text-[10px] font-black uppercase text-slate-300 block">
+                        Entrada / Pagamento Parcial no Ato (Opcional):
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-1 bg-slate-900 border border-white/10 rounded-xl px-2 py-1">
+                          <span className="text-xs text-slate-400 font-bold">R$</span>
+                          <input
+                            type="text"
+                            value={fiadoUpfrontAmount}
+                            onChange={(e) => setFiadoUpfrontAmount(e.target.value)}
+                            className="bg-transparent text-xs font-mono text-purple-300 outline-none font-bold w-20"
+                            placeholder="0,00"
+                          />
+                        </div>
+
+                        {parsePortugueseNumber(fiadoUpfrontAmount) > 0 && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-slate-400">Via:</span>
+                            {(["dinheiro", "pix"] as const).map((m) => (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => setFiadoUpfrontMethod(m)}
+                                className={`px-2 py-1 text-[9px] font-black rounded-lg border cursor-pointer ${
+                                  fiadoUpfrontMethod === m
+                                    ? "bg-purple-600 border-purple-500 text-white"
+                                    : "bg-slate-900 border-white/10 text-slate-400 hover:text-white"
+                                }`}
+                              >
+                                {m.toUpperCase()}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
+
+                    {/* Total Final da Dívida */}
+                    {(() => {
+                      const surcharge = (cartTotal * (parseFloat(fiadoSurchargePercent) || 0)) / 100;
+                      const upfront = parsePortugueseNumber(fiadoUpfrontAmount) || 0;
+                      const finalTotal = Math.max(0, cartTotal + surcharge - upfront);
+                      return (
+                        <div className="p-2.5 rounded-xl bg-purple-950/60 border border-purple-500/40 flex justify-between items-center text-xs">
+                          <div>
+                            <span className="text-[10px] font-black uppercase text-purple-300 block">
+                              Total que vai para a Caderneta:
+                            </span>
+                            <span className="text-[9px] text-slate-400 block">
+                              Vencimento: {fiadoDueDate.split("-").reverse().join("/")}
+                            </span>
+                          </div>
+                          <span className="font-mono font-black text-sm text-amber-300">
+                            {formatCurrency(finalTotal)}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
@@ -22531,6 +24017,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
         }}
         activeTransaction={activeReturnTransaction}
         onConfirmReturn={handleConfirmReturn}
+        formatCurrency={formatCurrency}
+        customProducts={customProducts}
       />
 
       {/* CUSTOM CONFIRM DIALOG MODAL (Iframe safe confirmation) */}

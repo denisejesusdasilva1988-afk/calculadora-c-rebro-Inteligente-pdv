@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ShoppingCart,
@@ -39,7 +39,9 @@ import {
   Clock,
   ExternalLink,
   MessageSquare,
-  Heart
+  Heart,
+  Zap,
+  Filter
 } from "lucide-react";
 
 interface BalcaoComandosModuleProps {
@@ -156,8 +158,360 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
     onSelectAction(actionKey);
   };
 
+  // --- Estados da Barra de Busca Rápida no Topo do Balcão ---
+  const [balcaoSearchQuery, setBalcaoSearchQuery] = useState("");
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("todos");
+
+  // Catálogo completo de ações, atalhos e ferramentas pesquisáveis no Balcão
+  const allBalcaoActions = useMemo(() => [
+    {
+      id: "catalogo",
+      title: "Catálogo & Carrinho",
+      subtitle: "Venda visual com fotos, categorias e leitor de código de barras",
+      category: "vendas",
+      categoryLabel: "Vendas",
+      icon: ShoppingCart,
+      shortcut: "F2",
+      badge: "Venda Rápida",
+      actionKey: "catalogo",
+      keywords: ["venda", "carrinho", "comprar", "produto", "leitor", "foto", "categoria", "balcao", "f2", "item"],
+      gradient: "from-emerald-600/20 to-emerald-950/40",
+      borderColor: "border-emerald-500/40 hover:border-emerald-400",
+      textColor: "text-emerald-400",
+      iconBg: "bg-emerald-500/20 text-emerald-400"
+    },
+    {
+      id: "manual",
+      title: "Lançamento Direto",
+      subtitle: "Teclado de padaria/mercearia rápido e lançamentos avulsos de caixa",
+      category: "vendas",
+      categoryLabel: "Vendas",
+      icon: PlusCircle,
+      shortcut: "F9",
+      badge: "Padaria / Rápido",
+      actionKey: "manual",
+      keywords: ["padaria", "mercearia", "rapido", "teclado", "caixa", "f9", "manual", "dinheiro", "lancamento", "direto"],
+      gradient: "from-pink-600/20 to-pink-950/40",
+      borderColor: "border-pink-500/40 hover:border-pink-400",
+      textColor: "text-pink-400",
+      iconBg: "bg-pink-500/20 text-pink-400"
+    },
+    {
+      id: "concluir_venda",
+      title: "Concluir Venda / Pagamento",
+      subtitle: "Finalizar recebimento no dinheiro, Pix, cartão ou fiado com cálculo de troco",
+      category: "vendas",
+      categoryLabel: "Vendas",
+      icon: DollarSign,
+      shortcut: "F10",
+      badge: "Fechar Venda",
+      actionKey: "concluir_venda",
+      keywords: ["concluir", "fechar", "pagar", "pagamento", "troco", "f10", "finalizar", "recebimento", "pix"],
+      gradient: "from-emerald-600/20 to-emerald-950/40",
+      borderColor: "border-emerald-500/40 hover:border-emerald-400",
+      textColor: "text-emerald-300",
+      iconBg: "bg-emerald-500/20 text-emerald-300"
+    },
+    {
+      id: "scanner",
+      title: "Scanner / Leitor de Código de Barras",
+      subtitle: "Bipar código de barras com a câmera do celular ou leitor USB",
+      category: "vendas",
+      categoryLabel: "Vendas",
+      icon: Camera,
+      shortcut: "F8",
+      badge: "Câmera / USB",
+      actionKey: "scanner",
+      keywords: ["codigo de barras", "leitor", "camera", "bipar", "f8", "scanner", "barras", "ean"],
+      gradient: "from-indigo-600/20 to-indigo-950/40",
+      borderColor: "border-indigo-500/40 hover:border-indigo-400",
+      textColor: "text-indigo-400",
+      iconBg: "bg-indigo-500/20 text-indigo-400"
+    },
+    {
+      id: "reconciliation",
+      title: "Balanceador de Caixa Físico (Gaveta)",
+      subtitle: "Conferir notas e moedas reais da gaveta vs sistema, quebras e sobras",
+      category: "vendas",
+      categoryLabel: "Caixa",
+      icon: Scale,
+      badge: "Conferência",
+      isCustomHandler: () => {
+        setShowReconciliation(true);
+        showNotification("Balanceador de Gaveta aberto para conferência! ⚖️", "info");
+      },
+      keywords: ["gaveta", "dinheiro", "cedulas", "moedas", "conferencia", "quebra", "sobra", "fechamento", "balanceador", "balanco", "contar"],
+      gradient: "from-indigo-600/20 to-indigo-950/40",
+      borderColor: "border-indigo-500/40 hover:border-indigo-400",
+      textColor: "text-indigo-300",
+      iconBg: "bg-indigo-500/20 text-indigo-300"
+    },
+    {
+      id: "estoque",
+      title: "Controle de Estoque",
+      subtitle: "Entrada de mercadorias, alerta de falta, inventário e reposição",
+      category: "estoque",
+      categoryLabel: "Estoque",
+      icon: Layers,
+      badge: "Mercadorias",
+      actionKey: "estoque",
+      keywords: ["estoque", "mercadoria", "custo", "falta", "reposicao", "inventario", "produtos", "cadastro"],
+      gradient: "from-cyan-600/20 to-cyan-950/40",
+      borderColor: "border-cyan-500/40 hover:border-cyan-400",
+      textColor: "text-cyan-400",
+      iconBg: "bg-cyan-500/20 text-cyan-400"
+    },
+    {
+      id: "ficha_tecnica",
+      title: "Precificação & Ficha Técnica",
+      subtitle: "Custo por porção, margem de lucro e preço ideal de venda",
+      category: "estoque",
+      categoryLabel: "Estoque",
+      icon: ChefHat,
+      badge: "Margem & Custo",
+      actionKey: "ficha_tecnica",
+      keywords: ["precificacao", "preco", "lucro", "margem", "ficha tecnica", "custo", "porcao", "receita", "markup"],
+      gradient: "from-pink-600/20 to-pink-950/40",
+      borderColor: "border-pink-500/40 hover:border-pink-400",
+      textColor: "text-pink-400",
+      iconBg: "bg-pink-500/20 text-pink-400"
+    },
+    {
+      id: "clientes",
+      title: "Clientes Fiéis & Caderneta de Fiado",
+      subtitle: "Prazos de pagamento, agendamento de fiado e cobrança no WhatsApp",
+      category: "clientes",
+      categoryLabel: "Clientes",
+      icon: Users,
+      shortcut: "F4",
+      badge: "Fiado & Prazos",
+      actionKey: "clientes",
+      keywords: ["cliente", "fiado", "caderneta", "f4", "divida", "cobranca", "whatsapp", "prazo", "vencimento", "acerto", "fidelidade"],
+      gradient: "from-amber-600/20 to-amber-950/40",
+      borderColor: "border-amber-500/40 hover:border-amber-400",
+      textColor: "text-amber-400",
+      iconBg: "bg-amber-500/20 text-amber-400"
+    },
+    {
+      id: "orcamentos",
+      title: "Orçamentos & Notinhas",
+      subtitle: "Cotações e propostas sem alterar estoque ou saldo do caixa",
+      category: "vendas",
+      categoryLabel: "Vendas",
+      icon: FileText,
+      badge: "Cotações",
+      actionKey: "orcamentos",
+      keywords: ["orcamento", "cotacao", "notinha", "recibo", "imprimir", "proposta", "orcamentos"],
+      gradient: "from-amber-600/20 to-amber-950/40",
+      borderColor: "border-amber-500/40 hover:border-amber-400",
+      textColor: "text-amber-400",
+      iconBg: "bg-amber-500/20 text-amber-400"
+    },
+    {
+      id: "relatorios",
+      title: "Relatórios & BI",
+      subtitle: "Curva ABC, faturamento diário, formas de pagamento e despesas operacionais",
+      category: "gestao",
+      categoryLabel: "Gestão",
+      icon: BarChart,
+      badge: "Gráficos & BI",
+      actionKey: "relatorios",
+      keywords: ["relatorio", "bi", "grafico", "faturamento", "vendas", "lucro", "curva abc", "despesas", "fechamento"],
+      gradient: "from-purple-600/20 to-purple-950/40",
+      borderColor: "border-purple-500/40 hover:border-purple-400",
+      textColor: "text-purple-400",
+      iconBg: "bg-purple-500/20 text-purple-400"
+    },
+    {
+      id: "proprietario",
+      title: "Proprietário & Permissões",
+      subtitle: "Segurança, senhas dos operadores, PIN do dono e bloqueios de caixa",
+      category: "gestao",
+      categoryLabel: "Gestão",
+      icon: Crown,
+      badge: "Segurança 👑",
+      actionKey: "proprietario",
+      keywords: ["proprietario", "dono", "seguranca", "pin", "senha", "operador", "permissao", "gerente", "equipe"],
+      gradient: "from-purple-600/25 to-purple-950/40",
+      borderColor: "border-purple-500/40 hover:border-purple-300",
+      textColor: "text-amber-400",
+      iconBg: "bg-purple-500/20 text-amber-400"
+    },
+    {
+      id: "ajuda",
+      title: "Ajuda & Tutoriais",
+      subtitle: "Manuais de balcão e orientações operacionais",
+      category: "gestao",
+      categoryLabel: "Gestão",
+      icon: Sparkles,
+      badge: "Assistência",
+      actionKey: "ajuda",
+      keywords: ["ajuda", "suporte", "manual", "ia", "tutorial", "orientacao", "duvidas"],
+      gradient: "from-amber-600/20 to-purple-950/40",
+      borderColor: "border-amber-500/40 hover:border-amber-300",
+      textColor: "text-amber-300",
+      iconBg: "bg-amber-500/20 text-amber-300"
+    },
+    // Segmentos e Agendas
+    {
+      id: "seg_barbearia",
+      title: "Agenda de Barbeiro",
+      subtitle: "Degradê, barba terapia e corte masculino com duração livre",
+      category: "agendas",
+      categoryLabel: "Agendas",
+      icon: Scissors,
+      badge: "💈 Barbearia",
+      actionKey: "segmento_barbearia",
+      keywords: ["barba", "cabelo", "barbeiro", "barbearia", "agenda", "horario", "degrade", "salao"],
+      gradient: "from-amber-600/20 to-amber-950/40",
+      borderColor: "border-amber-500/40 hover:border-amber-400",
+      textColor: "text-amber-300",
+      iconBg: "bg-amber-500/20 text-amber-300"
+    },
+    {
+      id: "seg_salao",
+      title: "Agenda Salão de Beleza",
+      subtitle: "Cortes femininos, mechas, escovas, hidratação e química capilar",
+      category: "agendas",
+      categoryLabel: "Agendas",
+      icon: Calendar,
+      badge: "💇‍♀️ Salão de Beleza",
+      actionKey: "segmento_salao",
+      keywords: ["salao", "beleza", "cabeleireira", "corte", "escova", "mechas", "agenda", "horario", "penteado"],
+      gradient: "from-purple-600/20 to-purple-950/40",
+      borderColor: "border-purple-500/40 hover:border-purple-400",
+      textColor: "text-purple-300",
+      iconBg: "bg-purple-500/20 text-purple-300"
+    },
+    {
+      id: "seg_esteticista",
+      title: "Agenda Estética & Pele",
+      subtitle: "Limpeza de pele, drenagem linfática, massagem e bem-estar",
+      category: "agendas",
+      categoryLabel: "Agendas",
+      icon: Sparkles,
+      badge: "✨ Estética",
+      actionKey: "segmento_esteticista",
+      keywords: ["estetica", "pele", "limpeza", "drenagem", "massagem", "agenda", "esteticista"],
+      gradient: "from-rose-600/20 to-rose-950/40",
+      borderColor: "border-rose-500/40 hover:border-rose-400",
+      textColor: "text-rose-300",
+      iconBg: "bg-rose-500/20 text-rose-300"
+    },
+    {
+      id: "seg_manicure",
+      title: "Agenda Manicure & Pedicure",
+      subtitle: "Alongamento em gel, fibra, cutilagem e spa dos pés",
+      category: "agendas",
+      categoryLabel: "Agendas",
+      icon: Heart,
+      badge: "💅 Manicure",
+      actionKey: "segmento_manicure",
+      keywords: ["manicure", "pedicure", "unha", "gel", "esmalte", "esmalteria", "agenda", "pes"],
+      gradient: "from-pink-600/20 to-pink-950/40",
+      borderColor: "border-pink-500/40 hover:border-pink-400",
+      textColor: "text-pink-300",
+      iconBg: "bg-pink-500/20 text-pink-300"
+    },
+    {
+      id: "seg_podologia",
+      title: "Agenda de Podologia",
+      subtitle: "Saúde e tratamento especializado dos pés, calosidades e unhas",
+      category: "agendas",
+      categoryLabel: "Agendas",
+      icon: UserCheck,
+      badge: "🦶 Podologia",
+      actionKey: "segmento_podologia",
+      keywords: ["podologia", "podologo", "pes", "calo", "unha encravada", "agenda", "saude"],
+      gradient: "from-teal-600/20 to-teal-950/40",
+      borderColor: "border-teal-500/40 hover:border-teal-400",
+      textColor: "text-teal-300",
+      iconBg: "bg-teal-500/20 text-teal-300"
+    },
+    {
+      id: "seg_terapia_ocupacional",
+      title: "Agenda Terapia Ocupacional",
+      subtitle: "Reabilitação, AVDs, autonomia funcional, sensorial e cognitiva",
+      category: "agendas",
+      categoryLabel: "Agendas",
+      icon: Repeat,
+      badge: "🧩 Terapia Ocup.",
+      actionKey: "segmento_terapia_ocupacional",
+      keywords: ["terapia ocupacional", "reabilitacao", "sensorial", "cognitivo", "agenda", "avd", "autonomia"],
+      gradient: "from-cyan-600/20 to-cyan-950/40",
+      borderColor: "border-cyan-500/40 hover:border-cyan-400",
+      textColor: "text-cyan-300",
+      iconBg: "bg-cyan-500/20 text-cyan-300"
+    },
+    {
+      id: "seg_psicologia",
+      title: "Agenda Psicologia & Clínica",
+      subtitle: "Psicoterapia, acolhimento clínico, escuta e sessões individuais",
+      category: "agendas",
+      categoryLabel: "Agendas",
+      icon: Clock,
+      badge: "🧠 Psicologia",
+      actionKey: "segmento_psicologia",
+      keywords: ["psicologia", "psicologo", "terapia", "mente", "clinica", "agenda", "sessao", "acolhimento"],
+      gradient: "from-indigo-600/20 to-indigo-950/40",
+      borderColor: "border-indigo-500/40 hover:border-indigo-400",
+      textColor: "text-indigo-300",
+      iconBg: "bg-indigo-500/20 text-indigo-300"
+    },
+    {
+      id: "seg_nutricionista",
+      title: "Agenda Nutricionista & Bioimpedância",
+      subtitle: "Plano alimentar, emagrecimento, reeducação e bioimpedância",
+      category: "agendas",
+      categoryLabel: "Agendas",
+      icon: TrendingUp,
+      badge: "🥗 Nutricionista",
+      actionKey: "segmento_nutricionista",
+      keywords: ["nutricao", "nutricionista", "dieta", "emagrecer", "bioimpedancia", "agenda", "alimento"],
+      gradient: "from-emerald-600/20 to-emerald-950/40",
+      borderColor: "border-emerald-500/40 hover:border-emerald-400",
+      textColor: "text-emerald-300",
+      iconBg: "bg-emerald-500/20 text-emerald-300"
+    },
+    {
+      id: "seg_festas",
+      title: "Agenda Festas & Encomendas",
+      subtitle: "Bolos decorados, kits festas, doces, salgados e orçamentos",
+      category: "agendas",
+      categoryLabel: "Agendas",
+      icon: Sparkles,
+      badge: "🍰 Festas",
+      actionKey: "segmento_festas",
+      keywords: ["festas", "eventos", "bolo", "encomenda", "salgados", "doces", "buffet", "agenda", "aniversario"],
+      gradient: "from-rose-600/20 to-rose-950/40",
+      borderColor: "border-rose-500/40 hover:border-rose-400",
+      textColor: "text-rose-300",
+      iconBg: "bg-rose-500/20 text-rose-300"
+    }
+  ], []);
+
+  // Filtro inteligente em tempo real
+  const filteredActions = useMemo(() => {
+    const q = balcaoSearchQuery.toLowerCase().trim();
+    return allBalcaoActions.filter(item => {
+      // Filtro de categoria
+      if (selectedCategoryFilter !== "todos" && item.category !== selectedCategoryFilter) {
+        return false;
+      }
+      if (!q) return true;
+      const titleMatch = item.title.toLowerCase().includes(q);
+      const subMatch = item.subtitle.toLowerCase().includes(q);
+      const shortcutMatch = item.shortcut && item.shortcut.toLowerCase().includes(q);
+      const keywordMatch = item.keywords.some(k => k.toLowerCase().includes(q));
+      const badgeMatch = item.badge && item.badge.toLowerCase().includes(q);
+      return titleMatch || subMatch || shortcutMatch || keywordMatch || badgeMatch;
+    });
+  }, [allBalcaoActions, balcaoSearchQuery, selectedCategoryFilter]);
+
+  const isSearchActive = balcaoSearchQuery.trim().length > 0 || selectedCategoryFilter !== "todos";
+
   return (
-    <div className="w-full max-w-5xl mx-auto space-y-6 animate-in fade-in duration-200 select-none pb-12">
+    <div id="balcao-comandos-module" className="w-full max-w-5xl mx-auto space-y-6 animate-in fade-in duration-200 select-none pb-12">
       
       {/* 🌟 CABEÇALHO DA ABA 6 - COMANDOS DO BALCÃO & ATALHOS */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 rounded-3xl p-5 sm:p-6 shadow-2xl text-left relative overflow-hidden">
@@ -204,6 +558,209 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 🔍 BARRA DE BUSCA RÁPIDA NO TOPO DO BALCÃO COM FILTROS DE 1 TOQUE */}
+      <div className="bg-slate-900/95 border-2 border-indigo-500/30 hover:border-indigo-500/50 rounded-3xl p-4 sm:p-5 shadow-2xl text-left space-y-3.5 transition-all">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="p-1.5 bg-indigo-500/20 text-indigo-300 rounded-xl">
+              <Zap className="w-4 h-4 text-indigo-400" />
+            </span>
+            <div>
+              <span className="font-black text-white uppercase text-xs block tracking-wide">
+                Busca Rápida de Comandos & Ferramentas
+              </span>
+              <span className="text-slate-400 font-medium text-[10px]">
+                Filtre qualquer ação instantaneamente durante o atendimento no balcão
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-white/10">
+              {filteredActions.length} de {allBalcaoActions.length} ferramentas
+            </span>
+            {isSearchActive && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBalcaoSearchQuery("");
+                  setSelectedCategoryFilter("todos");
+                }}
+                className="px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer"
+              >
+                <XCircle className="w-3 h-3" />
+                <span>Limpar</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Campo de Busca Rápida */}
+        <div className="relative w-full">
+          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+            <Search className="w-5 h-5 text-indigo-400" />
+          </div>
+          <input
+            type="text"
+            value={balcaoSearchQuery}
+            onChange={(e) => setBalcaoSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setBalcaoSearchQuery("");
+                setSelectedCategoryFilter("todos");
+              } else if (e.key === "Enter" && filteredActions.length > 0) {
+                const first = filteredActions[0];
+                if (first.isCustomHandler) first.isCustomHandler();
+                else if (first.actionKey) triggerAction(first.actionKey);
+              }
+            }}
+            placeholder="Buscar ferramenta, atalho ou comando (ex: fiado, estoque, F10, gaveta, salão, preço...)"
+            className="w-full bg-slate-950 border border-indigo-500/30 focus:border-indigo-400 rounded-2xl pl-11 pr-24 py-3 text-xs sm:text-sm text-white font-bold placeholder-slate-500 outline-none transition-all shadow-inner"
+          />
+          {balcaoSearchQuery ? (
+            <button
+              type="button"
+              onClick={() => setBalcaoSearchQuery("")}
+              className="absolute inset-y-0 right-2 my-auto h-7 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[10px] font-black uppercase flex items-center gap-1 cursor-pointer transition-all"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              <span>Limpar</span>
+            </button>
+          ) : (
+            <div className="absolute inset-y-0 right-3 my-auto h-5 flex items-center pointer-events-none">
+              <span className="text-[10px] font-mono text-slate-500 font-bold bg-slate-900 px-2 py-0.5 rounded border border-white/5">
+                Pressione Enter ↵
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Pílulas de Filtro Rápido de Categoria */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
+          <span className="text-[9.5px] font-black uppercase text-slate-500 shrink-0 flex items-center gap-1 mr-1">
+            <Filter className="w-3 h-3 text-indigo-400" />
+            Filtrar:
+          </span>
+
+          {[
+            { id: "todos", label: "Todos", count: allBalcaoActions.length },
+            { id: "vendas", label: "🛒 Vendas & Caixa", count: allBalcaoActions.filter(a => a.category === "vendas").length },
+            { id: "estoque", label: "📦 Estoque & Preço", count: allBalcaoActions.filter(a => a.category === "estoque").length },
+            { id: "clientes", label: "👥 Clientes & Fiado", count: allBalcaoActions.filter(a => a.category === "clientes").length },
+            { id: "agendas", label: "📅 Agendas & Negócios", count: allBalcaoActions.filter(a => a.category === "agendas").length },
+            { id: "gestao", label: "👑 Gestão & Dono", count: allBalcaoActions.filter(a => a.category === "gestao").length }
+          ].map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setSelectedCategoryFilter(cat.id)}
+              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider shrink-0 transition-all cursor-pointer border ${
+                selectedCategoryFilter === cat.id
+                  ? "bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/30"
+                  : "bg-slate-950 text-slate-400 hover:text-white border-white/5 hover:border-white/20"
+              }`}
+            >
+              <span>{cat.label}</span>
+              <span className={`ml-1.5 px-1.5 py-0.2 rounded-full text-[8.5px] font-mono font-bold ${selectedCategoryFilter === cat.id ? "bg-white/20 text-white" : "bg-slate-900 text-slate-400"}`}>
+                {cat.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* ⚡ GRID DE RESULTADOS DA BUSCA (QUANDO O USUÁRIO DIGITA OU FILTRA) */}
+        {isSearchActive && (
+          <div className="pt-2 border-t border-white/5 space-y-3 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between">
+              <span className="text-[10.5px] font-black uppercase text-indigo-300 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                Resultados encontrados ({filteredActions.length}):
+              </span>
+              <span className="text-[9.5px] text-slate-400 font-medium">
+                Clique no card para abrir imediatamente
+              </span>
+            </div>
+
+            {filteredActions.length === 0 ? (
+              <div className="p-6 bg-slate-950/70 border border-dashed border-white/10 rounded-2xl text-center space-y-2">
+                <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto" />
+                <p className="text-xs font-black uppercase text-white">
+                  Nenhum comando ou ferramenta encontrado para "{balcaoSearchQuery}"
+                </p>
+                <p className="text-[10.5px] text-slate-400 max-w-md mx-auto">
+                  Dica: Tente buscar por palavras como <strong className="text-white">vendas</strong>, <strong className="text-white">fiado</strong>, <strong className="text-white">estoque</strong>, <strong className="text-white">F10</strong>, <strong className="text-white">gaveta</strong>, <strong className="text-white">barbeiro</strong> ou <strong className="text-white">preço</strong>.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBalcaoSearchQuery("");
+                    setSelectedCategoryFilter("todos");
+                  }}
+                  className="mt-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs uppercase rounded-xl transition-all cursor-pointer shadow-md"
+                >
+                  Limpar Busca e Ver Todas as Ferramentas 🔄
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredActions.map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <button
+                      key={action.id}
+                      type="button"
+                      onClick={() => {
+                        if (action.isCustomHandler) {
+                          action.isCustomHandler();
+                        } else if (action.actionKey) {
+                          triggerAction(action.actionKey);
+                        }
+                      }}
+                      className={`p-3.5 bg-slate-950/90 hover:bg-slate-900 border ${action.borderColor} rounded-2xl flex flex-col justify-between gap-2.5 transition-all duration-200 cursor-pointer shadow-lg hover:shadow-xl group text-left active:scale-[0.98] relative overflow-hidden`}
+                    >
+                      <div className="flex items-start justify-between gap-2 w-full">
+                        <div className="flex items-center gap-2.5">
+                          <div className={`p-2.5 ${action.iconBg} rounded-xl group-hover:scale-110 transition-transform shrink-0`}>
+                            <Icon className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-black uppercase tracking-wide text-white block group-hover:text-indigo-200 transition-colors">
+                              {action.title}
+                            </span>
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                              {action.categoryLabel}
+                            </span>
+                          </div>
+                        </div>
+
+                        {action.shortcut ? (
+                          <kbd className="px-2 py-0.5 rounded bg-slate-900 text-indigo-300 border border-indigo-500/30 text-[10px] font-mono font-black shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                            {action.shortcut}
+                          </kbd>
+                        ) : action.badge ? (
+                          <span className="px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase bg-slate-900 text-slate-300 border border-white/10 shrink-0">
+                            {action.badge}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <p className="text-[10px] text-slate-400 font-medium leading-relaxed line-clamp-2">
+                        {action.subtitle}
+                      </p>
+
+                      <div className="flex items-center justify-between pt-1 border-t border-white/[0.04] text-[9.5px] font-black uppercase text-indigo-400 group-hover:text-indigo-300">
+                        <span>Acessar agora</span>
+                        <span className="font-mono text-xs">➔</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ⚖️ 1. O BALANCEADOR DE CAIXA FÍSICO (DO PRINT) */}

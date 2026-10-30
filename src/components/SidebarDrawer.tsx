@@ -21,6 +21,7 @@ import {
   LogOut,
   X,
   MessageSquare,
+  MessageCircle,
   Sparkles,
   ChevronRight,
   User,
@@ -65,7 +66,9 @@ import {
   Bot,
   ChefHat,
   BookOpen,
-  CheckCircle2
+  CheckCircle2,
+  Palette,
+  Archive
 } from "lucide-react";
 
 interface SidebarDrawerProps {
@@ -96,6 +99,8 @@ interface SidebarDrawerProps {
   onToggleNicheLock?: () => void;
   contabilidadeActiveTab?: string;
   setContabilidadeActiveTab?: (tab: any) => void;
+  onOpenThemeModal?: () => void;
+  onOpenWhatsAppBusiness?: () => void;
 }
 
 export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
@@ -125,7 +130,9 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   isNicheLocked = false,
   onToggleNicheLock,
   contabilidadeActiveTab = "tributos",
-  setContabilidadeActiveTab
+  setContabilidadeActiveTab,
+  onOpenThemeModal,
+  onOpenWhatsAppBusiness
 }) => {
   const [isNicheDropdownOpen, setIsNicheDropdownOpen] = useState(false);
   const [isAba5Open, setIsAba5Open] = useState(true);
@@ -1282,6 +1289,91 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     </div>
                     <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-black">GRÁTIS</span>
                   </button>
+
+                  {/* 5.1 Pastas do Gaveteiro */}
+                  <button
+                    onClick={() => handleNavigate("pastas")}
+                    className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left ${
+                      notepadMode === "pastas"
+                        ? "bg-amber-600/30 border border-amber-500/40 text-amber-200 font-extrabold"
+                        : "hover:bg-white/5 border border-transparent text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Archive className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span className="text-[11.5px] uppercase font-bold tracking-wide">
+                        Pastas do Gaveteiro 🗄️
+                      </span>
+                    </div>
+                    <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-black">ORGANIZAR</span>
+                  </button>
+
+                  {/* 5.2 Cores & Temas */}
+                  <button
+                    onClick={() => {
+                      onClose();
+                      if (onOpenThemeModal) onOpenThemeModal();
+                    }}
+                    className="w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left hover:bg-white/5 border border-transparent text-slate-300"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Palette className="w-4 h-4 text-pink-400 shrink-0" />
+                      <span className="text-[11.5px] uppercase font-bold tracking-wide">
+                        Cores & Temas 🎨
+                      </span>
+                    </div>
+                    <span className="text-[8px] bg-pink-500/20 text-pink-300 px-1.5 py-0.5 rounded font-black">VISUAL</span>
+                  </button>
+
+                  {/* 5.3 Painel do Proprietário */}
+                  <button
+                    onClick={() => handleNavigate("pdv", "proprietario")}
+                    className="w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left hover:bg-purple-950/30 border border-transparent text-purple-200"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span className="text-[11.5px] uppercase font-bold tracking-wide">
+                        Painel do Proprietário 👑
+                      </span>
+                    </div>
+                    <span className="text-[8px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded font-black">DONO</span>
+                  </button>
+
+                  {/* 5.4 WhatsApp Business para Empreendedores */}
+                  <div className="p-3 bg-gradient-to-r from-emerald-950/60 to-slate-900 border-2 border-emerald-500/40 rounded-2xl shadow-lg space-y-2 text-left">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                          <MessageCircle className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="text-[11px] font-black uppercase tracking-wider text-white block">
+                            WhatsApp Business
+                          </span>
+                          <span className="text-[9px] font-bold text-emerald-400 block">
+                            Essencial para Comércios & IA
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-[8px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded font-black">
+                        GRÁTIS
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-300 leading-normal font-medium">
+                      Descubra as vantagens do WhatsApp Business com IA da Meta, catálogo de produtos e respostas automáticas 24h para o seu negócio!
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        if (onOpenWhatsAppBusiness) onOpenWhatsAppBusiness();
+                      }}
+                      className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <span>Baixar & Ver Vantagens 📲</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
 
                   {/* 🌟 PROFISSIONAIS DA EQUIPE (SELEÇÃO DIRETA NO SIDEBAR) */}
                   <div className="bg-slate-950/80 border border-purple-500/30 rounded-2xl p-2.5 space-y-2 shadow-md">

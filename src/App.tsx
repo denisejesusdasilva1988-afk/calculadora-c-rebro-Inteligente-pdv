@@ -157,6 +157,7 @@ import { ThemeSelectorModal, ThemeMode, ColorPalette } from "./components/ThemeS
 import { MarketingAdModal } from "./components/MarketingAdModal";
 import { MarketingAdsCarousel, MarketingAdDetailModal } from "./components/MarketingAdsView";
 import { MarketingAd, loadLocalMarketingAds, saveLocalMarketingAds } from "./utils/marketingAds";
+import { WhatsAppBusinessModal } from "./components/WhatsAppBusinessModal";
 import {
   getCurrentSubscriptionTier,
   saveSubscriptionTier,
@@ -1011,6 +1012,31 @@ export default function App() {
   });
 
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const navScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollNavLeft, setCanScrollNavLeft] = useState(false);
+  const [canScrollNavRight, setCanScrollNavRight] = useState(true);
+
+  const checkNavScroll = useCallback(() => {
+    if (navScrollRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = navScrollRef.current;
+      setCanScrollNavLeft(scrollLeft > 6);
+      setCanScrollNavRight(scrollLeft + clientWidth < scrollWidth - 6);
+    }
+  }, []);
+
+  const scrollNav = (direction: "left" | "right") => {
+    if (navScrollRef.current) {
+      const offset = direction === "left" ? -220 : 220;
+      navScrollRef.current.scrollBy({ left: offset, behavior: "smooth" });
+      setTimeout(checkNavScroll, 350);
+    }
+  };
+
+  useEffect(() => {
+    checkNavScroll();
+    window.addEventListener("resize", checkNavScroll);
+    return () => window.removeEventListener("resize", checkNavScroll);
+  }, [checkNavScroll]);
 
   useEffect(() => {
     try {
@@ -2952,6 +2978,7 @@ export default function App() {
     "calc",
   );
   const [showAppSlidesModal, setShowAppSlidesModal] = useState(false);
+  const [showWhatsAppBusinessModal, setShowWhatsAppBusinessModal] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
 
   useEffect(() => {
@@ -7886,8 +7913,8 @@ export default function App() {
 
       {/* Dynamic Header with Branding */}
       <header className="w-full bg-slate-950/90 backdrop-blur-md border-b border-emerald-500/20 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 sm:py-4">
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="w-full max-w-6xl mx-auto flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3.5 min-w-0">
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
             <button
               onClick={() => setIsSidebarOpen(true)}
               className="p-2 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 text-slate-300 hover:text-white transition-all cursor-pointer shrink-0 flex items-center justify-center border border-white/5 shadow-sm"
@@ -7934,7 +7961,31 @@ export default function App() {
               )}
             </div>
           </div>
-          <div className="flex gap-1 bg-slate-900 p-1 rounded-2xl border border-white/5 w-full sm:w-auto justify-between sm:justify-start">
+
+          {/* Navigation Bar with swipe + scroll arrow controls */}
+          <div className="relative w-full sm:w-auto min-w-0 max-w-full flex items-center">
+            {canScrollNavLeft && (
+              <button
+                type="button"
+                onClick={() => scrollNav("left")}
+                className="sm:hidden absolute left-0 z-20 p-1.5 rounded-xl bg-slate-900/95 border border-emerald-500/40 text-emerald-300 shadow-xl transition-all cursor-pointer backdrop-blur-sm active:scale-95 flex items-center justify-center -ml-1"
+                title="Voltar abas para a esquerda"
+                aria-label="Voltar abas para a esquerda"
+              >
+                <ChevronLeft className="w-4 h-4 text-emerald-400" />
+              </button>
+            )}
+
+            <div
+              ref={navScrollRef}
+              onScroll={checkNavScroll}
+              className="flex gap-1.5 bg-slate-900/95 p-1.5 rounded-2xl border border-white/10 w-full min-w-0 max-w-full overflow-x-auto scrollbar-none touch-scroll-x items-center shadow-inner overscroll-x-contain"
+              style={{
+                WebkitOverflowScrolling: "touch",
+                touchAction: "pan-x pan-y",
+                scrollBehavior: "smooth"
+              }}
+            >
             <button
               onClick={() => {
                 if (!user) {
@@ -7947,7 +7998,7 @@ export default function App() {
                 setActiveTab("calc");
                 handleSetNotepadMode("pdv", true);
               }}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3.5 rounded-xl transition-all cursor-pointer font-bold ${
+              className={`shrink-0 flex items-center justify-center gap-1.5 py-2 px-3.5 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap active:scale-95 ${
                 activeTab === "calc" && notepadMode === "pdv" && pdvCheckoutOnly
                   ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20 ring-1 ring-emerald-400" 
                   : "text-emerald-400 hover:text-white hover:bg-emerald-500/10 border border-emerald-500/20"
@@ -7973,7 +8024,7 @@ export default function App() {
                 handleSetNotepadMode("pdv", false);
                 setPdvActiveSubTab("impressoras");
               }}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
+              className={`shrink-0 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap active:scale-95 ${
                 activeTab === "calc" && notepadMode === "pdv" && pdvActiveSubTab === "impressoras"
                   ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20 ring-1 ring-emerald-400" 
                   : "text-emerald-400 hover:text-white hover:bg-emerald-500/10 border border-emerald-500/20"
@@ -7998,7 +8049,7 @@ export default function App() {
                 setActiveTab("calc");
                 handleSetNotepadMode("notes");
               }}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
+              className={`shrink-0 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap active:scale-95 ${
                 activeTab === "calc" && ["notes", "edit", "super", "folders", "pricing", "encartes", "revisão"].includes(notepadMode)
                   ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/15" 
                   : "text-slate-400 hover:text-white hover:bg-white/5"
@@ -8023,7 +8074,7 @@ export default function App() {
                 setActiveTab("calc");
                 handleSetNotepadMode("pastas");
               }}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
+              className={`shrink-0 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap active:scale-95 ${
                 activeTab === "calc" && notepadMode === "pastas"
                   ? "bg-amber-600 text-white shadow-md shadow-amber-500/20 ring-1 ring-amber-400" 
                   : "text-amber-400 hover:text-white hover:bg-amber-500/10 border border-amber-500/20"
@@ -8054,7 +8105,7 @@ export default function App() {
                 handleSetNotepadMode("pdv", false);
                 setPdvActiveSubTab("proprietario");
               }}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
+              className={`shrink-0 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap active:scale-95 ${
                 activeTab === "calc" && notepadMode === "pdv" && !pdvCheckoutOnly && pdvActiveSubTab === "proprietario"
                   ? "bg-purple-600 text-white shadow-md shadow-purple-500/15" 
                   : "text-purple-400 hover:text-white hover:bg-purple-500/10 border border-purple-500/20"
@@ -8068,7 +8119,7 @@ export default function App() {
             </button>
             <button
               onClick={() => setActiveTab("profile")}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
+              className={`shrink-0 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap active:scale-95 ${
                 activeTab === "profile" 
                   ? "bg-purple-600 text-white shadow-md shadow-purple-500/15" 
                   : "text-slate-400 hover:text-white hover:bg-white/5"
@@ -8081,7 +8132,7 @@ export default function App() {
             </button>
             <button
               onClick={() => setActiveTab("help")}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
+              className={`shrink-0 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap active:scale-95 ${
                 activeTab === "help" 
                   ? "bg-cyan-600 text-white shadow-md shadow-cyan-500/15" 
                   : "text-slate-400 hover:text-white hover:bg-white/5"
@@ -8096,7 +8147,7 @@ export default function App() {
             {/* 👉 Aba com a maozinha e dedinho apontando explicativo do aplicativo */}
             <button
               onClick={() => setShowAppSlidesModal(true)}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3.5 rounded-xl transition-all cursor-pointer font-black bg-gradient-to-r from-amber-500/20 via-yellow-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 border border-amber-500/40 shadow-md shadow-amber-500/10 active:scale-95 ring-1 ring-amber-400/40"
+              className="shrink-0 flex items-center justify-center gap-1.5 py-2 px-3.5 rounded-xl transition-all cursor-pointer font-black whitespace-nowrap bg-gradient-to-r from-amber-500/20 via-yellow-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 border border-amber-500/40 shadow-md shadow-amber-500/10 active:scale-95 ring-1 ring-amber-400/40"
               title="Aba Explicativa: Conheça todos os diferenciais, slides e vídeos do aplicativo!"
             >
               <span className="text-base leading-none">👉</span>
@@ -8109,7 +8160,7 @@ export default function App() {
             <button
               type="button"
               onClick={cycleFontScale}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-black border ${
+              className={`shrink-0 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-black whitespace-nowrap border active:scale-95 ${
                 fontScale === "extragrande"
                   ? "bg-emerald-600 text-white border-emerald-400 shadow-md shadow-emerald-500/20 ring-1 ring-emerald-300"
                   : fontScale === "grande"
@@ -8130,7 +8181,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsThemeModalOpen(true)}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-black bg-gradient-to-r from-purple-500/20 via-pink-500/20 to-indigo-500/20 hover:from-purple-500/30 hover:to-pink-500/30 text-purple-200 border border-purple-500/40 shadow-md shadow-purple-500/10 active:scale-95"
+              className="shrink-0 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-black whitespace-nowrap bg-gradient-to-r from-purple-500/20 via-pink-500/20 to-indigo-500/20 hover:from-purple-500/30 hover:to-pink-500/30 text-purple-200 border border-purple-500/40 shadow-md shadow-purple-500/10 active:scale-95"
               title="Escolher Modo Claro, Modo Escuro e Cores da Calculadora Cérebro PDV"
             >
               <Palette className="w-3.5 h-3.5 text-pink-400" />
@@ -8141,7 +8192,7 @@ export default function App() {
             {user && isAdmin && (
               <button
                 onClick={() => setActiveTab("admin")}
-                className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold ${
+                className={`shrink-0 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap active:scale-95 ${
                   activeTab === "admin" 
                     ? "bg-amber-600 text-white shadow-md shadow-amber-500/15" 
                     : "text-slate-400 hover:text-white hover:bg-white/5"
@@ -8151,6 +8202,19 @@ export default function App() {
                 <span className="text-[10px] font-black uppercase tracking-tight">
                   Admin
                 </span>
+              </button>
+            )}
+          </div>
+
+            {canScrollNavRight && (
+              <button
+                type="button"
+                onClick={() => scrollNav("right")}
+                className="sm:hidden absolute right-0 z-20 p-1.5 rounded-xl bg-slate-900/95 border border-emerald-500/40 text-emerald-300 shadow-xl transition-all cursor-pointer backdrop-blur-sm active:scale-95 flex items-center justify-center animate-pulse -mr-1"
+                title="Avançar abas para a direita (Bloco, Pastas, Proprietário, Cores, Admin)"
+                aria-label="Avançar abas para a direita"
+              >
+                <ChevronRight className="w-4 h-4 text-emerald-400" />
               </button>
             )}
           </div>
@@ -15482,6 +15546,8 @@ export default function App() {
             onOpenPaywall={(feature, tier) => {
               openSubscriptionModal(feature, tier);
             }}
+            onOpenThemeModal={() => setIsThemeModalOpen(true)}
+            onOpenWhatsAppBusiness={() => setShowWhatsAppBusinessModal(true)}
           />
         )}
       </AnimatePresence>
@@ -15515,6 +15581,13 @@ export default function App() {
         onChangeColorPalette={setColorPalette}
         fontScale={fontScale}
         onCycleFontScale={cycleFontScale}
+        showNotification={showNotification}
+      />
+
+      {/* Modal Educativo e de Download do WhatsApp Business para Negócios */}
+      <WhatsAppBusinessModal
+        isOpen={showWhatsAppBusinessModal}
+        onClose={() => setShowWhatsAppBusinessModal(false)}
         showNotification={showNotification}
       />
     </div>
