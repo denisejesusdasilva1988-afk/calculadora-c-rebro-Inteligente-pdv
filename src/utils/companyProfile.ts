@@ -123,10 +123,23 @@ export function saveCompanyProfile(profile: CompanyProfile, userId?: string | nu
     localStorage.setItem("pdv_company_profile", jsonStr);
     
     // Atualizar chaves individuais para retrocompatibilidade
-    if (profile.name) localStorage.setItem("pdv_store_name", profile.name);
-    if (profile.cnpjCpf) localStorage.setItem("pdv_store_cnpj_cpf", profile.cnpjCpf);
-    if (profile.ownerName) localStorage.setItem("pdv_owner_name", profile.ownerName);
-    if (profile.ownerCpf) localStorage.setItem("pdv_owner_cpf", profile.ownerCpf);
+    const cpfVal = profile.ownerCpf || profile.cnpjCpf || "";
+    if (profile.name) {
+      localStorage.setItem("pdv_store_name", profile.name);
+      if (userId && userId !== "guest_visitor") localStorage.setItem(`pdv_store_name_user_${userId}`, profile.name);
+    }
+    if (cpfVal) {
+      localStorage.setItem("pdv_store_cnpj_cpf", cpfVal);
+      localStorage.setItem("pdv_owner_cpf", cpfVal);
+      if (userId && userId !== "guest_visitor") {
+        localStorage.setItem(`pdv_store_cnpj_cpf_user_${userId}`, cpfVal);
+        localStorage.setItem(`pdv_owner_cpf_user_${userId}`, cpfVal);
+      }
+    }
+    if (profile.ownerName) {
+      localStorage.setItem("pdv_owner_name", profile.ownerName);
+      if (userId && userId !== "guest_visitor") localStorage.setItem(`pdv_owner_name_user_${userId}`, profile.ownerName);
+    }
     if (profile.pixKey) localStorage.setItem("pdv_pix_key", profile.pixKey);
     if (profile.logoUrl !== undefined) localStorage.setItem("pdv_company_logo", profile.logoUrl || "");
     if (profile.phone) localStorage.setItem("pdv_store_phone", profile.phone);

@@ -117,16 +117,22 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
     try {
       saveCompanyProfile(profile, userId);
 
-      // Salva no Firestore se houver usuário conectado
+      // Salva no Firestore se houver usuário conectado com timeout de segurança
       if (userId && userId !== "guest_visitor" && db) {
         try {
           const userDocRef = doc(db, "userData", userId);
-          await setDoc(userDocRef, {
+          const cloudPromise = setDoc(userDocRef, {
+            userId: userId,
             companyProfile: profile,
             storeName: profile.name,
             storeCnpjCpf: profile.cnpjCpf,
+            ownerCpf: profile.ownerCpf || profile.cnpjCpf,
+            ownerName: profile.ownerName,
             updatedAt: new Date().toISOString()
           }, { merge: true });
+
+          const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 2500));
+          await Promise.race([cloudPromise, timeoutPromise]);
         } catch (cloudErr) {
           console.warn("Aviso ao salvar perfil na nuvem:", cloudErr);
         }
