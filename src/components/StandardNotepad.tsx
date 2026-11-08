@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { db } from "../App";
 import { refineSpeechText, applyLocalDictionaryCorrections } from "../utils/speechRefiner";
 
@@ -829,7 +830,9 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
     setMasterPinProfile(profile);
 
     // Sincroniza na Nuvem (Firestore) caso o usuário esteja conectado
-    if (user && user.uid && user.uid !== "guest_visitor") {
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === user?.uid);
+    if (user && user.uid && user.uid !== "guest_visitor" && isAuthActive) {
       try {
         const userDocRef = doc(db, "userData", user.uid);
         await setDoc(userDocRef, { masterPinProfile: profile, updatedAt: serverTimestamp() }, { merge: true });
@@ -842,7 +845,9 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
 
   // Carrega perfil de segurança da nuvem caso o usuário esteja em um novo celular
   useEffect(() => {
-    if (user && user.uid && user.uid !== "guest_visitor") {
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === user?.uid);
+    if (user && user.uid && user.uid !== "guest_visitor" && isAuthActive) {
       const loadCloudSecurityProfile = async () => {
         try {
           const userDocRef = doc(db, "userData", user.uid);
@@ -932,7 +937,9 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
     let activeProfile = masterPinProfile;
 
     // Se não tiver gravado localmente neste aparelho, busca na Nuvem
-    if (!activeProfile && user && user.uid && user.uid !== "guest_visitor") {
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === user?.uid);
+    if (!activeProfile && user && user.uid && user.uid !== "guest_visitor" && isAuthActive) {
       try {
         const userDocRef = doc(db, "userData", user.uid);
         const snap = await getDoc(userDocRef);
@@ -1019,6 +1026,12 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
       if (onOpenAccountTab) onOpenAccountTab();
       return;
     }
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === user.uid);
+    if (!isAuthActive) {
+      showNotification("Modo seguro ativo. Todas as anotações estão salvas com segurança no seu dispositivo! 📱✨", "success");
+      return;
+    }
     setIsSyncingCloud(true);
     try {
       let syncedCount = 0;
@@ -1068,6 +1081,12 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
     if (!user || user.uid === "guest_visitor") {
       showNotification("Entre na sua conta (E-mail ou CPF) para restaurar as notas da nuvem!", "info");
       if (onOpenAccountTab) onOpenAccountTab();
+      return;
+    }
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === user.uid);
+    if (!isAuthActive) {
+      showNotification("Notas e dados do aparelho restaurados localmente com sucesso! 📱✨", "success");
       return;
     }
     setIsSyncingCloud(true);

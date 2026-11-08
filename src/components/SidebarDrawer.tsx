@@ -68,7 +68,10 @@ import {
   BookOpen,
   CheckCircle2,
   Palette,
-  Archive
+  Archive,
+  Smartphone,
+  Laptop,
+  Zap
 } from "lucide-react";
 
 interface SidebarDrawerProps {
@@ -562,6 +565,9 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       lava_jato: { name: "Lava Jato", label: "Lava Jato", icon: Car, color: "text-cyan-400 bg-cyan-500/10" },
       auto_pecas: { name: "Autopeças & Peças", label: "Autopeças", icon: Wrench, color: "text-emerald-400 bg-emerald-500/10" },
       mecanico: { name: "Oficina Mecânica", label: "Mecânico", icon: Wrench, color: "text-sky-400 bg-sky-500/10" },
+      assistencia_celular: { name: "Assistência Técnica de Celulares", label: "Celulares", icon: Smartphone, color: "text-blue-400 bg-blue-500/10" },
+      informatica: { name: "Informática & Computadores", label: "Informática", icon: Laptop, color: "text-cyan-400 bg-cyan-500/10" },
+      eletronicos_eletro: { name: "Eletrônicos & Eletrodomésticos", label: "Eletro & TV", icon: Zap, color: "text-amber-400 bg-amber-500/10" },
       comercio_geral: { name: "Loja / Comércio Geral", label: "Comércio", icon: Store, color: "text-emerald-400 bg-emerald-500/10" },
       loja_racao: { name: "Loja de Ração & Pet", label: "Loja de Ração", icon: Dog, color: "text-amber-400 bg-amber-500/10" },
       aviario: { name: "Aviário & Rações", label: "Aviário", icon: Bird, color: "text-lime-400 bg-lime-500/10" },
@@ -593,6 +599,9 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
     { id: "lava_jato", name: "Lava Jato", label: "Lava Jato" },
     { id: "auto_pecas", name: "Autopeças & Peças", label: "Autopeças" },
     { id: "mecanico", name: "Oficina Mecânica", label: "Mecânico" },
+    { id: "assistencia_celular", name: "Assistência Técnica de Celulares", label: "Celulares" },
+    { id: "informatica", name: "Informática & Computadores", label: "Informática" },
+    { id: "eletronicos_eletro", name: "Eletrônicos & Eletrodomésticos", label: "Eletro & TV" },
     { id: "comercio_geral", name: "Loja / Comércio Geral", label: "Comércio" },
     { id: "loja_racao", name: "Loja de Ração & Pet", label: "Loja de Ração" },
     { id: "aviario", name: "Aviário & Rações", label: "Aviário" },
@@ -1633,6 +1642,25 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
                   </button>
 
+                  {/* 1.5 Calculadora & Sucata de Ouro */}
+                  <button
+                    onClick={() => handleNavigate("pricing")}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer text-left ${
+                      notepadMode === "pricing"
+                        ? "bg-amber-600/20 border border-amber-500/30 text-amber-300 font-extrabold shadow-[0_0_15px_rgba(245,158,11,0.15)]"
+                        : "hover:bg-white/5 border border-transparent text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Percent className="w-5 h-5 text-amber-400 shrink-0" />
+                      <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
+                        Calculadora & Sucata
+                        <span className="text-[8px] bg-emerald-500 text-white font-black px-1.5 py-0.5 rounded">NOVO</span>
+                      </span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 opacity-50" />
+                  </button>
+
                   {/* 2. Cadastro de produto */}
                   <button
                     onClick={() => handleNavigate("pdv", "cadastro_produtos")}
@@ -2168,16 +2196,16 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                       <div className="pl-2 pr-1 py-1 space-y-1 border-t border-white/5 animate-fadeIn">
                         {/* 1. Precificação */}
                         <button
-                          onClick={() => handleNavigate("pdv", "pricing")}
+                          onClick={() => handleNavigate("pricing")}
                           className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all cursor-pointer text-left ${
-                            notepadMode === "pdv" && (pdvActiveSubTab === "ficha_tecnica" || pdvActiveSubTab === "pricing")
-                              ? "bg-pink-600/30 text-pink-200 font-extrabold border border-pink-500/30 shadow-sm"
+                            notepadMode === "pricing"
+                              ? "bg-amber-600/30 text-amber-200 font-extrabold border border-amber-500/30 shadow-sm"
                               : "text-slate-300 hover:bg-white/5 hover:text-white"
                           }`}
                         >
                           <span className="flex items-center gap-2">
-                            <Percent className="w-4 h-4 text-pink-400 shrink-0" />
-                            <span>Calculadora de Precificação 💰</span>
+                            <Percent className="w-4 h-4 text-amber-400 shrink-0" />
+                            <span>Calculadora & Sucata de Ouro ♻️</span>
                           </span>
                           <ChevronRight className="w-3 h-3 opacity-40" />
                         </button>

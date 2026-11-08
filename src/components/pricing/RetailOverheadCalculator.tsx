@@ -15,7 +15,9 @@ import {
   Scale,
   Package,
   Layers,
-  FileText
+  FileText,
+  Plus,
+  RotateCcw
 } from "lucide-react";
 import { SmartNumericInput } from "./SmartNumericInput";
 
@@ -137,20 +139,242 @@ export function RetailOverheadCalculator({
   showNotification,
   onApplyToPDVCatalog
 }: RetailOverheadCalculatorProps) {
-  const [productName, setProductName] = useState<string>(RETAIL_PRESETS[0].name);
-  const [category, setCategory] = useState<string>(RETAIL_PRESETS[0].category);
-  const [purchasePrice, setPurchasePrice] = useState<number>(RETAIL_PRESETS[0].purchasePrice);
-  const [freightGasCost, setFreightGasCost] = useState<number>(RETAIL_PRESETS[0].freightGasCost);
-  const [bagCost, setBagCost] = useState<number>(RETAIL_PRESETS[0].bagCost);
-  const [paperRollCost, setPaperRollCost] = useState<number>(RETAIL_PRESETS[0].paperRollCost);
-  const [cardFeePct, setCardFeePct] = useState<number>(RETAIL_PRESETS[0].cardFeePct);
-  const [storeFixedCostPct, setStoreFixedCostPct] = useState<number>(RETAIL_PRESETS[0].storeFixedCostPct);
-  const [taxPct, setTaxPct] = useState<number>(RETAIL_PRESETS[0].taxPct);
-  const [wasteSpoilagePct, setWasteSpoilagePct] = useState<number>(RETAIL_PRESETS[0].wasteSpoilagePct);
-  const [targetNetMarginPct, setTargetNetMarginPct] = useState<number>(RETAIL_PRESETS[0].targetNetMarginPct);
-  const [practicePrice, setPracticePrice] = useState<number>(RETAIL_PRESETS[0].practicePrice);
+  // Produtos salvos em localStorage para personalização permanente
+  const [retailPresets, setRetailPresets] = useState<RetailItemPreset[]>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return RETAIL_PRESETS;
+  });
+
+  const [productName, setProductName] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].name;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].name;
+  });
+
+  const [category, setCategory] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].category;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].category;
+  });
+
+  const [purchasePrice, setPurchasePrice] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].purchasePrice;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].purchasePrice;
+  });
+
+  const [freightGasCost, setFreightGasCost] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].freightGasCost;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].freightGasCost;
+  });
+
+  const [bagCost, setBagCost] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].bagCost;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].bagCost;
+  });
+
+  const [paperRollCost, setPaperRollCost] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].paperRollCost;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].paperRollCost;
+  });
+
+  const [cardFeePct, setCardFeePct] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].cardFeePct;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].cardFeePct;
+  });
+
+  const [storeFixedCostPct, setStoreFixedCostPct] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].storeFixedCostPct;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].storeFixedCostPct;
+  });
+
+  const [taxPct, setTaxPct] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].taxPct;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].taxPct;
+  });
+
+  const [wasteSpoilagePct, setWasteSpoilagePct] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].wasteSpoilagePct;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].wasteSpoilagePct;
+  });
+
+  const [targetNetMarginPct, setTargetNetMarginPct] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].targetNetMarginPct;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].targetNetMarginPct;
+  });
+
+  const [practicePrice, setPracticePrice] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("retail_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].practicePrice;
+      }
+    } catch {}
+    return RETAIL_PRESETS[0].practicePrice;
+  });
 
   const [simulatedDailyVolume, setSimulatedDailyVolume] = useState<number>(30);
+
+  // Salvar o produto ativo nos modelos prontos
+  const handleSaveRetailPreset = () => {
+    const currentItem: RetailItemPreset = {
+      name: productName,
+      category,
+      purchasePrice,
+      freightGasCost,
+      bagCost,
+      paperRollCost,
+      cardFeePct,
+      storeFixedCostPct,
+      taxPct,
+      wasteSpoilagePct,
+      targetNetMarginPct,
+      practicePrice
+    };
+
+    setRetailPresets((prev) => {
+      const idx = prev.findIndex((p) => p.name === productName);
+      let updated: RetailItemPreset[];
+      if (idx >= 0) {
+        updated = [...prev];
+        updated[idx] = currentItem;
+      } else {
+        updated = [currentItem, ...prev];
+      }
+      try {
+        localStorage.setItem("retail_presets_custom_v1", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    showNotification(`Produto "${productName}" salvo com sucesso nos modelos! 💾🛒`, "success");
+  };
+
+  // Adicionar novo produto modelo
+  const handleAddNewRetailPreset = () => {
+    const newName = `Novo Produto (${retailPresets.length + 1})`;
+    const newPreset: RetailItemPreset = {
+      name: newName,
+      category: "Mercearia & Alimentos",
+      purchasePrice: 10.0,
+      freightGasCost: 0.50,
+      bagCost: 0.15,
+      paperRollCost: 0.04,
+      cardFeePct: 2.8,
+      storeFixedCostPct: 9.0,
+      taxPct: 4.0,
+      wasteSpoilagePct: 1.5,
+      targetNetMarginPct: 25.0,
+      practicePrice: 16.90
+    };
+
+    setRetailPresets((prev) => {
+      const updated = [newPreset, ...prev];
+      try {
+        localStorage.setItem("retail_presets_custom_v1", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    handleLoadPreset(newPreset);
+    showNotification(`Novo modelo "${newName}" criado! Edite os valores e clique em Salvar 💾✍️`, "success");
+  };
+
+  // Excluir modelo
+  const handleDeleteRetailPreset = (nameToDelete: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (retailPresets.length <= 1) {
+      showNotification("Você deve manter pelo menos 1 modelo de produto.", "warning");
+      return;
+    }
+    const updated = retailPresets.filter((p) => p.name !== nameToDelete);
+    setRetailPresets(updated);
+    try {
+      localStorage.setItem("retail_presets_custom_v1", JSON.stringify(updated));
+    } catch {}
+    if (productName === nameToDelete && updated.length > 0) {
+      handleLoadPreset(updated[0]);
+    }
+    showNotification(`Modelo "${nameToDelete}" removido da lista. 🗑️`, "info");
+  };
+
+  // Restaurar modelos padrão
+  const handleResetRetailPresets = () => {
+    try {
+      localStorage.removeItem("retail_presets_custom_v1");
+    } catch {}
+    setRetailPresets(RETAIL_PRESETS);
+    handleLoadPreset(RETAIL_PRESETS[0]);
+    showNotification("Modelos padrão de produtos restaurados! 🔄🛒", "info");
+  };
 
   // Calculations
   const calculations = useMemo(() => {
@@ -323,53 +547,98 @@ export function RetailOverheadCalculator({
           Comprou <strong>1 kg de arroz por R$ 3,00</strong>? Se você vender por R$ 4,00 achando que lucrou R$ 1,00, você está perdendo dinheiro! A <strong>sacolinha plástica (R$ 0,12)</strong>, o <strong>papel da impressora do cupom (R$ 0,04)</strong>, a <strong>gasolina do transporte (R$ 0,20)</strong> e a <strong>maquininha de cartão</strong> comem metade da sua margem. Esta calculadora desvenda todos os custos invisíveis!
         </p>
 
-        {/* PRESET SHORTCUTS */}
-        <div className="mt-3.5 pt-3 border-t border-white/5">
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-2">
-            ⚡ Produtos Prontos para Simular:
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {RETAIL_PRESETS.map((preset, idx) => (
+        {/* PRESET SHORTCUTS DINÂMICOS COM ADICIONAR, EXCLUIR E RESTAURAR */}
+        <div className="mt-3.5 pt-3 border-t border-white/5 space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
+              ⚡ Produtos Prontos para Simular ({retailPresets.length} modelos salvos):
+            </span>
+            <div className="flex items-center gap-2">
               <button
-                key={idx}
                 type="button"
-                onClick={() => handleLoadPreset(preset)}
-                className={`px-3 py-1.5 rounded-xl text-[10.5px] font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
-                  productName === preset.name
-                    ? "bg-emerald-600 text-white border-emerald-400 shadow-md shadow-emerald-600/25"
-                    : "bg-slate-900/90 hover:bg-emerald-950/40 text-slate-300 hover:text-white border-white/10"
-                }`}
+                onClick={handleAddNewRetailPreset}
+                className="px-2.5 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 font-black text-[10px] uppercase rounded-lg border border-emerald-500/40 flex items-center gap-1 cursor-pointer transition-all active:scale-95"
               >
-                <span>
-                  {preset.name.includes("Arroz")
-                    ? "🍚"
-                    : preset.name.includes("Feijão")
-                    ? "🫘"
-                    : preset.name.includes("Óleo")
-                    ? "🌻"
-                    : preset.name.includes("Leite")
-                    ? "🥛"
-                    : "🧼"}
-                </span>
-                <span>{preset.name}</span>
+                <Plus className="w-3 h-3" />
+                <span>+ Novo Produto</span>
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={handleResetRetailPresets}
+                className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-medium text-[9.5px] uppercase rounded-lg border border-white/10 flex items-center gap-1 cursor-pointer transition-all"
+                title="Restaurar os modelos padrão de fábrica"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Padrão</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {retailPresets.map((preset, idx) => {
+              const isSelected = productName === preset.name;
+              return (
+                <div
+                  key={idx}
+                  onClick={() => handleLoadPreset(preset)}
+                  className={`px-3 py-1.5 rounded-xl text-[10.5px] font-black transition-all flex items-center gap-2 cursor-pointer border ${
+                    isSelected
+                      ? "bg-emerald-600 text-white border-emerald-400 shadow-md shadow-emerald-600/25"
+                      : "bg-slate-900/90 hover:bg-emerald-950/40 text-slate-300 hover:text-white border-white/10"
+                  }`}
+                >
+                  <span>
+                    {preset.name.includes("Arroz")
+                      ? "🍚"
+                      : preset.name.includes("Feijão")
+                      ? "🫘"
+                      : preset.name.includes("Óleo")
+                      ? "🌻"
+                      : preset.name.includes("Leite")
+                      ? "🥛"
+                      : "🧼"}
+                  </span>
+                  <span>{preset.name}</span>
+                  {retailPresets.length > 1 && (
+                    <span
+                      onClick={(e) => handleDeleteRetailPreset(preset.name, e)}
+                      className="text-[9px] opacity-40 hover:opacity-100 hover:text-rose-400 ml-1 p-0.5"
+                      title="Excluir este modelo"
+                    >
+                      ×
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
       {/* INPUTS GRID */}
       <div className="bg-slate-900 border border-white/10 rounded-2xl p-4 sm:p-5 space-y-4">
-        <h4 className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5 border-b border-white/5 pb-2">
-          <Layers className="w-4 h-4 text-emerald-400" />
-          1. Custos de Compra & Custos Invisíveis Diretos (Por Unidade)
-        </h4>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-2">
+          <h4 className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5">
+            <Layers className="w-4 h-4 text-emerald-400" />
+            1. Custos de Compra & Custos Invisíveis Diretos (Por Unidade)
+          </h4>
+
+          <button
+            type="button"
+            onClick={handleSaveRetailPreset}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/25 self-start sm:self-auto"
+            title="Salvar este produto nos seus modelos prontos"
+          >
+            <Check className="w-4 h-4" />
+            <span>💾 Salvar Produto nos Modelos</span>
+          </button>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Product Name */}
           <div className="space-y-1">
             <label className="text-[9px] font-bold text-slate-400 uppercase">
-              Nome do Produto
+              Nome do Produto (Toque para Editar ✍️)
             </label>
             <input
               type="text"
@@ -718,6 +987,21 @@ export function RetailOverheadCalculator({
                 {calculations.realNetMarginPct.toFixed(1)}% líquido
               </span>
             </div>
+          </div>
+
+          {/* BARRA INFERIOR DE SALVAMENTO */}
+          <div className="pt-3 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="text-xs text-slate-400">
+              Modelo selecionado: <strong className="text-emerald-400 font-bold">{productName}</strong>
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveRetailPreset}
+              className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xl shadow-emerald-500/25"
+            >
+              <Check className="w-4 h-4" />
+              <span>💾 Salvar Alterações de {productName}</span>
+            </button>
           </div>
         </div>
       </div>

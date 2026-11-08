@@ -104,7 +104,8 @@ import {
   ArrowRight,
   HelpCircle,
   AlertTriangle,
-  Flashlight
+  Flashlight,
+  Recycle
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { doc, getDoc, setDoc, serverTimestamp, collection, addDoc, getDocs, query, where, limit, onSnapshot } from "firebase/firestore";
@@ -130,6 +131,7 @@ import { PDVAberturaCaixa } from "./PDVAberturaCaixa";
 import { PDVSalesTransitionStepper } from "./PDVSalesTransitionStepper";
 import { PDVPrinterConfigModal } from "./PDVPrinterConfigModal";
 import { PDVPrinterConfigView } from "./PDVPrinterConfigView";
+import { TechRecyclingTradeCalculator } from "./pricing/TechRecyclingTradeCalculator";
 import { 
   PrinterConfig, 
   loadPrinterConfig, 
@@ -1211,7 +1213,21 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [customProducts, setCustomProducts] = useState<CustomProduct[]>(() => {
     try {
       const saved = getScopedItem("pdv_custom_products", userId);
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      const backup = localStorage.getItem(`pdv_products_backup_${userId || "guest"}`) || localStorage.getItem("pdv_products_master_backup");
+      if (backup) {
+        const parsedBackup = JSON.parse(backup);
+        if (Array.isArray(parsedBackup) && parsedBackup.length > 0) return parsedBackup;
+      }
+      const legacy = localStorage.getItem("pdv_custom_products_user_guest") || localStorage.getItem("pdv_custom_products");
+      if (legacy) {
+        const parsedLegacy = JSON.parse(legacy);
+        if (Array.isArray(parsedLegacy) && parsedLegacy.length > 0) return parsedLegacy;
+      }
+      return [];
     } catch {
       return [];
     }
@@ -1221,11 +1237,96 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [productStockData, setProductStockData] = useState<Record<string, { costPrice?: number; stockQty: number; minStockAlert?: number; salesCount?: number }>>(() => {
     try {
       const saved = getScopedItem("pdv_product_stock_data", userId);
-      return saved ? JSON.parse(saved) : {};
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) return parsed;
+      }
+      const backup = localStorage.getItem(`pdv_stock_backup_${userId || "guest"}`) || localStorage.getItem("pdv_stock_master_backup");
+      if (backup) {
+        const parsedBackup = JSON.parse(backup);
+        if (parsedBackup && typeof parsedBackup === "object" && Object.keys(parsedBackup).length > 0) return parsedBackup;
+      }
+      const legacy = localStorage.getItem("pdv_product_stock_data_user_guest") || localStorage.getItem("pdv_product_stock_data");
+      if (legacy) {
+        const parsedLegacy = JSON.parse(legacy);
+        if (parsedLegacy && typeof parsedLegacy === "object" && Object.keys(parsedLegacy).length > 0) return parsedLegacy;
+      }
+      return {};
     } catch {
       return {};
     }
   });
+
+  // Re-synchronize and protect stock products whenever user account connects or changes
+  useEffect(() => {
+    if (!userId) return;
+
+    let loadedProds: CustomProduct[] = [];
+    try {
+      const saved = getScopedItem("pdv_custom_products", userId);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) loadedProds = parsed;
+      }
+      if (loadedProds.length === 0) {
+        const backup = localStorage.getItem(`pdv_products_backup_${userId}`) || localStorage.getItem("pdv_products_master_backup");
+        if (backup) {
+          const parsed = JSON.parse(backup);
+          if (Array.isArray(parsed) && parsed.length > 0) loadedProds = parsed;
+        }
+      }
+      if (loadedProds.length === 0 && userId !== "guest_visitor") {
+        const guestSaved = getScopedItem("pdv_custom_products", "guest_visitor") || localStorage.getItem("pdv_custom_products_user_guest") || localStorage.getItem("pdv_custom_products");
+        if (guestSaved) {
+          const parsed = JSON.parse(guestSaved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            loadedProds = parsed;
+            setScopedItem("pdv_custom_products", JSON.stringify(parsed), userId);
+          }
+        }
+      }
+    } catch {}
+
+    if (loadedProds.length > 0) {
+      setCustomProducts(prev => {
+        if (prev.length === 0) return loadedProds;
+        const map = new Map<string, CustomProduct>();
+        loadedProds.forEach(p => { if (p && p.id) map.set(p.id, p); });
+        prev.forEach(p => { if (p && p.id && !map.has(p.id)) map.set(p.id, p); });
+        return Array.from(map.values());
+      });
+    }
+
+    let loadedStock: Record<string, any> = {};
+    try {
+      const savedStock = getScopedItem("pdv_product_stock_data", userId);
+      if (savedStock) {
+        const parsed = JSON.parse(savedStock);
+        if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) loadedStock = parsed;
+      }
+      if (Object.keys(loadedStock).length === 0) {
+        const backup = localStorage.getItem(`pdv_stock_backup_${userId}`) || localStorage.getItem("pdv_stock_master_backup");
+        if (backup) {
+          const parsed = JSON.parse(backup);
+          if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) loadedStock = parsed;
+        }
+      }
+      if (Object.keys(loadedStock).length === 0 && userId !== "guest_visitor") {
+        const guestStock = getScopedItem("pdv_product_stock_data", "guest_visitor") || localStorage.getItem("pdv_product_stock_data_user_guest") || localStorage.getItem("pdv_product_stock_data");
+        if (guestStock) {
+          const parsed = JSON.parse(guestStock);
+          if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
+            loadedStock = parsed;
+            setScopedItem("pdv_product_stock_data", JSON.stringify(parsed), userId);
+          }
+        }
+      }
+    } catch {}
+
+    if (Object.keys(loadedStock).length > 0) {
+      setProductStockData(prev => ({ ...loadedStock, ...prev }));
+    }
+  }, [userId]);
 
   // --- Custom Niches State ---
   const [localCustomNiches, setLocalCustomNiches] = useState<{ id: string; name: string; label: string }[]>(() => {
@@ -2067,7 +2168,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   
   // --- Profile, Security, Support & Attachment States ---
   const [activeConfigTab, setActiveConfigTab] = useState<"rates" | "profile" | "support" | "mercadopago" | "tributos" | "printer">("rates");
-  const [pricingSubTab, setPricingSubTab] = useState<"calculadora" | "ficha">("calculadora");
+  const [pricingSubTab, setPricingSubTab] = useState<"calculadora" | "ficha" | "sucata">("calculadora");
   const [cpfPasswordInput, setCpfPasswordInput] = useState("");
   const [newPasswordInput, setNewPasswordInput] = useState("");
   const [confirmPasswordInput, setConfirmPasswordInput] = useState("");
@@ -2091,7 +2192,9 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [isLoadingAuditLogs, setIsLoadingAuditLogs] = useState<boolean>(false);
 
   const fetchAuditLogs = useCallback(async () => {
-    if (!isLoggedIn || !userId || userId === "guest_visitor" || !db) {
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+    if (!isLoggedIn || !userId || userId === "guest_visitor" || !db || !isAuthActive) {
       setIsLoadingAuditLogs(true);
       try {
         const savedLogs = localStorage.getItem("pdv_audit_logs");
@@ -2133,8 +2236,14 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       });
       
       setAuditLogs(logsList.slice(0, 50));
-    } catch (e) {
-      console.error("Error fetching audit logs:", e);
+    } catch (e: any) {
+      const errMsg = e?.message || String(e);
+      const errCode = e?.code || "";
+      if (errCode === "permission-denied" || errMsg.toLowerCase().includes("permission")) {
+        console.warn("[PDV Audit] Auditoria em modo local.");
+      } else {
+        console.error("Error fetching audit logs:", e);
+      }
     } finally {
       setIsLoadingAuditLogs(false);
     }
@@ -2169,7 +2278,9 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       console.error("Error saving offline audit log:", e);
     }
 
-    if (!isLoggedIn || !userId || userId === "guest_visitor" || !db || getIsFirestoreQuotaPaused()) {
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+    if (!isLoggedIn || !userId || userId === "guest_visitor" || !db || getIsFirestoreQuotaPaused() || !isAuthActive) {
       console.log(`[Offline Audit Log] Success: ${action} - ${description}`);
       if (gestaoActiveTab === "permissoes") {
         fetchAuditLogs();
@@ -2196,7 +2307,13 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       if (isQuotaExhaustedError(e)) {
         markFirestoreQuotaPaused();
       }
-      console.error("[Audit Log] Error writing audit log:", e);
+      const errMsg = e?.message || String(e);
+      const errCode = e?.code || "";
+      if (errCode === "permission-denied" || errMsg.toLowerCase().includes("permission")) {
+        console.warn(`[Local Audit Log] ${action} - ${description}`);
+      } else {
+        console.error("[Audit Log] Error writing audit log:", e);
+      }
     }
   }, [isLoggedIn, userId, db, gestaoUserStaffName, gestaoUserRole, isOwnerMode, gestaoActiveTab, fetchAuditLogs]);
 
@@ -3894,11 +4011,53 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   ) => {
     setScopedItem("pdv_transactions", JSON.stringify(txs), userId);
     setScopedItem("pdv_initial_cash", cash.toString(), userId);
-    setScopedItem("pdv_custom_products", JSON.stringify(prods), userId);
+
+    // CRITICAL PROTECTION FOR REGISTERED PRODUCTS & STOCK:
+    // Never wipe out non-empty saved products with empty defaults!
+    let finalProdsToSave = prods;
+    if (prods.length === 0) {
+      try {
+        const existingRaw = getScopedItem("pdv_custom_products", userId);
+        if (existingRaw) {
+          const parsed = JSON.parse(existingRaw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            finalProdsToSave = parsed;
+          }
+        }
+      } catch {}
+    }
+    setScopedItem("pdv_custom_products", JSON.stringify(finalProdsToSave), userId);
+    if (finalProdsToSave.length > 0) {
+      try {
+        localStorage.setItem(`pdv_products_backup_${userId || "guest"}`, JSON.stringify(finalProdsToSave));
+        localStorage.setItem("pdv_products_master_backup", JSON.stringify(finalProdsToSave));
+      } catch {}
+    }
+
     setScopedItem("pdv_selected_segment", niche, userId);
     setScopedItem("pdv_product_overrides", JSON.stringify(overrides), userId);
     setScopedItem("pdv_custom_niches", JSON.stringify(cniches), userId);
-    setScopedItem("pdv_product_stock_data", JSON.stringify(stock), userId);
+
+    let finalStockToSave = stock;
+    if (Object.keys(stock).length === 0) {
+      try {
+        const existingStockRaw = getScopedItem("pdv_product_stock_data", userId);
+        if (existingStockRaw) {
+          const parsed = JSON.parse(existingStockRaw);
+          if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
+            finalStockToSave = parsed;
+          }
+        }
+      } catch {}
+    }
+    setScopedItem("pdv_product_stock_data", JSON.stringify(finalStockToSave), userId);
+    if (Object.keys(finalStockToSave).length > 0) {
+      try {
+        localStorage.setItem(`pdv_stock_backup_${userId || "guest"}`, JSON.stringify(finalStockToSave));
+        localStorage.setItem("pdv_stock_master_backup", JSON.stringify(finalStockToSave));
+      } catch {}
+    }
+
     setScopedItem("pdv_owner_pin", pin, userId);
     setScopedItem("pdv_security_active", secActive.toString(), userId);
     setScopedItem("pdv_is_cash_register_open", isRegisterOpen ? "true" : "false", userId);
@@ -3909,7 +4068,12 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   // --- Fetch Cloud Data on Mount if Authenticated ---
   useEffect(() => {
     const fetchCloudData = async () => {
-      if (!isLoggedIn || !userId || userId === "guest_visitor" || !db || getIsFirestoreQuotaPaused()) return;
+      const auth = getAuth();
+      const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+      if (!isLoggedIn || !userId || userId === "guest_visitor" || !db || getIsFirestoreQuotaPaused() || !isAuthActive) {
+        setIsSyncing(false);
+        return;
+      }
       setIsSyncing(true);
       try {
         const userDocRef = doc(db, "userData", userId);
@@ -3918,8 +4082,15 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           docSnap = await getDoc(userDocRef);
         } catch (fetchErr: any) {
           const fetchMsg = fetchErr?.message || String(fetchErr);
-          if (fetchErr?.code === "unavailable" || fetchMsg.toLowerCase().includes("offline") || fetchMsg.toLowerCase().includes("client is offline")) {
-            console.warn("[PDV Offline] Sem conexão para buscar dados remotos do caixa. Usando dados locais.");
+          const fetchCode = fetchErr?.code || "";
+          if (
+            fetchCode === "unavailable" ||
+            fetchCode === "permission-denied" ||
+            fetchMsg.toLowerCase().includes("permission") ||
+            fetchMsg.toLowerCase().includes("offline") ||
+            fetchMsg.toLowerCase().includes("client is offline")
+          ) {
+            console.warn("[PDV Offline/Local] Dados do caixa preservados localmente.");
             return;
           }
           throw fetchErr;
@@ -3960,33 +4131,50 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
             cloudDeliveryOrders.length > 0 ||
             Object.keys(cloudClientProfiles).length > 0
           ) {
-            // Safely load only products that belong to THIS SPECIFIC authenticated account!
-            // NEVER merge legacy un-scoped local storage from a prior user!
+            // Safely load all available products from local storage and backups
             const localSavedProds: CustomProduct[] = (() => {
               try {
                 const s = getScopedItem("pdv_custom_products", userId);
-                return s ? JSON.parse(s) : [];
+                if (s) {
+                  const parsed = JSON.parse(s);
+                  if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                }
+                const b = localStorage.getItem(`pdv_products_backup_${userId}`) || localStorage.getItem("pdv_products_master_backup");
+                if (b) {
+                  const parsed = JSON.parse(b);
+                  if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                }
+                return [];
               } catch { return []; }
             })();
 
-            // Cloud data is authoritative for this account.
-            let finalProds = cloudProds;
-            if (cloudProds.length === 0 && localSavedProds.length > 0) {
-              finalProds = localSavedProds;
-            } else if (cloudProds.length > 0 && localSavedProds.length > 0) {
-              const mergedProdsMap = new Map<string, CustomProduct>();
+            // Cloud data and local data are merged union so NO REGISTERED PRODUCT IS EVER LOST!
+            const mergedProdsMap = new Map<string, CustomProduct>();
+            if (Array.isArray(cloudProds)) {
               cloudProds.forEach(p => { if (p && p.id) mergedProdsMap.set(p.id, p); });
-              localSavedProds.forEach(p => { if (p && p.id && !mergedProdsMap.has(p.id)) mergedProdsMap.set(p.id, p); });
-              finalProds = Array.from(mergedProdsMap.values());
             }
+            if (Array.isArray(localSavedProds)) {
+              localSavedProds.forEach(p => { if (p && p.id && !mergedProdsMap.has(p.id)) mergedProdsMap.set(p.id, p); });
+            }
+            customProducts.forEach(p => { if (p && p.id && !mergedProdsMap.has(p.id)) mergedProdsMap.set(p.id, p); });
+            const finalProds = Array.from(mergedProdsMap.values());
 
             const localSavedStock = (() => {
               try {
                 const s = getScopedItem("pdv_product_stock_data", userId);
-                return s ? JSON.parse(s) : {};
+                if (s) {
+                  const parsed = JSON.parse(s);
+                  if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) return parsed;
+                }
+                const b = localStorage.getItem(`pdv_stock_backup_${userId}`) || localStorage.getItem("pdv_stock_master_backup");
+                if (b) {
+                  const parsed = JSON.parse(b);
+                  if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) return parsed;
+                }
+                return {};
               } catch { return {}; }
             })();
-            const finalStock = { ...cloudStock, ...localSavedStock };
+            const finalStock = { ...localSavedStock, ...productStockData, ...cloudStock };
 
             setTransactions(cloudTxs);
             setInitialCash(cloudCash);
@@ -4045,11 +4233,13 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         const errCode = error?.code || "";
         if (
           errCode === "unavailable" ||
+          errCode === "permission-denied" ||
           errMsg.toLowerCase().includes("client is offline") ||
           errMsg.toLowerCase().includes("offline") ||
+          errMsg.toLowerCase().includes("permission") ||
           isQuotaExhaustedError(error)
         ) {
-          console.warn("[PDV Offline] Dados do caixa preservados localmente (cliente offline).");
+          console.warn("[PDV Offline/Local] Dados do caixa preservados localmente.");
         } else {
           console.error("Erro ao puxar dados do caixa do Firestore:", error);
         }
@@ -4090,7 +4280,9 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   const debouncedPushToCloud = useMemo(() => {
     return debounce(async () => {
-      if (!isLoggedIn || !userId || userId === "guest_visitor" || !db) return;
+      const auth = getAuth();
+      const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+      if (!isLoggedIn || !userId || userId === "guest_visitor" || !db || !isAuthActive) return;
       const payload = pendingCloudPayloadRef.current;
       if (!payload) return;
       try {
@@ -4098,8 +4290,19 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         const cleanedPayload = cleanUndefined(payload);
         await setDoc(userDocRef, cleanedPayload, { merge: true });
         pendingCloudPayloadRef.current = null;
-      } catch (error) {
-        console.error("Erro ao persistir dados do caixa no Firestore:", error);
+      } catch (error: any) {
+        const errMsg = error?.message || String(error);
+        const errCode = error?.code || "";
+        if (
+          errCode === "permission-denied" ||
+          errMsg.toLowerCase().includes("permission") ||
+          errCode === "unavailable" ||
+          errMsg.toLowerCase().includes("offline")
+        ) {
+          console.warn("[PDV Cloud] Sincronização em nuvem ignorada (modo offline ou sem credencial ativa). Dados salvos localmente.");
+        } else {
+          console.error("Erro ao persistir dados do caixa no Firestore:", error);
+        }
       }
     }, 2000);
   }, [isLoggedIn, userId, db]);
@@ -4125,16 +4328,40 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     staff = staffPins,
     perms = pdvPermissions
   ) => {
-    if (!isLoggedIn || !userId || userId === "guest_visitor" || !db) return;
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+    if (!isLoggedIn || !userId || userId === "guest_visitor" || !db || !isAuthActive) return;
+
+    let prodsToPush = updatedProds;
+    if (prodsToPush.length === 0) {
+      try {
+        const saved = getScopedItem("pdv_custom_products", userId);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) prodsToPush = parsed;
+        }
+      } catch {}
+    }
+
+    let stockToPush = updatedStock;
+    if (Object.keys(stockToPush).length === 0) {
+      try {
+        const saved = getScopedItem("pdv_product_stock_data", userId);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) stockToPush = parsed;
+        }
+      } catch {}
+    }
 
     pendingCloudPayloadRef.current = {
       userId: userId,
       pdvTransactions: updatedTxs,
       pdvInitialCash: updatedCash,
-      pdvCustomProducts: updatedProds,
+      pdvCustomProducts: prodsToPush,
       pdvProductOverrides: updatedOverrides,
       pdvCustomNiches: updatedNiches,
-      pdvProductStockData: updatedStock,
+      pdvProductStockData: stockToPush,
       pdvOwnerPin: pin,
       pdvSecurityActive: secActive,
       pdvReconciliationLogs: updatedReconciliations,
@@ -5247,7 +5474,9 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     logRiskAction("Alterar Permissão Global", `A permissão global '${String(key)}' foi reconfigurada para o valor '${value}' pelo proprietário.`, { permissionKey: String(key), value });
 
     // Update Firestore to avoid reversion when snapshot updates
-    if (isLoggedIn && userId && userId !== "guest_visitor" && db) {
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+    if (isLoggedIn && userId && userId !== "guest_visitor" && db && isAuthActive) {
       const currentConfig = systemConfig || {
         userId: userId,
         caixa: DEFAULT_ROLE_PERMS_HELPER("caixa"),
@@ -5263,8 +5492,14 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         });
         setSystemConfig(updatedConfig);
         localStorage.setItem("pdv_system_config", JSON.stringify(updatedConfig));
-      } catch (err) {
-        console.error("Erro ao salvar permissão global no Firestore:", err);
+      } catch (err: any) {
+        const errMsg = err?.message || String(err);
+        const errCode = err?.code || "";
+        if (errCode === "permission-denied" || errMsg.toLowerCase().includes("permission")) {
+          console.warn("[PDV System Config] Permissão salva localmente.");
+        } else {
+          console.error("Erro ao salvar permissão global no Firestore:", err);
+        }
       }
     }
   };
@@ -7130,12 +7365,19 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     setClientProfiles(updatedProfiles);
     localStorage.setItem("pdv_client_profiles", JSON.stringify(updatedProfiles));
     
-    if (isLoggedIn && userId && userId !== "guest_visitor" && db) {
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+    if (isLoggedIn && userId && userId !== "guest_visitor" && db && isAuthActive) {
       try {
         const userDocRef = doc(db, "userData", userId);
         const cleanedProfiles = cleanUndefinedForFirestore(updatedProfiles);
         setDoc(userDocRef, { pdvClientProfiles: cleanedProfiles }, { merge: true })
-          .catch(err => console.error("Erro ao sincronizar cadastro:", err));
+          .catch(err => {
+            const msg = err?.message || String(err);
+            if (!msg.toLowerCase().includes("permission")) {
+              console.error("Erro ao sincronizar cadastro:", err);
+            }
+          });
       } catch (err) {
         console.warn("Erro ao preparar sincronização:", err);
       }
@@ -7184,12 +7426,19 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, productStockData);
     pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, productStockData);
 
-    if (isLoggedIn && userId && userId !== "guest_visitor" && db) {
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+    if (isLoggedIn && userId && userId !== "guest_visitor" && db && isAuthActive) {
       try {
         const userDocRef = doc(db, "userData", userId);
         const cleanedProfiles = cleanUndefinedForFirestore(updatedProfiles);
         setDoc(userDocRef, { pdvClientProfiles: cleanedProfiles }, { merge: true })
-          .catch(err => console.error("Erro ao sincronizar cadastro:", err));
+          .catch(err => {
+            const msg = err?.message || String(err);
+            if (!msg.toLowerCase().includes("permission")) {
+              console.error("Erro ao sincronizar cadastro:", err);
+            }
+          });
       } catch (err) {
         console.warn("Erro ao preparar sincronização:", err);
       }
@@ -11500,6 +11749,47 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
             {onlyCheckout ? <ShoppingCart className="w-5 h-5 text-emerald-400" /> : <Store className="w-5 h-5 text-emerald-400" />}
             {onlyCheckout ? "Balcão de Vendas (Frente de Caixa Rápido) 🛒" : "PDV Frente de Caixa & Balanço"}
           </h2>
+
+          {/* Quick Access Bar for Key Tools */}
+          <div className="flex flex-wrap items-center gap-2 mt-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                setOpMode("cadastro_produtos");
+                if (onSubTabChange) onSubTabChange("cadastro_produtos");
+              }}
+              className="px-2.5 py-1.5 bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 font-bold text-[10px] uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+            >
+              <ShoppingBag className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <span>📦 Cadastro & Estoque</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setOpMode("ficha_tecnica");
+                setPricingSubTab("sucata");
+                if (onSubTabChange) onSubTabChange("pricing");
+              }}
+              className="px-2.5 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-bold text-[10px] uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+            >
+              <Recycle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>♻️ Sucata de Ouro & Troca</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setOpMode("relatorios");
+                setMentorshipTab("segment");
+                if (onSubTabChange) onSubTabChange("segment");
+              }}
+              className="px-2.5 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 font-bold text-[10px] uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+            >
+              <Store className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+              <span>🏢 Segmento: {selectedNiche ? selectedNiche.toUpperCase().replace("_", " ") : "COMÉRCIO"}</span>
+            </button>
+          </div>
 
           {!onlyCheckout && (
             !pdvLicenseActive ? (
@@ -19503,7 +19793,19 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 }`}
               >
                 <ChefHat className="w-4 h-4 text-purple-300" />
-                <span>Ficha Técnica de Receitas (Coxinhas, Lanches, Doces) 📋</span>
+                <span>Ficha Técnica (Receitas) 📋</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPricingSubTab("sucata")}
+                className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                  pricingSubTab === "sucata"
+                    ? "bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-lg shadow-emerald-600/20"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                }`}
+              >
+                <Recycle className="w-4 h-4 text-emerald-300" />
+                <span>♻️ Sucata de Ouro & Desmanche (Celular, PC, Eletro)</span>
               </button>
             </div>
 
@@ -19520,6 +19822,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   if (onSubTabChange) onSubTabChange(null);
                 }}
               />
+            ) : pricingSubTab === "sucata" ? (
+              <TechRecyclingTradeCalculator showNotification={showNotification} />
             ) : (
               <FichaTecnicaModule
                 onBack={() => {

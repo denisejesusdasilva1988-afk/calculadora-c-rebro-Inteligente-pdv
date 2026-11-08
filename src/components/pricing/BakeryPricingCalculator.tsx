@@ -14,7 +14,8 @@ import {
   DollarSign,
   Scale,
   Cake,
-  Package
+  Package,
+  RotateCcw
 } from "lucide-react";
 import { SmartNumericInput } from "./SmartNumericInput";
 
@@ -458,18 +459,259 @@ export function BakeryPricingCalculator({
   showNotification,
   onApplyToPDVCatalog
 }: BakeryPricingCalculatorProps) {
-  const [selectedPresetId, setSelectedPresetId] = useState<string>(BAKERY_PRESETS[0].id);
-  const [itemName, setItemName] = useState<string>(BAKERY_PRESETS[0].name);
-  const [category, setCategory] = useState<string>(BAKERY_PRESETS[0].category);
-  const [batchYield, setBatchYield] = useState<number>(BAKERY_PRESETS[0].batchYield);
-  const [batchYieldUnit, setBatchYieldUnit] = useState<string>(BAKERY_PRESETS[0].batchYieldUnit);
-  const [bakingLossPct, setBakingLossPct] = useState<number>(BAKERY_PRESETS[0].bakingLossPct);
-  const [ovenGasEnergyCost, setOvenGasEnergyCost] = useState<number>(BAKERY_PRESETS[0].ovenGasEnergyCost);
-  const [packagingCostTotal, setPackagingCostTotal] = useState<number>(BAKERY_PRESETS[0].packagingCostTotal);
-  const [targetMarginPct, setTargetMarginPct] = useState<number>(BAKERY_PRESETS[0].targetMarginPct);
-  const [currentSellPrice, setCurrentSellPrice] = useState<number>(BAKERY_PRESETS[0].currentSellPrice);
+  // Receitas salvas em localStorage para personalização permanente
+  const [bakeryPresets, setBakeryPresets] = useState<BakeryItemPreset[]>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return BAKERY_PRESETS;
+  });
 
-  const [ingredients, setIngredients] = useState<BakeryIngredient[]>(BAKERY_PRESETS[0].ingredients);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].id;
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].id;
+  });
+
+  const [itemName, setItemName] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].name;
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].name;
+  });
+
+  const [category, setCategory] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].category;
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].category;
+  });
+
+  const [batchYield, setBatchYield] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].batchYield;
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].batchYield;
+  });
+
+  const [batchYieldUnit, setBatchYieldUnit] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].batchYieldUnit;
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].batchYieldUnit;
+  });
+
+  const [bakingLossPct, setBakingLossPct] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].bakingLossPct;
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].bakingLossPct;
+  });
+
+  const [ovenGasEnergyCost, setOvenGasEnergyCost] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].ovenGasEnergyCost;
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].ovenGasEnergyCost;
+  });
+
+  const [packagingCostTotal, setPackagingCostTotal] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].packagingCostTotal;
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].packagingCostTotal;
+  });
+
+  const [targetMarginPct, setTargetMarginPct] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].targetMarginPct;
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].targetMarginPct;
+  });
+
+  const [currentSellPrice, setCurrentSellPrice] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].currentSellPrice;
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].currentSellPrice;
+  });
+
+  const [ingredients, setIngredients] = useState<BakeryIngredient[]>(() => {
+    try {
+      const stored = localStorage.getItem("bakery_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0].ingredients)) {
+          return parsed[0].ingredients;
+        }
+      }
+    } catch {}
+    return BAKERY_PRESETS[0].ingredients;
+  });
+
+  // Salvar a receita ativa nos modelos prontos
+  const handleSaveBakeryPreset = () => {
+    const currentRecipe: BakeryItemPreset = {
+      id: selectedPresetId,
+      name: itemName,
+      type: (category.toLowerCase().includes("café")
+        ? "cafe"
+        : category.toLowerCase().includes("salgado")
+        ? "salgado"
+        : category.toLowerCase().includes("suco")
+        ? "suco"
+        : category.toLowerCase().includes("bolo") || category.toLowerCase().includes("confeit")
+        ? "confeitaria"
+        : "pao") as any,
+      category,
+      batchYield,
+      batchYieldUnit,
+      bakingLossPct,
+      ovenGasEnergyCost,
+      packagingCostTotal,
+      targetMarginPct,
+      currentSellPrice,
+      ingredients
+    };
+
+    setBakeryPresets((prev) => {
+      const idx = prev.findIndex((p) => p.id === selectedPresetId);
+      let updated: BakeryItemPreset[];
+      if (idx >= 0) {
+        updated = [...prev];
+        updated[idx] = currentRecipe;
+      } else {
+        updated = [currentRecipe, ...prev];
+      }
+      try {
+        localStorage.setItem("bakery_presets_custom_v1", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    showNotification(`Receita "${itemName}" salva com sucesso nos modelos! 💾🥖`, "success");
+  };
+
+  // Criar nova receita de padaria
+  const handleAddNewBakeryPreset = () => {
+    const newId = `bakery_${Date.now()}`;
+    const newName = `Nova Receita Personalizada (${bakeryPresets.length + 1})`;
+    const newPreset: BakeryItemPreset = {
+      id: newId,
+      name: newName,
+      type: "pao",
+      category: "Padaria & Fornada",
+      batchYield: 50,
+      batchYieldUnit: "unidades",
+      bakingLossPct: 10,
+      ovenGasEnergyCost: 15.0,
+      packagingCostTotal: 8.0,
+      targetMarginPct: 60,
+      currentSellPrice: 2.50,
+      ingredients: [
+        {
+          id: `ing_b_${Date.now()}_1`,
+          name: "Farinha Especial",
+          packageQty: 5,
+          packageUnit: "kg",
+          packageCost: 25.0,
+          usedQty: 2,
+          usedUnit: "kg"
+        },
+        {
+          id: `ing_b_${Date.now()}_2`,
+          name: "Ingrediente Secundário",
+          packageQty: 500,
+          packageUnit: "g",
+          packageCost: 10.0,
+          usedQty: 100,
+          usedUnit: "g"
+        }
+      ]
+    };
+
+    setBakeryPresets((prev) => {
+      const updated = [newPreset, ...prev];
+      try {
+        localStorage.setItem("bakery_presets_custom_v1", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    handleLoadPreset(newPreset);
+    showNotification(`Nova receita "${newName}" criada! Edite os dados e clique em Salvar 💾✍️`, "success");
+  };
+
+  // Excluir modelo de receita
+  const handleDeleteBakeryPreset = (idToDelete: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (bakeryPresets.length <= 1) {
+      showNotification("Você deve manter pelo menos 1 modelo de receita.", "warning");
+      return;
+    }
+    const updated = bakeryPresets.filter((p) => p.id !== idToDelete);
+    setBakeryPresets(updated);
+    try {
+      localStorage.setItem("bakery_presets_custom_v1", JSON.stringify(updated));
+    } catch {}
+    if (selectedPresetId === idToDelete && updated.length > 0) {
+      handleLoadPreset(updated[0]);
+    }
+    showNotification("Modelo de receita removido. 🗑️", "info");
+  };
+
+  // Restaurar modelos padrão
+  const handleResetBakeryPresets = () => {
+    try {
+      localStorage.removeItem("bakery_presets_custom_v1");
+    } catch {}
+    setBakeryPresets(BAKERY_PRESETS);
+    handleLoadPreset(BAKERY_PRESETS[0]);
+    showNotification("Modelos padrão de padaria restaurados! 🔄🥖", "info");
+  };
 
   // Helper unit converter
   const calculateIngredientCost = (ing: BakeryIngredient): number => {
@@ -649,54 +891,99 @@ export function BakeryPricingCalculator({
           Na padaria e cafeteria, cada grama e centavo contam: o <strong>pão francês perde água no forno (quebra de 12% a 15%)</strong>, o forno a gás consome bastante, e na <strong>cafeteria 1 kg de café rende 111 doses</strong> onde o copinho e açúcar são custos reais. Esta calculadora fecha a conta exata por pãozinho, dose de café ou fatia de bolo!
         </p>
 
-        {/* PRESET SHORTCUTS */}
-        <div className="mt-3.5 pt-3 border-t border-white/5">
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-2">
-            ⚡ Receitas de Padaria & Cafeteria Prontas:
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {BAKERY_PRESETS.map((preset) => (
+        {/* PRESET SHORTCUTS DINÂMICOS COM ADICIONAR, EXCLUIR E RESTAURAR */}
+        <div className="mt-3.5 pt-3 border-t border-white/5 space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
+              ⚡ Receitas de Padaria & Cafeteria Prontas ({bakeryPresets.length} modelos salvos):
+            </span>
+            <div className="flex items-center gap-2">
               <button
-                key={preset.id}
                 type="button"
-                onClick={() => handleLoadPreset(preset)}
-                className={`px-3 py-1.5 rounded-xl text-[10.5px] font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
-                  selectedPresetId === preset.id
-                    ? "bg-amber-500 text-slate-950 border-amber-300 shadow-md shadow-amber-500/25 font-black"
-                    : "bg-slate-900/90 hover:bg-amber-950/40 text-slate-300 hover:text-white border-white/10"
-                }`}
+                onClick={handleAddNewBakeryPreset}
+                className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-black text-[10px] uppercase rounded-lg border border-amber-500/40 flex items-center gap-1 cursor-pointer transition-all active:scale-95"
               >
-                <span>
-                  {preset.type === "pao"
-                    ? "🥖"
-                    : preset.type === "cafe"
-                    ? "☕"
-                    : preset.type === "confeitaria"
-                    ? "🎂"
-                    : preset.type === "salgado"
-                    ? "🍗"
-                    : preset.type === "suco"
-                    ? "🥤"
-                    : "🥐"}
-                </span>
-                <span>{preset.name}</span>
+                <Plus className="w-3 h-3" />
+                <span>+ Nova Receita</span>
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={handleResetBakeryPresets}
+                className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-medium text-[9.5px] uppercase rounded-lg border border-white/10 flex items-center gap-1 cursor-pointer transition-all"
+                title="Restaurar os 6 modelos padrão de fábrica"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Padrão</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {bakeryPresets.map((preset) => {
+              const isSelected = selectedPresetId === preset.id;
+              return (
+                <div
+                  key={preset.id}
+                  onClick={() => handleLoadPreset(preset)}
+                  className={`px-3 py-1.5 rounded-xl text-[10.5px] font-black transition-all flex items-center gap-2 cursor-pointer border ${
+                    isSelected
+                      ? "bg-amber-500 text-slate-950 border-amber-300 shadow-md shadow-amber-500/25 font-black"
+                      : "bg-slate-900/90 hover:bg-amber-950/40 text-slate-300 hover:text-white border-white/10"
+                  }`}
+                >
+                  <span>
+                    {preset.type === "pao"
+                      ? "🥖"
+                      : preset.type === "cafe"
+                      ? "☕"
+                      : preset.type === "confeitaria"
+                      ? "🎂"
+                      : preset.type === "salgado"
+                      ? "🍗"
+                      : preset.type === "suco"
+                      ? "🥤"
+                      : "🥐"}
+                  </span>
+                  <span>{preset.name}</span>
+                  {bakeryPresets.length > 1 && (
+                    <span
+                      onClick={(e) => handleDeleteBakeryPreset(preset.id, e)}
+                      className="text-[9px] opacity-40 hover:opacity-100 hover:text-rose-600 ml-1 p-0.5"
+                      title="Excluir este modelo"
+                    >
+                      ×
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
       {/* BATCH CONFIG & FINANCIAL OVERVIEW */}
       <div className="bg-slate-900 border border-white/10 rounded-2xl p-4 sm:p-5 space-y-4">
-        <h4 className="text-xs font-black uppercase text-amber-400 flex items-center gap-1.5 border-b border-white/5 pb-2">
-          <Scale className="w-4 h-4 text-amber-400" />
-          1. Dados da Fornada / Lote de Produção & Rendimento
-        </h4>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-2">
+          <h4 className="text-xs font-black uppercase text-amber-400 flex items-center gap-1.5">
+            <Scale className="w-4 h-4 text-amber-400" />
+            1. Dados da Fornada / Lote de Produção & Rendimento
+          </h4>
+
+          <button
+            type="button"
+            onClick={handleSaveBakeryPreset}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-500/25 self-start sm:self-auto"
+            title="Salvar esta receita e todos os ingredientes nos seus modelos prontos"
+          >
+            <Check className="w-4 h-4" />
+            <span>💾 Salvar Receita nos Modelos</span>
+          </button>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="space-y-1 lg:col-span-2">
             <label className="text-[9px] font-bold text-slate-400 uppercase">
-              Nome do Produto / Receita
+              Nome do Produto / Receita (Toque para Editar ✍️)
             </label>
             <input
               type="text"
@@ -956,6 +1243,21 @@ export function BakeryPricingCalculator({
               </tr>
             </tfoot>
           </table>
+        </div>
+
+        {/* BARRA INFERIOR DE SALVAR RECEITA & INGREDIENTES */}
+        <div className="pt-3 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="text-xs text-slate-400">
+            Total de ingredientes: <strong className="text-amber-400 font-bold">{ingredients.length} itens</strong>
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveBakeryPreset}
+            className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xl shadow-amber-500/20"
+          >
+            <Check className="w-4 h-4" />
+            <span>💾 Salvar Alterações de {itemName}</span>
+          </button>
         </div>
       </div>
 

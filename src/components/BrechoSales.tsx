@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { getIsFirestoreQuotaPaused, isQuotaExhaustedError } from "../utils/firestoreQuotaManager";
 import { 
   Plus, 
@@ -638,7 +639,9 @@ export const BrechoSalesModule = React.memo(({
 
   // Sync from Cloud Firestore when user logs in/is loaded
   useEffect(() => {
-    if (!userId || userId === "guest_visitor" || !db) {
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+    if (!userId || userId === "guest_visitor" || !db || !isAuthActive) {
       setHasFetchedFromCloud(true);
       setFetchedUserId(userId);
       return;
@@ -665,6 +668,7 @@ export const BrechoSalesModule = React.memo(({
           if (data.commercialSegment) {
             setCommercialSegment(data.commercialSegment);
           }
+
           if (data.garimpoItems && Array.isArray(data.garimpoItems)) {
             setGarimpoItems(data.garimpoItems);
           }
@@ -700,9 +704,20 @@ export const BrechoSalesModule = React.memo(({
           setRestockItems([]);
         }
       } catch (err: any) {
-        console.error("Erro ao carregar dados do brechó do Firestore:", err);
-        if (handleFirestoreError) {
-          handleFirestoreError(err, "get", path);
+        const errMsg = err?.message || String(err);
+        const errCode = err?.code || "";
+        if (
+          errCode === "permission-denied" ||
+          errMsg.toLowerCase().includes("permission") ||
+          errCode === "unavailable" ||
+          errMsg.toLowerCase().includes("offline")
+        ) {
+          console.warn("[Brecho] Nuvem offline ou sem credencial ativa. Usando dados locais com segurança.");
+        } else {
+          console.error("Erro ao carregar dados do brechó do Firestore:", err);
+          if (handleFirestoreError) {
+            handleFirestoreError(err, "get", path);
+          }
         }
       } finally {
         setHasFetchedFromCloud(true);
@@ -811,7 +826,9 @@ export const BrechoSalesModule = React.memo(({
     };
 
     // Save to Firestore
-    if (!userId || userId === "guest_visitor" || !db) return;
+    const auth = getAuth();
+    const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+    if (!userId || userId === "guest_visitor" || !db || !isAuthActive) return;
     try {
       const docRef = doc(db, "userData", userId);
       const rawPayload = {
@@ -829,7 +846,12 @@ export const BrechoSalesModule = React.memo(({
         updatedAt: serverTimestamp()
       };
       const cleanedPayload = cleanUndefined(rawPayload);
-      setDoc(docRef, cleanedPayload, { merge: true }).catch(err => console.error("Erro no autosave brecho cloud background:", err));
+      setDoc(docRef, cleanedPayload, { merge: true }).catch(err => {
+        const msg = err?.message || String(err);
+        if (!msg.toLowerCase().includes("permission")) {
+          console.error("Erro no autosave brecho cloud background:", err);
+        }
+      });
     } catch (err) {
       console.error("Erro no autosave brecho cloud setup:", err);
     }
@@ -2500,7 +2522,9 @@ ${emitenteNome.trim() ? `Obrigado por sua preferência e confiança! ❤️` : `
       localStorage.removeItem(keySelected);
 
       // 3. Clear cloud document fields immediately
-      if (userId && userId !== "guest_visitor" && db) {
+      const auth = getAuth();
+      const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+      if (userId && userId !== "guest_visitor" && db && isAuthActive) {
         const docRef = doc(db, "userData", userId);
         await setDoc(docRef, {
           userId: userId,

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { Component, useState } from "react";
 import {
   Percent,
   TrendingUp,
@@ -31,6 +31,52 @@ interface PDVPricingCalculatorProps {
     minStock: number
   ) => void;
   onBackToPDV?: () => void;
+}
+
+interface PDVScaleErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface PDVScaleErrorBoundaryState {
+  hasError: boolean;
+}
+
+class PDVScaleErrorBoundary extends Component<PDVScaleErrorBoundaryProps, PDVScaleErrorBoundaryState> {
+  declare props: PDVScaleErrorBoundaryProps;
+  state: PDVScaleErrorBoundaryState = {
+    hasError: false
+  };
+
+  static getDerivedStateFromError(): PDVScaleErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  handleReset = () => {
+    try {
+      localStorage.removeItem("culinary_food_recipes_active_draft");
+    } catch {}
+    (this as any).setState({ hasError: false });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 bg-slate-950 border border-emerald-500/30 rounded-2xl text-center space-y-3">
+          <span className="text-2xl">⚖️</span>
+          <h4 className="text-sm font-bold text-white uppercase">Recuperando Balança Digital</h4>
+          <p className="text-xs text-slate-400">Clique para restaurar os modelos da balança com valores estáveis.</p>
+          <button
+            type="button"
+            onClick={this.handleReset}
+            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all cursor-pointer"
+          >
+            🔄 Restaurar Balança
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 export function PDVPricingCalculator({
@@ -136,13 +182,15 @@ export function PDVPricingCalculator({
       </div>
 
       {pricingTab === "scale" ? (
-        <DigitalScaleFoodPricingCalculator
-          formatCurrency={formatCurrency}
-          onRegisterProductToPDV={(name, category, sellPrice, costPrice, unitStock) => {
-            onRegisterProductFromCalc(name, category, sellPrice, costPrice, unitStock, 5);
-            showNotification(`"${name}" cadastrado com sucesso no estoque do PDV!`, "success");
-          }}
-        />
+        <PDVScaleErrorBoundary>
+          <DigitalScaleFoodPricingCalculator
+            formatCurrency={formatCurrency}
+            onRegisterProductToPDV={(name, category, sellPrice, costPrice, unitStock) => {
+              onRegisterProductFromCalc(name, category, sellPrice, costPrice, unitStock, 5);
+              showNotification(`"${name}" cadastrado com sucesso no estoque do PDV!`, "success");
+            }}
+          />
+        </PDVScaleErrorBoundary>
       ) : (
         <>
           {/* Step 1: Optional Product Selector to pre-fill */}

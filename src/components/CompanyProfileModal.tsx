@@ -37,6 +37,7 @@ import {
   saveCompanyProfile
 } from "../utils/companyProfile";
 import { doc, setDoc } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { db } from "../App";
 import { compressImageFile } from "../utils/imageCompressor";
 
@@ -118,7 +119,9 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
       saveCompanyProfile(profile, userId);
 
       // Salva no Firestore se houver usuário conectado com timeout de segurança
-      if (userId && userId !== "guest_visitor" && db) {
+      const auth = getAuth();
+      const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+      if (userId && userId !== "guest_visitor" && db && isAuthActive) {
         try {
           const userDocRef = doc(db, "userData", userId);
           const cloudPromise = setDoc(userDocRef, {

@@ -483,6 +483,9 @@ export const getNicheLabel = (nicheId: string, customNiches: any[] = []): string
     lava_jato: "Lava Jato",
     auto_pecas: "Autopeças & Peças",
     mecanico: "Oficina Mecânica",
+    assistencia_celular: "Assistência Técnica de Celulares",
+    informatica: "Informática & Computadores",
+    eletronicos_eletro: "Eletrônicos & Eletrodomésticos",
     comercio_geral: "Loja / Comércio Geral",
     acougue: "Açougue & Carnes",
     sacolao: "Sacolão & Hortifrúti",
@@ -859,6 +862,9 @@ const predefinedNichesApp: {
   { id: "lava_jato", name: "Lava Jato", label: "Lava Jato", icon: Car, color: "text-cyan-400 border-cyan-500/10 bg-slate-900/60", activeColor: "bg-cyan-600 border-cyan-500 text-white shadow-lg shadow-cyan-500/15" },
   { id: "auto_pecas", name: "Autopeças & Peças", label: "Autopeças", icon: Wrench, color: "text-emerald-400 border-emerald-500/10 bg-slate-900/60", activeColor: "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/15" },
   { id: "mecanico", name: "Oficina Mecânica", label: "Mecânico", icon: Wrench, color: "text-cyan-400 border-cyan-500/10 bg-slate-900/60", activeColor: "bg-cyan-600 border-cyan-500 text-white shadow-lg shadow-cyan-500/15" },
+  { id: "assistencia_celular", name: "Assistência Técnica de Celulares", label: "Celulares", icon: Smartphone, color: "text-blue-400 border-blue-500/10 bg-slate-900/60", activeColor: "bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/15" },
+  { id: "informatica", name: "Informática & Computadores", label: "Informática", icon: Laptop, color: "text-cyan-400 border-cyan-500/10 bg-slate-900/60", activeColor: "bg-cyan-600 border-cyan-500 text-white shadow-lg shadow-cyan-500/15" },
+  { id: "eletronicos_eletro", name: "Eletrônicos & Eletrodomésticos", label: "Eletro & TV", icon: Zap, color: "text-amber-400 border-amber-500/10 bg-slate-900/60", activeColor: "bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-500/15" },
   { id: "comercio_geral", name: "Loja / Comércio Geral", label: "Comércio", icon: ShoppingBasket, color: "text-indigo-400 border-indigo-500/10 bg-slate-900/60", activeColor: "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/15" },
   { id: "loja_racao", name: "Loja de Ração & Pet", label: "Loja de Ração", icon: Dog, color: "text-amber-400 border-amber-500/10 bg-slate-900/60", activeColor: "bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-500/15" },
   { id: "aviario", name: "Aviário & Rações", label: "Aviário", icon: Bird, color: "text-lime-400 border-lime-500/10 bg-slate-900/60", activeColor: "bg-lime-600 border-lime-500 text-white shadow-lg shadow-lime-500/15" },
@@ -2889,7 +2895,8 @@ export default function App() {
         showNotification(`Trava de segmento liberada. Você pode escolher outro ramo agora. 🔓`, "info");
       }
 
-      if (user?.uid && user.uid !== "guest_visitor" && db && !getIsFirestoreQuotaPaused()) {
+      const isAuthActive = Boolean(auth?.currentUser && user?.uid && auth.currentUser.uid === user.uid);
+      if (isAuthActive && db && !getIsFirestoreQuotaPaused()) {
         setDoc(doc(db, "userData", user.uid), {
           isNicheLocked: next,
           pdv_niche_locked: next,
@@ -2928,7 +2935,8 @@ export default function App() {
       }
     } catch {}
 
-    if (user?.uid && user.uid !== "guest_visitor" && db && !getIsFirestoreQuotaPaused()) {
+    const isAuthActive = Boolean(auth?.currentUser && user?.uid && auth.currentUser.uid === user.uid);
+    if (isAuthActive && db && !getIsFirestoreQuotaPaused()) {
       setDoc(doc(db, "userData", user.uid), {
         pdvSelectedSegment: newNiche,
         updatedAt: serverTimestamp()
@@ -4521,7 +4529,8 @@ export default function App() {
       if (db && !getIsFirestoreQuotaPaused()) {
         try {
           setDoc(doc(db, "agendas_publicas", targetStoreId), pubExisting, { merge: true }).catch(() => {});
-          if (user?.uid && user.uid !== "guest_visitor") {
+          const isAuthActive = Boolean(auth?.currentUser && user?.uid && auth.currentUser.uid === user.uid);
+          if (isAuthActive) {
             setDoc(doc(db, "userData", user.uid), { barbeariaAgendamentos: updatedList }, { merge: true }).catch(() => {});
           }
         } catch {}
@@ -4550,7 +4559,8 @@ export default function App() {
       const guestExisting = JSON.parse(localStorage.getItem(guestKey) || "[]");
       localStorage.setItem(guestKey, JSON.stringify([enc, ...guestExisting]));
 
-      if (db && user?.uid && user.uid !== "guest_visitor" && !getIsFirestoreQuotaPaused()) {
+      const isAuthActive = Boolean(auth?.currentUser && user?.uid && auth.currentUser.uid === user.uid);
+      if (db && isAuthActive && !getIsFirestoreQuotaPaused()) {
         try {
           setDoc(doc(db, "userData", user.uid), { barbeariaEncomendas: updated }, { merge: true }).catch(() => {});
         } catch {}
@@ -10567,7 +10577,37 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsSidebarOpen(true)}
+                    className="text-[10px] font-black uppercase tracking-wider text-amber-300 hover:text-white bg-amber-500/20 hover:bg-amber-500/30 px-3 py-1.5 rounded-xl border border-amber-500/30 transition-all cursor-pointer flex items-center gap-1 shadow-sm active:scale-95"
+                    title="Abrir o menu lateral com todas as opções e ferramentas"
+                  >
+                    <Menu className="w-3.5 h-3.5 text-amber-400" />
+                    <span>☰ Menu Geral</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSetNotepadMode("pricing")}
+                    className="text-[10px] font-black uppercase tracking-wider text-cyan-300 hover:text-white bg-cyan-500/15 hover:bg-cyan-500/25 px-3 py-1.5 rounded-xl border border-cyan-500/30 transition-all cursor-pointer flex items-center gap-1 shadow-sm active:scale-95"
+                    title="Calculadora de Precificação, Markup e Banco de Sucata"
+                  >
+                    <Percent className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>♻️ Sucata & Preços</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSetNotepadMode("segmentos")}
+                    className="text-[10px] font-black uppercase tracking-wider text-purple-300 hover:text-white bg-purple-500/15 hover:bg-purple-500/25 px-3 py-1.5 rounded-xl border border-purple-500/30 transition-all cursor-pointer flex items-center gap-1 shadow-sm active:scale-95"
+                    title="Trocar de Segmento / Ramo de Negócio"
+                  >
+                    <Store className="w-3.5 h-3.5 text-purple-400" />
+                    <span>🏢 Segmentos</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => handleSetNotepadMode("pdv", false)}
@@ -10576,13 +10616,14 @@ export default function App() {
                   >
                     <span>⚙️ Painel Geral</span>
                   </button>
+
                   <button
                     type="button"
                     onClick={() => handleSetNotepadMode("notes")}
                     className="text-[10px] font-black uppercase tracking-wider text-emerald-300 hover:text-white bg-emerald-500/15 hover:bg-emerald-500/25 px-3 py-1.5 rounded-xl border border-emerald-500/30 transition-all cursor-pointer flex items-center gap-1"
                     title="Ir para o Bloco de Notas e Utilidades"
                   >
-                    <span>📝 Utilidades & Bloco</span>
+                    <span>📝 Utilidades</span>
                   </button>
                 </div>
               </div>

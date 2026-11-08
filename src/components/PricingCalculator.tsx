@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { Component, useState } from "react";
 import {
   Calculator,
   AlertTriangle,
@@ -21,10 +21,75 @@ import { DigitalScaleFoodPricingCalculator } from "./pricing/DigitalScaleFoodPri
 import { BakeryPricingCalculator } from "./pricing/BakeryPricingCalculator";
 import { ButcherPricingCalculator } from "./pricing/ButcherPricingCalculator";
 import { RetailOverheadCalculator } from "./pricing/RetailOverheadCalculator";
+import { TechRecyclingTradeCalculator } from "./pricing/TechRecyclingTradeCalculator";
 import { parseFlexibleNumber } from "./pricing/SmartNumericInput";
 
+interface PricingErrorBoundaryProps {
+  children: React.ReactNode;
+  calculatorTitle: string;
+  storageKeyToClear?: string;
+}
+
+interface PricingErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class PricingErrorBoundary extends Component<PricingErrorBoundaryProps, PricingErrorBoundaryState> {
+  declare props: PricingErrorBoundaryProps;
+  state: PricingErrorBoundaryState = {
+    hasError: false,
+    error: null
+  };
+
+  static getDerivedStateFromError(error: Error): PricingErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.warn("Erro recuperado na calculadora de precificação:", error, errorInfo);
+  }
+
+  handleReset = () => {
+    if (this.props.storageKeyToClear) {
+      try {
+        localStorage.removeItem(this.props.storageKeyToClear);
+      } catch {}
+    }
+    (this as any).setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-slate-900 border border-amber-500/30 rounded-3xl p-6 text-center max-w-2xl mx-auto space-y-4 my-6 shadow-2xl">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto text-2xl font-bold">
+            ⚠️
+          </div>
+          <h3 className="text-lg font-black text-white">
+            Recuperação da {this.props.calculatorTitle}
+          </h3>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            Houve uma instabilidade temporária ao carregar dados desta calculadora. Clique no botão abaixo para restaurar com configurações seguras e continuar usando perfeitamente.
+          </p>
+          <div className="flex justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={this.handleReset}
+              className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-lg shadow-amber-500/20"
+            >
+              🔄 Recarregar Esta Calculadora
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function PricingCalculator() {
-  const [calculatorType, setCalculatorType] = useState<"culinary" | "commercial" | "bakery" | "butcher" | "retail">("culinary");
+  const [calculatorType, setCalculatorType] = useState<"culinary" | "commercial" | "bakery" | "butcher" | "retail" | "tech_trade">("culinary");
   const [mode, setMode] = useState<"recommended" | "validate">("recommended");
   const [productName, setProductName] = useState("");
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
@@ -112,12 +177,12 @@ export function PricingCalculator() {
           </span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {/* 1. Gastronomia & Balança Digital (Default) */}
           <button
             type="button"
             onClick={() => setCalculatorType("culinary")}
-            className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer col-span-2 sm:col-span-1 ${
+            className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
               calculatorType === "culinary"
                 ? "bg-gradient-to-br from-emerald-600/30 to-teal-700/20 border-emerald-400 text-white ring-1 ring-emerald-400/50 shadow-lg shadow-emerald-950/40"
                 : "bg-slate-950/80 border-white/5 text-slate-400 hover:bg-slate-900 hover:text-white"
@@ -232,24 +297,62 @@ export function PricingCalculator() {
               Sacolas, Frete & Custos Ocultos
             </div>
           </button>
+
+          {/* 6. Desmanche, Sucata & Base de Troca (Celular, Informática, Eletro) */}
+          <button
+            type="button"
+            onClick={() => setCalculatorType("tech_trade")}
+            className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
+              calculatorType === "tech_trade"
+                ? "bg-gradient-to-br from-emerald-600/30 to-cyan-700/20 border-emerald-400 text-white ring-1 ring-emerald-400/50 shadow-lg shadow-emerald-950/40"
+                : "bg-slate-950/80 border-white/5 text-slate-400 hover:bg-slate-900 hover:text-white"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xl">♻️</span>
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[8.5px] font-black">
+                SUCATA & TROCA
+              </span>
+            </div>
+            <div className="text-xs font-black leading-tight">
+              Desmanche & Troca
+            </div>
+            <div className="text-[9.5px] text-slate-400">
+              Celular, PC & Eletro
+            </div>
+          </button>
         </div>
       </div>
 
       {/* RENDERIZAÇÃO DO MODO SELECIONADO */}
+      {calculatorType === "tech_trade" && (
+        <PricingErrorBoundary calculatorTitle="Calculadora de Sucata & Troca" storageKeyToClear="pdv_tech_components_celular">
+          <TechRecyclingTradeCalculator showNotification={showNotification} />
+        </PricingErrorBoundary>
+      )}
+
       {calculatorType === "culinary" && (
-        <DigitalScaleFoodPricingCalculator />
+        <PricingErrorBoundary calculatorTitle="Calculadora de Balança & Gastronomia" storageKeyToClear="culinary_food_recipes_active_draft">
+          <DigitalScaleFoodPricingCalculator />
+        </PricingErrorBoundary>
       )}
 
       {calculatorType === "bakery" && (
-        <BakeryPricingCalculator showNotification={showNotification} />
+        <PricingErrorBoundary calculatorTitle="Calculadora de Padaria & Fornada" storageKeyToClear="bakery_presets_custom_v1">
+          <BakeryPricingCalculator showNotification={showNotification} />
+        </PricingErrorBoundary>
       )}
 
       {calculatorType === "butcher" && (
-        <ButcherPricingCalculator showNotification={showNotification} />
+        <PricingErrorBoundary calculatorTitle="Calculadora de Açougue & Desossa" storageKeyToClear="butcher_presets_custom_v1">
+          <ButcherPricingCalculator showNotification={showNotification} />
+        </PricingErrorBoundary>
       )}
 
       {calculatorType === "retail" && (
-        <RetailOverheadCalculator showNotification={showNotification} />
+        <PricingErrorBoundary calculatorTitle="Calculadora de Mercearia & Revenda" storageKeyToClear="retail_presets_custom_v1">
+          <RetailOverheadCalculator showNotification={showNotification} />
+        </PricingErrorBoundary>
       )}
 
       {calculatorType === "commercial" && (

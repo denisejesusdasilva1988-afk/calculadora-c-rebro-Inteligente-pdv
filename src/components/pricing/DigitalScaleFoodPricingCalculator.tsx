@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Scale,
   Utensils,
@@ -29,7 +29,9 @@ import {
   FolderOpen,
   Search,
   Copy,
-  FileText
+  FileText,
+  Pencil,
+  RotateCcw
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { SalgadoProporcaoLivreCard } from "./SalgadoProporcaoLivreCard";
@@ -891,14 +893,38 @@ export function DigitalScaleFoodPricingCalculator({
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(val || 0)
   );
 
-  // Active Recipe State com recuperação de rascunho para não perder receitas de família digitadas
+  // Modelos de receitas com persistência em localStorage para o usuário personalizar nomes e salvar
+  const [presetsList, setPresetsList] = useState<FoodRecipePreset[]>(() => {
+    try {
+      const stored = localStorage.getItem("culinary_food_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((p: any, idx: number) => ({
+            ...FOOD_PRESETS[0],
+            ...p,
+            id: p.id || `preset_${idx}`,
+            name: String(p.name || `Receita ${idx + 1}`),
+            ingredients: Array.isArray(p.ingredients) ? p.ingredients : FOOD_PRESETS[0].ingredients
+          }));
+        }
+      }
+    } catch {}
+    return FOOD_PRESETS;
+  });
+
+  // Active Recipe State com recuperação segura de rascunho
   const [activeRecipe, setActiveRecipe] = useState<FoodRecipePreset>(() => {
     try {
       const draft = localStorage.getItem("culinary_food_recipes_active_draft");
       if (draft) {
         const parsed = JSON.parse(draft);
-        if (parsed && parsed.name && Array.isArray(parsed.ingredients) && parsed.ingredients.length > 0) {
-          return parsed;
+        if (parsed && typeof parsed === "object" && parsed.name && Array.isArray(parsed.ingredients) && parsed.ingredients.length > 0) {
+          return {
+            ...FOOD_PRESETS[0],
+            ...parsed,
+            ingredients: parsed.ingredients
+          };
         }
       }
     } catch {}
@@ -914,11 +940,19 @@ export function DigitalScaleFoodPricingCalculator({
     }
   });
 
-  // Salvar rascunho ativo continuamente para nunca perder ingredientes e cálculos de receitas
+  // Salvar rascunho com debounce (800ms) para não travar o teclado ou o navegador durante digitação
+  const activeDraftTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    try {
-      localStorage.setItem("culinary_food_recipes_active_draft", JSON.stringify(activeRecipe));
-    } catch {}
+    if (activeDraftTimeoutRef.current) clearTimeout(activeDraftTimeoutRef.current);
+    activeDraftTimeoutRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem("culinary_food_recipes_active_draft", JSON.stringify(activeRecipe));
+      } catch {}
+    }, 800);
+
+    return () => {
+      if (activeDraftTimeoutRef.current) clearTimeout(activeDraftTimeoutRef.current);
+    };
   }, [activeRecipe]);
 
   const [activeTab, setActiveTab] = useState<"balanca" | "proporcao" | "ingredientes" | "sobras" | "precificacao" | "pasta_receitas">("balanca");
@@ -929,6 +963,108 @@ export function DigitalScaleFoodPricingCalculator({
   const showFeedback = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 3500);
+  };
+
+  // Salvar a receita ativa diretamente na lista de modelos com confirmação
+  const handleSaveActiveRecipeToPresets = () => {
+    setPresetsList((prev) => {
+      const exists = prev.some((p) => p.id === activeRecipe.id);
+      let updated: FoodRecipePreset[];
+      if (exists) {
+        updated = prev.map((p) => (p.id === activeRecipe.id ? { ...activeRecipe } : p));
+      } else {
+        updated = [{ ...activeRecipe }, ...prev];
+      }
+      try {
+        localStorage.setItem("culinary_food_presets_custom_v1", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    const displayName = (activeRecipe?.name || "Receita").split("(")[0].trim() || "Receita";
+    showFeedback(`Receita "${displayName}" salva com sucesso nos seus modelos! 💾🥟`);
+  };
+
+  // Adicionar novo modelo de receita
+  const handleAddNewRecipePreset = () => {
+    const newId = `recipe_custom_${Date.now()}`;
+    const newPreset: FoodRecipePreset = {
+      id: newId,
+      name: "Nova Receita / Produto (Toque para Editar ✍️)",
+      category: "outro",
+      emoji: "🍳",
+      description: "Receita personalizada criada por você.",
+      massTotalWeightG: 1000,
+      fillingTotalWeightG: 500,
+      unitWeightG: 50,
+      unitWeightMassaG: 30,
+      unitWeightRecheioG: 20,
+      useManualYield: false,
+      unitTypeLabel: "unidades",
+      gasEnergyCost: 3.0,
+      packagingCostTotal: 2.0,
+      laborCostTotal: 5.0,
+      otherOperationalCost: 1.0,
+      targetMarginPct: 50,
+      cardFeePct: 2.5,
+      currentPracticeSellPrice: 5.0,
+      ingredients: [
+        {
+          id: `ing_${Date.now()}_1`,
+          name: "Ingrediente Principal",
+          category: "massa",
+          packageQty: 1,
+          packageUnit: "kg",
+          packagePrice: 10.0,
+          usedQty: 500,
+          usedUnit: "g"
+        }
+      ]
+    };
+    setPresetsList((prev) => {
+      const updated = [newPreset, ...prev];
+      try {
+        localStorage.setItem("culinary_food_presets_custom_v1", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    setSelectedPresetId(newId);
+    setActiveRecipe(newPreset);
+    showFeedback("Novo modelo de receita criado! Digite o nome, pesos e ingredientes. ✍️");
+  };
+
+  // Excluir modelo da lista
+  const handleDeletePreset = (presetId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (presetsList.length <= 1) {
+      showFeedback("Você deve manter pelo menos 1 modelo de receita.");
+      return;
+    }
+    setPresetsList((prev) => {
+      const updated = prev.filter((p) => p.id !== presetId);
+      try {
+        localStorage.setItem("culinary_food_presets_custom_v1", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    if (selectedPresetId === presetId) {
+      const remaining = presetsList.filter((p) => p.id !== presetId);
+      if (remaining.length > 0) {
+        setSelectedPresetId(remaining[0].id);
+        setActiveRecipe(JSON.parse(JSON.stringify(remaining[0])));
+      }
+    }
+    showFeedback("Modelo de receita removido da lista. 🗑️");
+  };
+
+  // Restaurar modelos padrão
+  const handleResetPresetsToDefault = () => {
+    try {
+      localStorage.removeItem("culinary_food_presets_custom_v1");
+    } catch {}
+    setPresetsList(FOOD_PRESETS);
+    setSelectedPresetId(FOOD_PRESETS[0].id);
+    setActiveRecipe(JSON.parse(JSON.stringify(FOOD_PRESETS[0])));
+    showFeedback("Modelos padrão restaurados com sucesso! 🔄");
   };
 
   const handleApplySalgadoProportion = (massaG: number, recheioG: number, totalUnitG: number, name: string) => {
@@ -950,7 +1086,7 @@ export function DigitalScaleFoodPricingCalculator({
   // Switch Preset
   const handleSelectPreset = (presetId: string) => {
     setSelectedPresetId(presetId);
-    const found = FOOD_PRESETS.find((p) => p.id === presetId);
+    const found = presetsList.find((p) => p.id === presetId) || FOOD_PRESETS.find((p) => p.id === presetId);
     if (found) {
       // Deep clone so user modifications don't mutate const
       setActiveRecipe(JSON.parse(JSON.stringify(found)));
@@ -970,7 +1106,8 @@ export function DigitalScaleFoodPricingCalculator({
     let totalUsedRecipeCost = 0;
     let totalLeftoverValue = 0;
 
-    const detailedList = activeRecipe.ingredients.map((ing) => {
+    const list = Array.isArray(activeRecipe?.ingredients) ? activeRecipe.ingredients : [];
+    const detailedList = list.map((ing) => {
       const pkgBase = getStandardQty(ing.packageQty, ing.packageUnit);
       const usedBase = getStandardQty(ing.usedQty, ing.usedUnit);
 
@@ -1225,18 +1362,53 @@ export function DigitalScaleFoodPricingCalculator({
     window.print();
   };
 
-  // Botões rápidos de tamanhos de coxinha / salgado na balança
-  const quickScaleSizes = [
-    { label: "🎈 Festa (20g)", massG: 12, fillG: 8, unitG: 20 },
-    { label: "🥟 Coquetel (35g)", massG: 20, fillG: 15, unitG: 35 },
-    { label: "☕ Lanchonete (80g)", massG: 50, fillG: 30, unitG: 80 },
-    { label: "🏆 Bar / Posto (120g)", massG: 75, fillG: 45, unitG: 120 },
-    { label: "🥟 Pastel Feira (120g)", massG: 70, fillG: 50, unitG: 120 },
-    { label: "🍠 Aipim Porção P (250g)", massG: 250, fillG: 0, unitG: 250 },
-    { label: "🍠 Aipim Feira G (500g)", massG: 500, fillG: 0, unitG: 500 },
-    { label: "🍰 Bolo no Pote (200g)", massG: 100, fillG: 100, unitG: 200 },
-    { label: "🍱 Marmitex M (500g)", massG: 300, fillG: 200, unitG: 500 }
+  // Botões rápidos de tamanhos de coxinha / salgado na balança com persistência
+  const DEFAULT_QUICK_SIZES = [
+    { id: "sz_festa", label: "🎈 Festa (20g)", massG: 12, fillG: 8, unitG: 20 },
+    { id: "sz_coquetel", label: "🥟 Coquetel (35g)", massG: 20, fillG: 15, unitG: 35 },
+    { id: "sz_lanchonete", label: "☕ Lanchonete (80g)", massG: 50, fillG: 30, unitG: 80 },
+    { id: "sz_bar", label: "🏆 Bar / Posto (120g)", massG: 75, fillG: 45, unitG: 120 },
+    { id: "sz_pastel", label: "🥟 Pastel Feira (120g)", massG: 70, fillG: 50, unitG: 120 },
+    { id: "sz_aipim_p", label: "🍠 Aipim Porção P (250g)", massG: 250, fillG: 0, unitG: 250 },
+    { id: "sz_aipim_g", label: "🍠 Aipim Feira G (500g)", massG: 500, fillG: 0, unitG: 500 },
+    { id: "sz_bolo_pote", label: "🍰 Bolo no Pote (200g)", massG: 100, fillG: 100, unitG: 200 },
+    { id: "sz_marmitex", label: "🍱 Marmitex M (500g)", massG: 300, fillG: 200, unitG: 500 }
   ];
+
+  const [quickScaleSizes, setQuickScaleSizes] = useState(() => {
+    try {
+      const stored = localStorage.getItem("culinary_quick_scale_sizes_v1");
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return DEFAULT_QUICK_SIZES;
+  });
+
+  const handleAddCurrentSizeToPresets = () => {
+    const newSize = {
+      id: `sz_${Date.now()}`,
+      label: `✨ Personalizado (${activeRecipe.unitWeightG}g)`,
+      massG: activeRecipe.unitWeightMassaG || activeRecipe.unitWeightG,
+      fillG: activeRecipe.unitWeightRecheioG || 0,
+      unitG: activeRecipe.unitWeightG || 50
+    };
+    const updated = [...quickScaleSizes, newSize];
+    setQuickScaleSizes(updated);
+    try {
+      localStorage.setItem("culinary_quick_scale_sizes_v1", JSON.stringify(updated));
+    } catch {}
+    showFeedback(`Tamanho personalizado de ${newSize.unitG}g salvo na balança! 💾⚖️`);
+  };
+
+  const handleDeleteScaleSize = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (quickScaleSizes.length <= 1) return;
+    const updated = quickScaleSizes.filter((s: any) => s.id !== id);
+    setQuickScaleSizes(updated);
+    try {
+      localStorage.setItem("culinary_quick_scale_sizes_v1", JSON.stringify(updated));
+    } catch {}
+    showFeedback("Tamanho removido. 🗑️");
+  };
 
   return (
     <div className="bg-slate-950 p-4 sm:p-6 lg:p-8 rounded-3xl border border-white/10 space-y-6 text-white max-w-5xl mx-auto text-left shadow-2xl">
@@ -1307,35 +1479,111 @@ export function DigitalScaleFoodPricingCalculator({
         )}
       </AnimatePresence>
 
-      {/* SELETOR DE PRESETS / MODELOS PRONTOS (Coxinhas, Pastel, Aipim, Bolo no Pote, Marmitex, Lanches) */}
-      <div className="space-y-2">
-        <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 flex items-center justify-between">
-          <span>Escolha um modelo pronto ou personalize sua receita:</span>
-          <span className="text-amber-400 font-bold">{FOOD_PRESETS.length} Modelos Testados</span>
-        </label>
+      {/* SELETOR DE PRESETS / MODELOS PRONTOS COM ADICIONAR, EDITAR E SALVAR */}
+      <div className="space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+            <span>Modelos Prontos na Balança ({presetsList.length} receitas):</span>
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAddNewRecipePreset}
+              className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-black text-[10.5px] uppercase rounded-xl border border-amber-500/40 flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-sm"
+              title="Adicionar uma nova receita personalizada"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Novo Modelo</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleResetPresetsToDefault}
+              className="px-2 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-medium text-[10px] uppercase rounded-xl border border-white/10 flex items-center gap-1 cursor-pointer transition-all"
+              title="Restaurar os 6 modelos padrão de fábrica"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Padrão</span>
+            </button>
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-          {FOOD_PRESETS.map((preset) => {
+          {presetsList.map((preset) => {
             const isSelected = selectedPresetId === preset.id;
             return (
-              <button
+              <div
                 key={preset.id}
-                type="button"
                 onClick={() => handleSelectPreset(preset.id)}
-                className={`p-2.5 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
+                className={`p-2.5 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer relative group ${
                   isSelected
                     ? "bg-amber-500/15 border-amber-400 text-white shadow-lg shadow-amber-500/10 ring-1 ring-amber-400/50"
                     : "bg-slate-900/60 border-white/5 text-slate-400 hover:bg-slate-900 hover:text-slate-200"
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xl">{preset.emoji}</span>
-                  {isSelected && <span className="w-2 h-2 rounded-full bg-amber-400" />}
+                  <span className="text-xl">{preset.emoji || "🥟"}</span>
+                  <div className="flex items-center gap-1">
+                    {isSelected && <span className="w-2 h-2 rounded-full bg-amber-400" />}
+                    {presetsList.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeletePreset(preset.id, e)}
+                        className="opacity-40 hover:opacity-100 hover:text-rose-400 p-0.5 rounded transition-all"
+                        title="Excluir este modelo"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="text-xs font-black leading-tight line-clamp-2">{preset.name.split("(")[0]}</div>
+                <div className="text-xs font-black leading-tight line-clamp-2">{(preset.name || "Receita").split("(")[0]}</div>
                 <div className="text-[9.5px] font-medium text-slate-400 capitalize">{preset.category}</div>
-              </button>
+              </div>
             );
           })}
+        </div>
+
+        {/* NOME DA RECEITA EDITÁVEL EM DESTAQUE COM BOTÃO SALVAR */}
+        <div className="bg-slate-900 border border-amber-500/40 p-3.5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <Pencil className="w-4 h-4 text-amber-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <span className="text-[9.5px] uppercase font-black text-amber-400 block tracking-wider">
+                Nome da Receita Selecionada (Toque para Editar ✍️):
+              </span>
+              <input
+                type="text"
+                value={activeRecipe.name || ""}
+                onChange={(e) => {
+                  handleUpdateRecipeField("name", e.target.value);
+                }}
+                onBlur={() => {
+                  if (activeRecipe.name) {
+                    setPresetsList((prev) =>
+                      prev.map((p) => (p.id === activeRecipe.id ? { ...p, name: activeRecipe.name } : p))
+                    );
+                  }
+                }}
+                placeholder="Ex: Coxinha de Costela, Pastel Especial de Queijo, Marmitex Executivo..."
+                className="w-full bg-transparent text-sm sm:text-base font-black text-white outline-none placeholder:text-slate-500 border-b border-white/10 focus:border-amber-400 py-1 transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+            <span className="text-[10px] text-slate-400 bg-slate-950 px-2.5 py-1.5 rounded-xl border border-white/5">
+              Rendimento: <strong className="text-emerald-400">{scaleStats.batchYield} {activeRecipe.unitTypeLabel}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={handleSaveActiveRecipeToPresets}
+              className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-500/25"
+              title="Salvar alterações no modelo de receita permanentemente"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>💾 Salvar Receita</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1503,30 +1751,52 @@ export function DigitalScaleFoodPricingCalculator({
                   <Sparkles className="w-4 h-4 text-amber-400" />
                   Tamanhos Padrão na Balança:
                 </span>
+                <button
+                  type="button"
+                  onClick={handleAddCurrentSizeToPresets}
+                  className="px-2 py-0.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-bold uppercase rounded border border-emerald-500/30 flex items-center gap-1 cursor-pointer transition-all"
+                  title="Salvar o peso atual da balança como um novo botão de tamanho rápido"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>+ Salvar {activeRecipe.unitWeightG}g</span>
+                </button>
               </div>
 
               {/* Botões de tamanhos rápidos */}
               <div className="flex flex-wrap gap-1.5">
-                {quickScaleSizes.map((qs, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => {
-                      handleUpdateRecipeField("unitWeightG", qs.unitG);
-                      handleUpdateRecipeField("unitWeightMassaG", qs.massG);
-                      handleUpdateRecipeField("unitWeightRecheioG", qs.fillG);
-                      handleUpdateRecipeField("useManualYield", false);
-                      showFeedback(`Ajustado para tamanho: ${qs.label}`);
-                    }}
-                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                      activeRecipe.unitWeightG === qs.unitG && !activeRecipe.useManualYield
-                        ? "bg-emerald-500 text-slate-950 font-black shadow-md"
-                        : "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
-                    }`}
-                  >
-                    {qs.label}
-                  </button>
-                ))}
+                {quickScaleSizes.map((qs: any, i: number) => {
+                  const isSelected = activeRecipe.unitWeightG === qs.unitG && !activeRecipe.useManualYield;
+                  return (
+                    <div key={qs.id || i} className="flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleUpdateRecipeField("unitWeightG", qs.unitG);
+                          handleUpdateRecipeField("unitWeightMassaG", qs.massG);
+                          handleUpdateRecipeField("unitWeightRecheioG", qs.fillG);
+                          handleUpdateRecipeField("useManualYield", false);
+                          showFeedback(`Ajustado para tamanho: ${qs.label}`);
+                        }}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          isSelected
+                            ? "bg-emerald-500 text-slate-950 font-black shadow-md"
+                            : "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
+                        }`}
+                      >
+                        <span>{qs.label}</span>
+                        {quickScaleSizes.length > 2 && qs.id?.startsWith("sz_") && (
+                          <span
+                            onClick={(e) => handleDeleteScaleSize(qs.id, e)}
+                            className="text-[9px] opacity-40 hover:opacity-100 hover:text-rose-500 ml-0.5"
+                            title="Remover tamanho"
+                          >
+                            ×
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Modo de cálculo: Automático pelo peso OU Manual (Enrolei e deu X) */}

@@ -38,7 +38,10 @@ import {
   CheckSquare,
   Square,
   ShieldCheck,
-  ShieldAlert
+  ShieldAlert,
+  Download,
+  Save,
+  HardDrive
 } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { getScopedItem, setScopedItem } from "../utils/userScopedStorage";
@@ -474,6 +477,43 @@ const PREDEFINED_CATEGORIES_BY_NICHE: Record<string, string[]> = {
   lava_jato: ["Lavagem Simples", "Lavagem Completa", "Higienização", "Polimento", "Acessórios"],
   auto_pecas: ["Motor", "Suspensão", "Elétrica", "Óleos & Lubrificantes", "Acessórios"],
   mecanico: ["Mão de Obra", "Peças Reposição", "Revisão Geral", "Suspensão", "Freios"],
+  assistencia_celular: [
+    "Telas & Displays Frontais",
+    "Baterias & Carregamento",
+    "Conectores de Carga & Placas Sub",
+    "Películas 3D, Cerâmica & Vidro",
+    "Capinhas & Cases Protetoras",
+    "Cabos, Carregadores & Fontes",
+    "Fones, Caixas de Som & Áudio",
+    "Câmeras & Lentes",
+    "Reparo de Placa & Microssolda",
+    "Mão de Obra Técnica & Troca",
+    "Acessórios & Outros"
+  ],
+  informatica: [
+    "Formatação & Instalação de Sistema",
+    "SSDs, HDs & Armazenamento",
+    "Memórias RAM & Upgrades",
+    "Fontes & Nobreaks",
+    "Placas-Mãe, Processadores & Placas de Vídeo",
+    "Limpeza Preventiva & Pasta Térmica",
+    "Teclados, Mouses & Periféricos",
+    "Cabos, Adaptadores & Redes",
+    "Telas de Notebook & Carcaças",
+    "Mão de Obra Técnica Especializada"
+  ],
+  eletronicos_eletro: [
+    "Conserto de TV & Smart TV",
+    "Barras de LED & Placas de TV",
+    "Micro-ondas & Air Fryers",
+    "Máquinas de Lavar & Tanquinhos",
+    "Ventiladores & Climatizadores",
+    "Motores, Bombas & Válvulas",
+    "Placas Eletrônicas & Capacitores",
+    "Cabos de Força & Termostatos",
+    "Mão de Obra Técnica & Reforma",
+    "Acessórios & Peças Gerais"
+  ],
   acougue: ["Bovinos", "Suínos", "Aves", "Embutidos", "Carvão & Acessórios"],
   sacolao: ["Frutas Frescas", "Legumes & Raízes", "Verduras & Folhagens", "Temperos & Ervas", "Ovos & Granja", "Bebidas & Polpas", "Outros"],
   loja_racao: ["Rações a Granel (kg)", "Rações Pacote Fechado", "Petiscos & Sachês", "Medicamentos & Higiene", "Acessórios & Coleiras"],
@@ -512,7 +552,117 @@ export function CadastroProdutosModule({
   foreignProductsSampleNames = []
 }: CadastroProdutosModuleProps) {
   // Navigation tabs within Cadastro
-  const [activeTab, setActiveTab] = useState<"lista" | "novo" | "categorias">("lista");
+  const [activeTab, setActiveTab] = useState<"lista" | "novo" | "categorias" | "seguranca_backup">("lista");
+
+  // --- Backup & Stock Protection Helpers ---
+  const handleExportStockBackup = () => {
+    try {
+      const backupData = {
+        app: "PDV Multi-Segmentos",
+        version: "2.0",
+        exportedAt: new Date().toISOString(),
+        businessSegment: selectedNiche,
+        userId: userId || "guest",
+        totalProducts: customProducts.length,
+        products: customProducts,
+        stockData: productStockData,
+        categories: customCategories
+      };
+      const jsonStr = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const dateTag = new Date().toISOString().split("T")[0];
+      link.href = url;
+      link.download = `backup_estoque_${selectedNiche}_${dateTag}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showNotification("Backup do estoque baixado com sucesso! Arquivo seguro salvo no seu aparelho. 📥✅", "success");
+    } catch (err) {
+      console.error(err);
+      showNotification("Erro ao gerar arquivo de backup.", "error");
+    }
+  };
+
+  const handleRestoreFromInternalBackup = () => {
+    try {
+      const backupProdsRaw = localStorage.getItem(`pdv_products_backup_${userId || "guest"}`) || localStorage.getItem("pdv_products_master_backup");
+      const backupStockRaw = localStorage.getItem(`pdv_stock_backup_${userId || "guest"}`) || localStorage.getItem("pdv_stock_master_backup");
+
+      let restoredProds: CustomProduct[] = [];
+      let restoredStock: Record<string, any> = {};
+
+      if (backupProdsRaw) {
+        restoredProds = JSON.parse(backupProdsRaw);
+      }
+      if (backupStockRaw) {
+        restoredStock = JSON.parse(backupStockRaw);
+      }
+
+      if (restoredProds.length === 0 && Object.keys(restoredStock).length === 0) {
+        showNotification("Nenhuma cópia anterior de backup encontrada neste aparelho.", "info");
+        return;
+      }
+
+      const mergedMap = new Map<string, CustomProduct>();
+      restoredProds.forEach(p => { if (p && p.id) mergedMap.set(p.id, p); });
+      customProducts.forEach(p => { if (p && p.id) mergedMap.set(p.id, p); });
+      const finalProds = Array.from(mergedMap.values());
+      const finalStock = { ...restoredStock, ...productStockData };
+
+      onSaveCatalog(finalProds, finalStock);
+      setScopedItem("pdv_custom_products", JSON.stringify(finalProds), userId);
+      setScopedItem("pdv_product_stock_data", JSON.stringify(finalStock), userId);
+
+      showNotification(`Sucesso! ${finalProds.length} produtos e estoque restaurados da cópia de segurança! 🛡️✨`, "success");
+    } catch (err) {
+      console.error(err);
+      showNotification("Erro ao restaurar cópia de segurança.", "error");
+    }
+  };
+
+  const handleImportBackupFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+        const importedProds: CustomProduct[] = Array.isArray(parsed.products) ? parsed.products : [];
+        const importedStock = parsed.stockData && typeof parsed.stockData === "object" ? parsed.stockData : {};
+
+        if (importedProds.length === 0 && Object.keys(importedStock).length === 0) {
+          showNotification("O arquivo selecionado não contém produtos ou estoque válidos.", "error");
+          return;
+        }
+
+        const mergedMap = new Map<string, CustomProduct>();
+        importedProds.forEach(p => { if (p && p.id) mergedMap.set(p.id, p); });
+        customProducts.forEach(p => { if (p && p.id) mergedMap.set(p.id, p); });
+        const finalProds = Array.from(mergedMap.values());
+        const finalStock = { ...importedStock, ...productStockData };
+
+        onSaveCatalog(finalProds, finalStock);
+        setScopedItem("pdv_custom_products", JSON.stringify(finalProds), userId);
+        setScopedItem("pdv_product_stock_data", JSON.stringify(finalStock), userId);
+        localStorage.setItem(`pdv_products_backup_${userId || "guest"}`, JSON.stringify(finalProds));
+        localStorage.setItem(`pdv_stock_backup_${userId || "guest"}`, JSON.stringify(finalStock));
+        localStorage.setItem("pdv_products_master_backup", JSON.stringify(finalProds));
+        localStorage.setItem("pdv_stock_master_backup", JSON.stringify(finalStock));
+
+        showNotification(`Arquivo importado com sucesso! ${importedProds.length} produtos adicionados ao estoque. 📂✅`, "success");
+      } catch (err) {
+        console.error(err);
+        showNotification("Erro ao processar o arquivo de backup. Verifique se é um arquivo JSON válido.", "error");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
 
   // Custom categories list state
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
@@ -1851,6 +2001,20 @@ export function CadastroProdutosModule({
             }`}
           >
             🏷️ Categorias ({customCategories.length})
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("seguranca_backup");
+              setEditingCategoryName(null);
+            }}
+            className={`px-4 py-2 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === "seguranca_backup"
+                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            🛡️ Blindagem & Backup
           </button>
         </div>
       </div>
@@ -4003,6 +4167,164 @@ export function CadastroProdutosModule({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* VIEW D: BACKUP & STOCK PROTECTION TAB */}
+      {activeTab === "seguranca_backup" && (
+        <div className="space-y-6 text-left animate-fadeIn">
+          {/* HERO BANNER */}
+          <div className="bg-gradient-to-r from-emerald-950/60 via-slate-900 to-slate-950 border border-emerald-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
+              <div className="flex items-start gap-4">
+                <div className="p-3.5 bg-emerald-500/20 border border-emerald-500/30 rounded-2xl text-emerald-400 shrink-0">
+                  <ShieldCheck className="w-8 h-8" />
+                </div>
+                <div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full text-[10px] font-black uppercase tracking-wider mb-2">
+                    🛡️ Blindagem de Estoque Ativa
+                  </div>
+                  <h3 className="text-xl sm:text-2xl font-black text-white">
+                    Proteção Anti-Perda de Cadastros e Estoque
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl leading-relaxed font-sans">
+                    Sabemos o enorme trabalho e dedicação que leva para cadastrar seus produtos, códigos de barras, preços e estoque. O seu catálogo conta com <strong>3 camadas independentes de segurança</strong> para garantir que nada se perca jamais!
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto shrink-0">
+                <button
+                  type="button"
+                  onClick={handleExportStockBackup}
+                  className="px-5 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-xl shadow-emerald-500/20 cursor-pointer flex items-center justify-center gap-2.5 active:scale-95"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Baixar Backup Completo (JSON)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 3 SECURITY LAYERS BENTO GRID */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-slate-950 border border-emerald-500/20 p-5 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                  <HardDrive className="w-4 h-4" /> 1ª Camada: Armazenamento Local
+                </span>
+                <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md text-[9px] font-bold">
+                  Ativo ✅
+                </span>
+              </div>
+              <p className="text-2xl font-black text-white">{customProducts.length} itens</p>
+              <p className="text-xs text-slate-400 leading-relaxed font-sans">
+                Gravado instantaneamente na memória segura do seu navegador/celular. Funciona mesmo sem internet e não apaga ao recarregar a página.
+              </p>
+            </div>
+
+            <div className="bg-slate-950 border border-emerald-500/20 p-5 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                  <Save className="w-4 h-4" /> 2ª Camada: Cópia Espelhada (Backup)
+                </span>
+                <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md text-[9px] font-bold">
+                  Automático 🔄
+                </span>
+              </div>
+              <p className="text-2xl font-black text-white">{Object.keys(productStockData).length} estoques</p>
+              <p className="text-xs text-slate-400 leading-relaxed font-sans">
+                A cada produto criado ou estoque alterado, uma cópia espelhada é mantida isolada para restauração imediata caso ocorra qualquer imprevisto.
+              </p>
+            </div>
+
+            <div className="bg-slate-950 border border-emerald-500/20 p-5 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4" /> 3ª Camada: Nuvem Firestore
+                </span>
+                <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md text-[9px] font-bold">
+                  Sincronizado ☁️
+                </span>
+              </div>
+              <p className="text-2xl font-black text-white">Conta Vinculada</p>
+              <p className="text-xs text-slate-400 leading-relaxed font-sans">
+                Quando conectado à sua conta, os dados são sincronizados no banco de dados na nuvem para que você acerte vendas de qualquer dispositivo.
+              </p>
+            </div>
+          </div>
+
+          {/* BACKUP ACTIONS & RESTORE SECTION */}
+          <div className="bg-slate-950 border border-white/5 rounded-3xl p-6 sm:p-7 space-y-6">
+            <div>
+              <h4 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-emerald-400" />
+                Ações de Recuperação e Restauração de Segurança
+              </h4>
+              <p className="text-xs text-slate-400 mt-1">
+                Utilize as ferramentas abaixo sempre que desejar restaurar uma cópia anterior ou importar um arquivo de catálogo salvo.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* RESTORE FROM INTERNAL AUTO-BACKUP */}
+              <div className="bg-slate-900/60 border border-white/5 p-5 rounded-2xl space-y-3 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <span className="text-xs font-black text-white uppercase flex items-center gap-2">
+                    🔄 Restaurar da Cópia Interna do Aparelho
+                  </span>
+                  <p className="text-xs text-slate-400 leading-relaxed font-sans">
+                    Carrega a última versão automática gravada pelo sistema. Ideal se algum produto foi editado ou apagado por engano por algum operador.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRestoreFromInternalBackup}
+                  className="w-full py-3 bg-slate-800 hover:bg-emerald-600 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Restaurar Cópia de Segurança Agora
+                </button>
+              </div>
+
+              {/* IMPORT BACKUP JSON FILE */}
+              <div className="bg-slate-900/60 border border-white/5 p-5 rounded-2xl space-y-3 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <span className="text-xs font-black text-white uppercase flex items-center gap-2">
+                    📂 Importar Arquivo de Backup do Catálogo
+                  </span>
+                  <p className="text-xs text-slate-400 leading-relaxed font-sans">
+                    Selecione um arquivo de backup (.json) previamente baixado para restaurar todos os produtos e estoques instantaneamente.
+                  </p>
+                </div>
+                <label className="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md">
+                  <Upload className="w-4 h-4" />
+                  <span>Selecionar Arquivo de Backup (.json)</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportBackupFile}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* PEACE OF MIND ACCORDION / GUARANTEE */}
+            <div className="p-4 bg-emerald-950/30 border border-emerald-500/20 rounded-2xl text-xs text-emerald-200/90 leading-relaxed space-y-2">
+              <div className="flex items-center gap-2 text-emerald-300 font-black uppercase text-[11px]">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                Garantia de Permanência dos Dados:
+              </div>
+              <ul className="list-disc list-inside space-y-1 text-slate-300 text-[11px] font-sans">
+                <li>Ao adicionar novos produtos, a gravação é executada em milissegundos sem travar o aplicativo.</li>
+                <li>Ao efetuar login com CPF ou e-mail, os produtos cadastrados são automaticamente vinculados à sua conta.</li>
+                <li>O sistema nunca descarta produtos sem que você clique e confirme expressamente a exclusão do item.</li>
+                <li>Você pode baixar uma cópia do seu estoque a qualquer momento e guardá-la no seu celular, computador ou WhatsApp.</li>
+              </ul>
+            </div>
+          </div>
         </div>
       )}
 

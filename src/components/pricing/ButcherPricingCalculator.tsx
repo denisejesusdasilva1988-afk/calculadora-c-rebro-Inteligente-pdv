@@ -131,16 +131,193 @@ export function ButcherPricingCalculator({
   showNotification,
   onApplyToPDVCatalog
 }: ButcherPricingCalculatorProps) {
-  const [selectedPresetName, setSelectedPresetName] = useState<string>(BUTCHER_PRESETS[0].name);
-  const [carcassName, setCarcassName] = useState<string>(BUTCHER_PRESETS[0].name);
-  const [carcassWeight, setCarcassWeight] = useState<number>(BUTCHER_PRESETS[0].carcassWeight);
-  const [costPerKg, setCostPerKg] = useState<number>(BUTCHER_PRESETS[0].costPerKg);
-  const [overheadCost, setOverheadCost] = useState<number>(BUTCHER_PRESETS[0].overheadCost);
-  const [targetMarginPct, setTargetMarginPct] = useState<number>(BUTCHER_PRESETS[0].targetMarginPct);
+  // Carcaças salvas em localStorage para o usuário nunca perder personalizações
+  const [carcassPresets, setCarcassPresets] = useState<ButcherPreset[]>(() => {
+    try {
+      const stored = localStorage.getItem("butcher_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return BUTCHER_PRESETS;
+  });
 
-  const [cuts, setCuts] = useState<CarcassCut[]>(() =>
-    BUTCHER_PRESETS[0].cuts.map((c, idx) => ({ ...c, id: `cut_${idx}_${Date.now()}` }))
-  );
+  const [selectedPresetName, setSelectedPresetName] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem("butcher_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].name;
+      }
+    } catch {}
+    return BUTCHER_PRESETS[0].name;
+  });
+
+  const [carcassName, setCarcassName] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem("butcher_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].name;
+      }
+    } catch {}
+    return BUTCHER_PRESETS[0].name;
+  });
+
+  const [carcassWeight, setCarcassWeight] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("butcher_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].carcassWeight;
+      }
+    } catch {}
+    return BUTCHER_PRESETS[0].carcassWeight;
+  });
+
+  const [costPerKg, setCostPerKg] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("butcher_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].costPerKg;
+      }
+    } catch {}
+    return BUTCHER_PRESETS[0].costPerKg;
+  });
+
+  const [overheadCost, setOverheadCost] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("butcher_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].overheadCost;
+      }
+    } catch {}
+    return BUTCHER_PRESETS[0].overheadCost;
+  });
+
+  const [targetMarginPct, setTargetMarginPct] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("butcher_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].targetMarginPct;
+      }
+    } catch {}
+    return BUTCHER_PRESETS[0].targetMarginPct;
+  });
+
+  const [cuts, setCuts] = useState<CarcassCut[]>(() => {
+    try {
+      const stored = localStorage.getItem("butcher_presets_custom_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0].cuts)) {
+          return parsed[0].cuts.map((c: any, idx: number) => ({ ...c, id: `cut_${idx}_${Date.now()}` }));
+        }
+      }
+    } catch {}
+    return BUTCHER_PRESETS[0].cuts.map((c, idx) => ({ ...c, id: `cut_${idx}_${Date.now()}` }));
+  });
+
+  // Salvar a carcaça ativa nos modelos prontos
+  const handleSaveCarcassToPresets = () => {
+    const currentPresetData: ButcherPreset = {
+      name: carcassName,
+      animalType: (selectedPresetName.toLowerCase().includes("frango")
+        ? "frango"
+        : selectedPresetName.toLowerCase().includes("suíno") || selectedPresetName.toLowerCase().includes("porco")
+        ? "suino"
+        : "bovino") as any,
+      carcassWeight,
+      costPerKg,
+      overheadCost,
+      targetMarginPct,
+      cuts: cuts.map(({ id, ...rest }) => rest)
+    };
+
+    setCarcassPresets((prev) => {
+      const idx = prev.findIndex((p) => p.name === selectedPresetName || p.name === carcassName);
+      let updated: ButcherPreset[];
+      if (idx >= 0) {
+        updated = [...prev];
+        updated[idx] = currentPresetData;
+      } else {
+        updated = [currentPresetData, ...prev];
+      }
+      try {
+        localStorage.setItem("butcher_presets_custom_v1", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    setSelectedPresetName(carcassName);
+    showNotification(`Carcaça "${carcassName}" e ${cuts.length} cortes salvos com sucesso nos modelos! 💾🥩`, "success");
+  };
+
+  // Criar novo modelo de carcaça
+  const handleAddNewCarcassPreset = () => {
+    const newName = `Nova Carcaça Personalizada (${carcassPresets.length + 1})`;
+    const newPreset: ButcherPreset = {
+      name: newName,
+      animalType: "bovino",
+      carcassWeight: 60,
+      costPerKg: 18.0,
+      overheadCost: 35.0,
+      targetMarginPct: 35,
+      cuts: [
+        { name: "Corte Nobre 1ª", category: "nobre", yieldKg: 18, sellPriceKg: 42.0 },
+        { name: "Corte Dia a Dia 2ª", category: "segunda", yieldKg: 16, sellPriceKg: 28.0 },
+        { name: "Carne Moída / Recortes", category: "moida", yieldKg: 10, sellPriceKg: 24.0 },
+        { name: "Ossos para Caldo/Sopa", category: "osso", yieldKg: 10, sellPriceKg: 4.5 },
+        { name: "Quebra e Aparas", category: "gordura", yieldKg: 6, sellPriceKg: 1.0 }
+      ]
+    };
+    setCarcassPresets((prev) => {
+      const updated = [newPreset, ...prev];
+      try {
+        localStorage.setItem("butcher_presets_custom_v1", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    setSelectedPresetName(newName);
+    setCarcassName(newName);
+    setCarcassWeight(newPreset.carcassWeight);
+    setCostPerKg(newPreset.costPerKg);
+    setOverheadCost(newPreset.overheadCost);
+    setTargetMarginPct(newPreset.targetMarginPct);
+    setCuts(newPreset.cuts.map((c, i) => ({ ...c, id: `cut_${Date.now()}_${i}` })));
+    showNotification(`Novo modelo "${newName}" criado! Edite os quilos e cortes e clique em Salvar 💾✍️`, "success");
+  };
+
+  // Excluir modelo de carcaça
+  const handleDeleteCarcassPreset = (nameToDelete: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (carcassPresets.length <= 1) {
+      showNotification("Você deve manter pelo menos 1 modelo de carcaça.", "warning");
+      return;
+    }
+    const updated = carcassPresets.filter((p) => p.name !== nameToDelete);
+    setCarcassPresets(updated);
+    try {
+      localStorage.setItem("butcher_presets_custom_v1", JSON.stringify(updated));
+    } catch {}
+    if (selectedPresetName === nameToDelete && updated.length > 0) {
+      handleLoadPreset(updated[0]);
+    }
+    showNotification(`Modelo "${nameToDelete}" removido da lista. 🗑️`, "info");
+  };
+
+  // Restaurar modelos padrão
+  const handleResetButcherPresets = () => {
+    try {
+      localStorage.removeItem("butcher_presets_custom_v1");
+    } catch {}
+    setCarcassPresets(BUTCHER_PRESETS);
+    handleLoadPreset(BUTCHER_PRESETS[0]);
+    showNotification("Modelos padrão de carcaça restaurados! 🔄🥩", "info");
+  };
 
   // Calculations
   const calculations = useMemo(() => {
@@ -348,50 +525,95 @@ export function ButcherPricingCalculator({
           Comprou um <strong>porco inteiro, quarto traseiro de boi ou carcaça com osso</strong>? No açougue você não pode simplesmente jogar 40% em tudo, porque ninguém paga caro por osso ou sebo. Esta calculadora divide cada corte (picanha, alcatra, costela, moída, ossos e quebra de desossa) e mostra exatamente o <strong>custo real do kg limpo</strong>, o faturamento total da peça e o lucro real do açougueiro!
         </p>
 
-        {/* PRESET SHORTCUTS */}
-        <div className="mt-3.5 pt-3 border-t border-white/5">
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-2">
-            ⚡ Carcaças Prontas para Testar (1 Toque):
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {BUTCHER_PRESETS.map((preset, idx) => (
+        {/* PRESET SHORTCUTS DINÂMICOS COM ADICIONAR, EXCLUIR E RESTAURAR */}
+        <div className="mt-3.5 pt-3 border-t border-white/5 space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
+              ⚡ Carcaças Prontas para Testar ({carcassPresets.length} modelos salvos):
+            </span>
+            <div className="flex items-center gap-2">
               <button
-                key={idx}
                 type="button"
-                onClick={() => handleLoadPreset(preset)}
-                className={`px-3 py-1.5 rounded-xl text-[10.5px] font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
-                  selectedPresetName === preset.name
-                    ? "bg-red-600 text-white border-red-400 shadow-md shadow-red-600/30"
-                    : "bg-slate-900/90 hover:bg-red-950/40 text-slate-300 hover:text-white border-white/10"
-                }`}
+                onClick={handleAddNewCarcassPreset}
+                className="px-2.5 py-1 bg-red-600/30 hover:bg-red-600/50 text-red-300 font-black text-[10px] uppercase rounded-lg border border-red-500/40 flex items-center gap-1 cursor-pointer transition-all active:scale-95"
               >
-                <span>
-                  {preset.animalType === "suino"
-                    ? "🐖"
-                    : preset.animalType === "bovino"
-                    ? "🥩"
-                    : preset.animalType === "frango"
-                    ? "🍗"
-                    : "🐑"}
-                </span>
-                <span>{preset.name}</span>
+                <Plus className="w-3 h-3" />
+                <span>+ Nova Carcaça</span>
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={handleResetButcherPresets}
+                className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-medium text-[9.5px] uppercase rounded-lg border border-white/10 flex items-center gap-1 cursor-pointer transition-all"
+                title="Restaurar os 4 modelos padrão de fábrica"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Padrão</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {carcassPresets.map((preset, idx) => {
+              const isSelected = selectedPresetName === preset.name;
+              return (
+                <div
+                  key={idx}
+                  onClick={() => handleLoadPreset(preset)}
+                  className={`px-3 py-1.5 rounded-xl text-[10.5px] font-black transition-all flex items-center gap-2 cursor-pointer border ${
+                    isSelected
+                      ? "bg-red-600 text-white border-red-400 shadow-md shadow-red-600/30"
+                      : "bg-slate-900/90 hover:bg-red-950/40 text-slate-300 hover:text-white border-white/10"
+                  }`}
+                >
+                  <span>
+                    {preset.animalType === "suino"
+                      ? "🐖"
+                      : preset.animalType === "bovino"
+                      ? "🥩"
+                      : preset.animalType === "frango"
+                      ? "🍗"
+                      : "🐑"}
+                  </span>
+                  <span>{preset.name}</span>
+                  {carcassPresets.length > 1 && (
+                    <span
+                      onClick={(e) => handleDeleteCarcassPreset(preset.name, e)}
+                      className="text-[9px] opacity-40 hover:opacity-100 hover:text-yellow-300 ml-1 p-0.5"
+                      title="Excluir este modelo"
+                    >
+                      ×
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
       {/* CARCASS PURCHASE INPUTS */}
       <div className="bg-slate-900 border border-white/10 rounded-2xl p-4 sm:p-5 space-y-4 text-left">
-        <h4 className="text-xs font-black uppercase text-red-400 flex items-center gap-1.5 border-b border-white/5 pb-2">
-          <Scale className="w-4 h-4 text-red-400" />
-          1. Dados da Carcaça / Peça com Osso Comprada
-        </h4>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-2">
+          <h4 className="text-xs font-black uppercase text-red-400 flex items-center gap-1.5">
+            <Scale className="w-4 h-4 text-red-400" />
+            1. Dados da Carcaça / Peça com Osso Comprada
+          </h4>
+
+          <button
+            type="button"
+            onClick={handleSaveCarcassToPresets}
+            className="px-3.5 py-1.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-600/30 self-start sm:self-auto"
+            title="Salvar esta carcaça e todos os cortes nos seus modelos prontos"
+          >
+            <Check className="w-4 h-4" />
+            <span>💾 Salvar Carcaça nos Modelos</span>
+          </button>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="space-y-1">
             <label className="text-[9px] font-bold text-slate-400 uppercase">
-              Nome da Peça / Fornecedor
+              Nome da Peça / Fornecedor (Toque para Editar ✍️)
             </label>
             <input
               type="text"
@@ -659,6 +881,21 @@ export function ButcherPricingCalculator({
               </tr>
             </tfoot>
           </table>
+        </div>
+
+        {/* BARRA INFERIOR DE SALVAR CORTE & CARCAÇA */}
+        <div className="pt-3 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="text-xs text-slate-400">
+            Total de cortes cadastrados: <strong className="text-red-400 font-bold">{cuts.length} cortes</strong>
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveCarcassToPresets}
+            className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xl shadow-red-600/25"
+          >
+            <Check className="w-4 h-4" />
+            <span>💾 Salvar Alterações de {carcassName}</span>
+          </button>
         </div>
       </div>
 

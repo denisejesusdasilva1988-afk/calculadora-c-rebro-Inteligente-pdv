@@ -61,6 +61,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { ClientPublicAgendaPortal } from "./ClientPublicAgendaPortal";
 import { BarbeariaTimelineAgenda } from "./BarbeariaTimelineAgenda";
 import { ModalConfiguracaoAgendaProfissional } from "./ModalConfiguracaoAgendaProfissional";
@@ -98,6 +99,14 @@ export const safeFirestoreSetDoc = async (docRef: any, data: any, options = { me
     // Modo local / offline ativado, cota gratuita temporariamente excedida
     return;
   }
+  const path = docRef?.path || "";
+  if (path.startsWith("userData/")) {
+    const targetUid = path.split("/")[1];
+    const auth = getAuth();
+    if (!auth?.currentUser || auth.currentUser.uid !== targetUid) {
+      return;
+    }
+  }
   try {
     const cleaned = cleanUndefinedForFirestore(data);
     await setDoc(docRef, cleaned, options);
@@ -105,6 +114,11 @@ export const safeFirestoreSetDoc = async (docRef: any, data: any, options = { me
     if (isQuotaExhaustedError(err)) {
       markFirestoreQuotaPaused();
       console.warn("[Firestore] Cota diária gratuita do projeto atingida. Operando no modo Offline-First local.");
+      return;
+    }
+    const errMsg = err?.message || String(err);
+    const errCode = err?.code || "";
+    if (errCode === "permission-denied" || errMsg.toLowerCase().includes("permission")) {
       return;
     }
     console.warn("Aviso ao persistir dados da barbearia/salão na nuvem Firestore:", err);
@@ -1011,7 +1025,9 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
   useEffect(() => {
     let isMounted = true;
     const fetchCloudData = async () => {
-      if (!userId || userId === "guest_visitor" || !db) {
+      const auth = getAuth();
+      const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
+      if (!userId || userId === "guest_visitor" || !db || !isAuthActive) {
         setIsCloudLoaded(true);
         return;
       }
