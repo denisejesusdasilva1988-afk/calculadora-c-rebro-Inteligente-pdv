@@ -22,10 +22,13 @@ import {
   Coins,
   Copy,
   ArrowRight,
-  ShoppingBag
+  ShoppingBag,
+  Barcode,
+  Camera
 } from "lucide-react";
 import { motion } from "motion/react";
 import { SmartNumericInput } from "./SmartNumericInput";
+import { GlassBarcodeScannerCart } from "./GlassBarcodeScannerCart";
 
 export interface GlassItemType {
   id: string;
@@ -173,8 +176,8 @@ export function GlassRecyclingCalculator({
 }: {
   showNotification?: (msg: string, type: "success" | "error" | "info" | "warning") => void;
 }) {
-  // Aba padrão abre direto na Tabela de Lotes R$ 0,50, atendendo imediatamente o usuário
-  const [activeTab, setActiveTab] = useState<"lotes_50centavos" | "contagem" | "cargas" | "retornaveis" | "dicas_ferro_velho">("lotes_50centavos");
+  // Aba padrão abre direto no Carrinho & Leitor de Código de Barras
+  const [activeTab, setActiveTab] = useState<"bipar_carrinho" | "lotes_50centavos" | "contagem" | "cargas" | "retornaveis" | "dicas_ferro_velho">("bipar_carrinho");
 
   // Valor da moeda padrão para pagamento no portão (default R$ 0,50)
   const [targetCoinPayout, setTargetCoinPayout] = useState<number>(() => {
@@ -334,6 +337,51 @@ export function GlassRecyclingCalculator({
     if (showNotification) {
       showNotification("Modelos e pesos padrão de garrafas restaurados! 🔄", "info");
     }
+  };
+
+  // Callback disparado quando o carrinho de compras do portão é finalizado
+  const handleAddItemsFromCartToYardStock = (
+    itemsToAdd: { name: string; quantity: number; weightKg: number; costPaid: number }[]
+  ) => {
+    setItems((prev) => {
+      let updated = [...prev];
+      itemsToAdd.forEach((added) => {
+        const addedLower = added.name.toLowerCase();
+        const existingIdx = updated.findIndex((u) => {
+          const uLower = u.name.toLowerCase();
+          return (
+            uLower.includes(addedLower) ||
+            addedLower.includes(uLower) ||
+            (addedLower.includes("longneck") && u.category === "longneck") ||
+            (addedLower.includes("dreher") && uLower.includes("dreher")) ||
+            (addedLower.includes("51") && uLower.includes("51"))
+          );
+        });
+
+        if (existingIdx >= 0) {
+          updated[existingIdx] = {
+            ...updated[existingIdx],
+            quantity: updated[existingIdx].quantity + added.quantity
+          };
+        } else {
+          const isLongneck = addedLower.includes("longneck");
+          const is900ml = addedLower.includes("900") || addedLower.includes("dreher") || addedLower.includes("51");
+          updated.unshift({
+            id: `yard_item_${Date.now()}_${Math.random()}`,
+            name: added.name,
+            category: isLongneck ? "longneck" : is900ml ? "aguardente" : "cerveja600",
+            emoji: isLongneck ? "🍺" : "🍾",
+            unitWeightKg: added.quantity > 0 ? added.weightKg / added.quantity : 0.2,
+            weightDescription: `1 un ≈ ${(added.quantity > 0 ? (added.weightKg / added.quantity) * 1000 : 200).toFixed(0)}g`,
+            quantity: added.quantity,
+            buyPricePerUnit: added.quantity > 0 ? added.costPaid / added.quantity : 0.02,
+            returnableResellPrice: 0.30,
+            isReturnableCandidate: false
+          });
+        }
+      });
+      return updated;
+    });
   };
 
   // Cálculos financeiros gerais e de peso do estoque no pátio
@@ -698,7 +746,25 @@ export function GlassRecyclingCalculator({
         </div>
 
         {/* SUB-TABS */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-5">
+          <button
+            type="button"
+            onClick={() => setActiveTab("bipar_carrinho")}
+            className={`p-3 rounded-2xl border text-left transition-all flex items-center gap-2.5 cursor-pointer ${
+              activeTab === "bipar_carrinho"
+                ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 border-emerald-300 shadow-lg shadow-emerald-950/50 font-black"
+                : "bg-slate-950/70 text-slate-300 border-white/10 hover:bg-slate-900"
+            }`}
+          >
+            <Barcode className={`w-4 h-4 ${activeTab === "bipar_carrinho" ? "text-slate-950" : "text-emerald-400"}`} />
+            <div className="text-xs leading-tight">
+              <span className="block font-black">1. Bipar & Carrinho</span>
+              <span className={`text-[10px] ${activeTab === "bipar_carrinho" ? "text-slate-900 font-bold" : "text-slate-400 font-normal"}`}>
+                Heineken, Dreher, 51...
+              </span>
+            </div>
+          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab("lotes_50centavos")}
@@ -710,7 +776,7 @@ export function GlassRecyclingCalculator({
           >
             <Coins className={`w-4 h-4 ${activeTab === "lotes_50centavos" ? "text-slate-950" : "text-amber-400"}`} />
             <div className="text-xs leading-tight">
-              <span className="block font-black">1. Lotes de R$ 0,50</span>
+              <span className="block font-black">2. Lotes R$ 0,50</span>
               <span className={`text-[10px] ${activeTab === "lotes_50centavos" ? "text-slate-900 font-bold" : "text-slate-400 font-normal"}`}>
                 Tabela do Portão
               </span>
@@ -728,7 +794,7 @@ export function GlassRecyclingCalculator({
           >
             <Wine className="w-4 h-4 text-emerald-300" />
             <div className="text-xs leading-tight">
-              <span className="block font-black">2. Estoque no Pátio</span>
+              <span className="block font-black">3. Estoque no Pátio</span>
               <span className="text-[10px] text-slate-400 font-normal">Contagem Geral</span>
             </div>
           </button>
@@ -744,8 +810,8 @@ export function GlassRecyclingCalculator({
           >
             <Truck className="w-4 h-4 text-amber-300" />
             <div className="text-xs leading-tight">
-              <span className="block font-black">3. Metas de Carga</span>
-              <span className="text-[10px] text-slate-400 font-normal">1t, 3t e 5 Toneladas</span>
+              <span className="block font-black">4. Metas de Carga</span>
+              <span className="text-[10px] text-slate-400 font-normal">1t a 5 Toneladas</span>
             </div>
           </button>
 
@@ -760,7 +826,7 @@ export function GlassRecyclingCalculator({
           >
             <DollarSign className="w-4 h-4 text-cyan-300" />
             <div className="text-xs leading-tight">
-              <span className="block font-black">4. Retornáveis</span>
+              <span className="block font-black">5. Retornáveis</span>
               <span className="text-[10px] text-slate-400 font-normal">Venda a Bares</span>
             </div>
           </button>
@@ -776,8 +842,8 @@ export function GlassRecyclingCalculator({
           >
             <ShieldCheck className="w-4 h-4 text-rose-300" />
             <div className="text-xs leading-tight">
-              <span className="block font-black">5. Manual do Pátio</span>
-              <span className="text-[10px] text-slate-400 font-normal">Cacos & Victor</span>
+              <span className="block font-black">6. Manual</span>
+              <span className="text-[10px] text-slate-400 font-normal">Cacos & Dicas</span>
             </div>
           </button>
         </div>
@@ -853,7 +919,19 @@ export function GlassRecyclingCalculator({
         </div>
       </div>
 
-      {/* ABA 1: TABELA DE LOTES DE R$ 0,50 & BALCÃO DO PORTÃO */}
+      {/* ABA 1: BIPAR CÓDIGO DE BARRAS & CARRINHO DE COMPRAS NO PORTÃO */}
+      {activeTab === "bipar_carrinho" && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+          <GlassBarcodeScannerCart
+            sellPricePerTon={sellPricePerTon}
+            buyerName={buyerName}
+            onAddItemsToYardStock={handleAddItemsFromCartToYardStock}
+            showNotification={showNotification}
+          />
+        </motion.div>
+      )}
+
+      {/* ABA 2: TABELA DE LOTES DE R$ 0,50 & BALCÃO DO PORTÃO */}
       {activeTab === "lotes_50centavos" && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
           {/* SELETOR INTERATIVO DO VALOR DA MOEDA DE PAGAMENTO */}
