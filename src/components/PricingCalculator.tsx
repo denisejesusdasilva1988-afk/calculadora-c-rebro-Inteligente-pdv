@@ -14,7 +14,8 @@ import {
   ChefHat,
   Wheat,
   Beef,
-  ShoppingBag
+  ShoppingBag,
+  Wine
 } from "lucide-react";
 import { motion } from "motion/react";
 import { DigitalScaleFoodPricingCalculator } from "./pricing/DigitalScaleFoodPricingCalculator";
@@ -22,6 +23,7 @@ import { BakeryPricingCalculator } from "./pricing/BakeryPricingCalculator";
 import { ButcherPricingCalculator } from "./pricing/ButcherPricingCalculator";
 import { RetailOverheadCalculator } from "./pricing/RetailOverheadCalculator";
 import { TechRecyclingTradeCalculator } from "./pricing/TechRecyclingTradeCalculator";
+import { GlassRecyclingCalculator } from "./pricing/GlassRecyclingCalculator";
 import { parseFlexibleNumber } from "./pricing/SmartNumericInput";
 
 interface PricingErrorBoundaryProps {
@@ -89,7 +91,28 @@ class PricingErrorBoundary extends Component<PricingErrorBoundaryProps, PricingE
 }
 
 export function PricingCalculator() {
-  const [calculatorType, setCalculatorType] = useState<"culinary" | "commercial" | "bakery" | "butcher" | "retail" | "tech_trade">("culinary");
+  const [calculatorType, setCalculatorType] = useState<
+    "culinary" | "commercial" | "bakery" | "butcher" | "retail" | "tech_trade" | "glass_recycling"
+  >(() => {
+    try {
+      const saved = localStorage.getItem("pdv_pricing_active_calc_type");
+      if (
+        saved &&
+        ["culinary", "commercial", "bakery", "butcher", "retail", "tech_trade", "glass_recycling"].includes(saved)
+      ) {
+        return saved as any;
+      }
+    } catch {}
+    return "glass_recycling";
+  });
+
+  const handleSelectCalculator = (type: "culinary" | "commercial" | "bakery" | "butcher" | "retail" | "tech_trade" | "glass_recycling") => {
+    setCalculatorType(type);
+    try {
+      localStorage.setItem("pdv_pricing_active_calc_type", type);
+    } catch {}
+  };
+
   const [mode, setMode] = useState<"recommended" | "validate">("recommended");
   const [productName, setProductName] = useState("");
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
@@ -177,11 +200,35 @@ export function PricingCalculator() {
           </span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          {/* 1. Gastronomia & Balança Digital (Default) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2">
+          {/* 1. Vidros & Ferro-Velho (Unidades & Toneladas) */}
           <button
             type="button"
-            onClick={() => setCalculatorType("culinary")}
+            onClick={() => handleSelectCalculator("glass_recycling")}
+            className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
+              calculatorType === "glass_recycling"
+                ? "bg-gradient-to-br from-emerald-600/40 to-teal-700/30 border-emerald-400 text-white ring-1 ring-emerald-400/50 shadow-lg shadow-emerald-950/40"
+                : "bg-slate-950/80 border-white/5 text-slate-400 hover:bg-slate-900 hover:text-white"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xl">🍾</span>
+              <span className="px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 text-[8.5px] font-black">
+                FERRO VELHO
+              </span>
+            </div>
+            <div className="text-xs font-black leading-tight">
+              Vidros & Ferro-Velho
+            </div>
+            <div className="text-[9.5px] text-slate-400">
+              Longnecks, 51 & Toneladas
+            </div>
+          </button>
+
+          {/* 2. Gastronomia & Balança Digital (Default) */}
+          <button
+            type="button"
+            onClick={() => handleSelectCalculator("culinary")}
             className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
               calculatorType === "culinary"
                 ? "bg-gradient-to-br from-emerald-600/30 to-teal-700/20 border-emerald-400 text-white ring-1 ring-emerald-400/50 shadow-lg shadow-emerald-950/40"
@@ -202,34 +249,34 @@ export function PricingCalculator() {
             </div>
           </button>
 
-          {/* 2. Markup Comercial */}
+          {/* 3. Desmanche, Sucata & Base de Troca (Celular, Informática, Eletro) */}
           <button
             type="button"
-            onClick={() => setCalculatorType("commercial")}
+            onClick={() => handleSelectCalculator("tech_trade")}
             className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
-              calculatorType === "commercial"
-                ? "bg-gradient-to-br from-amber-600/30 to-amber-700/20 border-amber-400 text-white ring-1 ring-amber-400/50 shadow-lg shadow-amber-950/40"
+              calculatorType === "tech_trade"
+                ? "bg-gradient-to-br from-emerald-600/30 to-cyan-700/20 border-emerald-400 text-white ring-1 ring-emerald-400/50 shadow-lg shadow-emerald-950/40"
                 : "bg-slate-950/80 border-white/5 text-slate-400 hover:bg-slate-900 hover:text-white"
             }`}
           >
             <div className="flex items-center justify-between">
-              <span className="text-xl">📊</span>
-              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[8.5px] font-black">
-                MARKUP
+              <span className="text-xl">♻️</span>
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[8.5px] font-black">
+                SUCATA & TROCA
               </span>
             </div>
             <div className="text-xs font-black leading-tight">
-              Markup Comercial
+              Desmanche & Troca
             </div>
             <div className="text-[9.5px] text-slate-400">
-              Validador de Margem Bruta e Líquida
+              Celular, PC & Eletro
             </div>
           </button>
 
-          {/* 3. Padaria & Fornada */}
+          {/* 4. Padaria & Fornada */}
           <button
             type="button"
-            onClick={() => setCalculatorType("bakery")}
+            onClick={() => handleSelectCalculator("bakery")}
             className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
               calculatorType === "bakery"
                 ? "bg-gradient-to-br from-orange-600/30 to-amber-700/20 border-orange-400 text-white ring-1 ring-orange-400/50 shadow-lg shadow-orange-950/40"
@@ -250,10 +297,10 @@ export function PricingCalculator() {
             </div>
           </button>
 
-          {/* 4. Açougue & Desossa */}
+          {/* 5. Açougue & Desossa */}
           <button
             type="button"
-            onClick={() => setCalculatorType("butcher")}
+            onClick={() => handleSelectCalculator("butcher")}
             className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
               calculatorType === "butcher"
                 ? "bg-gradient-to-br from-rose-600/30 to-red-700/20 border-rose-400 text-white ring-1 ring-rose-400/50 shadow-lg shadow-rose-950/40"
@@ -274,10 +321,10 @@ export function PricingCalculator() {
             </div>
           </button>
 
-          {/* 5. Mercearia & Revenda */}
+          {/* 6. Mercearia & Revenda */}
           <button
             type="button"
-            onClick={() => setCalculatorType("retail")}
+            onClick={() => handleSelectCalculator("retail")}
             className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
               calculatorType === "retail"
                 ? "bg-gradient-to-br from-sky-600/30 to-blue-700/20 border-sky-400 text-white ring-1 ring-sky-400/50 shadow-lg shadow-sky-950/40"
@@ -298,33 +345,39 @@ export function PricingCalculator() {
             </div>
           </button>
 
-          {/* 6. Desmanche, Sucata & Base de Troca (Celular, Informática, Eletro) */}
+          {/* 7. Markup Comercial */}
           <button
             type="button"
-            onClick={() => setCalculatorType("tech_trade")}
+            onClick={() => handleSelectCalculator("commercial")}
             className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
-              calculatorType === "tech_trade"
-                ? "bg-gradient-to-br from-emerald-600/30 to-cyan-700/20 border-emerald-400 text-white ring-1 ring-emerald-400/50 shadow-lg shadow-emerald-950/40"
+              calculatorType === "commercial"
+                ? "bg-gradient-to-br from-amber-600/30 to-amber-700/20 border-amber-400 text-white ring-1 ring-amber-400/50 shadow-lg shadow-amber-950/40"
                 : "bg-slate-950/80 border-white/5 text-slate-400 hover:bg-slate-900 hover:text-white"
             }`}
           >
             <div className="flex items-center justify-between">
-              <span className="text-xl">♻️</span>
-              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[8.5px] font-black">
-                SUCATA & TROCA
+              <span className="text-xl">📊</span>
+              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[8.5px] font-black">
+                MARKUP
               </span>
             </div>
             <div className="text-xs font-black leading-tight">
-              Desmanche & Troca
+              Markup Comercial
             </div>
             <div className="text-[9.5px] text-slate-400">
-              Celular, PC & Eletro
+              Validador de Margem Bruta e Líquida
             </div>
           </button>
         </div>
       </div>
 
       {/* RENDERIZAÇÃO DO MODO SELECIONADO */}
+      {calculatorType === "glass_recycling" && (
+        <PricingErrorBoundary calculatorTitle="Calculadora de Vidros & Ferro-Velho" storageKeyToClear="pdv_glass_items_inventory_v1">
+          <GlassRecyclingCalculator showNotification={showNotification} />
+        </PricingErrorBoundary>
+      )}
+
       {calculatorType === "tech_trade" && (
         <PricingErrorBoundary calculatorTitle="Calculadora de Sucata & Troca" storageKeyToClear="pdv_tech_components_celular">
           <TechRecyclingTradeCalculator showNotification={showNotification} />

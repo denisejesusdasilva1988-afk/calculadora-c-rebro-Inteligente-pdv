@@ -71,7 +71,8 @@ import {
   Archive,
   Smartphone,
   Laptop,
-  Zap
+  Zap,
+  Wine
 } from "lucide-react";
 
 interface SidebarDrawerProps {
@@ -573,6 +574,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       aviario: { name: "Aviário & Rações", label: "Aviário", icon: Bird, color: "text-lime-400 bg-lime-500/10" },
       acougue: { name: "Açougue & Carnes", label: "Açougue", icon: ShoppingBasket, color: "text-red-400 bg-red-550/10" },
       sacolao: { name: "Sacolão & Hortifrúti", label: "Sacolão", icon: Apple, color: "text-lime-400 bg-lime-500/10" },
+      ferro_velho_vidros: { name: "Ferro Velho & Reciclagem de Vidros", label: "Ferro Velho", icon: Wine, color: "text-emerald-400 bg-emerald-500/10" },
       outros_comercios: { name: "Outros Segmentos", label: "Outros", icon: Layers, color: "text-slate-400 bg-slate-500/10" }
     };
 
@@ -607,6 +609,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
     { id: "aviario", name: "Aviário & Rações", label: "Aviário" },
     { id: "acougue", name: "Açougue & Carnes", label: "Açougue" },
     { id: "sacolao", name: "Sacolão & Hortifrúti", label: "Sacolão" },
+    { id: "ferro_velho_vidros", name: "Ferro Velho & Reciclagem de Vidros", label: "Ferro Velho Vidros" },
     { id: "outros_comercios", name: "Outros Segmentos", label: "Outros" }
   ];
 
@@ -1655,7 +1658,31 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                       <Percent className="w-5 h-5 text-amber-400 shrink-0" />
                       <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
                         Calculadora & Sucata
-                        <span className="text-[8px] bg-emerald-500 text-white font-black px-1.5 py-0.5 rounded">NOVO</span>
+                        <span className="text-[8px] bg-emerald-500 text-white font-black px-1.5 py-0.5 rounded">PDV</span>
+                      </span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 opacity-50" />
+                  </button>
+
+                  {/* 1.6 Vidros & Ferro-Velho (Unidades & Toneladas) */}
+                  <button
+                    onClick={() => {
+                      try {
+                        localStorage.setItem("pdv_pricing_active_calc_type", "glass_recycling");
+                      } catch {}
+                      handleNavigate("pricing");
+                    }}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer text-left ${
+                      notepadMode === "pricing" && (typeof window !== "undefined" && localStorage.getItem("pdv_pricing_active_calc_type") === "glass_recycling")
+                        ? "bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 font-extrabold shadow-[0_0_15px_rgba(16,185,129,0.15)]"
+                        : "hover:bg-white/5 border border-transparent text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Wine className="w-5 h-5 text-emerald-400 shrink-0" />
+                      <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
+                        Vidros & Ferro Velho
+                        <span className="text-[8px] bg-teal-500 text-slate-950 font-black px-1.5 py-0.5 rounded">NOVO</span>
                       </span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
