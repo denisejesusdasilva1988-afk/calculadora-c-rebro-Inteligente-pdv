@@ -21,22 +21,37 @@ import {
   Zap,
   Tag,
   Wine,
-  Coins
+  Coins,
+  User,
+  UserPlus,
+  Users,
+  History,
+  FileText,
+  Truck,
+  Eraser,
+  Calendar,
+  CreditCard,
+  Banknote,
+  Award,
+  Crown,
+  ChevronRight,
+  CheckSquare
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { SmartNumericInput } from "./SmartNumericInput";
 
 export interface CatalogBottleItem {
   id: string;
-  name: string;
-  barcode: string; // Ex: "78936683"
+  name: string; // Nome da garrafa (ex: "Heineken Longneck", "Dreher", "Cachaça 51")
+  volumeMl: number; // Volume em ML (ex: 330ml, 210ml, 275ml, 900ml, 600ml)
+  barcode: string; // Código de barras EAN (ex: "78936683")
+  unitWeightGrams: number; // Peso da garrafa vazia na balança em gramas (ex: 185g, 490g, 500g)
+  unitWeightKg: number; // Peso em kg (ex: 0.185 kg)
   category: "longneck" | "900ml" | "litrao" | "cerveja600" | "vinho" | "outro";
-  volumeMl: number;
-  unitWeightKg: number; // Peso médio em kg
   buyPricePerUnit: number; // Preço pago ao colaborador por unidade (R$)
-  returnableSellPrice?: number; // Preço de revenda se for casco retornável inteiro
+  returnableSellPrice?: number; // Preço se for casco retornável inteiro para bar (R$)
   emoji: string;
+  stockUnits: number; // Estoque real acumulado no pátio desta garrafa
   quickPresets: number[]; // [3, 6, 10, 20, 25, 30, 60] ou [2, 4, 10, 20, 25, 100]
 }
 
@@ -44,22 +59,254 @@ export interface GlassCartItem {
   id: string;
   catalogId: string;
   name: string;
+  volumeMl: number; // Volume em ML
   barcode: string;
   category: "longneck" | "900ml" | "litrao" | "cerveja600" | "vinho" | "outro";
   emoji: string;
   quantity: number;
-  unitWeightKg: number;
-  totalWeightKg: number;
+  unitWeightGrams: number; // Peso unitário em gramas
+  unitWeightKg: number; // Peso unitário em kg
+  totalWeightKg: number; // Peso total desta garrafa no carrinho
   buyPricePerUnit: number;
-  totalBuyCost: number;
-  sellPriceUnitOrWeight: number; // Valor bruto de venda (peso usina ou retornável)
+  totalBuyCost: number; // Valor a pagar ao colaborador por este lote
+  sellPriceUnitOrWeight: number; // Valor bruto na usina ou retorno
   totalRevenue: number;
   profit: number;
 }
 
-// Helper para calcular o custo exato de compra conforme o acordo do portão:
-// • 30 Longnecks = R$ 0,50 | 60 Longnecks = R$ 1,00
-// • 10 Dreher/51 = R$ 0,50 | 20 = R$ 1,00 | 100 = R$ 5,00
+export interface CollaboratorAccount {
+  id: string;
+  name: string;
+  isFounder?: boolean; // Denise Jesus e Wellington Oliveira!
+  phone?: string;
+  notes?: string;
+  createdAt: string;
+  totalDeliveries: number;
+  totalBottles: number;
+  totalWeightKg: number;
+  totalEarned: number; // Faturamento total que o colaborador acumulou a receber (R$)
+  totalPaid: number;   // Já pago
+  balancePending: number; // Saldo a pagar ainda
+}
+
+export interface CollaboratorPaymentReceipt {
+  id: string;
+  timestamp: string;
+  collaboratorId: string;
+  collaboratorName: string;
+  amountPaid: number;
+  paymentMethod: "bolsa_familia" | "caminhao_victor" | "dinheiro" | "pix";
+  methodLabel: string;
+  notes: string;
+  previousBalance: number;
+  remainingBalance: number;
+}
+
+export interface CompletedPurchaseTicket {
+  id: string;
+  timestamp: string;
+  collectorName: string;
+  isFounder: boolean; // Se foi coleta própria de Denise e Wellington
+  items: {
+    name: string;
+    volumeMl: number;
+    barcode: string;
+    quantity: number;
+    unitWeightGrams: number;
+    totalWeightKg: number;
+    costPaid: number;
+  }[];
+  totalBottles: number;
+  totalWeightKg: number;
+  totalPaid: number;
+  expectedPlantRevenue: number;
+  netProfit: number;
+  paymentStatus: "pago_na_hora" | "pendente_caderninho" | "coleta_propria_dw";
+}
+
+export interface DispatchedTruckShipment {
+  id: string;
+  timestamp: string;
+  buyerName: string;
+  totalBottles: number;
+  totalWeightKg: number;
+  totalWeightTon: number;
+  grossRevenueReceived: number;
+  summaryText: string;
+}
+
+// Catálogo com estoque inicial ZERADO (Denise e Wellington preenchem com a realidade do pátio!)
+const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
+  {
+    id: "bottle_heineken_330",
+    name: "Heineken Longneck",
+    volumeMl: 330,
+    barcode: "78936683",
+    unitWeightGrams: 185, // 185 gramas vazia na balança
+    unitWeightKg: 0.185,
+    category: "longneck",
+    buyPricePerUnit: 0.50 / 30, // 30 garrafas = R$ 0,50 | 60 = R$ 1,00
+    emoji: "🍺",
+    stockUnits: 0, // Inicia zerado para a realidade do pátio
+    quickPresets: [3, 6, 10, 20, 25, 30, 60]
+  },
+  {
+    id: "bottle_imperio_210",
+    name: "Império Longneck",
+    volumeMl: 210,
+    barcode: "7898915949162",
+    unitWeightGrams: 150, // 150 gramas vazia na balança
+    unitWeightKg: 0.150,
+    category: "longneck",
+    buyPricePerUnit: 0.50 / 30, // 30 garrafas = R$ 0,50 | 60 = R$ 1,00
+    emoji: "🍺",
+    stockUnits: 0,
+    quickPresets: [3, 6, 10, 20, 25, 30, 60]
+  },
+  {
+    id: "bottle_ice_275",
+    name: "Ice Longneck (51 Ice / Smirnoff)",
+    volumeMl: 275,
+    barcode: "7896002111034",
+    unitWeightGrams: 170, // 170 gramas vazia na balança
+    unitWeightKg: 0.170,
+    category: "longneck",
+    buyPricePerUnit: 0.50 / 30, // 30 garrafas = R$ 0,50 | 60 = R$ 1,00
+    emoji: "🧊",
+    stockUnits: 0,
+    quickPresets: [3, 6, 10, 20, 25, 30, 60]
+  },
+  {
+    id: "bottle_dreher_900",
+    name: "Dreher Garrafa",
+    volumeMl: 900,
+    barcode: "7896010006360",
+    unitWeightGrams: 490, // ~490g a 500g vazia na balança
+    unitWeightKg: 0.490,
+    category: "900ml",
+    buyPricePerUnit: 0.05, // 10 garrafas = R$ 0,50 | 20 = R$ 1,00 | 100 = R$ 5,00
+    emoji: "🍾",
+    stockUnits: 0,
+    quickPresets: [2, 4, 10, 20, 25, 100]
+  },
+  {
+    id: "bottle_cachaca_51_900",
+    name: "Cachaça 51 Garrafa",
+    volumeMl: 900,
+    barcode: "", // Aberto para bipar e cadastrar código quando tiver em mãos
+    unitWeightGrams: 500, // 500 gramas vazia (2 garrafas = 1 kg exato)
+    unitWeightKg: 0.500,
+    category: "900ml",
+    buyPricePerUnit: 0.05, // 10 garrafas = R$ 0,50 | 20 = R$ 1,00 | 100 = R$ 5,00
+    emoji: "🥃",
+    stockUnits: 0,
+    quickPresets: [2, 4, 10, 20, 25, 100]
+  },
+  {
+    id: "bottle_cerveja_600",
+    name: "Cerveja 600ml Retornável (Ambev / Skol / Brahma)",
+    volumeMl: 600,
+    barcode: "7891991000826",
+    unitWeightGrams: 450, // 450 gramas
+    unitWeightKg: 0.450,
+    category: "cerveja600",
+    buyPricePerUnit: 0.50, // R$ 0,50 por garrafa intacta
+    returnableSellPrice: 1.00, // Revende por R$ 1,00 para bares
+    emoji: "🍻",
+    stockUnits: 0,
+    quickPresets: [1, 6, 12, 24]
+  }
+];
+
+// Colaboradores da Reciclagem padrão: Denise e Wellington em primeiro lugar com honra!
+const INITIAL_COLLABORATORS: CollaboratorAccount[] = [
+  {
+    id: "collab_dw_fundadores",
+    name: "Denise Jesus & Wellington Oliveira (Coleta Própria D.W)",
+    isFounder: true,
+    phone: "",
+    notes: "Fundadores da D.W Vidros. O que reciclamos é lucro 100% nosso e economiza custo de compra!",
+    createdAt: "Novembro/2026",
+    totalDeliveries: 0,
+    totalBottles: 0,
+    totalWeightKg: 0,
+    totalEarned: 0,
+    totalPaid: 0,
+    balancePending: 0
+  },
+  {
+    id: "collab_denise_solo",
+    name: "Denise Jesus (Coleta Própria)",
+    isFounder: true,
+    phone: "",
+    notes: "Coleta própria da Denise. Economia própria para a D.W Vidros.",
+    createdAt: "Novembro/2026",
+    totalDeliveries: 0,
+    totalBottles: 0,
+    totalWeightKg: 0,
+    totalEarned: 0,
+    totalPaid: 0,
+    balancePending: 0
+  },
+  {
+    id: "collab_wellington_solo",
+    name: "Wellington Oliveira (Coleta Própria)",
+    isFounder: true,
+    phone: "",
+    notes: "Coleta própria do Wellington. Economia própria para a D.W Vidros.",
+    createdAt: "Novembro/2026",
+    totalDeliveries: 0,
+    totalBottles: 0,
+    totalWeightKg: 0,
+    totalEarned: 0,
+    totalPaid: 0,
+    balancePending: 0
+  },
+  {
+    id: "collab_joao",
+    name: "João da Carroça (Colaborador)",
+    isFounder: false,
+    phone: "",
+    notes: "Entrega toda terça e quinta. Acerto mensal com Bolsa Família.",
+    createdAt: "Novembro/2026",
+    totalDeliveries: 0,
+    totalBottles: 0,
+    totalWeightKg: 0,
+    totalEarned: 0,
+    totalPaid: 0,
+    balancePending: 0
+  },
+  {
+    id: "collab_ze",
+    name: "Zé do Vidro (Colaborador)",
+    isFounder: false,
+    phone: "",
+    notes: "Traz garrafas de bares e restaurantes. Acerto no acerto do caminhão.",
+    createdAt: "Novembro/2026",
+    totalDeliveries: 0,
+    totalBottles: 0,
+    totalWeightKg: 0,
+    totalEarned: 0,
+    totalPaid: 0,
+    balancePending: 0
+  },
+  {
+    id: "collab_maria",
+    name: "Maria da Reciclagem (Colaboradora)",
+    isFounder: false,
+    phone: "",
+    notes: "Parceira fiel da região.",
+    createdAt: "Novembro/2026",
+    totalDeliveries: 0,
+    totalBottles: 0,
+    totalWeightKg: 0,
+    totalEarned: 0,
+    totalPaid: 0,
+    balancePending: 0
+  }
+];
+
+// Cálculo de custo de lote negociado com a usuária
 export const calculateGlassBuyCost = (category: string, quantity: number, defaultUnitCost?: number) => {
   if (category === "longneck") {
     // 30 un = R$ 0,50 | 60 un = R$ 1,00
@@ -69,85 +316,14 @@ export const calculateGlassBuyCost = (category: string, quantity: number, defaul
     return Math.round(cost * 100) / 100;
   }
   if (category === "900ml") {
-    // 10 un = R$ 0,50 | 20 un = R$ 1,00 | 100 un = R$ 5,00 (exatamente R$ 0,05 por garrafa)
+    // 10 un = R$ 0,50 | 20 un = R$ 1,00 | 100 un = R$ 5,00 (R$ 0,05 por garrafa)
     const cost = quantity * 0.05;
     return Math.round(cost * 100) / 100;
   }
   return Math.round(quantity * (defaultUnitCost || 0.02) * 100) / 100;
 };
 
-// Catálogo inicial com os códigos de barras e regras de compra solicitadas pelo usuário
-const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
-  {
-    id: "bottle_heineken_330",
-    name: "Heineken Longneck 330ml",
-    barcode: "78936683",
-    category: "longneck",
-    volumeMl: 330,
-    unitWeightKg: 0.185, // 185g (6 un = 1,112 kg)
-    buyPricePerUnit: 0.50 / 30, // 30 garrafas = R$ 0,50 | 60 = R$ 1,00
-    emoji: "🍺",
-    quickPresets: [3, 6, 10, 20, 25, 30, 60]
-  },
-  {
-    id: "bottle_imperio_210",
-    name: "Império Longneck 210ml",
-    barcode: "7898915949162",
-    category: "longneck",
-    volumeMl: 210,
-    unitWeightKg: 0.150, // 150g
-    buyPricePerUnit: 0.50 / 30, // 30 garrafas = R$ 0,50 | 60 = R$ 1,00
-    emoji: "🍺",
-    quickPresets: [3, 6, 10, 20, 25, 30, 60]
-  },
-  {
-    id: "bottle_ice_275",
-    name: "Ice Longneck 275ml (51 Ice / Smirnoff)",
-    barcode: "7896002111034",
-    category: "longneck",
-    volumeMl: 275,
-    unitWeightKg: 0.170, // 170g
-    buyPricePerUnit: 0.50 / 30, // 30 garrafas = R$ 0,50 | 60 = R$ 1,00
-    emoji: "🧊",
-    quickPresets: [3, 6, 10, 20, 25, 30, 60]
-  },
-  {
-    id: "bottle_dreher_900",
-    name: "Dreher Garrafa 900ml",
-    barcode: "7896010006360",
-    category: "900ml",
-    volumeMl: 900,
-    unitWeightKg: 0.490, // ~490g a 500g (2 un = ~1 kg)
-    buyPricePerUnit: 0.05, // 10 garrafas = R$ 0,50 | 20 = R$ 1,00 | 100 = R$ 5,00
-    emoji: "🍾",
-    quickPresets: [2, 4, 10, 20, 25, 100]
-  },
-  {
-    id: "bottle_cachaca_51_900",
-    name: "Cachaça 51 Garrafa 900ml",
-    barcode: "", // Aberto para cadastrar / bipar quando tiver em mãos
-    category: "900ml",
-    volumeMl: 900,
-    unitWeightKg: 0.500, // 500g (2 un = 1 kg)
-    buyPricePerUnit: 0.05, // 10 garrafas = R$ 0,50 | 20 = R$ 1,00 | 100 = R$ 5,00
-    emoji: "🥃",
-    quickPresets: [2, 4, 10, 20, 25, 100]
-  },
-  {
-    id: "bottle_cerveja_600",
-    name: "Cerveja 600ml Retornável (Ambev / Brahma / Skol)",
-    barcode: "7891991000826",
-    category: "cerveja600",
-    volumeMl: 600,
-    unitWeightKg: 0.450,
-    buyPricePerUnit: 0.50, // Paga 50 centavos por unidade intacta!
-    returnableSellPrice: 1.00, // Revende por R$ 1,00 para bares!
-    emoji: "🍻",
-    quickPresets: [1, 6, 12, 24]
-  }
-];
-
-// Helper para emitir bipe sonoro de leitor
+// Som sonoro de bip do scanner
 const playScannerBeep = (freq = 1900, duration = 0.08) => {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -157,12 +333,15 @@ const playScannerBeep = (freq = 1900, duration = 0.08) => {
     const gain = ctx.createGain();
     osc.type = "sine";
     osc.frequency.setValueAtTime(freq, ctx.currentTime);
-    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + duration);
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      navigator.vibrate([40, 20, 40]);
+    }
   } catch {}
 };
 
@@ -181,10 +360,10 @@ export function GlassBarcodeScannerCart({
 }: Props) {
   const sellPricePerKg = sellPricePerTon > 0 ? sellPricePerTon / 1000 : 0.15;
 
-  // Catálogo salvo em localStorage
+  // Catálogo com Nomes, ML, Códigos e Pesos
   const [catalog, setCatalog] = useState<CatalogBottleItem[]>(() => {
     try {
-      const stored = localStorage.getItem("pdv_glass_barcode_catalog_v1");
+      const stored = localStorage.getItem("pdv_dw_glass_catalog_v3");
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -193,10 +372,10 @@ export function GlassBarcodeScannerCart({
     return DEFAULT_BOTTLE_CATALOG;
   });
 
-  // Carrinho de compras atual no balcão/portão
+  // Carrinho de compras no portão (permite misturar garrafas diferentes!)
   const [cart, setCart] = useState<GlassCartItem[]>(() => {
     try {
-      const stored = localStorage.getItem("pdv_glass_cart_items_v1");
+      const stored = localStorage.getItem("pdv_dw_cart_items_v3");
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) return parsed;
@@ -205,47 +384,226 @@ export function GlassBarcodeScannerCart({
     return [];
   });
 
-  // Nome do colaborador/catador que está descarregando
-  const [collectorName, setCollectorName] = useState<string>("Colaborador do Portão");
+  // Caderninho de Colaboradores da Reciclagem (com Denise e Wellington)
+  const [collaborators, setCollaborators] = useState<CollaboratorAccount[]>(() => {
+    try {
+      const stored = localStorage.getItem("pdv_dw_collaborators_accounts_v3");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_COLLABORATORS;
+  });
 
-  // Visualização ativa: "carrinho" | "catalogo"
-  const [activeSubView, setActiveSubView] = useState<"carrinho" | "catalogo">("carrinho");
+  // Colaborador atualmente selecionado
+  const [selectedCollabId, setSelectedCollabId] = useState<string>(() => {
+    return INITIAL_COLLABORATORS[0].id;
+  });
 
-  // Campo de busca / digitação de código de barras
+  // Histórico de tíquetes de compras
+  const [purchaseHistory, setPurchaseHistory] = useState<CompletedPurchaseTicket[]>(() => {
+    try {
+      const stored = localStorage.getItem("pdv_dw_purchase_tickets_v3");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  // Histórico de pagamentos/acertos
+  const [paymentHistory, setPaymentHistory] = useState<CollaboratorPaymentReceipt[]>(() => {
+    try {
+      const stored = localStorage.getItem("pdv_dw_collaborator_payments_v3");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  // Histórico de Cargas Despachadas para a Empresa de Vidros (Caminhão do Victor)
+  const [truckShipments, setTruckShipments] = useState<DispatchedTruckShipment[]>(() => {
+    try {
+      const stored = localStorage.getItem("pdv_dw_truck_shipments_v3");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  // Aba ativa: "carrinho" | "caderninho" | "estoque" | "cargas"
+  const [activeTab, setActiveTab] = useState<"carrinho" | "caderninho" | "estoque" | "cargas">("carrinho");
+
+  // Entrada de código de barras
   const [barcodeInput, setBarcodeInput] = useState<string>("");
-  const [searchFilter, setSearchFilter] = useState<string>("");
-
-  // Estado do leitor de câmera (HTML5-QRCode)
-  const [showScannerModal, setShowScannerModal] = useState<boolean>(false);
-  const [scannerCameraError, setScannerCameraError] = useState<string | null>(null);
-  const [scannerTorchOn, setScannerTorchOn] = useState<boolean>(false);
+  const [showCameraModal, setShowCameraModal] = useState<boolean>(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
 
-  // Modal para cadastro rápido quando bipar um código desconhecido
-  const [unknownBarcodePrompt, setUnknownBarcodePrompt] = useState<{
-    barcode: string;
-    isOpen: boolean;
-  } | null>(null);
+  // Modais
+  const [showAddCollabModal, setShowAddCollabModal] = useState<boolean>(false);
+  const [newCollabName, setNewCollabName] = useState<string>("");
+  const [newCollabPhone, setNewCollabPhone] = useState<string>("");
+  const [newCollabNotes, setNewCollabNotes] = useState<string>("");
 
-  // Modal para edição ou novo cadastro manual no catálogo
-  const [editingItem, setEditingItem] = useState<CatalogBottleItem | null>(null);
+  const [payingCollab, setPayingCollab] = useState<CollaboratorAccount | null>(null);
+  const [payAmount, setPayAmount] = useState<number>(0);
+  const [payMethod, setPayMethod] = useState<"bolsa_familia" | "caminhao_victor" | "dinheiro" | "pix">("bolsa_familia");
+  const [payNotes, setPayNotes] = useState<string>("Acerto mensal no dia do Bolsa Família");
 
-  // Salvar catálogo automaticamente
+  const [editingBottle, setEditingBottle] = useState<CatalogBottleItem | null>(null);
+  const [isRegisteringNew, setIsRegisteringNew] = useState<boolean>(false);
+  const [calibratingBottle, setCalibratingBottle] = useState<CatalogBottleItem | null>(null);
+  const [calibratedGramsInput, setCalibratedGramsInput] = useState<number>(185);
+
+  const [showTruckDispatchModal, setShowTruckDispatchModal] = useState<boolean>(false);
+  const [showZeroConfirmModal, setShowZeroConfirmModal] = useState<boolean>(false);
+
+  // Persistência automática
   useEffect(() => {
     try {
-      localStorage.setItem("pdv_glass_barcode_catalog_v1", JSON.stringify(catalog));
+      localStorage.setItem("pdv_dw_glass_catalog_v3", JSON.stringify(catalog));
     } catch {}
   }, [catalog]);
 
-  // Salvar carrinho automaticamente
   useEffect(() => {
     try {
-      localStorage.setItem("pdv_glass_cart_items_v1", JSON.stringify(cart));
+      localStorage.setItem("pdv_dw_cart_items_v3", JSON.stringify(cart));
     } catch {}
   }, [cart]);
 
-  // Limpeza segura da câmera
-  const stopScannerSafely = () => {
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_collaborators_accounts_v3", JSON.stringify(collaborators));
+    } catch {}
+  }, [collaborators]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_purchase_tickets_v3", JSON.stringify(purchaseHistory));
+    } catch {}
+  }, [purchaseHistory]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_collaborator_payments_v3", JSON.stringify(paymentHistory));
+    } catch {}
+  }, [paymentHistory]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_truck_shipments_v3", JSON.stringify(truckShipments));
+    } catch {}
+  }, [truckShipments]);
+
+  // Colaborador atual selecionado
+  const activeCollab = useMemo(() => {
+    return collaborators.find((c) => c.id === selectedCollabId) || collaborators[0];
+  }, [collaborators, selectedCollabId]);
+
+  // Totais do Estoque no Pátio
+  const yardTotals = useMemo(() => {
+    let totalUnits = 0;
+    let totalWeightKg = 0;
+    catalog.forEach((b) => {
+      const units = b.stockUnits || 0;
+      totalUnits += units;
+      totalWeightKg += (units * b.unitWeightGrams) / 1000;
+    });
+
+    const totalWeightTon = totalWeightKg / 1000;
+    const grossRevenueTon = totalWeightKg * sellPricePerKg;
+
+    // Metas do Victor:
+    // Carga mínima: 3.000 kg (3 toneladas)
+    // Carga ideal (melhor preço): 5.000 kg (5 toneladas)
+    const minTonTargetKg = 3000;
+    const idealTonTargetKg = 5000;
+    const kgMissingForMin = Math.max(0, minTonTargetKg - totalWeightKg);
+    const kgMissingForIdeal = Math.max(0, idealTonTargetKg - totalWeightKg);
+    const progressMinPct = Math.min(100, (totalWeightKg / minTonTargetKg) * 100);
+    const progressIdealPct = Math.min(100, (totalWeightKg / idealTonTargetKg) * 100);
+
+    return {
+      totalUnits,
+      totalWeightKg,
+      totalWeightTon,
+      grossRevenueTon,
+      kgMissingForMin,
+      kgMissingForIdeal,
+      progressMinPct,
+      progressIdealPct
+    };
+  }, [catalog, sellPricePerKg]);
+
+  // Resumo Financeiro Geral dos Colaboradores da Reciclagem
+  const caderninhoTotals = useMemo(() => {
+    let totalPendingAll = 0;
+    let totalPaidAll = 0;
+    let totalEarnedAll = 0;
+    let founderSelfSaved = 0; // O quanto Denise e Wellington economizaram reciclando eles mesmos
+
+    collaborators.forEach((c) => {
+      if (c.isFounder) {
+        founderSelfSaved += c.totalEarned;
+      } else {
+        totalPendingAll += c.balancePending;
+        totalPaidAll += c.totalPaid;
+        totalEarnedAll += c.totalEarned;
+      }
+    });
+
+    return {
+      totalPendingAll,
+      totalPaidAll,
+      totalEarnedAll,
+      founderSelfSaved
+    };
+  }, [collaborators]);
+
+  // Totais do Carrinho Atual
+  const cartTotals = useMemo(() => {
+    let totalBottles = 0;
+    let totalWeightKg = 0;
+    let totalBuyCost = 0;
+    let totalRevenue = 0;
+
+    cart.forEach((c) => {
+      totalBottles += c.quantity;
+      totalWeightKg += c.totalWeightKg;
+      totalBuyCost += c.totalBuyCost;
+      totalRevenue += c.totalRevenue;
+    });
+
+    // Se for Denise e Wellington (fundadores), o custo de compra de terceiros é R$ 0,
+    // e o valor que seria pago é pura ECONOMIA financeira!
+    const isFounder = !!activeCollab?.isFounder;
+    const actualBuyCostToThirdParties = isFounder ? 0 : totalBuyCost;
+    const founderSavedAmount = isFounder ? totalBuyCost : 0;
+    const netProfit = totalRevenue - actualBuyCostToThirdParties;
+    const marginPct = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+
+    return {
+      totalBottles,
+      totalWeightKg,
+      totalBuyCost,
+      actualBuyCostToThirdParties,
+      founderSavedAmount,
+      totalRevenue,
+      netProfit,
+      marginPct,
+      isFounder
+    };
+  }, [cart, activeCollab, sellPricePerKg]);
+
+  // Câmera Scanner
+  const stopCameraSafely = () => {
     if (html5QrcodeRef.current) {
       try {
         html5QrcodeRef.current
@@ -263,31 +621,26 @@ export function GlassBarcodeScannerCart({
     }
   };
 
-  // Iniciar leitor de câmera HTML5-QRCode
   useEffect(() => {
     let isCancelled = false;
 
-    if (showScannerModal) {
-      setScannerCameraError(null);
+    if (showCameraModal) {
+      setCameraError(null);
       const timer = setTimeout(() => {
         if (isCancelled) return;
-        const viewport = document.getElementById("glass-barcode-scanner-viewport");
+        const viewport = document.getElementById("mobile-glass-scanner-viewport");
         if (!viewport) return;
 
         try {
-          const scanner = new Html5Qrcode("glass-barcode-scanner-viewport", {
+          const scanner = new Html5Qrcode("mobile-glass-scanner-viewport", {
             formatsToSupport: [
               Html5QrcodeSupportedFormats.EAN_13,
               Html5QrcodeSupportedFormats.EAN_8,
               Html5QrcodeSupportedFormats.UPC_A,
               Html5QrcodeSupportedFormats.UPC_E,
               Html5QrcodeSupportedFormats.CODE_128,
-              Html5QrcodeSupportedFormats.CODE_39,
-              Html5QrcodeSupportedFormats.QR_CODE
+              Html5QrcodeSupportedFormats.CODE_39
             ],
-            experimentalFeatures: {
-              useBarCodeDetectorIfSupported: true
-            },
             verbose: false
           });
 
@@ -297,90 +650,90 @@ export function GlassBarcodeScannerCart({
             .start(
               { facingMode: "environment" },
               {
-                fps: 25,
-                qrbox: { width: 280, height: 180 },
-                aspectRatio: 1.333333
+                fps: 20,
+                qrbox: { width: 280, height: 180 }
               },
               (decodedText) => {
                 if (isCancelled) return;
                 playScannerBeep(2100, 0.09);
-                handleProcessScannedBarcode(decodedText.trim());
-                setShowScannerModal(false);
+                handleProcessBarcode(decodedText.trim());
+                setShowCameraModal(false);
               },
               () => {}
             )
             .catch((err) => {
               if (isCancelled) return;
-              console.warn("Erro ao iniciar leitor de câmera:", err);
-              setScannerCameraError(
-                "Não foi possível abrir a câmera traseira. Verifique se deu permissão de câmera no navegador ou digite o código de barras no campo."
-              );
+              console.warn("Erro ao iniciar câmera:", err);
+              setCameraError("Câmera não disponível. Digite o código de barras no campo de texto.");
             });
         } catch {
-          setScannerCameraError("Falha ao inicializar leitor. Use a digitação manual de código de barras.");
+          setCameraError("Erro ao inicializar câmera. Digite o código no campo de texto.");
         }
-      }, 350);
+      }, 300);
 
       return () => {
         isCancelled = true;
         clearTimeout(timer);
-        stopScannerSafely();
+        stopCameraSafely();
       };
     } else {
-      stopScannerSafely();
+      stopCameraSafely();
     }
-  }, [showScannerModal]);
+  }, [showCameraModal]);
 
-  // Processar código de barras escaneado ou digitado
-  const handleProcessScannedBarcode = (code: string) => {
+  // Bipagem de Código de Barras
+  const handleProcessBarcode = (code: string) => {
     if (!code) return;
-    const cleanCode = code.trim();
+    const clean = code.trim();
     setBarcodeInput("");
 
-    // Procurar no catálogo
-    const matched = catalog.find(
-      (item) => item.barcode && item.barcode.trim() === cleanCode
-    );
+    const matched = catalog.find((c) => c.barcode && c.barcode.trim() === clean);
 
     if (matched) {
-      // Produto encontrado! Adiciona ao carrinho com o preset padrão (ex: 6 garrafas ou 3)
-      handleAddCatalogItemToCart(matched, 6);
+      handleAddBottleToCart(matched, 6);
       if (showNotification) {
-        showNotification(`Bipado: ${matched.name} (+6 garrafas no carrinho)! 🏷️🍺`, "success");
+        showNotification(`Bipado: ${matched.name} (${matched.volumeMl}ml) +6 unidades! 🏷️🍾`, "success");
       }
     } else {
-      // Produto não encontrado -> abre modal de cadastro rápido
-      setUnknownBarcodePrompt({
-        barcode: cleanCode,
-        isOpen: true
+      setEditingBottle({
+        id: `bottle_${Date.now()}`,
+        name: "",
+        volumeMl: 330,
+        barcode: clean,
+        unitWeightGrams: 185,
+        unitWeightKg: 0.185,
+        category: "longneck",
+        buyPricePerUnit: 0.02,
+        emoji: "🍾",
+        stockUnits: 0,
+        quickPresets: [3, 6, 10, 20, 25]
       });
+      setIsRegisteringNew(true);
       if (showNotification) {
-        showNotification(`Código ${cleanCode} não cadastrado! Deseja cadastrar agora? ✍️`, "info");
+        showNotification(`Código ${clean} novo! Cadastre os gramas na balança agora! ⚖️`, "info");
       }
     }
   };
 
-  // Adicionar garrafa do catálogo ao carrinho com quantidade X
-  const handleAddCatalogItemToCart = (item: CatalogBottleItem, qty: number) => {
+  // Adicionar garrafa ao carrinho (permite misturar tipos diferentes!)
+  const handleAddBottleToCart = (bottle: CatalogBottleItem, qty: number) => {
     if (qty <= 0) return;
-
-    playScannerBeep(1750, 0.05);
+    playScannerBeep(1800, 0.05);
 
     setCart((prev) => {
-      const existingIdx = prev.findIndex((c) => c.catalogId === item.id);
-      if (existingIdx >= 0) {
-        // Já existe no carrinho -> soma a quantidade
+      const idx = prev.findIndex((c) => c.catalogId === bottle.id);
+      if (idx >= 0) {
         const updated = [...prev];
-        const existing = updated[existingIdx];
+        const existing = updated[idx];
         const newQty = existing.quantity + qty;
-        const totalWeightKg = newQty * item.unitWeightKg;
-        const totalBuyCost = calculateGlassBuyCost(item.category, newQty, item.buyPricePerUnit);
-        const totalRevenue = item.returnableSellPrice
-          ? newQty * item.returnableSellPrice
+        const totalWeightKg = (newQty * bottle.unitWeightGrams) / 1000;
+        const totalBuyCost = calculateGlassBuyCost(bottle.category, newQty, bottle.buyPricePerUnit);
+        const totalRevenue = bottle.returnableSellPrice
+          ? newQty * bottle.returnableSellPrice
           : totalWeightKg * sellPricePerKg;
         const profit = totalRevenue - totalBuyCost;
 
-        updated[existingIdx] = {
+        updated[idx] = {
           ...existing,
           quantity: newQty,
           totalWeightKg,
@@ -390,27 +743,28 @@ export function GlassBarcodeScannerCart({
         };
         return updated;
       } else {
-        // Novo item no carrinho
-        const totalWeightKg = qty * item.unitWeightKg;
-        const totalBuyCost = calculateGlassBuyCost(item.category, qty, item.buyPricePerUnit);
-        const totalRevenue = item.returnableSellPrice
-          ? qty * item.returnableSellPrice
+        const totalWeightKg = (qty * bottle.unitWeightGrams) / 1000;
+        const totalBuyCost = calculateGlassBuyCost(bottle.category, qty, bottle.buyPricePerUnit);
+        const totalRevenue = bottle.returnableSellPrice
+          ? qty * bottle.returnableSellPrice
           : totalWeightKg * sellPricePerKg;
         const profit = totalRevenue - totalBuyCost;
 
         const newItem: GlassCartItem = {
           id: `cart_${Date.now()}_${Math.random()}`,
-          catalogId: item.id,
-          name: item.name,
-          barcode: item.barcode,
-          category: item.category,
-          emoji: item.emoji,
+          catalogId: bottle.id,
+          name: bottle.name,
+          volumeMl: bottle.volumeMl,
+          barcode: bottle.barcode,
+          category: bottle.category,
+          emoji: bottle.emoji,
           quantity: qty,
-          unitWeightKg: item.unitWeightKg,
+          unitWeightGrams: bottle.unitWeightGrams,
+          unitWeightKg: bottle.unitWeightGrams / 1000,
           totalWeightKg,
-          buyPricePerUnit: item.buyPricePerUnit,
+          buyPricePerUnit: bottle.buyPricePerUnit,
           totalBuyCost,
-          sellPriceUnitOrWeight: item.returnableSellPrice || item.unitWeightKg * sellPricePerKg,
+          sellPriceUnitOrWeight: bottle.returnableSellPrice || (bottle.unitWeightGrams / 1000) * sellPricePerKg,
           totalRevenue,
           profit
         };
@@ -419,19 +773,19 @@ export function GlassBarcodeScannerCart({
     });
   };
 
-  // Atualizar quantidade de um item no carrinho
-  const handleUpdateCartItemQty = (cartId: string, newQty: number) => {
+  // Alterar quantidade no carrinho
+  const handleUpdateCartQuantity = (cartId: string, newQty: number) => {
     if (newQty <= 0) {
-      handleRemoveCartItem(cartId);
+      setCart((prev) => prev.filter((c) => c.id !== cartId));
       return;
     }
 
     setCart((prev) =>
       prev.map((c) => {
         if (c.id === cartId) {
-          const totalWeightKg = newQty * c.unitWeightKg;
-          const catalogItem = catalog.find((cat) => cat.id === c.catalogId);
+          const totalWeightKg = (newQty * c.unitWeightGrams) / 1000;
           const totalBuyCost = calculateGlassBuyCost(c.category, newQty, c.buyPricePerUnit);
+          const catalogItem = catalog.find((cat) => cat.id === c.catalogId);
           const totalRevenue = catalogItem?.returnableSellPrice
             ? newQty * catalogItem.returnableSellPrice
             : totalWeightKg * sellPricePerKg;
@@ -456,982 +810,835 @@ export function GlassBarcodeScannerCart({
     setCart((prev) => prev.filter((c) => c.id !== cartId));
   };
 
-  // Limpar carrinho
-  const handleClearCart = () => {
-    setCart([]);
+  // Calibrar peso de uma garrafa na balança de cozinha
+  const handleSaveCalibratedWeight = () => {
+    if (!calibratingBottle) return;
+    const grams = Math.max(10, Math.round(calibratedGramsInput));
+    const kg = grams / 1000;
+
+    // Atualiza no catálogo
+    setCatalog((prev) =>
+      prev.map((b) =>
+        b.id === calibratingBottle.id
+          ? { ...b, unitWeightGrams: grams, unitWeightKg: kg }
+          : b
+      )
+    );
+
+    // Atualiza também itens que estejam no carrinho
+    setCart((prev) =>
+      prev.map((c) => {
+        if (c.catalogId === calibratingBottle.id) {
+          const totalWeightKg = (c.quantity * grams) / 1000;
+          const totalRevenue = totalWeightKg * sellPricePerKg;
+          return {
+            ...c,
+            unitWeightGrams: grams,
+            unitWeightKg: kg,
+            totalWeightKg,
+            totalRevenue,
+            profit: totalRevenue - c.totalBuyCost
+          };
+        }
+        return c;
+      })
+    );
+
+    setCalibratingBottle(null);
     if (showNotification) {
-      showNotification("Carrinho do portão limpo! 🗑️", "info");
+      showNotification(`Peso de ${calibratingBottle.name} calibrado para ${grams}g! ⚖️✅`, "success");
     }
   };
 
-  // Salvar novo cadastro no catálogo (ou atualizar Cachaça 51 com novo código de barras)
-  const handleSaveCatalogBottle = (bottleData: Partial<CatalogBottleItem>) => {
-    if (!bottleData.name || !bottleData.name.trim()) {
-      if (showNotification) showNotification("Dê um nome para a garrafa.", "warning");
-      return;
-    }
-
-    const cleanBarcode = (bottleData.barcode || "").trim();
-
-    // Se já estiver editando um existente
-    if (editingItem && editingItem.id) {
-      setCatalog((prev) =>
-        prev.map((item) =>
-          item.id === editingItem.id
-            ? {
-                ...item,
-                ...bottleData,
-                barcode: cleanBarcode
-              } as CatalogBottleItem
-            : item
-        )
-      );
-      if (showNotification) {
-        showNotification(`Garrafa "${bottleData.name}" atualizada no catálogo! 🏷️💾`, "success");
-      }
-    } else {
-      // Novo cadastro
-      const newItem: CatalogBottleItem = {
-        id: `bottle_${Date.now()}`,
-        name: bottleData.name.trim(),
-        barcode: cleanBarcode,
-        category: bottleData.category || "longneck",
-        volumeMl: bottleData.volumeMl || 330,
-        unitWeightKg: bottleData.unitWeightKg || 0.185,
-        buyPricePerUnit: bottleData.buyPricePerUnit || 0.02,
-        returnableSellPrice: bottleData.returnableSellPrice || 0,
-        emoji: bottleData.emoji || (bottleData.category === "900ml" ? "🍾" : "🍺"),
-        quickPresets: [3, 6, 10, 20, 25]
-      };
-      setCatalog((prev) => [newItem, ...prev]);
-
-      // Se veio de um código desconhecido bipado, já adiciona no carrinho!
-      if (unknownBarcodePrompt?.isOpen) {
-        handleAddCatalogItemToCart(newItem, 6);
-      }
-
-      if (showNotification) {
-        showNotification(`Garrafa "${newItem.name}" cadastrada com código ${cleanBarcode || "sem código"}! 🏷️✅`, "success");
-      }
-    }
-
-    setEditingItem(null);
-    setUnknownBarcodePrompt(null);
+  // Alterar diretamente a quantidade real que tem no pátio hoje
+  const handleUpdateYardStockDirect = (bottleId: string, newQty: number) => {
+    const qty = Math.max(0, Math.round(newQty));
+    setCatalog((prev) =>
+      prev.map((b) => (b.id === bottleId ? { ...b, stockUnits: qty } : b))
+    );
   };
 
-  // Excluir item do catálogo
-  const handleDeleteCatalogBottle = (id: string, name: string) => {
-    if (catalog.length <= 1) {
-      if (showNotification) showNotification("Mantenha ao menos 1 garrafa no catálogo.", "warning");
-      return;
-    }
-    setCatalog((prev) => prev.filter((item) => item.id !== id));
-    if (showNotification) showNotification(`Item "${name}" removido do catálogo.`, "info");
-  };
-
-  // Restaurar catálogo padrão
-  const handleResetCatalog = () => {
-    setCatalog(DEFAULT_BOTTLE_CATALOG);
-    localStorage.removeItem("pdv_glass_barcode_catalog_v1");
-    if (showNotification) showNotification("Catálogo restaurado para o padrão de fábrica! 🔄", "info");
-  };
-
-  // Totais e Cálculos do Carrinho
-  const cartCalculations = useMemo(() => {
-    let totalLongneckCount = 0;
-    let total900mlCount = 0;
-    let totalOtherCount = 0;
-    let totalQuantity = 0;
-    let totalWeightKg = 0;
-    let totalBuyCost = 0;
-    let totalRevenue = 0;
-
-    cart.forEach((item) => {
-      totalQuantity += item.quantity;
-      totalWeightKg += item.totalWeightKg;
-      totalBuyCost += item.totalBuyCost;
-      totalRevenue += item.totalRevenue;
-
-      if (item.category === "longneck") {
-        totalLongneckCount += item.quantity;
-      } else if (item.category === "900ml") {
-        total900mlCount += item.quantity;
-      } else {
-        totalOtherCount += item.quantity;
-      }
-    });
-
-    const netProfit = totalRevenue - totalBuyCost;
-    const marginPct = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
-
-    return {
-      totalLongneckCount,
-      total900mlCount,
-      totalOtherCount,
-      totalQuantity,
-      totalWeightKg,
-      totalBuyCost,
-      totalRevenue,
-      netProfit,
-      marginPct
-    };
-  }, [cart]);
-
-  // Finalizar Compra e Pagar ao Colaborador
-  const handleFinalizePurchase = () => {
+  // Finalizar compra / entrega do carrinho
+  const handleFinalizeTicket = (settlementMode: "pendente_caderninho" | "pago_na_hora") => {
     if (cart.length === 0) {
-      if (showNotification) showNotification("O carrinho está vazio! Bipe ou adicione garrafas.", "warning");
+      if (showNotification) showNotification("O carrinho está vazio! Adicione garrafas.", "warning");
       return;
     }
 
-    // Se houver callback para o pátio geral
+    const isFounder = !!activeCollab.isFounder;
+    const paymentStatus = isFounder
+      ? "coleta_propria_dw"
+      : settlementMode === "pago_na_hora"
+      ? "pago_na_hora"
+      : "pendente_caderninho";
+
+    // 1. Atualizar estoque no pátio geral
+    setCatalog((prev) =>
+      prev.map((b) => {
+        const inCart = cart.find((c) => c.catalogId === b.id);
+        if (inCart) {
+          return { ...b, stockUnits: (b.stockUnits || 0) + inCart.quantity };
+        }
+        return b;
+      })
+    );
+
     if (onAddItemsToYardStock) {
-      const itemsToAdd = cart.map((c) => ({
-        name: c.name,
+      const yardItems = cart.map((c) => ({
+        name: `${c.name} (${c.volumeMl}ml)`,
         quantity: c.quantity,
         weightKg: c.totalWeightKg,
-        costPaid: c.totalBuyCost
+        costPaid: isFounder ? 0 : c.totalBuyCost
       }));
-      onAddItemsToYardStock(itemsToAdd);
+      onAddItemsToYardStock(yardItems);
     }
 
-    // Salvar histórico de compras no localStorage
-    try {
-      const historyLog = {
-        id: `purchase_${Date.now()}`,
-        timestamp: new Date().toLocaleString("pt-BR"),
-        collector: collectorName,
-        totalBottles: cartCalculations.totalQuantity,
-        longnecks: cartCalculations.totalLongneckCount,
-        garrafas900ml: cartCalculations.total900mlCount,
-        totalWeightKg: cartCalculations.totalWeightKg,
-        totalPaid: cartCalculations.totalBuyCost,
-        expectedRevenue: cartCalculations.totalRevenue,
-        profit: cartCalculations.netProfit,
-        items: cart.map((c) => `${c.quantity}x ${c.name}`)
-      };
+    // 2. Atualizar Caderninho do Colaborador
+    setCollaborators((prev) =>
+      prev.map((collab) => {
+        if (collab.id === activeCollab.id) {
+          const newDeliveries = collab.totalDeliveries + 1;
+          const newBottles = collab.totalBottles + cartTotals.totalBottles;
+          const newWeight = collab.totalWeightKg + cartTotals.totalWeightKg;
+          const newEarned = collab.totalEarned + cartTotals.totalBuyCost;
 
-      const existingHistory = JSON.parse(localStorage.getItem("pdv_glass_completed_purchases_v1") || "[]");
-      existingHistory.unshift(historyLog);
-      localStorage.setItem("pdv_glass_completed_purchases_v1", JSON.stringify(existingHistory.slice(0, 30)));
-    } catch {}
+          if (collab.isFounder) {
+            // Denise e Wellington: não há dívida a pagar, é pura economia e coleta própria!
+            return {
+              ...collab,
+              totalDeliveries: newDeliveries,
+              totalBottles: newBottles,
+              totalWeightKg: newWeight,
+              totalEarned: newEarned,
+              totalPaid: newEarned,
+              balancePending: 0
+            };
+          } else {
+            // Colaborador Parceiro: se pagou na hora, soma no pago; se pendente, soma no saldo a pagar!
+            const addedPaid = settlementMode === "pago_na_hora" ? cartTotals.totalBuyCost : 0;
+            const newPaid = collab.totalPaid + addedPaid;
+            const newPending = newEarned - newPaid;
 
+            return {
+              ...collab,
+              totalDeliveries: newDeliveries,
+              totalBottles: newBottles,
+              totalWeightKg: newWeight,
+              totalEarned: newEarned,
+              totalPaid: newPaid,
+              balancePending: Math.max(0, newPending)
+            };
+          }
+        }
+        return collab;
+      })
+    );
+
+    // 3. Salvar tíquete no histórico
+    const ticket: CompletedPurchaseTicket = {
+      id: `ticket_${Date.now()}`,
+      timestamp: new Date().toLocaleString("pt-BR"),
+      collectorName: activeCollab.name,
+      isFounder,
+      items: cart.map((c) => ({
+        name: c.name,
+        volumeMl: c.volumeMl,
+        barcode: c.barcode,
+        quantity: c.quantity,
+        unitWeightGrams: c.unitWeightGrams,
+        totalWeightKg: c.totalWeightKg,
+        costPaid: c.totalBuyCost
+      })),
+      totalBottles: cartTotals.totalBottles,
+      totalWeightKg: cartTotals.totalWeightKg,
+      totalPaid: isFounder ? 0 : cartTotals.totalBuyCost,
+      expectedPlantRevenue: cartTotals.totalRevenue,
+      netProfit: cartTotals.netProfit,
+      paymentStatus
+    };
+
+    setPurchaseHistory((prev) => [ticket, ...prev.slice(0, 49)]);
+
+    // 4. Limpar carrinho
+    setCart([]);
     playScannerBeep(2400, 0.15);
 
     if (showNotification) {
+      if (isFounder) {
+        showNotification(
+          `Coleta D.W Registrada! +${cartTotals.totalBottles} garrafas (+${cartTotals.totalWeightKg.toFixed(1)}kg) somadas para a carga do Victor! 👑🚚`,
+          "success"
+        );
+      } else if (settlementMode === "pago_na_hora") {
+        showNotification(
+          `Compra paga na hora: R$ ${cartTotals.totalBuyCost.toFixed(2)} para ${activeCollab.name}! 💵✅`,
+          "success"
+        );
+      } else {
+        showNotification(
+          `Lançado no Caderninho: R$ ${cartTotals.totalBuyCost.toFixed(2)} a pagar para ${activeCollab.name}! 📖✍️`,
+          "info"
+        );
+      }
+    }
+  };
+
+  // Registrar pagamento / acerto de colaborador
+  const handleExecuteCollaboratorPayment = () => {
+    if (!payingCollab) return;
+    const amount = Number(payAmount);
+    if (amount <= 0) {
+      if (showNotification) showNotification("Digite um valor válido de pagamento.", "warning");
+      return;
+    }
+
+    const prevPending = payingCollab.balancePending;
+    const newPaid = payingCollab.totalPaid + amount;
+    const remaining = Math.max(0, prevPending - amount);
+
+    // Atualiza saldo no caderninho
+    setCollaborators((prev) =>
+      prev.map((c) =>
+        c.id === payingCollab.id
+          ? {
+              ...c,
+              totalPaid: newPaid,
+              balancePending: remaining
+            }
+          : c
+      )
+    );
+
+    const methodLabels: Record<string, string> = {
+      bolsa_familia: "📅 Bolsa Família (Dia Fixo)",
+      caminhao_victor: "🚚 Acerto Caminhão do Victor (Pesagem)",
+      dinheiro: "💵 Dinheiro em Mãos",
+      pix: "💳 Pix"
+    };
+
+    // Salva comprovante
+    const receipt: CollaboratorPaymentReceipt = {
+      id: `pay_${Date.now()}`,
+      timestamp: new Date().toLocaleString("pt-BR"),
+      collaboratorId: payingCollab.id,
+      collaboratorName: payingCollab.name,
+      amountPaid: amount,
+      paymentMethod: payMethod,
+      methodLabel: methodLabels[payMethod] || payMethod,
+      notes: payNotes,
+      previousBalance: prevPending,
+      remainingBalance: remaining
+    };
+
+    setPaymentHistory((prev) => [receipt, ...prev.slice(0, 49)]);
+    setPayingCollab(null);
+
+    playScannerBeep(2200, 0.12);
+    if (showNotification) {
       showNotification(
-        `Compra finalizada com sucesso! R$ ${cartCalculations.totalBuyCost.toFixed(2)} pago a ${collectorName}! Estoque abastecido! 💰🎉`,
+        `Pagamento de R$ ${amount.toFixed(2)} registrado para ${payingCollab.name}! 🧾🤝`,
         "success"
       );
     }
-
-    setCart([]);
   };
 
-  // Gerar Comprovante do WhatsApp para o Colaborador
-  const handleShareWhatsAppReceipt = () => {
-    if (cart.length === 0) return;
-
-    let msg = `🧾 *COMPROVANTE DE RECICLAGEM - FERRO VELHO* 🍾♻️\n`;
-    msg += `📅 *Data:* ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}\n`;
-    msg += `👤 *Colaborador / Entregador:* ${collectorName}\n`;
-    msg += `🏢 *Destino do Vidro:* ${buyerName}\n`;
-    msg += `━━━━━━━━━━━━━━━━━━━━\n\n`;
-
-    msg += `📦 *ITENS CONFERIDOS NO BALCÃO:*\n`;
-    cart.forEach((item) => {
-      msg += `• ${item.emoji} *${item.name}*: ${item.quantity} garrafas | Peso: ~${item.totalWeightKg.toFixed(1)} kg | Pago: R$ ${item.totalBuyCost.toFixed(2)}\n`;
-      if (item.barcode) {
-        msg += `  🔖 Cód: ${item.barcode}\n`;
-      }
-    });
-
-    msg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `🍾 *Total de Garrafas:* ${cartCalculations.totalQuantity} unidades\n`;
-    if (cartCalculations.totalLongneckCount > 0) {
-      msg += `  🍺 Longnecks: ${cartCalculations.totalLongneckCount} un\n`;
+  // Despachar Carga para o Caminhão do Victor (Zera estoque para começar a próxima carga!)
+  const handleDispatchTruckCargo = () => {
+    if (yardTotals.totalUnits === 0) {
+      if (showNotification) showNotification("O pátio está vazio! Não há garrafas para despachar.", "warning");
+      return;
     }
-    if (cartCalculations.total900mlCount > 0) {
-      msg += `  🍾 Garrafas 900ml: ${cartCalculations.total900mlCount} un\n`;
+
+    const summaryText = catalog
+      .filter((b) => b.stockUnits > 0)
+      .map((b) => `${b.stockUnits} un ${b.name}`)
+      .join(", ");
+
+    const shipment: DispatchedTruckShipment = {
+      id: `shipment_${Date.now()}`,
+      timestamp: new Date().toLocaleString("pt-BR"),
+      buyerName: buyerName || "Caminhão do Victor (Empresa de Vidros)",
+      totalBottles: yardTotals.totalUnits,
+      totalWeightKg: yardTotals.totalWeightKg,
+      totalWeightTon: yardTotals.totalWeightTon,
+      grossRevenueReceived: yardTotals.grossRevenueTon,
+      summaryText
+    };
+
+    setTruckShipments((prev) => [shipment, ...prev]);
+
+    // Zera o estoque do pátio para recomeçar o ciclo de toneladas
+    setCatalog((prev) => prev.map((b) => ({ ...b, stockUnits: 0 })));
+
+    setShowTruckDispatchModal(false);
+    playScannerBeep(2600, 0.2);
+
+    if (showNotification) {
+      showNotification(
+        `🚚 Carga Despachada com Sucesso! ${shipment.totalWeightTon.toFixed(2)} Toneladas (R$ ${shipment.grossRevenueReceived.toFixed(2)}). Estoque zerado para o próximo ciclo! 🎉`,
+        "success"
+      );
     }
-    msg += `⚖️ *Peso Total Estimado:* ${cartCalculations.totalWeightKg.toFixed(1)} kg\n`;
-    msg += `💰 *VALOR TOTAL PAGO AO COLABORADOR:* R$ ${cartCalculations.totalBuyCost.toFixed(2)}\n`;
+  };
+
+  // Zerar Todos os Testes e Começar do Zero com a Realidade da D.W Vidros
+  const handleResetAllToZeroReal = () => {
+    // Zera o catálogo de estoque
+    setCatalog((prev) => prev.map((b) => ({ ...b, stockUnits: 0 })));
+    setCart([]);
+    setShowZeroConfirmModal(false);
+
+    if (showNotification) {
+      showNotification(
+        "🧹 Todos os testes anteriores foram zerados! Agora digite a quantidade real que você e Wellington já têm no pátio! 🏢✨",
+        "success"
+      );
+    }
+  };
+
+  // Cadastrar Novo Colaborador
+  const handleSaveNewCollaborator = () => {
+    const cleanName = newCollabName.trim();
+    if (!cleanName) {
+      if (showNotification) showNotification("Digite o nome do colaborador da reciclagem.", "warning");
+      return;
+    }
+
+    const newCollab: CollaboratorAccount = {
+      id: `collab_${Date.now()}`,
+      name: cleanName,
+      phone: newCollabPhone.trim(),
+      notes: newCollabNotes.trim(),
+      createdAt: new Date().toLocaleDateString("pt-BR"),
+      isFounder: false,
+      totalDeliveries: 0,
+      totalBottles: 0,
+      totalWeightKg: 0,
+      totalEarned: 0,
+      totalPaid: 0,
+      balancePending: 0
+    };
+
+    setCollaborators((prev) => [...prev, newCollab]);
+    setSelectedCollabId(newCollab.id);
+    setNewCollabName("");
+    setNewCollabPhone("");
+    setNewCollabNotes("");
+    setShowAddCollabModal(false);
+
+    if (showNotification) {
+      showNotification(`Colaborador "${cleanName}" cadastrado no Caderninho! 👤✍️`, "success");
+    }
+  };
+
+  // Compartilhar Comprovante no WhatsApp
+  const handleShareReceiptWhatsApp = (receipt: CollaboratorPaymentReceipt) => {
+    let msg = `🧾 *D.W VIDROS E RECICLAGEM*\n`;
+    msg += `_Denise Jesus & Wellington Oliveira_\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `_Obrigado pela entrega e parceria na reciclagem!_ 🌿`;
+    msg += `🤝 *RECIBO DE PAGAMENTO / ACERTO*\n`;
+    msg += `👤 *Colaborador:* ${receipt.collaboratorName}\n`;
+    msg += `📅 *Data/Hora:* ${receipt.timestamp}\n`;
+    msg += `💰 *VALOR PAGO:* R$ ${receipt.amountPaid.toFixed(2)}\n`;
+    msg += `💳 *Forma de Pagamento:* ${receipt.methodLabel}\n`;
+    if (receipt.notes) msg += `📝 *Obs:* ${receipt.notes}\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `Saldo Restante no Caderninho: R$ ${receipt.remainingBalance.toFixed(2)}\n\n`;
+    msg += `_Obrigado pela parceria na reciclagem de vidros! D.W Vidros 🌱_`;
 
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank");
   };
 
   return (
-    <div className="space-y-6 text-left">
-      {/* BARRA SUPERIOR DE AÇÕES & BIPAR CÓDIGO DE BARRAS */}
-      <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-4 sm:p-5 shadow-2xl space-y-4">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300">
-                <Barcode className="w-5 h-5" />
+    <div className="space-y-5 text-left font-sans">
+      {/* CABEÇALHO OFICIAL: D.W VIDROS E RECICLAGEM */}
+      <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 border-2 border-emerald-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border border-emerald-500/40 shadow-sm">
+                <Crown className="w-4 h-4 text-amber-400" />
+                D.W Vidros e Reciclagem Oficial
               </span>
-              <div>
-                <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
-                  <span>Catálogo de Garrafas & Carrinho do Portão</span>
-                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
-                    Bipe Rápido
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Bipe o código de barras da Heineken, Império, Ice ou Dreher para adicionar lotes de 3, 6, 10, 20 ou 25 garrafas direto no carrinho!
-                </p>
-              </div>
+              <span className="text-[11px] bg-slate-800 text-slate-200 font-bold px-2.5 py-1 rounded-lg border border-white/10">
+                Denise Jesus & Wellington Oliveira
+              </span>
+              <span className="text-[11px] bg-amber-500/20 text-amber-300 font-bold px-2.5 py-1 rounded-lg border border-amber-500/30">
+                Cotação: R$ {sellPricePerTon.toFixed(2)}/t (R$ {sellPricePerKg.toFixed(2)}/kg)
+              </span>
             </div>
+
+            <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
+              <Scale className="w-6 h-6 text-emerald-400" />
+              Gestão Real do Pátio, Balança & Caderninho de Colaboradores
+            </h2>
+
+            <p className="text-xs sm:text-sm text-slate-300 max-w-3xl leading-relaxed">
+              Pesagem exata em gramas por unidade, cálculo rigoroso de toneladas para o <strong>Caminhão do Victor</strong>, controle de compras mistas e livro-caixa para acertar cada colaborador com o <strong>Bolsa Família</strong> ou na pesagem da carga!
+            </p>
           </div>
 
-          {/* Abas Sub-Visão: Carrinho vs Catálogo */}
-          <div className="flex items-center gap-2 self-stretch md:self-auto">
+          {/* BOTÕES DE GESTÃO DO PÁTIO */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setActiveSubView("carrinho")}
-              className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-2 border ${
-                activeSubView === "carrinho"
-                  ? "bg-emerald-600 text-white border-emerald-400 shadow-md shadow-emerald-950/50"
-                  : "bg-slate-950 text-slate-300 border-white/10 hover:bg-slate-800"
-              }`}
+              onClick={() => setShowTruckDispatchModal(true)}
+              className="min-h-[48px] px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/30 touch-manipulation"
             >
-              <ShoppingCart className="w-4 h-4 text-emerald-300" />
-              <span>Carrinho ({cart.length})</span>
+              <Truck className="w-4 h-4" />
+              <span>Despachar Carga ao Victor 🚚</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveSubView("catalogo")}
-              className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-2 border ${
-                activeSubView === "catalogo"
-                  ? "bg-amber-500 text-slate-950 border-amber-300 shadow-md shadow-amber-950/50"
-                  : "bg-slate-950 text-slate-300 border-white/10 hover:bg-slate-800"
-              }`}
+              onClick={() => setShowZeroConfirmModal(true)}
+              className="min-h-[48px] px-3.5 py-2.5 bg-slate-950 hover:bg-slate-800 text-rose-300 hover:text-white font-bold text-xs uppercase rounded-xl border border-rose-500/30 hover:border-rose-400 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation"
+              title="Zerar dados de teste e começar contagem real do zero"
             >
-              <Tag className="w-4 h-4 text-amber-400" />
-              <span>Catálogo ({catalog.length})</span>
+              <Eraser className="w-4 h-4 text-rose-400" />
+              <span>Zerar Testes 🧹</span>
             </button>
           </div>
         </div>
 
-        {/* ÁREA DE BIPAR / DIGITAR CÓDIGO DE BARRAS */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 pt-2 border-t border-white/10">
-          {/* Botão de Abrir Câmera para Bipar */}
-          <div className="sm:col-span-4">
-            <button
-              type="button"
-              onClick={() => setShowScannerModal(true)}
-              className="w-full py-2.5 px-3 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25"
-            >
-              <Camera className="w-4 h-4" />
-              <span>📷 Bipar com Câmera</span>
-            </button>
+        {/* BARRA DE METAS DE TONELADAS RUMO AO CAMINHÃO DO VICTOR */}
+        <div className="mt-5 pt-4 border-t border-white/10 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="p-3 bg-slate-950/80 rounded-2xl border border-white/5 space-y-1">
+            <span className="text-[10px] uppercase font-bold text-slate-400 block">Garrafas no Pátio:</span>
+            <strong className="text-xl sm:text-2xl font-mono text-white font-black">
+              {yardTotals.totalUnits.toLocaleString("pt-BR")} <span className="text-xs text-slate-400">un</span>
+            </strong>
+            <span className="text-[10px] text-emerald-400 block font-bold">Total contado real</span>
           </div>
 
-          {/* Campo de Entrada de Código de Barras (ou Leitor Físico USB) */}
-          <div className="sm:col-span-8 flex gap-2">
-            <div className="relative flex-1">
-              <input
-                type="text"
-                value={barcodeInput}
-                onChange={(e) => setBarcodeInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && barcodeInput.trim()) {
-                    handleProcessScannedBarcode(barcodeInput.trim());
-                  }
-                }}
-                placeholder="Bipe ou digite o código de barras (Ex: 78936683)..."
-                className="w-full bg-slate-950 border border-white/15 focus:border-emerald-400 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 outline-none"
-              />
-              {barcodeInput && (
-                <button
-                  type="button"
-                  onClick={() => setBarcodeInput("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+          <div className="p-3 bg-slate-950/80 rounded-2xl border border-white/5 space-y-1">
+            <span className="text-[10px] uppercase font-bold text-slate-400 block">Peso Real no Pátio:</span>
+            <strong className="text-xl sm:text-2xl font-mono text-emerald-400 font-black">
+              {yardTotals.totalWeightKg.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} <span className="text-xs">kg</span>
+            </strong>
+            <span className="text-[10px] text-slate-300 block">
+              = <strong>{yardTotals.totalWeightTon.toFixed(3)} Toneladas</strong>
+            </span>
+          </div>
 
-            <button
-              type="button"
-              onClick={() => handleProcessScannedBarcode(barcodeInput.trim())}
-              disabled={!barcodeInput.trim()}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold text-xs uppercase rounded-xl border border-white/10 transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <Search className="w-3.5 h-3.5" />
-              <span>Bipar</span>
-            </button>
+          <div className="p-3 bg-slate-950/80 rounded-2xl border border-white/5 space-y-1">
+            <span className="text-[10px] uppercase font-bold text-amber-400 block">Faturamento Bruto na Usina:</span>
+            <strong className="text-xl sm:text-2xl font-mono text-amber-400 font-black">
+              R$ {yardTotals.grossRevenueTon.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </strong>
+            <span className="text-[10px] text-slate-400 block">Ao entregar pro Victor</span>
+          </div>
+
+          <div className="p-3 bg-slate-950/80 rounded-2xl border border-white/5 space-y-1">
+            <span className="text-[10px] uppercase font-bold text-teal-400 block">Meta Carga Cheia (5t):</span>
+            <strong className="text-xl sm:text-2xl font-mono text-teal-300 font-black">
+              {yardTotals.progressIdealPct.toFixed(0)}%
+            </strong>
+            <span className="text-[10px] text-slate-400 block">
+              {yardTotals.kgMissingForIdeal > 0
+                ? `Faltam ${yardTotals.kgMissingForIdeal.toFixed(0)} kg (~${Math.ceil(yardTotals.kgMissingForIdeal / 0.5)} garrafas)`
+                : "🎉 Pronto para carregar!"}
+            </span>
+          </div>
+        </div>
+
+        {/* Barra Visual de Progresso de Carga */}
+        <div className="mt-3 space-y-1">
+          <div className="flex justify-between text-[10px] font-bold text-slate-400">
+            <span>0 kg</span>
+            <span className={yardTotals.totalWeightKg >= 3000 ? "text-emerald-400 font-black" : ""}>
+              Carga Mínima (3.000 kg)
+            </span>
+            <span className={yardTotals.totalWeightKg >= 5000 ? "text-teal-400 font-black" : ""}>
+              Carga Ideal Victor (5.000 kg) ⭐
+            </span>
+          </div>
+          <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden border border-white/10 p-0.5">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-amber-400 rounded-full transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(2, yardTotals.progressIdealPct))}%` }}
+            />
           </div>
         </div>
       </div>
 
-      {/* MODAL DO LEITOR DE CÓDIGO DE BARRAS POR CÂMERA */}
-      <AnimatePresence>
-        {showScannerModal && (
-          <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-slate-900 border border-emerald-500/40 rounded-3xl max-w-md w-full p-5 space-y-4 shadow-2xl relative"
-            >
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <div className="flex items-center gap-2">
-                  <Camera className="w-5 h-5 text-emerald-400" />
-                  <h4 className="text-sm font-black text-white uppercase tracking-wider">
-                    Leitor de Código de Barras
-                  </h4>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowScannerModal(false)}
-                  className="text-slate-400 hover:text-white p-1 rounded-lg"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Viewport da Câmera */}
-              <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 aspect-video flex items-center justify-center">
-                <div id="glass-barcode-scanner-viewport" className="w-full h-full" />
-                {scannerCameraError && (
-                  <div className="absolute inset-0 p-4 bg-slate-950/90 flex flex-col items-center justify-center text-center space-y-2">
-                    <AlertTriangle className="w-8 h-8 text-amber-400" />
-                    <p className="text-xs text-rose-300 font-bold">{scannerCameraError}</p>
-                    <button
-                      type="button"
-                      onClick={() => setShowScannerModal(false)}
-                      className="px-4 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg border border-white/10"
-                    >
-                      Fechar e Digitar Código
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <p className="text-[11px] text-slate-400 text-center leading-relaxed">
-                Aponte a câmera para o código de barras da garrafa (Heineken, Dreher, etc.). O sistema emitirá um som e adicionará ao carrinho na hora!
-              </p>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* MODAL PARA CADASTRAR CÓDIGO DESCONHECIDO OU EDITAR GARRAFA */}
-      <AnimatePresence>
-        {(unknownBarcodePrompt?.isOpen || editingItem) && (
-          <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-lg w-full p-5 space-y-4 shadow-2xl relative text-left"
-            >
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <div className="flex items-center gap-2">
-                  <Tag className="w-5 h-5 text-amber-400" />
-                  <h4 className="text-sm font-black text-white uppercase tracking-wider">
-                    {editingItem?.id ? "Editar Garrafa no Catálogo" : "Cadastrar Nova Garrafa no Catálogo"}
-                  </h4>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingItem(null);
-                    setUnknownBarcodePrompt(null);
-                  }}
-                  className="text-slate-400 hover:text-white p-1"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const form = e.currentTarget;
-                  const name = (form.elements.namedItem("bottleName") as HTMLInputElement).value;
-                  const barcode = (form.elements.namedItem("bottleBarcode") as HTMLInputElement).value;
-                  const category = (form.elements.namedItem("bottleCategory") as HTMLSelectElement).value as any;
-                  const volumeMl = Number((form.elements.namedItem("bottleVolume") as HTMLInputElement).value) || 330;
-                  const unitWeightGrams = Number((form.elements.namedItem("bottleWeightGrams") as HTMLInputElement).value) || 185;
-                  const buyPrice = Number((form.elements.namedItem("bottleBuyPrice") as HTMLInputElement).value) || 0.02;
-                  const resellPrice = Number((form.elements.namedItem("bottleResellPrice") as HTMLInputElement).value) || 0;
-
-                  handleSaveCatalogBottle({
-                    name,
-                    barcode,
-                    category,
-                    volumeMl,
-                    unitWeightKg: unitWeightGrams / 1000,
-                    buyPricePerUnit: buyPrice,
-                    returnableSellPrice: resellPrice
-                  });
-                }}
-                className="space-y-3.5 text-xs"
+      {/* ABAS DO SISTEMA D.W VIDROS */}
+      <div className="flex items-center gap-1.5 p-1.5 bg-slate-900 border border-white/10 rounded-2xl overflow-x-auto">
+        {[
+          { id: "carrinho", label: "🛒 Bipar & Comprar no Portão", badge: cart.length > 0 ? `${cart.length}` : null },
+          { id: "caderninho", label: "📖 Caderninho dos Colaboradores", badge: caderninhoTotals.totalPendingAll > 0 ? `R$ ${caderninhoTotals.totalPendingAll.toFixed(0)}` : null },
+          { id: "estoque", label: "📦 Estoque & Balança (Gramas e ML)", badge: `${yardTotals.totalUnits}` },
+          { id: "cargas", label: "🚚 Histórico & Cargas Despachadas", badge: truckShipments.length > 0 ? `${truckShipments.length}` : null }
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`min-h-[48px] px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-black whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer touch-manipulation ${
+              activeTab === tab.id
+                ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30 scale-[1.02]"
+                : "bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800"
+            }`}
+          >
+            <span>{tab.label}</span>
+            {tab.badge && (
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                  activeTab === tab.id ? "bg-slate-950 text-emerald-300" : "bg-emerald-500/20 text-emerald-300"
+                }`}
               >
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-amber-400 block">
-                    Nome da Garrafa / Bebida:
-                  </label>
-                  <input
-                    type="text"
-                    name="bottleName"
-                    defaultValue={editingItem?.name || ""}
-                    placeholder="Ex: Cachaça 51 900ml, Skol 600ml, etc."
-                    required
-                    className="w-full bg-slate-950 border border-white/15 focus:border-amber-400 rounded-xl px-3 py-2 text-white font-bold outline-none"
-                  />
-                </div>
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block">
-                      Código de Barras (EAN):
-                    </label>
-                    <input
-                      type="text"
-                      name="bottleBarcode"
-                      defaultValue={editingItem?.barcode || unknownBarcodePrompt?.barcode || ""}
-                      placeholder="Ex: 78936683"
-                      className="w-full bg-slate-950 border border-white/15 focus:border-amber-400 rounded-xl px-3 py-2 text-white font-mono outline-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block">
-                      Categoria do Recipiente:
-                    </label>
-                    <select
-                      name="bottleCategory"
-                      defaultValue={editingItem?.category || "longneck"}
-                      className="w-full bg-slate-950 border border-white/15 focus:border-amber-400 rounded-xl px-2.5 py-2 text-white font-bold outline-none"
-                    >
-                      <option value="longneck">Longneck (210ml a 355ml)</option>
-                      <option value="900ml">Garrafa 900ml / 1L (Dreher, 51)</option>
-                      <option value="cerveja600">Cerveja 600ml (Retornável)</option>
-                      <option value="litrao">Litrão 1 Litro</option>
-                      <option value="vinho">Vinho / Espumante</option>
-                      <option value="outro">Outro Vidro</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block">
-                      Peso de 1 Garrafa Vazia (Gramas):
-                    </label>
-                    <input
-                      type="number"
-                      name="bottleWeightGrams"
-                      step={5}
-                      defaultValue={editingItem ? editingItem.unitWeightKg * 1000 : 185}
-                      placeholder="185g"
-                      className="w-full bg-slate-950 border border-white/15 focus:border-amber-400 rounded-xl px-3 py-2 text-white font-mono outline-none"
-                    />
-                    <span className="text-[9px] text-slate-500 block">
-                      Longneck ≈ 185g | Dreher/51 ≈ 500g
-                    </span>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block">
-                      Volume (ml):
-                    </label>
-                    <input
-                      type="number"
-                      name="bottleVolume"
-                      defaultValue={editingItem?.volumeMl || 330}
-                      placeholder="330"
-                      className="w-full bg-slate-950 border border-white/15 focus:border-amber-400 rounded-xl px-3 py-2 text-white font-mono outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-rose-400 block">
-                      Paga ao Colaborador por Garrafa (R$):
-                    </label>
-                    <input
-                      type="number"
-                      name="bottleBuyPrice"
-                      step={0.005}
-                      defaultValue={editingItem?.buyPricePerUnit ?? 0.02}
-                      placeholder="0.02"
-                      className="w-full bg-slate-950 border border-white/15 focus:border-rose-400 rounded-xl px-3 py-2 text-rose-300 font-mono font-bold outline-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-cyan-400 block">
-                      Venda Retornável a Bares (R$ opcional):
-                    </label>
-                    <input
-                      type="number"
-                      name="bottleResellPrice"
-                      step={0.10}
-                      defaultValue={editingItem?.returnableSellPrice || 0}
-                      placeholder="0.00"
-                      className="w-full bg-slate-950 border border-white/15 focus:border-cyan-400 rounded-xl px-3 py-2 text-cyan-300 font-mono outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-2 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingItem(null);
-                      setUnknownBarcodePrompt(null);
-                    }}
-                    className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider rounded-xl cursor-pointer"
-                  >
-                    Salvar no Catálogo
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* ABA 1: CARRINHO DE COMPRAS NO PORTÃO (VENDAS / PAGAMENTOS) */}
-      {activeSubView === "carrinho" && (
+      {/* ========================================================= */}
+      {/* ABA 1: CARRINHO & BIPAR GARRAFAS MISTURADAS               */}
+      {/* ========================================================= */}
+      {activeTab === "carrinho" && (
         <div className="space-y-5">
-          {/* BANNER DOS LOTES COMBINADOS DO PORTÃO */}
-          <div className="bg-gradient-to-r from-amber-950/60 via-slate-900 to-emerald-950/40 border-2 border-amber-500/40 rounded-3xl p-4 sm:p-5 shadow-2xl space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-2.5">
-              <div className="flex items-center gap-2">
-                <span className="p-1.5 rounded-xl bg-amber-500/20 text-amber-400">
-                  <Coins className="w-5 h-5" />
-                </span>
-                <div>
-                  <h4 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                    <span>Lotes Combinados do Portão</span>
-                    <span className="text-[9px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded-full border border-amber-500/40">
-                      1 Toque no Carrinho
-                    </span>
-                  </h4>
-                  <p className="text-[10px] text-slate-300 mt-0.5">
-                    <strong>30 Longnecks = R$ 0,50</strong> • <strong>60 Longnecks = R$ 1,00</strong> • <strong>10 Dreher/51 = R$ 0,50</strong> • <strong>20 = R$ 1,00</strong> • <strong>100 = R$ 5,00</strong>
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const heineken = catalog.find((c) => c.category === "longneck") || catalog[0];
-                  handleAddCatalogItemToCart(heineken, 30);
-                  if (showNotification) showNotification("+30 Longnecks adicionadas por R$ 0,50! 🍺💰", "success");
-                }}
-                className="p-3 bg-slate-950 hover:bg-amber-500 hover:text-slate-950 text-white rounded-2xl border border-amber-500/40 transition-all cursor-pointer text-left space-y-1 group shadow-md"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-lg">🍺</span>
-                  <span className="text-[9px] font-bold uppercase text-amber-400 group-hover:text-slate-950">Longneck</span>
-                </div>
-                <div className="text-sm font-black font-mono text-amber-300 group-hover:text-slate-950">
-                  30 un = R$ 0,50
-                </div>
-                <span className="text-[9px] text-slate-400 group-hover:text-slate-900 block">
-                  5 fardos de 6 (~5,5 kg)
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const heineken = catalog.find((c) => c.category === "longneck") || catalog[0];
-                  handleAddCatalogItemToCart(heineken, 60);
-                  if (showNotification) showNotification("+60 Longnecks adicionadas por R$ 1,00! 🍺💰", "success");
-                }}
-                className="p-3 bg-slate-950 hover:bg-amber-500 hover:text-slate-950 text-white rounded-2xl border border-amber-500/40 transition-all cursor-pointer text-left space-y-1 group shadow-md"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-lg">🍺</span>
-                  <span className="text-[9px] font-bold uppercase text-amber-400 group-hover:text-slate-950">Longneck</span>
-                </div>
-                <div className="text-sm font-black font-mono text-amber-300 group-hover:text-slate-950">
-                  60 un = R$ 1,00
-                </div>
-                <span className="text-[9px] text-slate-400 group-hover:text-slate-900 block">
-                  10 fardos de 6 (~11,1 kg)
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const dreher = catalog.find((c) => c.category === "900ml") || catalog[3];
-                  handleAddCatalogItemToCart(dreher, 10);
-                  if (showNotification) showNotification("+10 Dreher/51 adicionadas por R$ 0,50! 🍾💰", "success");
-                }}
-                className="p-3 bg-slate-950 hover:bg-teal-500 hover:text-slate-950 text-white rounded-2xl border border-teal-500/40 transition-all cursor-pointer text-left space-y-1 group shadow-md"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-lg">🍾</span>
-                  <span className="text-[9px] font-bold uppercase text-teal-400 group-hover:text-slate-950">Dreher / 51</span>
-                </div>
-                <div className="text-sm font-black font-mono text-teal-300 group-hover:text-slate-950">
-                  10 un = R$ 0,50
-                </div>
-                <span className="text-[9px] text-slate-400 group-hover:text-slate-900 block">
-                  5 pares (5,0 kg certinho)
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const dreher = catalog.find((c) => c.category === "900ml") || catalog[3];
-                  handleAddCatalogItemToCart(dreher, 20);
-                  if (showNotification) showNotification("+20 Dreher/51 adicionadas por R$ 1,00! 🍾💰", "success");
-                }}
-                className="p-3 bg-slate-950 hover:bg-teal-500 hover:text-slate-950 text-white rounded-2xl border border-teal-500/40 transition-all cursor-pointer text-left space-y-1 group shadow-md"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-lg">🍾</span>
-                  <span className="text-[9px] font-bold uppercase text-teal-400 group-hover:text-slate-950">Dreher / 51</span>
-                </div>
-                <div className="text-sm font-black font-mono text-teal-300 group-hover:text-slate-950">
-                  20 un = R$ 1,00
-                </div>
-                <span className="text-[9px] text-slate-400 group-hover:text-slate-900 block">
-                  10 pares (10,0 kg)
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const dreher = catalog.find((c) => c.category === "900ml") || catalog[3];
-                  handleAddCatalogItemToCart(dreher, 100);
-                  if (showNotification) showNotification("+100 Dreher/51 adicionadas por R$ 5,00! 🍾💰", "success");
-                }}
-                className="p-3 bg-slate-950 hover:bg-emerald-500 hover:text-slate-950 text-white rounded-2xl border border-emerald-500/40 transition-all cursor-pointer text-left space-y-1 group shadow-md col-span-2 sm:col-span-1"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-lg">🍾</span>
-                  <span className="text-[9px] font-bold uppercase text-emerald-400 group-hover:text-slate-950">Dreher / 51</span>
-                </div>
-                <div className="text-sm font-black font-mono text-emerald-300 group-hover:text-slate-950">
-                  100 un = R$ 5,00
-                </div>
-                <span className="text-[9px] text-slate-400 group-hover:text-slate-900 block">
-                  50 pares (50,0 kg)
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* CARDS INDIVIDUAIS DO CATÁLOGO DE GARRAFAS */}
-          <div className="bg-slate-900 border border-white/10 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5" />
-                Garrafas Catalogadas: Toque para Adicionar Quantidades
-              </span>
-              <span className="text-[10px] text-slate-400">
-                Toque nos botões de quantidade abaixo
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {catalog.map((item) => (
-                <div
-                  key={item.id}
-                  className="bg-slate-950/90 border border-white/10 hover:border-emerald-500/40 rounded-2xl p-3.5 space-y-2.5 transition-all text-left"
-                >
-                  <div className="flex items-start justify-between gap-1.5">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-xl p-1 bg-slate-900 rounded-lg">{item.emoji}</span>
-                      <div className="min-w-0">
-                        <strong className="text-xs font-black text-white block truncate">{item.name}</strong>
-                        <span className="text-[10px] text-slate-400 font-mono block">
-                          {item.barcode ? `Cód: ${item.barcode}` : "Sem cód. (Toque para cadastrar)"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Botões Rápidos de Quantidade com os Lotes Combinados */}
-                  <div className="space-y-1">
-                    <span className="text-[9px] uppercase font-bold text-slate-400 block">
-                      Adicionar ao Carrinho:
-                    </span>
-                    <div className="flex flex-wrap gap-1">
-                      {item.quickPresets.map((qty) => {
-                        let label = `+${qty}`;
-                        let isSpecial = false;
-                        if (item.category === "longneck" && qty === 30) {
-                          label = "+30 (50¢) ⭐";
-                          isSpecial = true;
-                        } else if (item.category === "longneck" && qty === 60) {
-                          label = "+60 (R$1) ⭐";
-                          isSpecial = true;
-                        } else if (item.category === "900ml" && qty === 10) {
-                          label = "+10 (50¢) ⭐";
-                          isSpecial = true;
-                        } else if (item.category === "900ml" && qty === 20) {
-                          label = "+20 (R$1) ⭐";
-                          isSpecial = true;
-                        } else if (item.category === "900ml" && qty === 100) {
-                          label = "+100 (R$5) ⭐";
-                          isSpecial = true;
-                        }
-
-                        return (
-                          <button
-                            key={qty}
-                            type="button"
-                            onClick={() => {
-                              handleAddCatalogItemToCart(item, qty);
-                              if (showNotification) {
-                                showNotification(`+${qty} un de ${item.name} adicionadas ao carrinho! 🛒`, "success");
-                              }
-                            }}
-                            className={`py-1.5 px-2 rounded-lg font-mono font-bold text-[10px] border transition-all cursor-pointer text-center ${
-                              isSpecial
-                                ? "bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500 hover:text-slate-950"
-                                : "bg-slate-900 hover:bg-emerald-600 hover:text-white text-slate-300 border-white/5"
-                            }`}
-                            title={`Adicionar ${qty} garrafas`}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* O CARRINHO CONFERIDO */}
-          <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-4 sm:p-6 shadow-2xl space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+          {/* SELETOR DO COLABORADOR DA RECICLAGEM */}
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-4 sm:p-5 space-y-3.5 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-white/10 pb-3">
               <div>
-                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
-                  Conferência do Portão
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider block">
+                  Quem está entregando as garrafas agora:
                 </span>
-                <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2 mt-0.5">
-                  <ShoppingCart className="w-5 h-5 text-emerald-400" />
-                  Carrinho de Compras do Ferro Velho ({cart.length} itens)
+                <h3 className="text-base font-black text-white flex items-center gap-2 mt-0.5">
+                  <User className="w-4 h-4 text-emerald-400" />
+                  Colaborador da Reciclagem Selecionado
                 </h3>
               </div>
 
-              {/* Nome do Colaborador que está recebendo o pagamento */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400 font-bold whitespace-nowrap">Colaborador:</span>
+              <button
+                type="button"
+                onClick={() => setShowAddCollabModal(true)}
+                className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>+ Cadastrar Novo Colaborador</span>
+              </button>
+            </div>
+
+            {/* CHIPS DE SELEÇÃO RÁPIDA DE COLABORADOR */}
+            <div className="flex flex-wrap items-center gap-2">
+              {collaborators.map((collab) => {
+                const isSelected = selectedCollabId === collab.id;
+                return (
+                  <button
+                    key={collab.id}
+                    type="button"
+                    onClick={() => setSelectedCollabId(collab.id)}
+                    className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer touch-manipulation border ${
+                      isSelected
+                        ? collab.isFounder
+                          ? "bg-amber-400 text-slate-950 border-amber-300 font-black shadow-lg shadow-amber-400/30 scale-105"
+                          : "bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-lg shadow-emerald-500/30 scale-105"
+                        : collab.isFounder
+                        ? "bg-amber-950/40 text-amber-200 border-amber-500/30 hover:border-amber-400"
+                        : "bg-slate-950 text-slate-300 border-white/10 hover:border-white/30"
+                    }`}
+                  >
+                    {collab.isFounder ? <Crown className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
+                    <span>{collab.name}</span>
+                    {collab.balancePending > 0 && !collab.isFounder && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-rose-500/20 text-rose-300 rounded font-black">
+                        Devo R$ {collab.balancePending.toFixed(2)}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* BANNER SE FOR COLETA PRÓPRIA DE DENISE & WELLINGTON */}
+            {activeCollab.isFounder && (
+              <div className="p-3.5 bg-amber-950/40 border border-amber-500/40 rounded-2xl flex items-center gap-3 text-xs text-amber-200">
+                <Crown className="w-5 h-5 text-amber-400 shrink-0" />
+                <div>
+                  <strong className="text-white block font-black">
+                    👑 Coleta Própria D.W (Denise Jesus & Wellington Oliveira)
+                  </strong>
+                  As garrafas adicionadas agora entram no estoque para somar nas <strong>toneladas do caminhão</strong>, sem gerar dívida a terceiros! O valor é pura <strong>economia e faturamento 100% da sua empresa</strong>!
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ÁREA DE BIPAGEM & ENTRADA RÁPIDA DE CÓDIGO DE BARRAS */}
+          <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                  Bipe ou Digite o Código de Barras
+                </span>
+                <h3 className="text-base font-black text-white flex items-center gap-2 mt-0.5">
+                  <Barcode className="w-5 h-5 text-emerald-400" />
+                  Leitor de Códigos de Barras EAN (Dual Mode)
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowCameraModal(true)}
+                className="min-h-[48px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 transition-all flex items-center gap-2 cursor-pointer touch-manipulation"
+              >
+                <Camera className="w-4 h-4 text-emerald-400" />
+                <span>Abrir Câmera Traseira 📷</span>
+              </button>
+            </div>
+
+            {/* CAMPO DE TEXTO DO LEITOR USB / DIGITAÇÃO */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleProcessBarcode(barcodeInput);
+              }}
+              className="flex items-center gap-2"
+            >
+              <div className="relative flex-1">
                 <input
                   type="text"
-                  value={collectorName}
-                  onChange={(e) => setCollectorName(e.target.value)}
-                  placeholder="Nome do colaborador..."
-                  className="bg-slate-950 border border-white/10 rounded-xl px-2.5 py-1 text-xs text-white font-bold outline-none focus:border-emerald-400"
+                  value={barcodeInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setBarcodeInput(val);
+                    if (val.trim().length === 8 || val.trim().length === 13) {
+                      setTimeout(() => handleProcessBarcode(val), 250);
+                    }
+                  }}
+                  placeholder="Bipe com o leitor ou digite o código de barras (ex: 78936683)..."
+                  className="w-full min-h-[50px] bg-slate-950 border border-emerald-500/40 focus:border-emerald-400 rounded-2xl px-4 py-2.5 text-sm sm:text-base font-mono font-bold text-white outline-none placeholder:text-slate-500"
                 />
               </div>
+
+              <button
+                type="submit"
+                className="min-h-[50px] px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation"
+              >
+                <Zap className="w-4 h-4" />
+                <span>Bipar ⚡</span>
+              </button>
+            </form>
+
+            {/* BOTÕES DE 1 TOQUE PARA ADICIONAR QUALQUER GARRAFA CATALOGADA */}
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                Toque Rápido para Lançar no Carrinho (+3, +6, +10, +30 garrafas):
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                {catalog.map((bottle) => (
+                  <div
+                    key={bottle.id}
+                    className="p-2.5 bg-slate-950 rounded-2xl border border-white/10 hover:border-emerald-500/40 transition-all flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-xl">{bottle.emoji}</span>
+                        <span className="text-[10px] font-bold text-slate-400 font-mono">
+                          {bottle.volumeMl}ml
+                        </span>
+                      </div>
+                      <div className="font-bold text-white text-xs truncate mt-1" title={bottle.name}>
+                        {bottle.name}
+                      </div>
+                      <div className="text-[10px] text-emerald-400 font-mono">
+                        {bottle.unitWeightGrams}g vazia
+                      </div>
+                    </div>
+
+                    {/* Botões de Presets rápidos */}
+                    <div className="grid grid-cols-3 gap-1 mt-2 pt-2 border-t border-white/5">
+                      {bottle.quickPresets.slice(0, 3).map((qty) => (
+                        <button
+                          key={qty}
+                          type="button"
+                          onClick={() => handleAddBottleToCart(bottle, qty)}
+                          className="min-h-[38px] py-1 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-white font-mono font-bold text-[11px] rounded-lg transition-all border border-white/5 flex items-center justify-center cursor-pointer touch-manipulation"
+                          title={`Adicionar ${qty} garrafas`}
+                        >
+                          +{qty}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ITENS DO CARRINHO MISTURADO */}
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider block">
+                  Entrega Atual de Vidros
+                </span>
+                <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5 text-amber-400" />
+                  Garrafas no Carrinho ({cartTotals.totalBottles} unidades • {cartTotals.totalWeightKg.toFixed(1)} kg)
+                </h3>
+              </div>
+
+              {cart.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setCart([])}
+                  className="min-h-[40px] px-3 py-1.5 bg-slate-950 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 text-xs font-bold rounded-xl border border-white/10 transition-all flex items-center gap-1 cursor-pointer touch-manipulation"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Limpar Carrinho</span>
+                </button>
+              )}
             </div>
 
             {cart.length === 0 ? (
-              <div className="py-12 text-center space-y-3 bg-slate-950/60 rounded-2xl border border-dashed border-white/10 p-6">
-                <div className="w-12 h-12 rounded-full bg-slate-900 mx-auto flex items-center justify-center text-slate-500">
-                  <ShoppingCart className="w-6 h-6" />
-                </div>
-                <h4 className="text-sm font-black text-white">O Carrinho Está Vazio</h4>
-                <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Toque nos botões <strong>+3, +6, +10, +20, +25</strong> acima ou <strong>bipe o código de barras</strong> da garrafa para iniciar a contagem e cálculo automático!
+              <div className="py-8 text-center space-y-2 text-slate-400">
+                <Wine className="w-10 h-10 mx-auto text-slate-600 opacity-60" />
+                <p className="text-sm font-bold text-slate-300">O carrinho está vazio no momento.</p>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  Bipe o código de barras ou clique nos botões acima para lançar as garrafas trazidas pelo colaborador!
                 </p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {/* LISTA DE ITENS NO CARRINHO */}
-                <div className="divide-y divide-white/5 space-y-2">
-                  {cart.map((item) => (
-                    <div
-                      key={item.id}
-                      className="pt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <span className="text-2xl p-1 bg-slate-950 rounded-xl border border-white/5">
-                          {item.emoji}
-                        </span>
-                        <div className="min-w-0">
-                          <strong className="text-xs sm:text-sm font-black text-white block truncate">
-                            {item.name}
-                          </strong>
-                          <span className="text-[10px] text-slate-400 block">
-                            {item.barcode && `Cód: ${item.barcode} • `}
-                            Peso: ~{item.totalWeightKg.toFixed(2)} kg ({(item.unitWeightKg * 1000).toFixed(0)}g cada)
+              <div className="space-y-2.5">
+                {cart.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3.5 bg-slate-950 rounded-2xl border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl p-2 bg-slate-900 rounded-xl border border-white/5">{item.emoji}</span>
+                      <div>
+                        <div className="font-black text-white text-sm flex items-center gap-2">
+                          <span>{item.name}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 bg-slate-800 text-slate-300 rounded font-mono font-bold">
+                            {item.volumeMl}ml
                           </span>
-                          {item.category === "longneck" && (
-                            <span className="text-[9.5px] text-amber-300 font-bold block">
-                              ⭐ Regra Combinada: 30 un = R$ 0,50 | 60 un = R$ 1,00
-                            </span>
-                          )}
-                          {item.category === "900ml" && (
-                            <span className="text-[9.5px] text-teal-300 font-bold block">
-                              ⭐ Regra Combinada: 10 un = R$ 0,50 | 20 un = R$ 1,00 | 100 un = R$ 5,00
-                            </span>
-                          )}
+                        </div>
+                        <div className="text-xs text-slate-400 font-mono mt-0.5">
+                          {item.quantity} un × {item.unitWeightGrams}g ={" "}
+                          <strong className="text-emerald-400 font-black">{item.totalWeightKg.toFixed(2)} kg</strong>
                         </div>
                       </div>
+                    </div>
 
-                      {/* Controle de Quantidade e Subtotais */}
-                      <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
-                        {/* Stepper de Quantidade */}
-                        <div className="flex items-center bg-slate-950 rounded-xl border border-white/10 p-0.5">
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateCartItemQty(item.id, item.quantity - 1)}
-                            className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-white font-black text-sm"
-                          >
-                            -
-                          </button>
-                          <span className="w-10 text-center font-mono font-black text-xs text-white">
-                            {item.quantity}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateCartItemQty(item.id, item.quantity + 1)}
-                            className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-white font-black text-sm"
-                          >
-                            +
-                          </button>
-                        </div>
-
-                        {/* Valores Financeiros */}
-                        <div className="text-right min-w-[110px]">
-                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Pagar:</span>
-                          <strong className="text-sm font-mono font-black text-amber-400">
-                            R$ {item.totalBuyCost.toFixed(2)}
-                          </strong>
-                          <span className="text-[10px] text-emerald-400 font-bold block">
-                            Usina: R$ {item.totalRevenue.toFixed(2)}
-                          </span>
-                        </div>
-
-                        {/* Excluir do Carrinho */}
+                    <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5">
+                      {/* Ajuste de Quantidade */}
+                      <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-white/5">
                         <button
                           type="button"
-                          onClick={() => handleRemoveCartItem(item.id)}
-                          className="text-slate-600 hover:text-rose-400 p-1.5 transition-all"
-                          title="Remover este item"
+                          onClick={() => handleUpdateCartQuantity(item.id, item.quantity - 1)}
+                          className="w-8 h-8 rounded-lg bg-slate-950 hover:bg-slate-800 text-white font-bold text-sm flex items-center justify-center cursor-pointer touch-manipulation"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          -
+                        </button>
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.quantity}
+                          onChange={(e) => handleUpdateCartQuantity(item.id, Math.max(0, Number(e.target.value) || 0))}
+                          className="w-14 text-center bg-transparent text-white font-mono font-black text-xs outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateCartQuantity(item.id, item.quantity + 1)}
+                          className="w-8 h-8 rounded-lg bg-slate-950 hover:bg-slate-800 text-white font-bold text-sm flex items-center justify-center cursor-pointer touch-manipulation"
+                        >
+                          +
                         </button>
                       </div>
+
+                      {/* Valores */}
+                      <div className="text-right min-w-[110px]">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                          {activeCollab.isFounder ? "Economia Própria:" : "Pagar ao Colaborador:"}
+                        </span>
+                        <div className="text-sm font-mono font-black text-amber-400">
+                          R$ {item.totalBuyCost.toFixed(2)}
+                        </div>
+                        <span className="text-[10px] text-emerald-400 block font-mono">
+                          Usina: R$ {item.totalRevenue.toFixed(2)}
+                        </span>
+                      </div>
+
+                      {/* Remover */}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCartItem(item.id)}
+                        className="p-2 text-slate-600 hover:text-rose-400 transition-all cursor-pointer"
+                        title="Remover garrafa"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
-                  ))}
+                  </div>
+                ))}
+
+                {/* TOTAIS DO CARRINHO */}
+                <div className="mt-4 p-4 bg-slate-950/90 rounded-2xl border-2 border-emerald-500/30 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Total de Garrafas:</span>
+                    <strong className="text-xl font-mono text-white font-black">{cartTotals.totalBottles} un</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Peso Total Somado:</span>
+                    <strong className="text-xl font-mono text-emerald-400 font-black">
+                      {cartTotals.totalWeightKg.toFixed(2)} kg
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-amber-400 block">
+                      {activeCollab.isFounder ? "Economia D.W:" : "Valor a Pagar:"}
+                    </span>
+                    <strong className="text-xl font-mono text-amber-400 font-black">
+                      R$ {cartTotals.totalBuyCost.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-teal-400 block">Venda Victor (R$ 0,15/kg):</span>
+                    <strong className="text-xl font-mono text-teal-300 font-black">
+                      R$ {cartTotals.totalRevenue.toFixed(2)}
+                    </strong>
+                  </div>
                 </div>
 
-                {/* RESUMO DOS TOTAIS DO CARRINHO */}
-                <div className="bg-slate-950 p-4 sm:p-5 rounded-2xl border border-white/10 space-y-4">
-                  {/* Divisão por categorias (Longnecks vs 900ml) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-                    <div className="p-3 bg-slate-900 rounded-xl border border-white/5 space-y-0.5">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">🍺 Total Longnecks:</span>
-                      <strong className="text-lg font-mono font-black text-white">
-                        {cartCalculations.totalLongneckCount} un
-                      </strong>
-                    </div>
-
-                    <div className="p-3 bg-slate-900 rounded-xl border border-white/5 space-y-0.5">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">🍾 Total 900ml / 1L:</span>
-                      <strong className="text-lg font-mono font-black text-white">
-                        {cartCalculations.total900mlCount} un
-                      </strong>
-                    </div>
-
-                    <div className="p-3 bg-slate-900 rounded-xl border border-white/5 space-y-0.5">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">⚖️ Peso Total:</span>
-                      <strong className="text-lg font-mono font-black text-emerald-400">
-                        {cartCalculations.totalWeightKg.toFixed(1)} kg
-                      </strong>
-                    </div>
-
-                    <div className="p-3 bg-slate-900 rounded-xl border border-white/5 space-y-0.5">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">📦 Total Garrafas:</span>
-                      <strong className="text-lg font-mono font-black text-white">
-                        {cartCalculations.totalQuantity} un
-                      </strong>
-                    </div>
-                  </div>
-
-                  {/* Resumo Financeiro da Compra */}
-                  <div className="pt-2 border-t border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="space-y-1 text-xs">
-                      <div className="flex items-center gap-3">
-                        <span className="text-slate-400">Venda Estimada na Usina ({buyerName}):</span>
-                        <strong className="text-white font-mono font-bold">
-                          R$ {cartCalculations.totalRevenue.toFixed(2)}
-                        </strong>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-slate-400">Seu Lucro Líquido nesta Compra:</span>
-                        <strong className="text-emerald-400 font-mono font-black">
-                          +R$ {cartCalculations.netProfit.toFixed(2)} ({cartCalculations.marginPct.toFixed(0)}% margem)
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-[10px] uppercase font-bold text-amber-400 block">
-                        TOTAL A PAGAR AO COLABORADOR:
-                      </span>
-                      <strong className="text-2xl sm:text-3xl font-mono font-black text-amber-400">
-                        R$ {cartCalculations.totalBuyCost.toFixed(2)}
-                      </strong>
-                    </div>
-                  </div>
-
-                  {/* BOTÕES DE AÇÃO: FINALIZAR PAGAMENTO OU WHATSAPP */}
-                  <div className="pt-2 border-t border-white/5 flex flex-wrap items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleClearCart}
-                        className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white text-xs font-bold rounded-xl border border-white/10"
-                      >
-                        Limpar Carrinho
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleShareWhatsAppReceipt}
-                        className="px-3.5 py-2 bg-slate-900 hover:bg-emerald-950 text-emerald-400 text-xs font-bold rounded-xl border border-emerald-500/30 flex items-center gap-1.5"
-                        title="Enviar comprovante pelo WhatsApp"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                        <span>Comprovante WhatsApp</span>
-                      </button>
-                    </div>
-
+                {/* BOTÕES PARA FINALIZAR TÍQUETE */}
+                <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-2.5">
+                  {activeCollab.isFounder ? (
                     <button
                       type="button"
-                      onClick={handleFinalizePurchase}
-                      className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-xl shadow-emerald-500/25"
+                      onClick={() => handleFinalizeTicket("coleta_propria_dw" as any)}
+                      className="w-full sm:w-auto min-h-[50px] px-6 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-400/30 touch-manipulation"
                     >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Pagar ao Colaborador & Salvar no Estoque</span>
+                      <Crown className="w-5 h-5" />
+                      <span>Lançar Coleta Própria D.W (Economia de R$ {cartTotals.totalBuyCost.toFixed(2)}) 👑</span>
                     </button>
-                  </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleFinalizeTicket("pendente_caderninho")}
+                        className="w-full sm:w-auto min-h-[50px] px-5 py-2.5 bg-slate-950 hover:bg-slate-800 text-amber-300 font-black text-xs uppercase rounded-2xl border border-amber-500/40 transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation"
+                        title="Acumular para acertar no Bolsa Família ou no Caminhão do Victor"
+                      >
+                        <Calendar className="w-4 h-4 text-amber-400" />
+                        <span>Lançar no Caderninho (Pagar no Bolsa Família / Caminhão) 📖</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleFinalizeTicket("pago_na_hora")}
+                        className="w-full sm:w-auto min-h-[50px] px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/30 touch-manipulation"
+                      >
+                        <Check className="w-5 h-5" />
+                        <span>Pagar Agora na Mão (R$ {cartTotals.totalBuyCost.toFixed(2)}) 💵</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -1439,139 +1646,854 @@ export function GlassBarcodeScannerCart({
         </div>
       )}
 
-      {/* ABA 2: GERENCIADOR DO CATÁLOGO DE CÓDIGOS DE BARRAS */}
-      {activeSubView === "catalogo" && (
-        <div className="bg-slate-900 border border-white/10 rounded-3xl p-4 sm:p-6 shadow-2xl space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
-            <div>
-              <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider block">
-                Cadastro de Garrafas & Códigos EAN
-              </span>
-              <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2 mt-0.5">
-                <Tag className="w-5 h-5 text-amber-400" />
-                Catálogo de Garrafas para Leitor de Código de Barras
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Aqui você pode cadastrar o código de barras da Cachaça 51 ou qualquer nova garrafa que receber no ferro velho!
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setEditingItem({
-                    id: "",
-                    name: "",
-                    barcode: "",
-                    category: "longneck",
-                    volumeMl: 330,
-                    unitWeightKg: 0.185,
-                    buyPricePerUnit: 0.02,
-                    returnableSellPrice: 0,
-                    emoji: "🍾",
-                    quickPresets: [3, 6, 10, 20, 25]
-                  })
-                }
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-amber-500/20"
-              >
-                <Plus className="w-4 h-4" />
-                <span>+ Cadastrar Nova Garrafa</span>
-              </button>
+      {/* ========================================================= */}
+      {/* ABA 2: CADERNINHO FINANCEIRO DOS COLABORADORES DA RECICLAGEM */}
+      {/* ========================================================= */}
+      {activeTab === "caderninho" && (
+        <div className="space-y-5">
+          {/* BANNER DO CADERNINHO */}
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+              <div>
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider block">
+                  Livro Caixa & Contas dos Colaboradores
+                </span>
+                <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                  <Users className="w-5 h-5 text-emerald-400" />
+                  Caderninho de Cada Colaborador da Reciclagem
+                </h3>
+                <p className="text-xs text-slate-300 mt-1">
+                  Acompanhe quanto cada parceiro trouxe em garrafas e peso, quanto acumulou, quanto você já pagou e quanto ainda deve acertar com o <strong>Bolsa Família</strong> ou quando o <strong>Caminhão do Victor</strong> vier!
+                </p>
+              </div>
 
               <button
                 type="button"
-                onClick={handleResetCatalog}
-                className="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white font-bold text-xs uppercase rounded-xl border border-white/10"
-                title="Restaurar catálogo padrão"
+                onClick={() => setShowAddCollabModal(true)}
+                className="min-h-[48px] px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <UserPlus className="w-4 h-4" />
+                <span>+ Novo Colaborador</span>
               </button>
             </div>
-          </div>
 
-          {/* LISTA DE GARRAFAS CADASTRADAS */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            {catalog.map((item) => (
-              <div
-                key={item.id}
-                className="bg-slate-950 p-4 rounded-2xl border border-white/10 space-y-3 text-left relative"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="text-2xl p-1 bg-slate-900 rounded-xl border border-white/5">
-                      {item.emoji}
-                    </span>
-                    <div className="min-w-0">
-                      <strong className="text-xs sm:text-sm font-black text-white block truncate">
-                        {item.name}
-                      </strong>
-                      <span className="text-[10px] text-amber-400 font-mono font-bold block mt-0.5">
-                        {item.barcode ? `🏷️ Cód: ${item.barcode}` : "⚠️ Sem código cadastrado"}
-                      </span>
+            {/* RESUMO GERAL DAS DÍVIDAS E ECONOMIAS */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="p-4 bg-slate-950 rounded-2xl border border-rose-500/30 space-y-1">
+                <span className="text-[10px] uppercase font-bold text-rose-400 block">Total Pendente a Pagar:</span>
+                <strong className="text-2xl font-mono text-rose-300 font-black">
+                  R$ {caderninhoTotals.totalPendingAll.toFixed(2)}
+                </strong>
+                <span className="text-[10px] text-slate-400 block">
+                  Para acertar no Bolsa Família ou na carga
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-950 rounded-2xl border border-emerald-500/30 space-y-1">
+                <span className="text-[10px] uppercase font-bold text-emerald-400 block">Total Já Pago aos Parceiros:</span>
+                <strong className="text-2xl font-mono text-emerald-400 font-black">
+                  R$ {caderninhoTotals.totalPaidAll.toFixed(2)}
+                </strong>
+                <span className="text-[10px] text-slate-400 block">
+                  Histórico de acertos cumpridos
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-950 rounded-2xl border border-amber-500/30 space-y-1">
+                <span className="text-[10px] uppercase font-bold text-amber-400 block">
+                  👑 Economia Denise & Wellington:
+                </span>
+                <strong className="text-2xl font-mono text-amber-300 font-black">
+                  R$ {caderninhoTotals.founderSelfSaved.toFixed(2)}
+                </strong>
+                <span className="text-[10px] text-slate-400 block">
+                  Coleta própria: lucro 100% da sua empresa!
+                </span>
+              </div>
+            </div>
+
+            {/* LISTA DE FICHAS DOS COLABORADORES */}
+            <div className="space-y-3 pt-2">
+              {collaborators.map((collab) => (
+                <div
+                  key={collab.id}
+                  className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                    collab.isFounder
+                      ? "bg-amber-950/20 border-amber-500/40"
+                      : collab.balancePending > 0
+                      ? "bg-slate-950 border-rose-500/30 hover:border-rose-400"
+                      : "bg-slate-950 border-white/10"
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      {collab.isFounder ? (
+                        <Crown className="w-5 h-5 text-amber-400" />
+                      ) : (
+                        <User className="w-5 h-5 text-emerald-400" />
+                      )}
+                      <strong className="text-white text-base font-black">{collab.name}</strong>
+                      {collab.isFounder && (
+                        <span className="px-2 py-0.5 bg-amber-400 text-slate-950 text-[10px] font-black rounded uppercase">
+                          Fundadores D.W
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-400 flex items-center gap-3 flex-wrap">
+                      <span>📦 {collab.totalDeliveries} entregas</span>
+                      <span>🍾 {collab.totalBottles} garrafas</span>
+                      <span>⚖️ {collab.totalWeightKg.toFixed(1)} kg</span>
+                      {collab.notes && <span className="text-slate-500">• {collab.notes}</span>}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setEditingItem(item)}
-                      className="text-slate-400 hover:text-amber-400 p-1.5 transition-all"
-                      title="Editar garrafa e código de barras"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                    {catalog.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteCatalogBottle(item.id, item.name)}
-                        className="text-slate-600 hover:text-rose-400 p-1.5 transition-all"
-                        title="Excluir do catálogo"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                  <div className="flex items-center justify-between md:justify-end gap-4 pt-3 md:pt-0 border-t md:border-t-0 border-white/5">
+                    {collab.isFounder ? (
+                      <div className="text-right">
+                        <span className="text-[10px] uppercase font-bold text-amber-400 block">
+                          Economia Própria Gerada:
+                        </span>
+                        <div className="text-lg font-mono font-black text-amber-300">
+                          R$ {collab.totalEarned.toFixed(2)}
+                        </div>
+                        <span className="text-[10px] text-emerald-400 block font-bold">100% de margem no caminhão</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="text-left md:text-right">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Faturado:</span>
+                          <span className="text-xs font-mono font-bold text-slate-300">
+                            R$ {collab.totalEarned.toFixed(2)}
+                          </span>
+                          <span className="text-[10px] text-slate-500 block">
+                            Já Pago: R$ {collab.totalPaid.toFixed(2)}
+                          </span>
+                        </div>
+
+                        <div className="text-right min-w-[120px]">
+                          <span className="text-[10px] uppercase font-bold text-rose-400 block">Saldo a Pagar:</span>
+                          <strong
+                            className={`text-lg font-mono font-black block ${
+                              collab.balancePending > 0 ? "text-rose-300" : "text-emerald-400"
+                            }`}
+                          >
+                            R$ {collab.balancePending.toFixed(2)}
+                          </strong>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayingCollab(collab);
+                            setPayAmount(collab.balancePending > 0 ? collab.balancePending : 10);
+                          }}
+                          className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation"
+                        >
+                          <Coins className="w-4 h-4" />
+                          <span>Fazer Acerto 💸</span>
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
-                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 text-[11px] text-slate-300">
-                  <div>
-                    <span className="text-[9px] uppercase text-slate-500 block">Peso Vazia:</span>
-                    <strong className="text-white font-mono font-bold">
-                      {(item.unitWeightKg * 1000).toFixed(0)}g
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span className="text-[9px] uppercase text-slate-500 block">Paga ao Catador:</span>
-                    <strong className="text-amber-400 font-mono font-bold">
-                      R$ {item.buyPricePerUnit.toFixed(3)}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span className="text-[9px] uppercase text-slate-500 block">Volume:</span>
-                    <strong className="text-slate-300 font-mono">
-                      {item.volumeMl}ml
-                    </strong>
-                  </div>
-                </div>
-
-                {/* Se não tiver código de barras (Ex: Cachaça 51), dá o atalho rápido */}
-                {!item.barcode && (
-                  <div className="pt-2 border-t border-white/5">
-                    <button
-                      type="button"
-                      onClick={() => setEditingItem(item)}
-                      className="w-full py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Barcode className="w-3.5 h-3.5" />
-                      <span>Cadastrar Código de Barras Desta Garrafa</span>
-                    </button>
-                  </div>
-                )}
+      {/* ========================================================= */}
+      {/* ABA 3: ESTOQUE REAL & CALIBRAÇÃO NA BALANÇA (GRAMAS E ML)  */}
+      {/* ========================================================= */}
+      {activeTab === "estoque" && (
+        <div className="space-y-5">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+              <div>
+                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                  Balança de Precisão & Catálogo de Garrafas
+                </span>
+                <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                  <Scale className="w-5 h-5 text-emerald-400" />
+                  Estoque Real no Pátio (ML separado de Gramas)
+                </h3>
+                <p className="text-xs text-slate-300 mt-1">
+                  Pese 1 garrafa de amostra na sua balança, registre os gramas exatos e edite a quantidade real que você tem hoje no pátio. O app multiplica automaticamente e calcula as toneladas exatas!
+                </p>
               </div>
-            ))}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowZeroConfirmModal(true)}
+                  className="min-h-[44px] px-3.5 py-2 bg-slate-950 hover:bg-rose-950/60 text-rose-300 font-black text-xs uppercase rounded-xl border border-rose-500/30 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation"
+                >
+                  <Eraser className="w-4 h-4 text-rose-400" />
+                  <span>Zerar Tudo 🧹</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingBottle({
+                      id: `bottle_${Date.now()}`,
+                      name: "",
+                      volumeMl: 330,
+                      barcode: "",
+                      unitWeightGrams: 185,
+                      unitWeightKg: 0.185,
+                      category: "longneck",
+                      buyPricePerUnit: 0.02,
+                      emoji: "🍾",
+                      stockUnits: 0,
+                      quickPresets: [3, 6, 10, 20, 25]
+                    });
+                    setIsRegisteringNew(true);
+                  }}
+                  className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Cadastrar Nova Garrafa</span>
+                </button>
+              </div>
+            </div>
+
+            {/* TABELA DE GARRAFAS CADASTRADAS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {catalog.map((bottle) => {
+                const totalBottleWeightKg = ((bottle.stockUnits || 0) * bottle.unitWeightGrams) / 1000;
+                const totalValueVictor = totalBottleWeightKg * sellPricePerKg;
+
+                return (
+                  <div
+                    key={bottle.id}
+                    className="p-4 bg-slate-950 rounded-2xl border border-white/10 hover:border-emerald-500/40 transition-all space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-3xl p-2 bg-slate-900 rounded-xl border border-white/5">
+                          {bottle.emoji}
+                        </span>
+                        <div>
+                          <div className="text-white font-black text-sm">{bottle.name}</div>
+                          <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                            <span className="font-bold text-emerald-400">Volume: {bottle.volumeMl} ml</span>
+                            <span>•</span>
+                            <span className="font-mono text-slate-300">
+                              Código: {bottle.barcode || "Não cadastrado"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCalibratingBottle(bottle);
+                          setCalibratedGramsInput(bottle.unitWeightGrams);
+                        }}
+                        className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 font-bold text-xs rounded-lg border border-emerald-500/30 flex items-center gap-1 cursor-pointer touch-manipulation"
+                        title="Calibrar peso em gramas na balança"
+                      >
+                        <Scale className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{bottle.unitWeightGrams}g</span>
+                      </button>
+                    </div>
+
+                    {/* EDIÇÃO DIRETA DA QUANTIDADE NO PÁTIO */}
+                    <div className="p-3 bg-slate-900 rounded-xl border border-white/5 grid grid-cols-2 sm:grid-cols-3 gap-2 items-center text-xs">
+                      <div className="space-y-1 col-span-2 sm:col-span-1">
+                        <label className="text-[10px] font-black uppercase text-amber-400 block">
+                          Unidades no Pátio:
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={bottle.stockUnits || 0}
+                          onChange={(e) => handleUpdateYardStockDirect(bottle.id, Number(e.target.value) || 0)}
+                          className="w-full bg-slate-950 border border-amber-500/40 focus:border-amber-400 rounded-lg px-2.5 py-1 text-sm font-mono font-black text-white outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Peso Acumulado:</span>
+                        <strong className="text-sm font-mono text-emerald-400 font-black block">
+                          {totalBottleWeightKg.toFixed(1)} kg
+                        </strong>
+                        <span className="text-[9px] text-slate-500 block">
+                          ({(totalBottleWeightKg / 1000).toFixed(3)} ton)
+                        </span>
+                      </div>
+
+                      <div className="space-y-0.5 text-right sm:text-left">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Valor no Victor:</span>
+                        <strong className="text-sm font-mono text-white font-bold block">
+                          R$ {totalValueVictor.toFixed(2)}
+                        </strong>
+                        <span className="text-[9px] text-emerald-300 block">a R$ 0,15/kg</span>
+                      </div>
+                    </div>
+
+                    {/* BOTÕES RÁPIDOS DE AJUSTE NO PÁTIO */}
+                    <div className="flex items-center justify-between text-[11px] pt-1">
+                      <div className="flex items-center gap-1">
+                        {[
+                          { label: "+10", add: 10 },
+                          { label: "+30", add: 30 },
+                          { label: "+50", add: 50 },
+                          { label: "+100", add: 100 }
+                        ].map((btn) => (
+                          <button
+                            key={btn.add}
+                            type="button"
+                            onClick={() => handleUpdateYardStockDirect(bottle.id, (bottle.stockUnits || 0) + btn.add)}
+                            className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded font-mono font-bold border border-white/5 cursor-pointer touch-manipulation"
+                          >
+                            {btn.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateYardStockDirect(bottle.id, 0)}
+                        className="text-[10px] text-slate-500 hover:text-rose-400 font-bold transition-all"
+                      >
+                        Zerar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* ABA 4: HISTÓRICO DE CARGAS DO VICTOR & TÍQUETES            */}
+      {/* ========================================================= */}
+      {activeTab === "cargas" && (
+        <div className="space-y-5">
+          {/* CARGAS DESPACHADAS PARA O CAMINHÃO DO VICTOR */}
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="border-b border-white/10 pb-3">
+              <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                Grandes Entregas para a Empresa de Vidros
+              </span>
+              <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                <Truck className="w-5 h-5 text-emerald-400" />
+                Histórico de Cargas Despachadas ao Caminhão do Victor
+              </h3>
+            </div>
+
+            {truckShipments.length === 0 ? (
+              <div className="py-6 text-center text-slate-400 text-xs">
+                Nenhuma grande carga despachada ainda. Ao juntar as toneladas, clique em "Despachar Carga ao Victor" para arquivar o lote e zerar o pátio para o próximo ciclo!
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {truckShipments.map((ship) => (
+                  <div
+                    key={ship.id}
+                    className="p-4 bg-slate-950 rounded-2xl border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  >
+                    <div>
+                      <div className="font-black text-white text-sm flex items-center gap-2">
+                        <span>🚚 {ship.buyerName}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{ship.timestamp}</span>
+                      </div>
+                      <div className="text-slate-400 mt-1">
+                        Garrafas: <strong>{ship.totalBottles} unidades</strong> • Detalhes: {ship.summaryText}
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-emerald-400 font-mono font-black text-base">
+                        {ship.totalWeightTon.toFixed(2)} Toneladas ({ship.totalWeightKg.toFixed(0)} kg)
+                      </div>
+                      <div className="text-amber-400 font-mono font-bold">
+                        Recebido: R$ {ship.grossRevenueReceived.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* HISTÓRICO DE RECIBOS DE PAGAMENTO AOS COLABORADORES */}
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="border-b border-white/10 pb-3">
+              <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider block">
+                Pagamentos Realizados
+              </span>
+              <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                <FileText className="w-5 h-5 text-amber-400" />
+                Recibos de Acertos com Colaboradores (Bolsa Família / Caminhão)
+              </h3>
+            </div>
+
+            {paymentHistory.length === 0 ? (
+              <div className="py-6 text-center text-slate-400 text-xs">
+                Nenhum pagamento registrado ainda. Quando fizer o acerto de um colaborador, o recibo aparecerá aqui com opção de mandar direto no WhatsApp!
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {paymentHistory.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className="p-4 bg-slate-950 rounded-2xl border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  >
+                    <div>
+                      <div className="font-black text-white text-sm flex items-center gap-2">
+                        <span>🤝 {rec.collaboratorName}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{rec.timestamp}</span>
+                      </div>
+                      <div className="text-slate-400 mt-0.5">
+                        Forma: <strong className="text-amber-400">{rec.methodLabel}</strong>
+                        {rec.notes && ` • Obs: ${rec.notes}`}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 justify-between sm:justify-end">
+                      <div className="text-right">
+                        <div className="text-emerald-400 font-mono font-black text-sm">
+                          Pago: R$ {rec.amountPaid.toFixed(2)}
+                        </div>
+                        <span className="text-[10px] text-slate-500 block">
+                          Resta: R$ {rec.remainingBalance.toFixed(2)}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleShareReceiptWhatsApp(rec)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded-xl transition-all flex items-center gap-1 cursor-pointer touch-manipulation"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>WhatsApp</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CALIBRAR PESO EM GRAMAS NA BALANÇA                 */}
+      {/* ========================================================= */}
+      {calibratingBottle && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl text-left">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Scale className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base font-black text-white">
+                  Pesar Garrafa na Balança de Cozinha
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCalibratingBottle(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-300">
+              <p>
+                Coloque <strong>1 garrafa vazia de amostra</strong> de <strong>{calibratingBottle.name} ({calibratingBottle.volumeMl}ml)</strong> em cima da balança de cozinha e digite os gramas exatos que marcar no visor:
+              </p>
+
+              <div className="p-3 bg-slate-950 rounded-2xl border border-emerald-500/40 space-y-1">
+                <label className="text-[10px] font-black uppercase text-emerald-400 block">
+                  Peso Unitário Vazio (em Gramas):
+                </label>
+                <input
+                  type="number"
+                  min="10"
+                  step="1"
+                  value={calibratedGramsInput}
+                  onChange={(e) => setCalibratedGramsInput(Math.max(1, Number(e.target.value) || 0))}
+                  className="w-full bg-slate-900 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-xl font-mono font-black text-white outline-none"
+                />
+                <span className="text-[10px] text-slate-400 block">
+                  = {(calibratedGramsInput / 1000).toFixed(3)} kg por garrafa
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setCalibratingBottle(null)}
+                className="px-4 py-2 bg-slate-950 text-slate-400 text-xs font-bold rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCalibratedWeight}
+                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all"
+              >
+                Salvar Peso Exato ⚖️✅
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: FAZER ACERTO / PAGAR COLABORADOR                   */}
+      {/* ========================================================= */}
+      {payingCollab && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl text-left">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Coins className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-black text-white">
+                  Acerto de Pagamento: {payingCollab.name}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPayingCollab(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 bg-slate-950 rounded-2xl border border-white/10 flex justify-between">
+                <div>
+                  <span className="text-[10px] text-slate-400 block uppercase">Saldo Pendente:</span>
+                  <strong className="text-lg font-mono text-rose-300 font-black">
+                    R$ {payingCollab.balancePending.toFixed(2)}
+                  </strong>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 block uppercase">Total Acumulado:</span>
+                  <span className="text-xs font-mono text-slate-300">
+                    R$ {payingCollab.totalEarned.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-amber-400 block">
+                  Valor a Pagar Agora (R$):
+                </label>
+                <input
+                  type="number"
+                  min="0.5"
+                  step="0.5"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(Math.max(0, Number(e.target.value) || 0))}
+                  className="w-full bg-slate-950 border border-white/10 focus:border-amber-400 rounded-xl px-3 py-2 text-xl font-mono font-black text-white outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400 block">
+                  Forma do Pagamento:
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { id: "bolsa_familia", label: "📅 Bolsa Família (Dia Único)" },
+                    { id: "caminhao_victor", label: "🚚 Acerto Caminhão Victor" },
+                    { id: "dinheiro", label: "💵 Dinheiro em Mãos" },
+                    { id: "pix", label: "💳 Pix" }
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setPayMethod(m.id as any)}
+                      className={`p-2 rounded-xl text-[11px] font-bold border transition-all cursor-pointer text-left ${
+                        payMethod === m.id
+                          ? "bg-amber-400 text-slate-950 border-amber-300 font-black"
+                          : "bg-slate-950 text-slate-300 border-white/5 hover:border-white/20"
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400 block">
+                  Observações do Recibo:
+                </label>
+                <input
+                  type="text"
+                  value={payNotes}
+                  onChange={(e) => setPayNotes(e.target.value)}
+                  placeholder="Ex: Acerto mensal do Bolsa Família, Adiantamento, etc."
+                  className="w-full bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setPayingCollab(null)}
+                className="px-4 py-2 bg-slate-950 text-slate-400 text-xs font-bold rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteCollaboratorPayment}
+                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all"
+              >
+                Confirmar Pagamento 🤝💸
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CADASTRAR NOVO COLABORADOR                         */}
+      {/* ========================================================= */}
+      {showAddCollabModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl text-left">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base font-black text-white">Cadastrar Colaborador da Reciclagem</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddCollabModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-emerald-400 block">
+                  Nome do Colaborador:
+                </label>
+                <input
+                  type="text"
+                  value={newCollabName}
+                  onChange={(e) => setNewCollabName(e.target.value)}
+                  placeholder="Ex: João da Carroça, Seu Jorge, Maria..."
+                  className="w-full bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-sm text-white outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400 block">
+                  Telefone / WhatsApp (Opcional):
+                </label>
+                <input
+                  type="text"
+                  value={newCollabPhone}
+                  onChange={(e) => setNewCollabPhone(e.target.value)}
+                  placeholder="(DDD) 99999-9999"
+                  className="w-full bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-sm text-white outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400 block">
+                  Observações (Ex: Acerto no Bolsa Família ou semanal):
+                </label>
+                <input
+                  type="text"
+                  value={newCollabNotes}
+                  onChange={(e) => setNewCollabNotes(e.target.value)}
+                  placeholder="Ex: Paga todo dia 20 com o Bolsa Família"
+                  className="w-full bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setShowAddCollabModal(false)}
+                className="px-4 py-2 bg-slate-950 text-slate-400 text-xs font-bold rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNewCollaborator}
+                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all"
+              >
+                Salvar no Caderninho 👤✍️
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CONFIRMAR DESPACHO DE CARGA AO CAMINHÃO DO VICTOR  */}
+      {/* ========================================================= */}
+      {showTruckDispatchModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl text-left">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Truck className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base font-black text-white">
+                  Despachar Carga ao Caminhão do Victor
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTruckDispatchModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-300">
+              <p>
+                Confira o resumo das garrafas que estão saindo do pátio para o caminhão da empresa de vidros:
+              </p>
+
+              <div className="p-4 bg-slate-950 rounded-2xl border border-white/10 space-y-2">
+                <div className="flex justify-between">
+                  <span>Total de Garrafas:</span>
+                  <strong className="text-white font-mono">{yardTotals.totalUnits} un</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Peso Total da Carga:</span>
+                  <strong className="text-emerald-400 font-mono text-base font-black">
+                    {yardTotals.totalWeightTon.toFixed(2)} Toneladas ({yardTotals.totalWeightKg.toFixed(0)} kg)
+                  </strong>
+                </div>
+                <div className="flex justify-between pt-1 border-t border-white/5">
+                  <span className="text-amber-400 font-bold">Valor Total a Receber (R$ 0,15/kg):</span>
+                  <strong className="text-amber-400 font-mono text-base font-black">
+                    R$ {yardTotals.grossRevenueTon.toFixed(2)}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-950/30 border border-amber-500/30 rounded-xl text-amber-200 text-[11px]">
+                ⚠️ <strong>Atenção:</strong> Ao confirmar o despacho, este lote será salvo no histórico e o estoque do pátio será <strong>zerado para recomeçar o próximo ciclo de toneladas</strong>!
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setShowTruckDispatchModal(false)}
+                className="px-4 py-2 bg-slate-950 text-slate-400 text-xs font-bold rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDispatchTruckCargo}
+                className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all shadow-lg shadow-emerald-500/30"
+              >
+                Confirmar Despacho & Zerar Pátio 🚚🎉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CONFIRMAR ZERAR TESTES                             */}
+      {/* ========================================================= */}
+      {showZeroConfirmModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl text-left">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Eraser className="w-5 h-5 text-rose-400" />
+                <h3 className="text-base font-black text-white">Zerar Dados de Teste</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowZeroConfirmModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Deseja zerar as quantidades fictícias de teste do estoque? Assim o pátio começará <strong>100% limpo em 0 garrafas</strong>, permitindo que você e o Wellington digitem a quantidade real que vocês têm hoje!
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setShowZeroConfirmModal(false)}
+                className="px-4 py-2 bg-slate-950 text-slate-400 text-xs font-bold rounded-xl"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={handleResetAllToZeroReal}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase rounded-xl transition-all shadow-md"
+              >
+                Sim, Zerar Testes Agora 🧹
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CÂMERA DO LEITOR DE CÓDIGO DE BARRAS               */}
+      {/* ========================================================= */}
+      {showCameraModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 max-w-sm w-full space-y-3.5 shadow-2xl text-center">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+              <span className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5">
+                <Camera className="w-4 h-4" />
+                Aponte para o Código de Barras
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowCameraModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div
+              id="mobile-glass-scanner-viewport"
+              className="w-full aspect-[4/3] bg-black rounded-2xl overflow-hidden relative border-2 border-emerald-500/40"
+            />
+
+            {cameraError && (
+              <p className="text-[11px] text-amber-300 font-bold bg-amber-950/40 p-2 rounded-xl">
+                {cameraError}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowCameraModal(false)}
+              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-all"
+            >
+              Fechar Câmera
+            </button>
           </div>
         </div>
       )}

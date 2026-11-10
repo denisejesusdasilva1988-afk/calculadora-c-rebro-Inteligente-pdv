@@ -38,7 +38,7 @@ export interface GlassItemType {
   unitWeightKg: number; // Peso médio em kg
   weightDescription: string;
   quantity: number; // Quantidade de unidades ou baldes contados
-  buyPricePerUnit: number; // Valor pago ao catador/cliente por unidade (R$)
+  buyPricePerUnit: number; // Valor pago ao colaborador da reciclagem por unidade (R$)
   returnableResellPrice?: number; // Preço de revenda se for casco retornável para bar/distribuidora (R$)
   isReturnableCandidate?: boolean; // Se vale mais vender inteira do que quebrar
   suggestedLotMinUnits?: number; // Lote mínimo recomendado para pagar R$ 0,50
@@ -64,7 +64,7 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
     emoji: "🍾",
     unitWeightKg: 0.50, // 500g = 2 garrafas dão 1 kg
     weightDescription: "1 garrafa = 500g (2 garrafas = 1 kg)",
-    quantity: 120,
+    quantity: 0,
     buyPricePerUnit: 0.05, // R$ 0,05 por unidade (ou 10 garrafas por R$ 0,50)
     returnableResellPrice: 0.30,
     isReturnableCandidate: false,
@@ -78,7 +78,7 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
     emoji: "🍺",
     unitWeightKg: 0.185, // 3 un ≈ 550g | 6 un ≈ 1,11 kg
     weightDescription: "3 garrafas ≈ 550g | 6 garrafas ≈ 1,11 kg",
-    quantity: 360,
+    quantity: 0,
     buyPricePerUnit: 0.016, // ~R$ 0,50 por 30 garrafas
     returnableResellPrice: 0.15,
     isReturnableCandidate: false,
@@ -92,7 +92,7 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
     emoji: "🍻",
     unitWeightKg: 0.45, // 450g
     weightDescription: "1 garrafa ≈ 450g (Vale R$ 0,80 a R$ 1,20 para bares!)",
-    quantity: 80,
+    quantity: 0,
     buyPricePerUnit: 0.50, // PAGA R$ 0,50 POR UNIDADE SE INTACTA!
     returnableResellPrice: 1.00, // Casco retornável vale R$ 1,00 para bares!
     isReturnableCandidate: true,
@@ -106,7 +106,7 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
     emoji: "🍾",
     unitWeightKg: 0.65, // 650g
     weightDescription: "1 garrafa ≈ 650g (Vale R$ 1,20 a R$ 1,50 para bares!)",
-    quantity: 40,
+    quantity: 0,
     buyPricePerUnit: 0.50, // Paga 50 centavos por unidade inteira
     returnableResellPrice: 1.30, // Retornável
     isReturnableCandidate: true,
@@ -120,7 +120,7 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
     emoji: "🍷",
     unitWeightKg: 0.60, // 600g
     weightDescription: "1 garrafa ≈ 550g a 700g (média 600g)",
-    quantity: 60,
+    quantity: 0,
     buyPricePerUnit: 0.05,
     returnableResellPrice: 0.40,
     isReturnableCandidate: false,
@@ -134,7 +134,7 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
     emoji: "🫙",
     unitWeightKg: 0.28, // 280g
     weightDescription: "1 pote ≈ 250g a 300g",
-    quantity: 90,
+    quantity: 0,
     buyPricePerUnit: 0.025,
     returnableResellPrice: 0.50,
     isReturnableCandidate: true,
@@ -148,7 +148,7 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
     emoji: "🛍️",
     unitWeightKg: 5.0, // 1 sacola reforçada bem cheia de cacos ≈ 5 kg
     weightDescription: "1 sacola de mercado cheia ≈ 5 kg de cacos",
-    quantity: 25,
+    quantity: 0,
     buyPricePerUnit: 0.50, // Paga 50 centavos por sacola de 5 kg
     returnableResellPrice: 0,
     isReturnableCandidate: false,
@@ -162,7 +162,7 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
     emoji: "🪣",
     unitWeightKg: 16.0, // 1 balde 20L de cacos ≈ 15 a 17 kg
     weightDescription: "1 balde de 20L cheio ≈ 16 kg de cacos (Vale R$ 2,40 na usina)",
-    quantity: 15,
+    quantity: 0,
     buyPricePerUnit: 1.50, // R$ 1,50 por balde (ou 3 moedas de 50 centavos)
     returnableResellPrice: 0,
     isReturnableCandidate: false,
@@ -531,14 +531,14 @@ export function GlassRecyclingCalculator({
           netProfit: profit,
           marginPct: margin,
           badge: "BALDE DE 20L",
-          explanation: `1 balde de obra 20L cheio pesa ~16 kg (R$ ${plantRev.toFixed(2)} na usina). Pague R$ ${payout.toFixed(2)} ao catador e lucre R$ ${profit.toFixed(2)}!`
+          explanation: `1 balde de obra 20L cheio pesa ~16 kg (R$ ${plantRev.toFixed(2)} na usina). Pague R$ ${payout.toFixed(2)} ao colaborador da reciclagem e lucre R$ ${profit.toFixed(2)}!`
         };
       }
 
       // Caso 3: Garrafas Normais de Vidro para Peso (51, Dreher, Longneck, Vinho, Potes, Sacola de Cacos)
       let unitsNeeded = Math.ceil(targetWeightKg / item.unitWeightKg);
 
-      // Ajustes amigáveis de lote no portão para contagem fácil com o catador:
+      // Ajustes amigáveis de lote no portão para contagem fácil com o colaborador da reciclagem:
       if (item.category === "aguardente") {
         // 51 / Dreher: 500g cada. 5 kg = exatamente 10 garrafas!
         // 10 garrafas = 5 kg = R$ 0,75 na usina. Paga R$ 0,50, lucra R$ 0,25.
@@ -669,7 +669,7 @@ export function GlassRecyclingCalculator({
 
     msg += `\n💵 *FECHAMENTO FINANCEIRO DO LOTE:*\n`;
     msg += `• *Faturamento Bruto (Peso):* R$ ${calculations.grossRevenueWeight.toFixed(2)}\n`;
-    msg += `• *Custo Pago aos Catadores:* R$ ${calculations.totalAcquisitionCost.toFixed(2)}\n`;
+    msg += `• *Custo Pago aos Colaboradores da Reciclagem:* R$ ${calculations.totalAcquisitionCost.toFixed(2)}\n`;
     msg += `• *LUCRO LÍQUIDO DO FERRO VELHO:* +R$ ${calculations.netProfitWeight.toFixed(2)} (${calculations.profitMarginPct.toFixed(0)}% de margem)\n\n`;
 
     if (calculations.kgNeededFor5Ton > 0) {
@@ -710,7 +710,7 @@ export function GlassRecyclingCalculator({
 
             <p className="text-xs sm:text-sm text-slate-300 max-w-3xl leading-relaxed font-medium">
               Sem balança ainda? Compre por <strong>lotes fechados pagando moedas redondas de R$ 0,50 ou R$ 1,00</strong>! 
-              O sistema calcula quantas garrafas de 51, Longnecks, litrões ou cacos o catador precisa entregar para você pagar <strong>50 centavos</strong> com lucro e margem garantida na venda para a usina e caminhão!
+              O sistema calcula quantas garrafas de 51, Longnecks, litrões ou cacos o colaborador da reciclagem precisa entregar para você pagar <strong>50 centavos</strong> com lucro e margem garantida na venda para a usina e caminhão!
             </p>
           </div>
 
@@ -946,7 +946,7 @@ export function GlassRecyclingCalculator({
                   Quanto Pagar no Portão: Escolha a Moeda / Nota
                 </h3>
                 <p className="text-xs text-slate-300 mt-1">
-                  Clique na moeda que você tem no caixa para pagar o catador. O sistema calcula automaticamente o <strong>mínimo de garrafas</strong> para você nunca ter prejuízo!
+                  Clique na moeda que você tem no caixa para pagar o colaborador da reciclagem. O sistema calcula automaticamente o <strong>mínimo de garrafas</strong> para você nunca ter prejuízo!
                 </p>
               </div>
 
@@ -977,7 +977,7 @@ export function GlassRecyclingCalculator({
             {/* RESUMO DA MATEMÁTICA DO LOTE SELECIONADO */}
             <div className="bg-slate-950 p-4 rounded-2xl border border-white/10 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               <div className="p-3 bg-slate-900/80 rounded-xl border border-white/5 space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Moeda Paga ao Catador:</span>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Moeda Paga ao Colaborador da Reciclagem:</span>
                 <strong className="text-xl font-mono text-amber-400 font-black">
                   R$ {lotCalculations.coin.toFixed(2)}
                 </strong>
@@ -1058,7 +1058,7 @@ export function GlassRecyclingCalculator({
                       {/* Seletor de Dezenas */}
                       <div className="space-y-1">
                         <label className="text-[9px] uppercase font-bold text-slate-400 block">
-                          Quantas Dezenas o Catador Trouxe:
+                          Quantas Dezenas o Colaborador Trouxe:
                         </label>
                         <div className="grid grid-cols-5 gap-1">
                           {[
@@ -1095,7 +1095,7 @@ export function GlassRecyclingCalculator({
                           <strong className="text-emerald-400 font-mono">R$ {plantValue.toFixed(2)}</strong>
                         </div>
                         <div className="flex justify-between items-center pt-1 border-t border-white/5">
-                          <span className="text-amber-400 font-black">Pagar ao Catador:</span>
+                          <span className="text-amber-400 font-black">Pagar ao Colaborador:</span>
                           <strong className="text-base text-amber-400 font-mono font-black">
                             R$ {suggestedPayout.toFixed(2)}
                           </strong>
@@ -1194,7 +1194,7 @@ export function GlassRecyclingCalculator({
                           <strong className="text-emerald-400 font-mono">R$ {plantValue.toFixed(2)}</strong>
                         </div>
                         <div className="flex justify-between items-center pt-1 border-t border-white/5">
-                          <span className="text-teal-400 font-black">Pagar ao Catador:</span>
+                          <span className="text-teal-400 font-black">Pagar ao Colaborador:</span>
                           <strong className="text-base text-teal-400 font-mono font-black">
                             R$ {suggestedPayout.toFixed(2)}
                           </strong>
@@ -1282,7 +1282,7 @@ export function GlassRecyclingCalculator({
                       </div>
 
                       <div className="text-right">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Pagar ao Catador:</span>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Pagar ao Colaborador:</span>
                         <div className="text-xl font-black text-white font-mono">
                           R$ {lot.payoutToCollector.toFixed(2)}
                         </div>
@@ -1486,7 +1486,7 @@ export function GlassRecyclingCalculator({
 
                     <div className="space-y-1">
                       <label className="text-[9px] font-black uppercase text-rose-400 block">
-                        Paga ao Catador (R$):
+                        Paga ao Colaborador (R$):
                       </label>
                       <SmartNumericInput
                         value={item.buyPricePerUnit}
@@ -1848,10 +1848,10 @@ export function GlassRecyclingCalculator({
                 </div>
                 <div>
                   <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                    Segurança, EPI & Parceria com Catadores
+                    Segurança, EPI & Parceria com Colaboradores da Reciclagem
                   </h3>
                   <span className="text-[10px] text-slate-400">
-                    Trabalho seguro e clientes fiéis
+                    Trabalho seguro, respeito e parceiros fiéis
                   </span>
                 </div>
               </div>
@@ -1880,7 +1880,7 @@ export function GlassRecyclingCalculator({
                     3. Seja o Ponto de Referência do Bairro
                   </span>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Coloque uma placa na frente: "Compramos garrafas e vidros para reciclagem". Os catadores da região passarão a descarregar direto com você em vez de andar quilômetros até outra cidade.
+                    Coloque uma placa na frente: "D.W Vidros • Compramos garrafas e vidros para reciclagem". Os colaboradores da região passarão a descarregar direto com você em vez de andar quilômetros até outra cidade.
                   </p>
                 </div>
               </div>

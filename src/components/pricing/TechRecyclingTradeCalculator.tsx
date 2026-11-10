@@ -518,7 +518,7 @@ export function TechRecyclingTradeCalculator({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
             <div className="bg-slate-950 p-4.5 rounded-2xl border border-white/10 space-y-2">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
-                Custo de Aquisição (ou Valor Pago ao Catador/Cliente)
+                Custo de Aquisição (ou Valor Pago ao Colaborador da Reciclagem / Parceiro)
               </span>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold text-slate-400">R$</span>
@@ -952,10 +952,10 @@ export function TechRecyclingTradeCalculator({
                 </div>
                 <div>
                   <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                    Parceria com Catadores & Recicladores
+                    Parceria com Colaboradores da Reciclagem
                   </h3>
                   <span className="text-[10px] text-slate-400">
-                    Quem faz jogo duro perde a fonte de ouro
+                    Trabalho digno e parceria justa: a união faz a força
                   </span>
                 </div>
               </div>
@@ -963,10 +963,10 @@ export function TechRecyclingTradeCalculator({
               <div className="space-y-3 text-xs text-slate-300">
                 <div className="p-3 rounded-2xl bg-slate-900 border border-emerald-500/20 space-y-1">
                   <span className="font-black text-emerald-400 block text-xs">
-                    1. Catadores encontram os melhores aparelhos
+                    1. Colaboradores encontram os melhores aparelhos
                   </span>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Pessoas ricas e condomínios descartam notebooks, TVs de LED e celulares quase novos com defeitos simples. O catador e o reciclador são quem tem acesso a isso primeiro!
+                    Pessoas e condomínios descartam notebooks, TVs de LED e aparelhos com defeitos simples. O colaborador da reciclagem é quem recolhe e tem acesso a isso primeiro!
                   </p>
                 </div>
 
