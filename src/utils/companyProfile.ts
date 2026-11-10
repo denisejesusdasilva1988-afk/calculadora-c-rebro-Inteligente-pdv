@@ -11,6 +11,7 @@ export interface CompanyProfile {
   cnpjCpf: string;
   ownerName?: string;
   ownerCpf?: string;
+  ownerPin?: string;
   pixKey?: string;
   logoUrl?: string;
   phone: string;
@@ -39,6 +40,7 @@ export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
   cnpjCpf: "67.965.725/0001-95",
   ownerName: "Denise Jesus & Wellington Oliveira",
   ownerCpf: "67.965.725/0001-95",
+  ownerPin: "",
   pixKey: "67.965.725/0001-95",
   logoUrl: "",
   phone: "",
@@ -82,6 +84,7 @@ export function loadCompanyProfile(userId?: string | null): CompanyProfile {
         cnpjCpf: parsed.cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "67.965.725/0001-95",
         ownerName: parsed.ownerName || localStorage.getItem("pdv_owner_name") || "Denise Jesus & Wellington Oliveira",
         ownerCpf: parsed.ownerCpf || parsed.cnpjCpf || localStorage.getItem("pdv_owner_cpf") || localStorage.getItem("pdv_store_cnpj_cpf") || "67.965.725/0001-95",
+        ownerPin: parsed.ownerPin || localStorage.getItem("pdv_owner_pin") || "",
         pixKey: parsed.pixKey || localStorage.getItem("pdv_pix_key") || "67.965.725/0001-95",
         logoUrl: parsed.logoUrl || localStorage.getItem("pdv_company_logo") || "",
         phone: parsed.phone || localStorage.getItem("pdv_store_phone") || "",
@@ -103,6 +106,7 @@ export function loadCompanyProfile(userId?: string | null): CompanyProfile {
     cnpjCpf: localStorage.getItem("pdv_store_cnpj_cpf") || "67.965.725/0001-95",
     ownerName: localStorage.getItem("pdv_owner_name") || "Denise Jesus & Wellington Oliveira",
     ownerCpf: localStorage.getItem("pdv_owner_cpf") || localStorage.getItem("pdv_store_cnpj_cpf") || "67.965.725/0001-95",
+    ownerPin: localStorage.getItem("pdv_owner_pin") || "",
     pixKey: localStorage.getItem("pdv_pix_key") || "67.965.725/0001-95",
     logoUrl: localStorage.getItem("pdv_company_logo") || "",
     phone: localStorage.getItem("pdv_store_phone") || "",
@@ -140,6 +144,12 @@ export function saveCompanyProfile(profile: CompanyProfile, userId?: string | nu
       localStorage.setItem("pdv_owner_name", profile.ownerName);
       if (userId && userId !== "guest_visitor") localStorage.setItem(`pdv_owner_name_user_${userId}`, profile.ownerName);
     }
+    if (profile.ownerPin !== undefined) {
+      localStorage.setItem("pdv_owner_pin", profile.ownerPin);
+      if (userId && userId !== "guest_visitor") {
+        localStorage.setItem(`pdv_owner_pin_user_${userId}`, profile.ownerPin);
+      }
+    }
     if (profile.pixKey) localStorage.setItem("pdv_pix_key", profile.pixKey);
     if (profile.logoUrl !== undefined) localStorage.setItem("pdv_company_logo", profile.logoUrl || "");
     if (profile.phone) localStorage.setItem("pdv_store_phone", profile.phone);
@@ -153,6 +163,9 @@ export function saveCompanyProfile(profile: CompanyProfile, userId?: string | nu
     // Disparar evento para atualizar toda a interface instantaneamente
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", { detail: profile }));
+      if (profile.ownerPin !== undefined) {
+        window.dispatchEvent(new CustomEvent("pdv_owner_pin_changed", { detail: profile.ownerPin }));
+      }
     }
   } catch (e) {
     console.warn("Erro ao salvar company profile:", e);

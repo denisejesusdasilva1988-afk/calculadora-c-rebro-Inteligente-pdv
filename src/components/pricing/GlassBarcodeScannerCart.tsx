@@ -35,7 +35,8 @@ import {
   Award,
   Crown,
   ChevronRight,
-  CheckSquare
+  CheckSquare,
+  Copy
 } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { SmartNumericInput } from "./SmartNumericInput";
@@ -43,13 +44,14 @@ import { SmartNumericInput } from "./SmartNumericInput";
 export interface CatalogBottleItem {
   id: string;
   name: string; // Nome da garrafa (ex: "Heineken Longneck", "Dreher", "Cachaça 51")
-  volumeMl: number; // Volume em ML (ex: 330ml, 210ml, 275ml, 900ml, 600ml)
+  volumeMl: number; // Volume em ML (ex: 330ml, 210ml, 275ml, 900ml, 600ml, 1000ml)
   barcode: string; // Código de barras EAN (ex: "78936683")
   unitWeightGrams: number; // Peso da garrafa vazia na balança em gramas (ex: 185g, 490g, 500g)
   unitWeightKg: number; // Peso em kg (ex: 0.185 kg)
-  category: "longneck" | "900ml" | "litrao" | "cerveja600" | "vinho" | "outro";
+  category: "longneck" | "900ml" | "litrao" | "cerveja600" | "vinho" | "pote" | "caco" | "outro";
   buyPricePerUnit: number; // Preço pago ao colaborador por unidade (R$)
   returnableSellPrice?: number; // Preço se for casco retornável inteiro para bar (R$)
+  warningAlert?: string; // Alerta de margem de lucro / casco retornável vs caco
   emoji: string;
   stockUnits: number; // Estoque real acumulado no pátio desta garrafa
   quickPresets: number[]; // [3, 6, 10, 20, 25, 30, 60] ou [2, 4, 10, 20, 25, 100]
@@ -61,7 +63,8 @@ export interface GlassCartItem {
   name: string;
   volumeMl: number; // Volume em ML
   barcode: string;
-  category: "longneck" | "900ml" | "litrao" | "cerveja600" | "vinho" | "outro";
+  category: "longneck" | "900ml" | "litrao" | "cerveja600" | "vinho" | "pote" | "caco" | "outro";
+  warningAlert?: string;
   emoji: string;
   quantity: number;
   unitWeightGrams: number; // Peso unitário em gramas
@@ -138,21 +141,47 @@ export interface DispatchedTruckShipment {
 // Catálogo com estoque inicial ZERADO (Denise e Wellington preenchem com a realidade do pátio!)
 const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
   {
+    id: "bottle_cachaca_51_900",
+    name: "Cachaça 51 Garrafa (900ml)",
+    volumeMl: 900,
+    barcode: "", // Aberto para bipar e cadastrar código quando tiver em mãos
+    unitWeightGrams: 500, // 500 gramas vazia (2 garrafas = 1 kg exato)
+    unitWeightKg: 0.500,
+    category: "900ml",
+    buyPricePerUnit: 0.05, // 10 garrafas = R$ 0,50 | 20 = R$ 1,00 | 100 = R$ 5,00
+    emoji: "🥃",
+    stockUnits: 0,
+    quickPresets: [2, 4, 10, 20, 25, 100]
+  },
+  {
+    id: "bottle_dreher_900",
+    name: "Dreher Garrafa (900ml)",
+    volumeMl: 900,
+    barcode: "7896010006360",
+    unitWeightGrams: 490, // ~490g a 500g vazia na balança
+    unitWeightKg: 0.490,
+    category: "900ml",
+    buyPricePerUnit: 0.05, // 10 garrafas = R$ 0,50 | 20 = R$ 1,00 | 100 = R$ 5,00
+    emoji: "🍾",
+    stockUnits: 0,
+    quickPresets: [2, 4, 10, 20, 25, 100]
+  },
+  {
     id: "bottle_heineken_330",
-    name: "Heineken Longneck",
+    name: "Heineken Longneck (330ml)",
     volumeMl: 330,
     barcode: "78936683",
-    unitWeightGrams: 185, // 185 gramas vazia na balança
+    unitWeightGrams: 185, // 185 gramas vazia na balança (6 un ≈ 1.112g)
     unitWeightKg: 0.185,
     category: "longneck",
     buyPricePerUnit: 0.50 / 30, // 30 garrafas = R$ 0,50 | 60 = R$ 1,00
     emoji: "🍺",
-    stockUnits: 0, // Inicia zerado para a realidade do pátio
+    stockUnits: 0,
     quickPresets: [3, 6, 10, 20, 25, 30, 60]
   },
   {
     id: "bottle_imperio_210",
-    name: "Império Longneck",
+    name: "Império Longneck (210ml)",
     volumeMl: 210,
     barcode: "7898915949162",
     unitWeightGrams: 150, // 150 gramas vazia na balança
@@ -165,7 +194,7 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
   },
   {
     id: "bottle_ice_275",
-    name: "Ice Longneck (51 Ice / Smirnoff)",
+    name: "Ice Longneck (275ml)",
     volumeMl: 275,
     barcode: "7896002111034",
     unitWeightGrams: 170, // 170 gramas vazia na balança
@@ -177,44 +206,215 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     quickPresets: [3, 6, 10, 20, 25, 30, 60]
   },
   {
-    id: "bottle_dreher_900",
-    name: "Dreher Garrafa",
-    volumeMl: 900,
-    barcode: "7896010006360",
-    unitWeightGrams: 490, // ~490g a 500g vazia na balança
-    unitWeightKg: 0.490,
-    category: "900ml",
-    buyPricePerUnit: 0.05, // 10 garrafas = R$ 0,50 | 20 = R$ 1,00 | 100 = R$ 5,00
-    emoji: "🍾",
-    stockUnits: 0,
-    quickPresets: [2, 4, 10, 20, 25, 100]
-  },
-  {
-    id: "bottle_cachaca_51_900",
-    name: "Cachaça 51 Garrafa",
-    volumeMl: 900,
-    barcode: "", // Aberto para bipar e cadastrar código quando tiver em mãos
-    unitWeightGrams: 500, // 500 gramas vazia (2 garrafas = 1 kg exato)
-    unitWeightKg: 0.500,
-    category: "900ml",
-    buyPricePerUnit: 0.05, // 10 garrafas = R$ 0,50 | 20 = R$ 1,00 | 100 = R$ 5,00
-    emoji: "🥃",
-    stockUnits: 0,
-    quickPresets: [2, 4, 10, 20, 25, 100]
-  },
-  {
     id: "bottle_cerveja_600",
-    name: "Cerveja 600ml Retornável (Ambev / Skol / Brahma)",
+    name: "Cerveja 600ml Tradicional (Ambar / Retornável)",
     volumeMl: 600,
     barcode: "7891991000826",
-    unitWeightGrams: 450, // 450 gramas
+    unitWeightGrams: 450, // 450 gramas (~0.5 kg)
     unitWeightKg: 0.450,
     category: "cerveja600",
     buyPricePerUnit: 0.50, // R$ 0,50 por garrafa intacta
-    returnableSellPrice: 1.00, // Revende por R$ 1,00 para bares
+    returnableSellPrice: 1.00, // Revende por R$ 0,80 a R$ 1,00 para bares
+    warningAlert: "🚨 ATENÇÃO: Pagar R$ 0,50 cada SOMENTE se o casco estiver inteiro para revender a bares (R$ 0,80 a R$ 1,00). Se for quebrar para caco do Victor, dá prejuízo de R$ 0,43 por garrafa (peça 10 un por R$ 0,50)!",
     emoji: "🍻",
     stockUnits: 0,
     quickPresets: [1, 6, 12, 24]
+  },
+  {
+    id: "bottle_litrao_1000",
+    name: "Garrafão Litrão 1 Litro (Retornável / Sucata)",
+    volumeMl: 1000,
+    barcode: "7891991001342",
+    unitWeightGrams: 700, // 700 gramas (~0.7 kg)
+    unitWeightKg: 0.700,
+    category: "litrao",
+    buyPricePerUnit: 0.50, // R$ 0,50 por unidade inteira
+    returnableSellPrice: 1.30, // Revende por R$ 1,00 a R$ 1,50 para bares
+    warningAlert: "🚨 ATENÇÃO: Pagar R$ 0,50 cada SOMENTE se estiver intacta para revender a bares (R$ 1,00 a R$ 1,50). Se for caco para o Victor, dá prejuízo de R$ 0,40 (peça 7 un por R$ 0,50)!",
+    emoji: "🍾",
+    stockUnits: 0,
+    quickPresets: [1, 2, 6, 12]
+  },
+  {
+    id: "bottle_vinho_750",
+    name: "Garrafas de Vinho / Espumante (750ml)",
+    volumeMl: 750,
+    barcode: "",
+    unitWeightGrams: 600, // 600g (vidro espesso ~5.4 kg em 9 un)
+    unitWeightKg: 0.600,
+    category: "vinho",
+    buyPricePerUnit: 0.50 / 9, // Lote de 9 garrafas (~5.4 kg) = R$ 0,50
+    returnableSellPrice: 0.40,
+    emoji: "🍷",
+    stockUnits: 0,
+    quickPresets: [9, 18, 27, 45, 90]
+  },
+  {
+    id: "bottle_potes_conserva",
+    name: "Potes de Conserva (Palmito, Azeitona, Maionese)",
+    volumeMl: 500,
+    barcode: "",
+    unitWeightGrams: 280, // 280g (~5.0 kg em 18 un)
+    unitWeightKg: 0.280,
+    category: "pote",
+    buyPricePerUnit: 0.50 / 18, // Lote de 18 potes (~5.0 kg) = R$ 0,50
+    returnableSellPrice: 0.50,
+    emoji: "🫙",
+    stockUnits: 0,
+    quickPresets: [18, 36, 54, 90]
+  },
+  {
+    id: "bottle_cacos_sacola",
+    name: "Cacos de Vidro na Sacola Reforçada (1 sacola ~5kg)",
+    volumeMl: 5000,
+    barcode: "",
+    unitWeightGrams: 5000,
+    unitWeightKg: 5.0,
+    category: "caco",
+    buyPricePerUnit: 0.50, // Paga R$ 0,50 por sacola de 5 kg (recebe R$ 0,75 do Victor = Lucro R$ 0,25)
+    emoji: "🛍️",
+    stockUnits: 0,
+    quickPresets: [1, 2, 3, 5, 10]
+  },
+  {
+    id: "bottle_cacos_balde",
+    name: "Cacos de Vidro no Balde de 20L (~16kg)",
+    volumeMl: 20000,
+    barcode: "",
+    unitWeightGrams: 16000,
+    unitWeightKg: 16.0,
+    category: "caco",
+    buyPricePerUnit: 1.50, // Paga R$ 1,50 por balde de 16 kg (recebe R$ 2,40 do Victor = Lucro R$ 0,90)
+    emoji: "🪣",
+    stockUnits: 0,
+    quickPresets: [1, 2, 3, 5, 10]
+  }
+];
+
+// Modelos de Referência para "Cadastrar Parecido / Duplicar"
+export const SIMILAR_GLASS_PRESETS = [
+  {
+    name: "51 / Dreher / Velho Barreiro (900ml)",
+    volumeMl: 900,
+    unitWeightGrams: 500,
+    category: "900ml" as const,
+    emoji: "🥃",
+    buyPricePerUnit: 0.05,
+    quickPresets: [2, 4, 10, 20, 25, 100],
+    description: "500g vazia (2 garrafas = 1 kg exato)"
+  },
+  {
+    name: "Heineken / Stella / Corona Longneck (330ml)",
+    volumeMl: 330,
+    unitWeightGrams: 185,
+    category: "longneck" as const,
+    emoji: "🍺",
+    buyPricePerUnit: 0.50 / 30,
+    quickPresets: [3, 6, 10, 20, 25, 30],
+    description: "185g vazia (Lote de 30 un = R$ 0,50)"
+  },
+  {
+    name: "Império Longneck (210ml)",
+    volumeMl: 210,
+    unitWeightGrams: 170,
+    category: "longneck" as const,
+    emoji: "🍺",
+    buyPricePerUnit: 0.50 / 30,
+    quickPresets: [3, 6, 10, 20, 25, 30],
+    description: "170g vazia"
+  },
+  {
+    name: "Ice Longneck (275ml)",
+    volumeMl: 275,
+    unitWeightGrams: 210,
+    category: "longneck" as const,
+    emoji: "🍾",
+    buyPricePerUnit: 0.50 / 30,
+    quickPresets: [3, 6, 10, 20, 25, 30],
+    description: "210g vazia"
+  },
+  {
+    name: "Cerveja 600ml Retornável (Brahma/Skol)",
+    volumeMl: 600,
+    unitWeightGrams: 450,
+    category: "cerveja600" as const,
+    emoji: "🍻",
+    buyPricePerUnit: 0.50,
+    returnableSellPrice: 1.00,
+    quickPresets: [1, 2, 4, 6, 12, 24],
+    description: "450g vazia (Revenda inteiro para bar por R$ 1,00)"
+  },
+  {
+    name: "Garrafão Litrão 1 Litro (1000ml)",
+    volumeMl: 1000,
+    unitWeightGrams: 650,
+    category: "litrao" as const,
+    emoji: "🍾",
+    buyPricePerUnit: 0.50,
+    returnableSellPrice: 1.30,
+    quickPresets: [1, 2, 4, 6, 12],
+    description: "650g vazia (Revenda inteiro para bar por R$ 1,30)"
+  },
+  {
+    name: "Garrafa de Vinho / Espumante (750ml)",
+    volumeMl: 750,
+    unitWeightGrams: 600,
+    category: "vinho" as const,
+    emoji: "🍷",
+    buyPricePerUnit: 0.50 / 9,
+    quickPresets: [9, 18, 27, 45],
+    description: "600g vazia (Lote de 9 garrafas = R$ 0,50)"
+  },
+  {
+    name: "Pote de Conserva Médio (Palmito/Azeitona 500ml)",
+    volumeMl: 500,
+    unitWeightGrams: 280,
+    category: "pote" as const,
+    emoji: "🫙",
+    buyPricePerUnit: 0.50 / 18,
+    returnableSellPrice: 0.50,
+    quickPresets: [18, 36, 54],
+    description: "280g vazio (Lote de 18 potes = R$ 0,50)"
+  },
+  {
+    name: "Pote de Maionese / Geléia (350ml)",
+    volumeMl: 350,
+    unitWeightGrams: 200,
+    category: "pote" as const,
+    emoji: "🫙",
+    buyPricePerUnit: 0.50 / 25,
+    quickPresets: [25, 50, 75],
+    description: "200g vazio (Lote de 25 potes = R$ 0,50)"
+  },
+  {
+    name: "Pote de Papinha / Molho Pequeno (150ml)",
+    volumeMl: 150,
+    unitWeightGrams: 130,
+    category: "pote" as const,
+    emoji: "🫙",
+    buyPricePerUnit: 0.50 / 35,
+    quickPresets: [35, 70],
+    description: "130g vazio"
+  },
+  {
+    name: "Cacos de Vidro na Sacola Reforçada (~5kg)",
+    volumeMl: 5000,
+    unitWeightGrams: 5000,
+    category: "caco" as const,
+    emoji: "🛍️",
+    buyPricePerUnit: 0.50,
+    quickPresets: [1, 2, 3, 5, 10],
+    description: "5 kg de cacos = R$ 0,50"
+  },
+  {
+    name: "Cacos de Vidro no Balde de 20L (~16kg)",
+    volumeMl: 20000,
+    unitWeightGrams: 16000,
+    category: "caco" as const,
+    emoji: "🪣",
+    buyPricePerUnit: 1.50,
+    quickPresets: [1, 2, 3, 5, 10],
+    description: "16 kg de cacos = R$ 1,50"
   }
 ];
 
@@ -320,6 +520,24 @@ export const calculateGlassBuyCost = (category: string, quantity: number, defaul
     const cost = quantity * 0.05;
     return Math.round(cost * 100) / 100;
   }
+  if (category === "vinho") {
+    // Lote de 9 unidades = R$ 0,50 (~5.4 kg)
+    const lotsOf9 = Math.floor(quantity / 9);
+    const remainder = quantity % 9;
+    const cost = lotsOf9 * 0.50 + remainder * (0.50 / 9);
+    return Math.round(cost * 100) / 100;
+  }
+  if (category === "pote") {
+    // Lote de 18 unidades = R$ 0,50 (~5.0 kg)
+    const lotsOf18 = Math.floor(quantity / 18);
+    const remainder = quantity % 18;
+    const cost = lotsOf18 * 0.50 + remainder * (0.50 / 18);
+    return Math.round(cost * 100) / 100;
+  }
+  if (category === "caco") {
+    // Sacola de 5kg = R$ 0,50 | Balde 20L = R$ 1,50
+    return Math.round(quantity * (defaultUnitCost || 0.50) * 100) / 100;
+  }
   return Math.round(quantity * (defaultUnitCost || 0.02) * 100) / 100;
 };
 
@@ -360,17 +578,44 @@ export function GlassBarcodeScannerCart({
 }: Props) {
   const sellPricePerKg = sellPricePerTon > 0 ? sellPricePerTon / 1000 : 0.15;
 
-  // Catálogo com Nomes, ML, Códigos e Pesos
+  // Catálogo com Nomes, ML, Códigos e Pesos (Fundido com os 8 itens estratégicos e Estoque Inicial Zerado)
   const [catalog, setCatalog] = useState<CatalogBottleItem[]>(() => {
     try {
-      const stored = localStorage.getItem("pdv_dw_glass_catalog_v3");
+      const isCleaned = localStorage.getItem("pdv_dw_glass_zero_clean_v6");
+      if (!isCleaned) {
+        localStorage.setItem("pdv_dw_glass_zero_clean_v6", "true");
+        localStorage.removeItem("pdv_dw_glass_catalog_v4");
+        localStorage.removeItem("pdv_dw_glass_catalog_v3");
+        return DEFAULT_BOTTLE_CATALOG.map((b) => ({ ...b, stockUnits: 0 }));
+      }
+      const stored = localStorage.getItem("pdv_dw_glass_catalog_v4") || localStorage.getItem("pdv_dw_glass_catalog_v3");
       if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        const parsed: CatalogBottleItem[] = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const existingIds = new Set(parsed.map((p) => p.id));
+          const missing = DEFAULT_BOTTLE_CATALOG.filter((d) => !existingIds.has(d.id));
+          const merged = parsed.map((p) => {
+            const def = DEFAULT_BOTTLE_CATALOG.find((d) => d.id === p.id);
+            if (def && def.warningAlert && !p.warningAlert) {
+              return { ...p, warningAlert: def.warningAlert, category: def.category, returnableSellPrice: def.returnableSellPrice };
+            }
+            return p;
+          });
+          return [...merged, ...missing];
+        }
       }
     } catch {}
-    return DEFAULT_BOTTLE_CATALOG;
+    return DEFAULT_BOTTLE_CATALOG.map((b) => ({ ...b, stockUnits: 0 }));
   });
+
+  // Ouvinte global para zerar o estoque do pátio quando acionado no painel geral
+  useEffect(() => {
+    const handleYardZeroEvent = () => {
+      setCatalog((prev) => prev.map((b) => ({ ...b, stockUnits: 0 })));
+    };
+    window.addEventListener("dw_glass_zero_yard", handleYardZeroEvent);
+    return () => window.removeEventListener("dw_glass_zero_yard", handleYardZeroEvent);
+  }, []);
 
   // Carrinho de compras no portão (permite misturar garrafas diferentes!)
   const [cart, setCart] = useState<GlassCartItem[]>(() => {
@@ -464,6 +709,7 @@ export function GlassBarcodeScannerCart({
 
   const [showTruckDispatchModal, setShowTruckDispatchModal] = useState<boolean>(false);
   const [showZeroConfirmModal, setShowZeroConfirmModal] = useState<boolean>(false);
+  const [showStrategicGuideModal, setShowStrategicGuideModal] = useState<boolean>(false);
 
   // Persistência automática
   useEffect(() => {
@@ -757,6 +1003,7 @@ export function GlassBarcodeScannerCart({
           volumeMl: bottle.volumeMl,
           barcode: bottle.barcode,
           category: bottle.category,
+          warningAlert: bottle.warningAlert,
           emoji: bottle.emoji,
           quantity: qty,
           unitWeightGrams: bottle.unitWeightGrams,
@@ -847,6 +1094,72 @@ export function GlassBarcodeScannerCart({
     setCalibratingBottle(null);
     if (showNotification) {
       showNotification(`Peso de ${calibratingBottle.name} calibrado para ${grams}g! ⚖️✅`, "success");
+    }
+  };
+
+  // Salvar garrafa ou pote criado / editado (Nome, ML, Peso em Gramas, Código)
+  const handleSaveBottle = () => {
+    if (!editingBottle) return;
+    const name = editingBottle.name.trim();
+    if (!name) {
+      if (showNotification) showNotification("Digite o nome da garrafa ou pote.", "warning");
+      return;
+    }
+    const grams = Math.max(1, Number(editingBottle.unitWeightGrams) || 100);
+    const kg = grams / 1000;
+    const volume = Math.max(10, Number(editingBottle.volumeMl) || 300);
+
+    const saved: CatalogBottleItem = {
+      ...editingBottle,
+      name,
+      volumeMl: volume,
+      unitWeightGrams: grams,
+      unitWeightKg: kg,
+      stockUnits: Math.max(0, Number(editingBottle.stockUnits) || 0)
+    };
+
+    setCatalog((prev) => {
+      const exists = prev.some((b) => b.id === saved.id);
+      if (exists) {
+        return prev.map((b) => (b.id === saved.id ? saved : b));
+      }
+      return [saved, ...prev];
+    });
+
+    setEditingBottle(null);
+    setIsRegisteringNew(false);
+
+    if (showNotification) {
+      showNotification(`Garrafa/Pote "${saved.name}" salvo com sucesso! (${grams}g na balança • ${volume}ml) ⚖️✅`, "success");
+    }
+  };
+
+  // Excluir garrafa ou pote do catálogo
+  const handleDeleteBottle = (bottleId: string, bottleName: string) => {
+    if (catalog.length <= 1) {
+      if (showNotification) showNotification("Mantenha ao menos 1 item cadastrado no catálogo.", "warning");
+      return;
+    }
+    setCatalog((prev) => prev.filter((b) => b.id !== bottleId));
+    setEditingBottle(null);
+    setIsRegisteringNew(false);
+    if (showNotification) {
+      showNotification(`"${bottleName}" removido do catálogo. 🗑️`, "info");
+    }
+  };
+
+  // Duplicar garrafa similar (para cadastrar garrafas parecidas de forma rápida)
+  const handleDuplicateSimilar = (baseBottle: CatalogBottleItem) => {
+    setEditingBottle({
+      ...baseBottle,
+      id: `bottle_${Date.now()}`,
+      name: `${baseBottle.name} (Similar)`,
+      barcode: "",
+      stockUnits: 0
+    });
+    setIsRegisteringNew(true);
+    if (showNotification) {
+      showNotification(`Copiados peso (${baseBottle.unitWeightGrams}g) e ${baseBottle.volumeMl}ml. Digite o novo nome e confirme o peso na balança! 📑`, "info");
     }
   };
 
@@ -1069,6 +1382,9 @@ export function GlassBarcodeScannerCart({
 
     // Zera o estoque do pátio para recomeçar o ciclo de toneladas
     setCatalog((prev) => prev.map((b) => ({ ...b, stockUnits: 0 })));
+    try {
+      window.dispatchEvent(new CustomEvent("dw_glass_zero_yard_from_child"));
+    } catch {}
 
     setShowTruckDispatchModal(false);
     playScannerBeep(2600, 0.2);
@@ -1087,6 +1403,9 @@ export function GlassBarcodeScannerCart({
     setCatalog((prev) => prev.map((b) => ({ ...b, stockUnits: 0 })));
     setCart([]);
     setShowZeroConfirmModal(false);
+    try {
+      window.dispatchEvent(new CustomEvent("dw_glass_zero_yard_from_child"));
+    } catch {}
 
     if (showNotification) {
       showNotification(
@@ -1189,6 +1508,16 @@ export function GlassBarcodeScannerCart({
 
           {/* BOTÕES DE GESTÃO DO PÁTIO */}
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowStrategicGuideModal(true)}
+              className="min-h-[48px] px-3.5 py-2.5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 hover:text-white font-black text-xs uppercase rounded-xl border border-amber-500/40 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md"
+              title="Ver análise completa de margens dos 8 itens e veredito do Victor"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>Análise dos 8 Itens & Veredito 📋</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setShowTruckDispatchModal(true)}
@@ -1389,14 +1718,40 @@ export function GlassBarcodeScannerCart({
                 </h3>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowCameraModal(true)}
-                className="min-h-[48px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 transition-all flex items-center gap-2 cursor-pointer touch-manipulation"
-              >
-                <Camera className="w-4 h-4 text-emerald-400" />
-                <span>Abrir Câmera Traseira 📷</span>
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingBottle({
+                      id: `bottle_${Date.now()}`,
+                      name: "",
+                      volumeMl: 330,
+                      barcode: "",
+                      unitWeightGrams: 185,
+                      unitWeightKg: 0.185,
+                      category: "longneck",
+                      buyPricePerUnit: 0.02,
+                      emoji: "🍾",
+                      stockUnits: 0,
+                      quickPresets: [3, 6, 10, 20, 25]
+                    });
+                    setIsRegisteringNew(true);
+                  }}
+                  className="min-h-[48px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md shadow-emerald-500/20"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Cadastrar Garrafa Nova ⚖️</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCameraModal(true)}
+                  className="min-h-[48px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 transition-all flex items-center gap-2 cursor-pointer touch-manipulation"
+                >
+                  <Camera className="w-4 h-4 text-emerald-400" />
+                  <span>Câmera 📷</span>
+                </button>
+              </div>
             </div>
 
             {/* CAMPO DE TEXTO DO LEITOR USB / DIGITAÇÃO */}
@@ -1531,6 +1886,12 @@ export function GlassBarcodeScannerCart({
                           {item.quantity} un × {item.unitWeightGrams}g ={" "}
                           <strong className="text-emerald-400 font-black">{item.totalWeightKg.toFixed(2)} kg</strong>
                         </div>
+                        {item.warningAlert && (
+                          <div className="mt-1 px-2 py-1 rounded-lg bg-rose-500/15 border border-rose-500/30 text-[10px] text-rose-300 font-bold max-w-md leading-tight flex items-start gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+                            <span>{item.warningAlert}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1942,6 +2303,7 @@ export function GlassBarcodeScannerCart({
                     </div>
 
                     {/* BOTÕES RÁPIDOS DE AJUSTE NO PÁTIO */}
+                    {/* AJUSTES RÁPIDOS DE ESTOQUE (+10, +30, +50, +100) */}
                     <div className="flex items-center justify-between text-[11px] pt-1">
                       <div className="flex items-center gap-1">
                         {[
@@ -1964,9 +2326,51 @@ export function GlassBarcodeScannerCart({
                       <button
                         type="button"
                         onClick={() => handleUpdateYardStockDirect(bottle.id, 0)}
-                        className="text-[10px] text-slate-500 hover:text-rose-400 font-bold transition-all"
+                        className="text-[10px] text-slate-500 hover:text-rose-400 font-bold transition-all px-1.5 py-1"
+                        title="Zerar unidades desta garrafa no pátio"
                       >
                         Zerar
+                      </button>
+                    </div>
+
+                    {/* LINHA DE AÇÕES: EDITAR DADOS, CADASTRAR PARECIDA E CALIBRAR BALANÇA */}
+                    <div className="flex items-center justify-between gap-1.5 flex-wrap pt-2 border-t border-white/5 text-[11px]">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingBottle({ ...bottle });
+                            setIsRegisteringNew(false);
+                          }}
+                          className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-cyan-300 font-bold rounded-lg border border-cyan-500/30 flex items-center gap-1 cursor-pointer touch-manipulation"
+                          title="Editar nome, ml, peso em gramas ou código"
+                        >
+                          <Edit3 className="w-3 h-3 text-cyan-400" />
+                          <span>Editar ✍️</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicateSimilar(bottle)}
+                          className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 font-bold rounded-lg border border-emerald-500/30 flex items-center gap-1 cursor-pointer touch-manipulation"
+                          title="Cadastrar outra garrafa ou pote parecido copiando este peso e ml"
+                        >
+                          <Copy className="w-3 h-3 text-emerald-400" />
+                          <span>Cadastrar Parecida 📑</span>
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCalibratingBottle(bottle);
+                          setCalibratedGramsInput(bottle.unitWeightGrams);
+                        }}
+                        className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-amber-300 font-bold rounded-lg border border-amber-500/30 flex items-center gap-1 cursor-pointer touch-manipulation"
+                        title="Pesar amostra na balança digital de cozinha"
+                      >
+                        <Scale className="w-3 h-3 text-amber-400" />
+                        <span>Balança ({bottle.unitWeightGrams}g)</span>
                       </button>
                     </div>
                   </div>
@@ -2086,6 +2490,365 @@ export function GlassBarcodeScannerCart({
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CADASTRO E BALANÇA DE GARRAFAS, POTES & SIMILARES  */}
+      {/* ========================================================= */}
+      {editingBottle && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 sm:p-6 max-w-xl w-full space-y-4 shadow-2xl text-left my-auto max-h-[92vh] overflow-y-auto">
+            {/* Cabeçalho do Modal */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold">
+                  <Scale className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white">
+                    {isRegisteringNew ? "Cadastrar Garrafa ou Pote de Vidro" : "Editar Garrafa / Pote de Vidro"}
+                  </h3>
+                  <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">
+                    Balança Digital de Cozinha • Gramas & ML Exatos
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingBottle(null);
+                  setIsRegisteringNew(false);
+                }}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* SEÇÃO RÁPIDA: COPIAR DE GARRAFA OU POTE PARECIDO */}
+            <div className="p-3 bg-slate-950 rounded-2xl border border-amber-500/30 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Cadastrar Parecido (Copiar Medidas e Pesos Prontos):
+                </span>
+                <span className="text-[9px] text-slate-400">1 toque preenche tudo!</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                {SIMILAR_GLASS_PRESETS.map((preset) => (
+                  <button
+                    key={preset.name}
+                    type="button"
+                    onClick={() => {
+                      setEditingBottle((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              volumeMl: preset.volumeMl,
+                              unitWeightGrams: preset.unitWeightGrams,
+                              unitWeightKg: preset.unitWeightGrams / 1000,
+                              category: preset.category as any,
+                              emoji: preset.emoji,
+                              buyPricePerUnit: preset.buyPricePerUnit,
+                              returnableSellPrice: preset.returnableSellPrice,
+                              quickPresets: preset.quickPresets,
+                              name: prev.name ? prev.name : preset.name
+                            }
+                          : null
+                      );
+                      if (showNotification) {
+                        showNotification(
+                          `Medidas copiadas de "${preset.name}": ${preset.unitWeightGrams}g / ${preset.volumeMl}ml ⚖️`,
+                          "info"
+                        );
+                      }
+                    }}
+                    className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-white/5 hover:border-amber-400/40 text-left transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <span>{preset.emoji}</span>
+                      <strong className="text-white text-[11px] truncate group-hover:text-amber-300">
+                        {preset.name}
+                      </strong>
+                    </div>
+                    <div className="text-[10px] text-emerald-400 font-mono mt-0.5">
+                      {preset.unitWeightGrams}g • {preset.volumeMl}ml
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* FORMULÁRIO DE CADASTRO */}
+            <div className="space-y-3.5 text-xs">
+              {/* NOME DO ITEM E EMOJI */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300 block">
+                  Nome da Garrafa ou Pote: *
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={editingBottle.name}
+                    onChange={(e) => setEditingBottle((prev) => (prev ? { ...prev, name: e.target.value } : null))}
+                    placeholder="Ex: Cachaça 51 900ml, Pote de Palmito 500g, Longneck Corona..."
+                    className="flex-1 bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-sm font-bold text-white outline-none"
+                  />
+                  {/* SELETOR DE EMOJI */}
+                  <select
+                    value={editingBottle.emoji}
+                    onChange={(e) => setEditingBottle((prev) => (prev ? { ...prev, emoji: e.target.value } : null))}
+                    className="bg-slate-950 border border-white/10 rounded-xl px-2.5 py-2 text-lg outline-none cursor-pointer text-white"
+                  >
+                    <option value="🍾">🍾 Garrafa 900ml/Vinho</option>
+                    <option value="🍺">🍺 Longneck</option>
+                    <option value="🍻">🍻 Cerveja 600ml</option>
+                    <option value="🫙">🫙 Pote de Vidro</option>
+                    <option value="🥃">🥃 Cachaça</option>
+                    <option value="🍷">🍷 Vinho</option>
+                    <option value="🍶">🍶 Aguardente</option>
+                    <option value="🛍️">🛍️ Sacola de Cacos</option>
+                    <option value="🪣">🪣 Balde de Cacos</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* VOLUME EM ML E CATEGORIA */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300 block">
+                    Volume em Mililitros (ML):
+                  </label>
+                  <input
+                    type="number"
+                    min="10"
+                    step="5"
+                    value={editingBottle.volumeMl}
+                    onChange={(e) =>
+                      setEditingBottle((prev) => (prev ? { ...prev, volumeMl: Number(e.target.value) || 0 } : null))
+                    }
+                    placeholder="Ex: 900, 330, 500..."
+                    className="w-full bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
+                  />
+                  {/* ATALHOS RÁPIDOS DE ML */}
+                  <div className="flex items-center gap-1 flex-wrap pt-1">
+                    {[210, 275, 330, 355, 500, 600, 750, 900, 1000].map((ml) => (
+                      <button
+                        key={ml}
+                        type="button"
+                        onClick={() => setEditingBottle((prev) => (prev ? { ...prev, volumeMl: ml } : null))}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border cursor-pointer ${
+                          editingBottle.volumeMl === ml
+                            ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                            : "bg-slate-950 text-slate-400 border-white/5 hover:text-white"
+                        }`}
+                      >
+                        {ml}ml
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-300 block">
+                    Categoria do Vidro:
+                  </label>
+                  <select
+                    value={editingBottle.category}
+                    onChange={(e) =>
+                      setEditingBottle((prev) => (prev ? { ...prev, category: e.target.value as any } : null))
+                    }
+                    className="w-full bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-sm font-bold text-white outline-none"
+                  >
+                    <option value="900ml">🥃 Garrafa 900ml / 1L (Cachaças, Conhaques)</option>
+                    <option value="longneck">🍺 Longneck (210ml a 355ml)</option>
+                    <option value="cerveja600">🍻 Garrafa 600ml Tradicional (Retornável)</option>
+                    <option value="litrao">🍾 Garrafão Litrão 1 Litro</option>
+                    <option value="vinho">🍷 Garrafa de Vinho / Espumante (750ml)</option>
+                    <option value="pote">🫙 Pote de Conserva (Palmito, Maionese, Azeitona)</option>
+                    <option value="caco">🛍️ Cacos de Vidro Quebrados</option>
+                    <option value="outro">📦 Outro Tipo de Vidro</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* CAMPO DE PESO NA BALANÇA DIGITAL DE COZINHA (O CORAÇÃO DO CÁLCULO) */}
+              <div className="p-4 bg-slate-950 rounded-2xl border-2 border-emerald-500/50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5">
+                    <Scale className="w-4 h-4 text-emerald-400" />
+                    Peso Vazio na Balança Digital (em GRAMAS): *
+                  </label>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">
+                    Visor da Balança
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={editingBottle.unitWeightGrams}
+                      onChange={(e) => {
+                        const grams = Math.max(1, Number(e.target.value) || 0);
+                        setEditingBottle((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                unitWeightGrams: grams,
+                                unitWeightKg: grams / 1000
+                              }
+                            : null
+                        );
+                      }}
+                      className="w-full bg-slate-900 border border-white/10 focus:border-emerald-400 rounded-xl px-4 py-2 text-2xl font-mono font-black text-white outline-none"
+                    />
+                    <span className="absolute right-3 top-3 text-sm text-slate-400 font-bold font-mono">
+                      gramas (g)
+                    </span>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <span className="text-[10px] text-slate-400 block uppercase">Equivalente em Kg:</span>
+                    <strong className="text-lg font-mono text-emerald-400 font-black block">
+                      {(editingBottle.unitWeightGrams / 1000).toFixed(3)} kg
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Régua de equivalência de peso */}
+                <div className="pt-2 border-t border-white/5 grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] text-slate-400">
+                  <div>
+                    <span className="block text-slate-500">Para dar 1 kg:</span>
+                    <strong className="text-white font-mono">
+                      {(1000 / Math.max(1, editingBottle.unitWeightGrams)).toFixed(1)} garrafas
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="block text-slate-500">Para dar 1 Ton (1.000 kg):</span>
+                    <strong className="text-white font-mono">
+                      {Math.ceil(1000000 / Math.max(1, editingBottle.unitWeightGrams)).toLocaleString("pt-BR")} garrafas
+                    </strong>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1 text-emerald-400 font-bold">
+                    Valor no Victor: R$ {((editingBottle.unitWeightGrams / 1000) * sellPricePerKg).toFixed(3)}
+                  </div>
+                </div>
+              </div>
+
+              {/* CÓDIGO DE BARRAS E LEITURA */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-300 block">
+                  Código de Barras EAN (Opcional - deixe vazio se não tiver rótulo):
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={editingBottle.barcode}
+                    onChange={(e) =>
+                      setEditingBottle((prev) => (prev ? { ...prev, barcode: e.target.value.trim() } : null))
+                    }
+                    placeholder="Ex: 78936683, 7898915949162..."
+                    className="flex-1 bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCameraModal(true)}
+                    className="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>Câmera</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* PREÇO PAGO NO PORTÃO & REVENDA RETORNÁVEL */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-950 rounded-2xl border border-white/5">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-amber-400 block">
+                    Preço de Compra por Unidade (R$):
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.005"
+                    value={editingBottle.buyPricePerUnit}
+                    onChange={(e) =>
+                      setEditingBottle((prev) =>
+                        prev ? { ...prev, buyPricePerUnit: Number(e.target.value) || 0 } : null
+                      )
+                    }
+                    className="w-full bg-slate-900 border border-white/10 focus:border-amber-400 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
+                  />
+                  <span className="text-[9px] text-slate-400 block">
+                    Ex: R$ 0,05 (ou R$ 0,50 a cada 10 unidades)
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-cyan-400 block">
+                    Se for Casco Inteiro (Revenda a Bares R$):
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.10"
+                    value={editingBottle.returnableSellPrice || 0}
+                    onChange={(e) =>
+                      setEditingBottle((prev) =>
+                        prev ? { ...prev, returnableSellPrice: Number(e.target.value) || 0 } : null
+                      )
+                    }
+                    placeholder="0,00 se for apenas caco"
+                    className="w-full bg-slate-900 border border-white/10 focus:border-cyan-400 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
+                  />
+                  <span className="text-[9px] text-slate-400 block">
+                    Deixe 0 se for moer ou mandar quebrado pro Victor
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* BOTÕES DE AÇÃO DO MODAL */}
+            <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/10">
+              <div>
+                {!isRegisteringNew && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBottle(editingBottle.id, editingBottle.name)}
+                    className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-bold rounded-xl border border-rose-500/30 flex items-center gap-1 cursor-pointer transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Excluir</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingBottle(null);
+                    setIsRegisteringNew(false);
+                  }}
+                  className="px-4 py-2 bg-slate-950 hover:bg-slate-800 text-slate-400 text-xs font-bold rounded-xl border border-white/10 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveBottle}
+                  className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer touch-manipulation"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Salvar Garrafa / Pote ⚖️✅</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -2502,6 +3265,438 @@ export function GlassBarcodeScannerCart({
             >
               Fechar Câmera
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: ANÁLISE ESTRATÉGICA DOS 8 ITENS & VEREDITO DO VICTOR */}
+      {/* ========================================================= */}
+      {showStrategicGuideModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-slate-900 border border-amber-500/40 text-white w-full max-w-4xl rounded-3xl shadow-2xl p-4 sm:p-6 my-auto max-h-[92vh] overflow-y-auto space-y-5 text-left">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-amber-500/20 shrink-0">
+                  <Scale className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base sm:text-lg font-black text-white">
+                      Análise Estratégica dos 8 Itens & Veredito do Victor
+                    </h3>
+                    <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                      D.W VIDROS & RECICLAGEM
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Compra no Portão (R$ 0,50 a R$ 1,50) vs Venda na Usina do Victor (R$ 0,15/kg) vs Revenda de Casco para Bares
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowStrategicGuideModal(false)}
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Grid dos 8 Itens com Cálculos Exatos */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 text-xs">
+              {/* 1. Garrafa 51 / Dreher */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-white/10 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🍾</span>
+                    <div>
+                      <h4 className="font-black text-white text-sm">1. Garrafa de 51 / Dreher</h4>
+                      <span className="text-[10px] text-slate-400">Lote de 10 unidades ~ 5 kg</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    CORRETO ✅
+                  </span>
+                </div>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-white/5 space-y-1 text-[11px]">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você paga ao colaborador:</span>
+                    <strong className="text-amber-400 font-mono">R$ 0,50</strong>
+                  </div>
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você recebe do Victor (5 kg × R$ 0,15):</span>
+                    <strong className="text-emerald-400 font-mono">R$ 0,75</strong>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
+                    <span>Seu Lucro Líquido:</span>
+                    <span>+R$ 0,25 por lote (33% margem)</span>
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-slate-400">
+                  💡 <strong>Veredito:</strong> Bom lucro e ótimo peso para bater toneladas rápidas.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const b = catalog.find((c) => c.category === "900ml") || catalog[0];
+                    if (b) handleAddBottleToCart(b, 10);
+                    setShowStrategicGuideModal(false);
+                  }}
+                  className="w-full py-1.5 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Lançar 1 Lote (10 un / R$ 0,50) no Carrinho</span>
+                </button>
+              </div>
+
+              {/* 2. Longneck */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-white/10 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🍺</span>
+                    <div>
+                      <h4 className="font-black text-white text-sm">2. Longneck (Heineken / Corona)</h4>
+                      <span className="text-[10px] text-slate-400">Lote de 30 unidades ~ 5.5 kg</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    CORRETO ✅
+                  </span>
+                </div>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-white/5 space-y-1 text-[11px]">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você paga ao colaborador:</span>
+                    <strong className="text-amber-400 font-mono">R$ 0,50</strong>
+                  </div>
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você recebe do Victor (5.5 kg × R$ 0,15):</span>
+                    <strong className="text-emerald-400 font-mono">R$ 0,82</strong>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
+                    <span>Seu Lucro Líquido:</span>
+                    <span>+R$ 0,32 por lote (39% margem)</span>
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-slate-400">
+                  💡 <strong>Veredito:</strong> Dá um bom retorno proporcional. 60 garrafas = R$ 1,00.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const b = catalog.find((c) => c.category === "longneck") || catalog[0];
+                    if (b) handleAddBottleToCart(b, 30);
+                    setShowStrategicGuideModal(false);
+                  }}
+                  className="w-full py-1.5 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Lançar 1 Lote (30 un / R$ 0,50) no Carrinho</span>
+                </button>
+              </div>
+
+              {/* 3. Cerveja 600ml Tradicional */}
+              <div className="p-4 rounded-2xl bg-rose-950/20 border border-rose-500/40 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🍻</span>
+                    <div>
+                      <h4 className="font-black text-white text-sm">3. Cerveja 600ml Tradicional</h4>
+                      <span className="text-[10px] text-slate-400">1 unidade ~ 0.5 kg (Retornável)</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                    🚨 ATENÇÃO!
+                  </span>
+                </div>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-white/5 space-y-1 text-[11px]">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você paga por 1 garrafa:</span>
+                    <strong className="text-amber-400 font-mono">R$ 0,50</strong>
+                  </div>
+                  <div className="flex justify-between text-slate-300">
+                    <span>Se vender como caco pro Victor (0.5kg):</span>
+                    <strong className="text-rose-400 font-mono">R$ 0,07 (Prejuízo de R$ 0,43!)</strong>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
+                    <span>Revenda Casco Inteiro para Bar:</span>
+                    <span>R$ 0,80 a R$ 1,00 (Lucro R$ 0,30 a R$ 0,50)</span>
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-amber-300 font-medium leading-tight">
+                  ⚠️ <strong>Veredito:</strong> SÓ ESTÁ CERTO SE FOR PARA REVENDA INTEIRA (CASCO). Se estiver quebrada/para caco, peça 10 garrafas por R$ 0,50.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const b = catalog.find((c) => c.category === "cerveja600") || catalog[0];
+                    if (b) handleAddBottleToCart(b, 1);
+                    setShowStrategicGuideModal(false);
+                  }}
+                  className="w-full py-1.5 bg-slate-900 hover:bg-amber-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Lançar 1 Casco Intacto (R$ 0,50) no Carrinho</span>
+                </button>
+              </div>
+
+              {/* 4. Garrafão Litrão 1 Litro */}
+              <div className="p-4 rounded-2xl bg-rose-950/20 border border-rose-500/40 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🍾</span>
+                    <div>
+                      <h4 className="font-black text-white text-sm">4. Garrafão Litrão 1 Litro</h4>
+                      <span className="text-[10px] text-slate-400">1 unidade ~ 0.7 kg (Retornável)</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                    🚨 ATENÇÃO!
+                  </span>
+                </div>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-white/5 space-y-1 text-[11px]">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você paga por 1 garrafa:</span>
+                    <strong className="text-amber-400 font-mono">R$ 0,50</strong>
+                  </div>
+                  <div className="flex justify-between text-slate-300">
+                    <span>Se vender como caco pro Victor (0.7kg):</span>
+                    <strong className="text-rose-400 font-mono">R$ 0,10 (Prejuízo de R$ 0,40!)</strong>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
+                    <span>Revenda Casco Inteiro para Bar:</span>
+                    <span>R$ 1,00 a R$ 1,50 (Lucro R$ 0,50 a R$ 1,00)</span>
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-amber-300 font-medium leading-tight">
+                  ⚠️ <strong>Veredito:</strong> SÓ ESTÁ CERTO SE FOR PARA REVENDA INTEIRA (CASCO). Se for quebrar para o Victor, peça pelo menos 7 unidades por R$ 0,50.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const b = catalog.find((c) => c.category === "litrao") || catalog[0];
+                    if (b) handleAddBottleToCart(b, 1);
+                    setShowStrategicGuideModal(false);
+                  }}
+                  className="w-full py-1.5 bg-slate-900 hover:bg-amber-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Lançar 1 Litrão Intacto (R$ 0,50) no Carrinho</span>
+                </button>
+              </div>
+
+              {/* 5. Vinhos / Espumantes */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-white/10 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🍷</span>
+                    <div>
+                      <h4 className="font-black text-white text-sm">5. Garrafas de Vinho / Espumante</h4>
+                      <span className="text-[10px] text-slate-400">Lote de 9 unidades ~ 5.4 kg</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    CORRETO ✅
+                  </span>
+                </div>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-white/5 space-y-1 text-[11px]">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você paga ao colaborador:</span>
+                    <strong className="text-amber-400 font-mono">R$ 0,50</strong>
+                  </div>
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você recebe do Victor (5.4 kg × R$ 0,15):</span>
+                    <strong className="text-emerald-400 font-mono">R$ 0,81</strong>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
+                    <span>Seu Lucro Líquido:</span>
+                    <span>+R$ 0,31 por lote (38% margem)</span>
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-slate-400">
+                  💡 <strong>Veredito:</strong> Vidro pesado, boa margem e agrega bastante peso à carga.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const b = catalog.find((c) => c.category === "vinho") || catalog[0];
+                    if (b) handleAddBottleToCart(b, 9);
+                    setShowStrategicGuideModal(false);
+                  }}
+                  className="w-full py-1.5 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Lançar 1 Lote (9 un / R$ 0,50) no Carrinho</span>
+                </button>
+              </div>
+
+              {/* 6. Potes de Conserva */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-white/10 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🫙</span>
+                    <div>
+                      <h4 className="font-black text-white text-sm">6. Potes de Conserva</h4>
+                      <span className="text-[10px] text-slate-400">Lote de 18 unidades ~ 5.0 kg</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    CORRETO ✅
+                  </span>
+                </div>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-white/5 space-y-1 text-[11px]">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você paga ao colaborador:</span>
+                    <strong className="text-amber-400 font-mono">R$ 0,50</strong>
+                  </div>
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você recebe do Victor (5.0 kg × R$ 0,15):</span>
+                    <strong className="text-emerald-400 font-mono">R$ 0,75</strong>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
+                    <span>Seu Lucro Líquido:</span>
+                    <span>+R$ 0,25 por lote (33% margem)</span>
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-slate-400">
+                  💡 <strong>Veredito:</strong> Margem segura. Potes de palmito e azeitona têm ótimo giro.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const b = catalog.find((c) => c.category === "pote") || catalog[0];
+                    if (b) handleAddBottleToCart(b, 18);
+                    setShowStrategicGuideModal(false);
+                  }}
+                  className="w-full py-1.5 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Lançar 1 Lote (18 un / R$ 0,50) no Carrinho</span>
+                </button>
+              </div>
+
+              {/* 7. Cacos na Sacola Reforçada */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-white/10 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🛍️</span>
+                    <div>
+                      <h4 className="font-black text-white text-sm">7. Cacos de Vidro na Sacola Reforçada</h4>
+                      <span className="text-[10px] text-slate-400">1 sacola cheia ~ 5.0 kg</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    CORRETO ✅
+                  </span>
+                </div>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-white/5 space-y-1 text-[11px]">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você paga ao colaborador:</span>
+                    <strong className="text-amber-400 font-mono">R$ 0,50</strong>
+                  </div>
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você recebe do Victor (5.0 kg × R$ 0,15):</span>
+                    <strong className="text-emerald-400 font-mono">R$ 0,75</strong>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
+                    <span>Seu Lucro Líquido:</span>
+                    <span>+R$ 0,25 por sacola (33% margem)</span>
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-slate-400">
+                  💡 <strong>Veredito:</strong> Rápido e prático, não perde tempo contando garrafa a garrafa.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const b = catalog.find((c) => c.category === "caco" && c.unitWeightKg <= 6) || catalog[0];
+                    if (b) handleAddBottleToCart(b, 1);
+                    setShowStrategicGuideModal(false);
+                  }}
+                  className="w-full py-1.5 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Lançar 1 Sacola (5 kg / R$ 0,50) no Carrinho</span>
+                </button>
+              </div>
+
+              {/* 8. Cacos no Balde de 20L */}
+              <div className="p-4 rounded-2xl bg-emerald-950/20 border border-emerald-500/40 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🪣</span>
+                    <div>
+                      <h4 className="font-black text-white text-sm">8. Cacos no Balde de 20L de Obra</h4>
+                      <span className="text-[10px] text-slate-400">1 balde cheio ~ 16.0 kg</span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    EXCELENTE 🏆
+                  </span>
+                </div>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-white/5 space-y-1 text-[11px]">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você paga ao colaborador:</span>
+                    <strong className="text-amber-400 font-mono">R$ 1,50 (3 moedas de R$ 0,50)</strong>
+                  </div>
+                  <div className="flex justify-between text-slate-300">
+                    <span>Você recebe do Victor (16.0 kg × R$ 0,15):</span>
+                    <strong className="text-emerald-400 font-mono">R$ 2,40</strong>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
+                    <span>Seu Lucro Líquido:</span>
+                    <span>+R$ 0,90 por balde (38% margem)</span>
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-emerald-400 font-bold">
+                  🏆 <strong>Veredito:</strong> EXCELENTE. É a melhor opção de margem e acúmulo de peso de toda a tabela!
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const b = catalog.find((c) => c.category === "caco" && c.unitWeightKg > 10) || catalog[0];
+                    if (b) handleAddBottleToCart(b, 1);
+                    setShowStrategicGuideModal(false);
+                  }}
+                  className="w-full py-1.5 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Lançar 1 Balde (16 kg / R$ 1,50) no Carrinho</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Resumo Estratégico do Veredito no Rodapé */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/40 via-slate-950 to-emerald-950/40 border border-amber-500/40 space-y-2">
+              <span className="text-[11px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                💡 Resumo do Veredito da D.W VIDROS:
+              </span>
+              <ul className="text-xs text-slate-200 space-y-1.5 list-disc list-inside">
+                <li>
+                  <strong className="text-emerald-300">Cacos, Longnecks, Potes, Vinhos e 51 / Dreher:</strong> Os cálculos estão perfeitos e super seguros para comprar nos lotinhos de R$ 0,50 a R$ 1,50.
+                </li>
+                <li>
+                  <strong className="text-rose-300">Garrafas de Cerveja Retornáveis (600ml e Litrão):</strong> Pagar R$ 0,50 por unidade <strong>SOMENTE se o casco estiver inteiro</strong> para revender para bares/mercados por R$ 0,80 a R$ 1,50. Se for para quebrar e mandar no caminhão de caco do Victor, <strong>coloque no seu cartaz que precisam ser lotes</strong> (ex: 8 a 10 garrafas de 600ml ou 7 de Litrão por R$ 0,50) para você não tomar prejuízo na sucata!
+                </li>
+              </ul>
+            </div>
+
+            {/* Footer */}
+            <div className="pt-2 flex items-center justify-between border-t border-white/10 flex-wrap gap-2">
+              <span className="text-[10px] text-slate-400">
+                Base Victor: R$ 150,00/tonelada (R$ 0,15 por kg de caco de vidro)
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowStrategicGuideModal(false)}
+                className="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase rounded-xl transition-all cursor-pointer shadow-md"
+              >
+                Entendido, Fechar Guia 👍
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1491,16 +1491,39 @@ export default function App() {
   // Inicialização e vinculação permanente da empresa D.W VIDROS & RECICLAGEM com CNPJ 67.965.725/0001-95 e Plano Infinito
   useEffect(() => {
     try {
-      localStorage.setItem("pdv_store_cnpj_cpf", "67.965.725/0001-95");
-      localStorage.setItem("pdv_owner_cpf", "67.965.725/0001-95");
-      localStorage.setItem("pdv_store_name", "D.W VIDROS & RECICLAGEM");
-      localStorage.setItem("pdv_owner_name", "Denise Jesus & Wellington Oliveira");
+      if (!localStorage.getItem("pdv_store_cnpj_cpf")) {
+        localStorage.setItem("pdv_store_cnpj_cpf", "67.965.725/0001-95");
+        localStorage.setItem("pdv_owner_cpf", "67.965.725/0001-95");
+      }
+      if (!localStorage.getItem("pdv_store_name")) {
+        localStorage.setItem("pdv_store_name", "D.W VIDROS & RECICLAGEM");
+      }
+      if (!localStorage.getItem("pdv_owner_name")) {
+        localStorage.setItem("pdv_owner_name", "Denise Jesus & Wellington Oliveira");
+      }
       localStorage.setItem("app_subscription_tier", "infinite");
       localStorage.setItem("pdv_license_active", "true");
       localStorage.setItem("is_premium", "true");
       localStorage.setItem("pdv_owner_vip_unlocked", "true");
       localStorage.setItem("pdv_owner_mode", "true");
     } catch {}
+
+    const handleProfileChange = (e: any) => {
+      const p = e.detail;
+      if (p?.name) setStoreName(p.name);
+      if (p?.cnpjCpf) setStoreCnpjCpf(p.cnpjCpf);
+    };
+
+    const handleCpfSaved = (e: any) => {
+      if (e.detail?.cpf) setStoreCnpjCpf(e.detail.cpf);
+    };
+
+    window.addEventListener("pdv_company_profile_changed", handleProfileChange);
+    window.addEventListener("pdv_cpf_saved", handleCpfSaved);
+    return () => {
+      window.removeEventListener("pdv_company_profile_changed", handleProfileChange);
+      window.removeEventListener("pdv_cpf_saved", handleCpfSaved);
+    };
   }, []);
 
   const requestPushNotificationPermission = async () => {

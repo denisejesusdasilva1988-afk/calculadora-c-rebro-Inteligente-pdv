@@ -23,6 +23,9 @@ import {
   Receipt,
   Save,
   Eye,
+  EyeOff,
+  Key,
+  User,
   Sparkles,
   ShieldCheck,
   Smartphone,
@@ -59,6 +62,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
   const [profile, setProfile] = useState<CompanyProfile>(() => loadCompanyProfile(userId));
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<"form" | "preview">("form");
+  const [showPin, setShowPin] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -116,9 +120,41 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
 
     setIsSaving(true);
     try {
-      saveCompanyProfile(profile, userId);
+      const cleanProfile: CompanyProfile = {
+        ...profile,
+        name: profile.name.trim(),
+        cnpjCpf: profile.cnpjCpf.trim(),
+        ownerName: (profile.ownerName || "").trim(),
+        ownerPin: (profile.ownerPin || "").trim(),
+        pixKey: (profile.pixKey || "").trim(),
+        phone: (profile.phone || "").trim(),
+        whatsapp: (profile.whatsapp || "").trim(),
+        email: (profile.email || "").trim(),
+        address: (profile.address || "").trim(),
+      };
 
-      // Salva no Firestore se houver usuário conectado com timeout de segurança
+      // 1. Salvar no utilitário centralizado e localStorage em todas as chaves
+      saveCompanyProfile(cleanProfile, userId);
+      localStorage.setItem("pdv_store_name", cleanProfile.name);
+      localStorage.setItem("pdv_store_cnpj_cpf", cleanProfile.cnpjCpf);
+      localStorage.setItem("pdv_owner_cpf", cleanProfile.cnpjCpf);
+      if (cleanProfile.ownerName) {
+        localStorage.setItem("pdv_owner_name", cleanProfile.ownerName);
+      }
+      if (cleanProfile.ownerPin !== undefined) {
+        localStorage.setItem("pdv_owner_pin", cleanProfile.ownerPin);
+      }
+      if (cleanProfile.pixKey) {
+        localStorage.setItem("pdv_pix_key", cleanProfile.pixKey);
+      }
+
+      // 2. Disparar eventos para sincronização instantânea em toda a aplicação
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", { detail: cleanProfile }));
+        window.dispatchEvent(new CustomEvent("pdv_owner_pin_changed", { detail: cleanProfile.ownerPin }));
+      }
+
+      // 3. Salva no Firestore se houver usuário conectado com timeout de segurança
       const auth = getAuth();
       const isAuthActive = Boolean(auth?.currentUser && auth.currentUser.uid === userId);
       if (userId && userId !== "guest_visitor" && db && isAuthActive) {
@@ -126,11 +162,13 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
           const userDocRef = doc(db, "userData", userId);
           const cloudPromise = setDoc(userDocRef, {
             userId: userId,
-            companyProfile: profile,
-            storeName: profile.name,
-            storeCnpjCpf: profile.cnpjCpf,
-            ownerCpf: profile.ownerCpf || profile.cnpjCpf,
-            ownerName: profile.ownerName,
+            companyProfile: cleanProfile,
+            storeName: cleanProfile.name,
+            storeCnpjCpf: cleanProfile.cnpjCpf,
+            ownerCpf: cleanProfile.ownerCpf || cleanProfile.cnpjCpf,
+            ownerName: cleanProfile.ownerName,
+            ownerPin: cleanProfile.ownerPin,
+            pixKey: cleanProfile.pixKey,
             updatedAt: new Date().toISOString()
           }, { merge: true });
 
@@ -142,10 +180,10 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
       }
 
       if (onSaved) {
-        onSaved(profile);
+        onSaved(cleanProfile);
       }
 
-      showNotification("Dados da empresa e preferências da notinha salvos com sucesso! 🏢🧾✅", "success");
+      showNotification("Dados da empresa, CNPJ e PIN do proprietário salvos com sucesso! 🏢💾✅", "success");
       onClose();
     } catch (err) {
       console.error("Erro ao salvar perfil da empresa:", err);
@@ -416,6 +454,55 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                     placeholder="Ex: 12.345.678/0001-90 ou CPF"
                     className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono focus:border-blue-500/50"
                   />
+                </div>
+
+                {/* 2.1 Nome dos Proprietários / Responsáveis */}
+                <div className="bg-slate-850/70 p-3.5 rounded-2xl border border-white/5 space-y-2">
+                  <label className="text-[10.5px] font-extrabold uppercase text-slate-300 tracking-wider flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Nome dos Proprietários / Titulares</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={profile.ownerName || ""}
+                    onChange={(e) => handleChange("ownerName", e.target.value)}
+                    placeholder="Ex: Denise Jesus & Wellington Oliveira"
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-cyan-500/50"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Proprietários responsáveis cadastrados no sistema da empresa.
+                  </p>
+                </div>
+
+                {/* 2.2 PIN de Segurança do Caixa / PDV (4 dígitos) */}
+                <div className="bg-gradient-to-r from-amber-950/40 via-slate-850/80 to-slate-850/80 p-3.5 rounded-2xl border border-amber-500/30 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-[10.5px] font-extrabold uppercase text-amber-300 tracking-wider flex items-center gap-1.5">
+                      <Key className="w-3.5 h-3.5 text-amber-400" />
+                      <span>PIN do Proprietário / Caixa (4 dígitos) 🔐</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPin(!showPin)}
+                      className="px-2 py-0.5 rounded-md text-[9.5px] font-bold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all flex items-center gap-1 cursor-pointer"
+                    >
+                      {showPin ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      <span>{showPin ? "Ocultar" : "Ver PIN"}</span>
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showPin ? "text" : "password"}
+                      maxLength={6}
+                      value={profile.ownerPin || ""}
+                      onChange={(e) => handleChange("ownerPin", e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="Ex: 1234 (4 dígitos)"
+                      className="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-sm text-amber-200 outline-none font-mono font-black tracking-widest focus:border-amber-400"
+                    />
+                  </div>
+                  <p className="text-[10.5px] text-slate-300 leading-tight">
+                    🔒 <strong>PIN do Proprietário:</strong> Usado para autorizar sangrias, suprimentos, descontos, fechar caixas e abrir o painel gerencial da empresa.
+                  </p>
                 </div>
 
                 {/* 3. Telefone e WhatsApp (Grid 2 cols) */}

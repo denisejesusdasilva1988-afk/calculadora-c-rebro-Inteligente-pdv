@@ -20,6 +20,7 @@ import {
 import { getAuth, updatePassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { CompanyProfileModal } from "./CompanyProfileModal";
+import { loadCompanyProfile, saveCompanyProfile } from "../utils/companyProfile";
 
 interface PDVSettingsProfileProps {
   storeName: string;
@@ -183,6 +184,13 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
     setIsUpdatingPin(true);
     try {
       localStorage.setItem("pdv_owner_pin", newPinInput);
+      try {
+        const prof = loadCompanyProfile(userId);
+        saveCompanyProfile({ ...prof, ownerPin: newPinInput }, userId);
+      } catch {}
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("pdv_owner_pin_changed", { detail: newPinInput }));
+      }
       
       const auth = getAuth();
       if (auth.currentUser && db && userId && userId !== "guest_visitor") {
@@ -286,10 +294,15 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
               type="text"
               value={storeName}
               onChange={(e) => {
-                setStoreName(e.target.value);
-                localStorage.setItem("pdv_store_name", e.target.value);
+                const val = e.target.value;
+                setStoreName(val);
+                localStorage.setItem("pdv_store_name", val);
+                try {
+                  const prof = loadCompanyProfile(userId);
+                  saveCompanyProfile({ ...prof, name: val }, userId);
+                } catch {}
               }}
-              placeholder="Ex: Mercadinho Cérebro Inteligente"
+              placeholder="Ex: D.W VIDROS & RECICLAGEM"
               className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
             />
           </div>
@@ -302,10 +315,16 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
               type="text"
               value={storeCnpjCpf}
               onChange={(e) => {
-                setStoreCnpjCpf(e.target.value);
-                localStorage.setItem("pdv_store_cnpj_cpf", e.target.value);
+                const val = e.target.value;
+                setStoreCnpjCpf(val);
+                localStorage.setItem("pdv_store_cnpj_cpf", val);
+                localStorage.setItem("pdv_owner_cpf", val);
+                try {
+                  const prof = loadCompanyProfile(userId);
+                  saveCompanyProfile({ ...prof, cnpjCpf: val, ownerCpf: val }, userId);
+                } catch {}
               }}
-              placeholder="Ex: 123.456.789-00"
+              placeholder="Ex: 67.965.725/0001-95"
               className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
             />
           </div>

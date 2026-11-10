@@ -93,6 +93,11 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
     const prof = loadCompanyProfile(user?.uid);
     return prof.name || storeName || "";
   });
+  const [ownerPinInput, setOwnerPinInput] = useState(() => {
+    const prof = loadCompanyProfile(user?.uid);
+    return prof.ownerPin || localStorage.getItem("pdv_owner_pin") || getScopedItem("pdv_owner_pin", user?.uid) || "";
+  });
+  const [showOwnerPin, setShowOwnerPin] = useState(false);
   const [logoInput, setLogoInput] = useState(profile.logoUrl || "");
   const [isSavingData, setIsSavingData] = useState(false);
 
@@ -112,6 +117,10 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
 
   // 🔒 Bloqueio de Privacidade do Proprietário (Proteção contra Funcionários no Balcão)
   const [isCardLocked, setIsCardLocked] = useState<boolean>(() => {
+    const isOwnerMode = localStorage.getItem("pdv_owner_mode") === "true" || localStorage.getItem("pdv_owner_vip_unlocked") === "true";
+    if (isOwnerMode) return false;
+    const hasPin = Boolean(localStorage.getItem("pdv_owner_pin") || getScopedItem("pdv_owner_pin", user?.uid));
+    if (!hasPin) return false;
     return sessionStorage.getItem("pdv_personal_data_unlocked") !== "true";
   });
   const [unlockMode, setUnlockMode] = useState<"pin_password" | "cpf">("pin_password");
@@ -146,6 +155,9 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
     if (!phoneInput && (loaded.phone || loaded.whatsapp)) setPhoneInput(loaded.phone || loaded.whatsapp);
     if (!pixKeyInput && loaded.pixKey) setPixKeyInput(loaded.pixKey);
     if (!companyNameInput && (loaded.name || storeName)) setCompanyNameInput(loaded.name || storeName);
+    if (!ownerPinInput && (loaded.ownerPin || localStorage.getItem("pdv_owner_pin"))) {
+      setOwnerPinInput(loaded.ownerPin || localStorage.getItem("pdv_owner_pin") || "");
+    }
     if (!logoInput && loaded.logoUrl) setLogoInput(loaded.logoUrl);
   }, [user?.uid, storeCnpjCpf, storeName]);
 
@@ -217,8 +229,8 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
     e.preventDefault();
     const cleanCpfDigits = cpfInput.replace(/\D/g, "");
 
-    if (cleanCpfDigits.length > 0 && cleanCpfDigits.length < 11) {
-      showNotification("Por favor, digite um CPF válido com 11 dígitos ou deixe em branco! ❌", "error");
+    if (cleanCpfDigits.length > 0 && cleanCpfDigits.length !== 11 && cleanCpfDigits.length !== 14) {
+      showNotification("Por favor, digite um CPF válido (11 dígitos) ou CNPJ (14 dígitos), ou deixe em branco! ❌", "error");
       return;
     }
 
@@ -226,16 +238,18 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
     try {
       const trimmedCpf = cpfInput.trim();
       const trimmedOwnerName = ownerNameInput.trim();
-      const trimmedName = companyNameInput.trim() || profile.name || "Calculadora Cérebro PDV";
+      const trimmedName = companyNameInput.trim() || profile.name || "D.W VIDROS & RECICLAGEM";
       const trimmedPhone = phoneInput.trim();
       const trimmedPix = pixKeyInput.trim() || "21966713263";
       const trimmedLogo = logoInput.trim();
+      const cleanPin = ownerPinInput.replace(/\D/g, "").slice(0, 6);
 
       const updatedProfile: CompanyProfile = {
         ...profile,
         ownerName: trimmedOwnerName,
         ownerCpf: trimmedCpf,
         cnpjCpf: trimmedCpf || profile.cnpjCpf,
+        ownerPin: cleanPin || profile.ownerPin || "",
         phone: trimmedPhone,
         whatsapp: trimmedPhone,
         pixKey: trimmedPix,
@@ -255,8 +269,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
         setScopedItem("pdv_store_cnpj_cpf", trimmedCpf, user?.uid);
         setScopedItem("pdv_owner_cpf", trimmedCpf, user?.uid);
 
-        // Mapeia CPF para Email da conta para permitir login por CPF
-        const cleanCpfDigits = trimmedCpf.replace(/\D/g, "");
+        // Mapeia CPF/CNPJ para Email da conta para permitir login por CPF
         const accountEmail = (user?.email || (isDenise ? "denisejesusdasilva1988@gmail.com" : "")).toLowerCase();
         if (cleanCpfDigits.length >= 11 && accountEmail) {
           try {
@@ -286,6 +299,13 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
         localStorage.setItem("pdv_owner_name", trimmedOwnerName);
         setScopedItem("pdv_owner_name", trimmedOwnerName, user?.uid);
       }
+      if (cleanPin) {
+        localStorage.setItem("pdv_owner_pin", cleanPin);
+        setScopedItem("pdv_owner_pin", cleanPin, user?.uid);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("pdv_owner_pin_changed", { detail: cleanPin }));
+        }
+      }
       if (trimmedPhone) {
         localStorage.setItem("pdv_store_phone", trimmedPhone);
         localStorage.setItem("pdv_store_whatsapp", trimmedPhone);
@@ -298,13 +318,13 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
       }
       localStorage.setItem("pdv_company_logo", trimmedLogo);
 
-      // 3. Notifica toda a aplicação para refletir o CPF e os dados instantaneamente
+      // 3. Notifica toda a aplicação para refletir o perfil instantaneamente
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("pdv_cpf_saved", { detail: { cpf: trimmedCpf, ownerName: trimmedOwnerName } }));
+        window.dispatchEvent(new CustomEvent("pdv_company_profile_changed", { detail: updatedProfile }));
       }
 
       // 4. Tenta salvar na nuvem Firebase Firestore COM TIMEOUT DE SEGURANÇA (máx 2.5s)
-      // Se a conexão estiver instável ou sem sinal, NÃO trava a tela do usuário!
       if (user?.uid && user.uid !== "guest_visitor" && db) {
         try {
           const userDocRef = doc(db, "userData", user.uid);
@@ -314,6 +334,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
               userId: user.uid,
               ownerName: trimmedOwnerName,
               ownerCpf: trimmedCpf,
+              ownerPin: cleanPin,
               storeCnpjCpf: trimmedCpf,
               phone: trimmedPhone,
               pixKey: trimmedPix,
@@ -331,7 +352,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
         }
       }
 
-      showNotification("Meus Dados Pessoais e CPF salvos com sucesso na conta! 🛡️✅", "success");
+      showNotification("Dados da Empresa, CNPJ e PIN do proprietário salvos com sucesso! 🏢🔐✅", "success");
     } catch (err: any) {
       console.error("Erro ao salvar dados pessoais:", err);
       showNotification(`Erro ao salvar dados: ${err.message || err}`, "error");
@@ -1067,19 +1088,49 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
             </div>
           </div>
 
-          {/* Nome da Empresa / Comércio */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5 text-orange-400" />
-              <span>Nome da Empresa / Comércio / Barbearia</span>
-            </label>
-            <input
-              type="text"
-              value={companyNameInput}
-              onChange={(e) => setCompanyNameInput(e.target.value)}
-              placeholder="Ex: Calculadora Cérebro PDV / Barbearia do Amigo"
-              className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-orange-500 transition-all"
-            />
+          {/* Nome da Empresa & PIN do Proprietário (Grid 2 cols) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-orange-400" />
+                <span>Nome da Empresa / Comércio *</span>
+              </label>
+              <input
+                type="text"
+                value={companyNameInput}
+                onChange={(e) => setCompanyNameInput(e.target.value)}
+                placeholder="Ex: D.W VIDROS & RECICLAGEM"
+                className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-orange-500 transition-all"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5 text-amber-400" />
+                  <span>PIN do Proprietário / Caixa 🔐</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowOwnerPin(!showOwnerPin)}
+                  className="text-[9.5px] font-bold text-amber-300 flex items-center gap-1 cursor-pointer bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 hover:bg-amber-500/20"
+                >
+                  {showOwnerPin ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  <span>{showOwnerPin ? "Ocultar" : "Ver PIN"}</span>
+                </button>
+              </div>
+              <input
+                type={showOwnerPin ? "text" : "password"}
+                maxLength={6}
+                value={ownerPinInput}
+                onChange={(e) => setOwnerPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="Ex: 1234 (4 dígitos)"
+                className="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3.5 py-2.5 text-xs text-amber-200 outline-none font-bold font-mono tracking-widest focus:border-amber-400 transition-all"
+              />
+              <span className="text-[9px] text-slate-500 block">
+                PIN de 4 dígitos para autorizar sangrias, suprimentos e configurações.
+              </span>
+            </div>
           </div>
 
           <div className="pt-2">
@@ -1096,7 +1147,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
               ) : (
                 <>
                   <Save className="w-4 h-4" />
-                  <span>Salvar Meus Dados & CPF 🛡️</span>
+                  <span>Salvar Dados da Empresa, CNPJ & PIN 🛡️💾</span>
                 </>
               )}
             </button>

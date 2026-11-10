@@ -217,9 +217,16 @@ export function GlassRecyclingCalculator({
     }
   });
 
-  // Lista de itens contados no pátio do ferro velho
+  // Lista de itens contados no pátio do ferro velho (Inicializado rigorosamente em ZERO para cálculos exatos)
   const [items, setItems] = useState<GlassItemType[]>(() => {
     try {
+      // Limpeza de testes anteriores: Garante que a calculadora comece rigorosamente em ZERO (0.00 Toneladas)
+      const isCleaned = localStorage.getItem("pdv_dw_glass_zero_clean_v6");
+      if (!isCleaned) {
+        localStorage.setItem("pdv_dw_glass_zero_clean_v6", "true");
+        localStorage.removeItem("pdv_glass_items_inventory_v1");
+        return DEFAULT_GLASS_ITEMS.map((item) => ({ ...item, quantity: 0 }));
+      }
       const stored = localStorage.getItem("pdv_glass_items_inventory_v1");
       if (stored) {
         const parsed = JSON.parse(stored);
@@ -228,15 +235,24 @@ export function GlassRecyclingCalculator({
             ...DEFAULT_GLASS_ITEMS[0],
             ...item,
             id: item.id || `glass_${idx}`,
-            quantity: Number(item.quantity) || 0,
+            quantity: Math.max(0, Number(item.quantity) || 0),
             unitWeightKg: Number(item.unitWeightKg) || 0.5,
             buyPricePerUnit: Number(item.buyPricePerUnit) || 0
           }));
         }
       }
     } catch {}
-    return DEFAULT_GLASS_ITEMS;
+    return DEFAULT_GLASS_ITEMS.map((item) => ({ ...item, quantity: 0 }));
   });
+
+  // Ouvinte de evento global para quando o carrinho ou despacho zerar o estoque
+  useEffect(() => {
+    const handleChildZero = () => {
+      setItems((prev) => prev.map((item) => ({ ...item, quantity: 0 })));
+    };
+    window.addEventListener("dw_glass_zero_yard_from_child", handleChildZero);
+    return () => window.removeEventListener("dw_glass_zero_yard_from_child", handleChildZero);
+  }, []);
 
   // Histórico de compras registradas no portão na sessão de hoje
   const [purchaseHistory, setPurchaseHistory] = useState<GatePurchaseLog[]>(() => {
@@ -334,9 +350,22 @@ export function GlassRecyclingCalculator({
     try {
       localStorage.removeItem("pdv_glass_items_inventory_v1");
     } catch {}
-    setItems(DEFAULT_GLASS_ITEMS);
+    setItems(DEFAULT_GLASS_ITEMS.map((item) => ({ ...item, quantity: 0 })));
     if (showNotification) {
-      showNotification("Modelos e pesos padrão de garrafas restaurados! 🔄", "info");
+      showNotification("Modelos e pesos padrão de garrafas restaurados com estoque zerado! 🔄", "info");
+    }
+  };
+
+  // Função para Zerar Imediatamente o Pátio Todo (Começar do Zero Real ou após Caminhão do Victor)
+  const handleZeroEntireYard = () => {
+    setItems((prev) => prev.map((item) => ({ ...item, quantity: 0 })));
+    try {
+      localStorage.setItem("pdv_glass_items_inventory_v1", JSON.stringify(DEFAULT_GLASS_ITEMS.map((item) => ({ ...item, quantity: 0 }))));
+      // Dispara evento global para o carrinho e catálogo de estoque também zerarem
+      window.dispatchEvent(new CustomEvent("dw_glass_zero_yard"));
+    } catch {}
+    if (showNotification) {
+      showNotification("🧹 Pátio 100% zerado com sucesso! Total: 0.00 Toneladas (0 kg). Pronto para iniciar contagens e compras reais!", "success");
     }
   };
 
@@ -904,25 +933,44 @@ export function GlassRecyclingCalculator({
         </div>
 
         {/* Resumo Rápido da Carga Atual */}
-        <div className="bg-slate-950/80 p-3.5 rounded-xl border border-emerald-500/20 flex items-center justify-between">
-          <div>
-            <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Total no Pátio Agora:</span>
-            <span className="text-xl font-black text-white font-mono">
-              {calculations.totalWeightTon.toFixed(2)} <span className="text-xs text-emerald-400 font-bold">Ton</span>
-            </span>
-            <span className="text-[10px] text-slate-400 block">
-              {calculations.totalWeightKg.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} kg
-            </span>
+        <div className="bg-slate-950/80 p-3.5 rounded-xl border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-lg shrink-0">
+              ⚖️
+            </div>
+            <div>
+              <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Total no Pátio Agora:</span>
+              <span className="text-xl font-black text-white font-mono">
+                {calculations.totalWeightTon.toFixed(2)} <span className="text-xs text-emerald-400 font-bold">Ton</span>
+              </span>
+              <span className="text-[10px] text-slate-400 block">
+                {calculations.totalWeightKg.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} kg ({calculations.totalGlassUnits} un)
+              </span>
+            </div>
           </div>
 
-          <div className="text-right">
-            <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Valor Bruto:</span>
-            <span className="text-lg font-black text-emerald-400 font-mono">
-              R$ {calculations.grossRevenueWeight.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-            <span className="text-[10px] text-emerald-300 font-bold block">
-              +{calculations.profitMarginPct.toFixed(0)}% lucro
-            </span>
+          <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5">
+            <div className="text-left sm:text-right">
+              <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Valor Bruto no Victor:</span>
+              <span className="text-lg font-black text-emerald-400 font-mono">
+                R$ {calculations.grossRevenueWeight.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="text-[10px] text-emerald-300 font-bold block">
+                {calculations.totalWeightKg > 0
+                  ? `+${calculations.profitMarginPct.toFixed(0)}% lucro estimado`
+                  : "Pátio limpo (0 garrafas)"}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleZeroEntireYard}
+              className="min-h-[42px] px-3.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/25 active:scale-95 border border-rose-500/30 rounded-xl text-rose-300 text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shrink-0 shadow-sm"
+              title="Zerar o estoque do pátio para 0.00 Ton para iniciar contagem real ou após a saída do caminhão"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>Zerar Pátio (0 Ton) 🧹</span>
+            </button>
           </div>
         </div>
       </div>
