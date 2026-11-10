@@ -1133,8 +1133,9 @@ export function GlassBarcodeScannerCart({
 
   // Compartilhar Comprovante no WhatsApp
   const handleShareReceiptWhatsApp = (receipt: CollaboratorPaymentReceipt) => {
-    let msg = `🧾 *D.W VIDROS E RECICLAGEM*\n`;
-    msg += `_Denise Jesus & Wellington Oliveira_\n`;
+    let msg = `🧾 *D.W VIDROS & RECICLAGEM*\n`;
+    msg += `_CNPJ: 67.965.725/0001-95 • Denise Jesus & Wellington Oliveira_\n`;
+    msg += `_Plano Infinito Vitalício ♾️ • Licença Ativa_\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     msg += `🤝 *RECIBO DE PAGAMENTO / ACERTO*\n`;
     msg += `👤 *Colaborador:* ${receipt.collaboratorName}\n`;
@@ -1144,7 +1145,7 @@ export function GlassBarcodeScannerCart({
     if (receipt.notes) msg += `📝 *Obs:* ${receipt.notes}\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     msg += `Saldo Restante no Caderninho: R$ ${receipt.remainingBalance.toFixed(2)}\n\n`;
-    msg += `_Obrigado pela parceria na reciclagem de vidros! D.W Vidros 🌱_`;
+    msg += `_Obrigado pela parceria na reciclagem de vidros! D.W Vidros & Reciclagem 🌱_`;
 
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank");
@@ -1152,14 +1153,21 @@ export function GlassBarcodeScannerCart({
 
   return (
     <div className="space-y-5 text-left font-sans">
-      {/* CABEÇALHO OFICIAL: D.W VIDROS E RECICLAGEM */}
+      {/* CABEÇALHO OFICIAL: D.W VIDROS & RECICLAGEM */}
       <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 border-2 border-emerald-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border border-emerald-500/40 shadow-sm">
                 <Crown className="w-4 h-4 text-amber-400" />
-                D.W Vidros e Reciclagem Oficial
+                D.W VIDROS & RECICLAGEM
+              </span>
+              <span className="text-[11px] bg-amber-500/20 text-amber-300 font-mono font-bold px-2.5 py-1 rounded-lg border border-amber-500/40 shadow-sm">
+                CNPJ: 67.965.725/0001-95
+              </span>
+              <span className="text-[11px] bg-purple-500/20 text-purple-200 font-bold px-2.5 py-1 rounded-lg border border-purple-500/30 flex items-center gap-1">
+                <span>♾️</span>
+                <span>Plano Infinito Vitalício</span>
               </span>
               <span className="text-[11px] bg-slate-800 text-slate-200 font-bold px-2.5 py-1 rounded-lg border border-white/10">
                 Denise Jesus & Wellington Oliveira

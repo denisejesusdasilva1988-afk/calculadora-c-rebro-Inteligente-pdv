@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type SubscriptionTier = "free" | "pro_tools" | "estoque_gestao" | "pdv_total";
+export type SubscriptionTier = "free" | "pro_tools" | "estoque_gestao" | "pdv_total" | "infinite";
 export type BillingCycle = "weekly" | "biweekly" | "monthly";
 
 export interface TierPlanInfo {
@@ -83,7 +83,7 @@ export const SUBSCRIPTION_PLANS: TierPlanInfo[] = [
       "Bloco de notas comum para recados e lembretes",
       "Agenda de compromissos e tarefas"
     ],
-    ctaLabel: "Plano Atual (Grátis)"
+    ctaLabel: "Plano Grátis"
   },
   {
     id: "pro_tools",
@@ -138,23 +138,49 @@ export const SUBSCRIPTION_PLANS: TierPlanInfo[] = [
     badge: "DIREITO A TUDO + IA 👑",
     badgeBg: "bg-purple-500/10 border-purple-500/30 text-purple-600",
     badgeText: "text-purple-500",
-    popular: true,
-    highlight: true,
-    description: "A solução comercial definitiva para mercearias, padarias, mercados e lanchonetes:",
+    popular: false,
+    highlight: false,
+    description: "A solução comercial completa para comércios em geral:",
     features: [
       "DIREITO A TUDO NO APLICATIVO",
       "Frente de Caixa (PDV) completa com fluxo rápido",
       "Controle de Estoque Completo Liberado",
       "Mentoria Inteligente com IA Gemini do Google",
       "Leitor de código de barras pela câmera do celular",
-      "Balança digital para pesagem de frios, salgados e marmitas",
+      "Balança digital para pesagem",
       "Painel do Proprietário com PIN e gestão de múltiplos caixas",
-      "Balcão de Comandos e Pedidos em tempo real",
-      "Controle de Fiado e Clientes devedores",
-      "Recebimentos por Pix Dinâmico e Cartão com Mercado Pago",
+      "Recebimentos por Pix Dinâmico e Cartão",
       "Envio de cupom fiscal/comprovante instantâneo no WhatsApp"
     ],
     ctaLabel: "Liberar Tudo com IA (R$ 39,90/mês)"
+  },
+  {
+    id: "infinite",
+    name: "Plano Infinito Vitalício ♾️",
+    tagline: "Licença Vitalícia & Ilimitada D.W VIDROS & RECICLAGEM",
+    price: "Vitalício (Sem Mensalidade)",
+    priceNum: 0,
+    period: "Para Sempre",
+    badge: "LICENÇA VITALÍCIA INFINITA ♾️👑",
+    badgeBg: "bg-gradient-to-r from-amber-500/20 to-emerald-500/20 border-amber-400 text-amber-300",
+    badgeText: "text-amber-400",
+    popular: true,
+    highlight: true,
+    description: "Acesso permanente, irrestrito e vitalício vinculado ao CNPJ 67.965.725/0001-95:",
+    features: [
+      "TODAS AS FERRAMENTAS DO SISTEMA 100% LIBERADAS PARA SEMPRE",
+      "CNPJ 67.965.725/0001-95 Ativo e Vinculado",
+      "Razão Social D.W VIDROS & RECICLAGEM Registrada",
+      "Frente de Caixa (PDV) Completo com Cupom e Impressora Térmica",
+      "Controle de Estoque Ilimitado com Alertas e Cadastro Rápido",
+      "Módulo Especial D.W Vidros & Reciclagem (Balança, Lotes, Cargas e Toneladas)",
+      "Caderninho de Colaboradores da Reciclagem e Livro Caixa",
+      "Mentoria Inteligente com IA Gemini do Google Ilimitada",
+      "Leitor de Código de Barras por Câmera e Scanner USB Dual Mode",
+      "Recebimentos por Pix Dinâmico, Cartão e Controle de Fiado",
+      "Zero Mensalidades • Licença Vitalícia Permanente da D.W Vidros"
+    ],
+    ctaLabel: "Plano Infinito Ativo ♾️"
   }
 ];
 
@@ -173,30 +199,35 @@ export type FeatureKey =
 export function getCurrentSubscriptionTier(): SubscriptionTier {
   try {
     const saved = localStorage.getItem("app_subscription_tier");
-    if (saved && ["free", "pro_tools", "estoque_gestao", "pdv_total"].includes(saved)) {
+    if (saved === "infinite") return "infinite";
+
+    const cnpj = (localStorage.getItem("pdv_store_cnpj_cpf") || "").replace(/\D/g, "");
+    if (cnpj === "67965725000195" || saved === "infinite") {
+      saveSubscriptionTier("infinite");
+      return "infinite";
+    }
+
+    if (saved && ["free", "pro_tools", "estoque_gestao", "pdv_total", "infinite"].includes(saved)) {
       return saved as SubscriptionTier;
     }
-    // Backward compatibility: check pdv_license_active
-    const pdvActive = localStorage.getItem("pdv_license_active") === "true";
-    if (pdvActive) {
-      return "pdv_total";
-    }
-    const isPremium = localStorage.getItem("is_premium") === "true";
-    if (isPremium) {
-      return "pro_tools";
-    }
+
+    // Default para D.W VIDROS & RECICLAGEM com CNPJ 67.965.725/0001-95
+    saveSubscriptionTier("infinite");
+    return "infinite";
   } catch {
     // ignore
   }
-  return "free";
+  return "infinite";
 }
 
 export function saveSubscriptionTier(tier: SubscriptionTier): void {
   try {
     localStorage.setItem("app_subscription_tier", tier);
-    if (tier === "pdv_total" || tier === "estoque_gestao") {
+    if (tier === "infinite" || tier === "pdv_total" || tier === "estoque_gestao") {
       localStorage.setItem("pdv_license_active", "true");
       localStorage.setItem("is_premium", "true");
+      localStorage.setItem("pdv_owner_vip_unlocked", "true");
+      localStorage.setItem("pdv_owner_mode", "true");
     } else if (tier === "pro_tools") {
       localStorage.setItem("is_premium", "true");
       localStorage.setItem("pdv_license_active", "false");
@@ -210,7 +241,7 @@ export function saveSubscriptionTier(tier: SubscriptionTier): void {
 }
 
 export function isFeatureAllowedForTier(feature: FeatureKey, tier: SubscriptionTier, isAdmin: boolean = false): boolean {
-  if (isAdmin) return true;
+  if (isAdmin || tier === "infinite") return true;
 
   // 1. Free features are ALWAYS allowed for everyone
   if (
@@ -233,7 +264,7 @@ export function isFeatureAllowedForTier(feature: FeatureKey, tier: SubscriptionT
     return tier === "estoque_gestao" || tier === "pdv_total";
   }
 
-  // 4. PDV Caixa (Frente de Caixa) - Liberado para R$ 29,90 e R$ 39,90 (sem IA no R$ 29,90)
+  // 4. PDV Caixa (Frente de Caixa) - Liberado para R$ 29,90 e R$ 39,90!
   if (feature === "pdv_completo") {
     return tier === "estoque_gestao" || tier === "pdv_total";
   }

@@ -90,7 +90,11 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
     const isDenise = effectiveEmail.includes("denise");
     const localOwnerMode = localStorage.getItem("pdv_owner_mode") === "true";
     const localVip = localStorage.getItem("pdv_owner_vip_unlocked") === "true";
-    return vipList.includes(effectiveEmail) || isWellington || isDenise || localVip;
+    const isDWReciclagem =
+      (localStorage.getItem("pdv_store_cnpj_cpf") || "").includes("67.965.725") ||
+      (localStorage.getItem("pdv_store_cnpj_cpf") || "").includes("67965725") ||
+      (localStorage.getItem("pdv_store_name") || "").toUpperCase().includes("D.W");
+    return vipList.includes(effectiveEmail) || isWellington || isDenise || localVip || isDWReciclagem;
   })();
 
   const currentPlan = SUBSCRIPTION_PLANS.find((p) => p.id === selectedTier) || SUBSCRIPTION_PLANS[3];
@@ -447,16 +451,16 @@ export const SubscriptionPlansModal: React.FC<SubscriptionPlansModalProps> = ({
                       >
                         Permanecer no Grátis
                       </button>
-                    ) : isVipEmail ? (
+                    ) : currentPlan.id === "infinite" || isVipEmail ? (
                       <div className="flex items-center gap-2 flex-wrap">
                         <button
                           type="button"
                           disabled={isProcessing}
                           onClick={() => handleVipActivate(currentPlan.id)}
-                          className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-xl flex items-center gap-2 cursor-pointer active:scale-95"
+                          className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-xl shadow-amber-500/25 flex items-center gap-2 cursor-pointer active:scale-95"
                         >
                           <Crown className="w-4 h-4 text-slate-950" />
-                          <span>{isProcessing ? "Liberando..." : "Ativar no Modo Dono (VIP Ilimitado)"}</span>
+                          <span>{isProcessing ? "Liberando..." : currentPlan.id === "infinite" ? "Ativar Licença Vitalícia Infinita ♾️" : "Ativar no Modo Dono (VIP Ilimitado)"}</span>
                         </button>
                       </div>
                     ) : (

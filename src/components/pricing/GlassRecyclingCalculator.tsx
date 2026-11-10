@@ -24,7 +24,8 @@ import {
   ArrowRight,
   ShoppingBag,
   Barcode,
-  Camera
+  Camera,
+  Crown
 } from "lucide-react";
 import { motion } from "motion/react";
 import { SmartNumericInput } from "./SmartNumericInput";
@@ -692,8 +693,15 @@ export function GlassRecyclingCalculator({
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 border border-emerald-500/30">
-                <Wine className="w-3.5 h-3.5" />
-                Módulo Ferro Velho • Reciclagem de Vidros
+                <Crown className="w-3.5 h-3.5 text-amber-400" />
+                D.W VIDROS & RECICLAGEM
+              </span>
+              <span className="text-[10px] bg-amber-500/20 text-amber-300 font-mono font-bold px-2 py-0.5 rounded border border-amber-500/30">
+                CNPJ: 67.965.725/0001-95
+              </span>
+              <span className="text-[10px] bg-purple-500/20 text-purple-200 font-bold px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
+                <span>♾️</span>
+                <span>Plano Infinito Vitalício</span>
               </span>
               <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded border border-amber-500/30">
                 Moeda Mínima: R$ 0,50 por Lote

@@ -1473,7 +1473,7 @@ export default function App() {
   const handleUpdateSubscriptionTier = (tier: SubscriptionTier) => {
     saveSubscriptionTier(tier);
     setSubscriptionTier(tier);
-    if (tier === "pdv_total") {
+    if (tier === "infinite" || tier === "pdv_total") {
       setPdvLicenseActive(true);
       setIsPremium(true);
     } else if (tier === "estoque_gestao") {
@@ -1487,6 +1487,21 @@ export default function App() {
       setPdvLicenseActive(false);
     }
   };
+
+  // Inicialização e vinculação permanente da empresa D.W VIDROS & RECICLAGEM com CNPJ 67.965.725/0001-95 e Plano Infinito
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_store_cnpj_cpf", "67.965.725/0001-95");
+      localStorage.setItem("pdv_owner_cpf", "67.965.725/0001-95");
+      localStorage.setItem("pdv_store_name", "D.W VIDROS & RECICLAGEM");
+      localStorage.setItem("pdv_owner_name", "Denise Jesus & Wellington Oliveira");
+      localStorage.setItem("app_subscription_tier", "infinite");
+      localStorage.setItem("pdv_license_active", "true");
+      localStorage.setItem("is_premium", "true");
+      localStorage.setItem("pdv_owner_vip_unlocked", "true");
+      localStorage.setItem("pdv_owner_mode", "true");
+    } catch {}
+  }, []);
 
   const requestPushNotificationPermission = async () => {
     if (!("Notification" in window)) {
@@ -9432,10 +9447,10 @@ export default function App() {
                   Módulos de Loja / PDV
                 </p>
                 <p className="text-base font-black text-white">
-                  {subscriptionTier === "pdv_total" ? "PDV Total + IA" : subscriptionTier === "estoque_gestao" ? "Estoque & Caixa" : subscriptionTier === "pro_tools" ? "Ferramentas Pro" : "Básico Grátis"}
+                  {subscriptionTier === "infinite" ? "Plano Infinito Vitalício ♾️" : subscriptionTier === "pdv_total" ? "PDV Total + IA" : subscriptionTier === "estoque_gestao" ? "Estoque & Caixa" : subscriptionTier === "pro_tools" ? "Ferramentas Pro" : "Básico Grátis"}
                 </p>
                 <span className="text-[9px] text-purple-300 font-bold block mt-0.5">
-                  {subscriptionTier === "free" ? "Demonstração" : "Liberado Pro"}
+                  {subscriptionTier === "infinite" ? "Vitalício Sem Mensalidade (CNPJ 67.965.725/0001-95)" : subscriptionTier === "free" ? "Demonstração" : "Liberado Pro"}
                 </span>
               </div>
             </div>
@@ -10636,7 +10651,9 @@ export default function App() {
                   <span className="text-[10px] sm:text-xs font-bold text-slate-300 truncate">
                     Plano Ativo:{" "}
                     <strong className="text-amber-400 font-black">
-                      {subscriptionTier === "pdv_total" || pdvLicenseActive
+                      {subscriptionTier === "infinite"
+                        ? "♾️👑 Plano Infinito Vitalício (CNPJ 67.965.725/0001-95) - Tudo Liberado"
+                        : subscriptionTier === "pdv_total" || pdvLicenseActive
                         ? "👑 PDV Total & IA (R$ 39,90) - Tudo Liberado"
                         : subscriptionTier === "estoque_gestao"
                         ? "🔵 Gestão & Estoque (R$ 29,90)"
