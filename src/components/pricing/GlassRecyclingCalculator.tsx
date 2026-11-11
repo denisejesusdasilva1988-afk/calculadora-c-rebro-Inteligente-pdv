@@ -77,10 +77,10 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
     name: "Garrafas Longneck (330ml / 355ml - Heineken, Corona, Stella)",
     category: "longneck",
     emoji: "🍺",
-    unitWeightKg: 0.185, // 3 un ≈ 550g | 6 un ≈ 1,11 kg
-    weightDescription: "3 garrafas ≈ 550g | 6 garrafas ≈ 1,11 kg",
+    unitWeightKg: 0.182, // 182g na balança digital de cozinha da Denise!
+    weightDescription: "1 garrafa = 182g (30 un ≈ 5,46 kg | 100 un = 18,20 kg)",
     quantity: 0,
-    buyPricePerUnit: 0.016, // ~R$ 0,50 por 30 garrafas
+    buyPricePerUnit: 0.50 / 30, // 30 garrafas = R$ 0,50 (1,67¢ por garrafa)
     returnableResellPrice: 0.15,
     isReturnableCandidate: false,
     suggestedLotMinUnits: 30,
@@ -221,10 +221,18 @@ export function GlassRecyclingCalculator({
   const [items, setItems] = useState<GlassItemType[]>(() => {
     try {
       // Limpeza de testes anteriores: Garante que a calculadora comece rigorosamente em ZERO (0.00 Toneladas)
-      const isCleaned = localStorage.getItem("pdv_dw_glass_zero_clean_v6");
+      const isCleaned = localStorage.getItem("pdv_dw_glass_zero_clean_v10");
       if (!isCleaned) {
-        localStorage.setItem("pdv_dw_glass_zero_clean_v6", "true");
+        localStorage.setItem("pdv_dw_glass_zero_clean_v10", "true");
         localStorage.removeItem("pdv_glass_items_inventory_v1");
+        localStorage.removeItem("pdv_dw_glass_catalog_v1");
+        localStorage.removeItem("pdv_dw_glass_catalog_v2");
+        localStorage.removeItem("pdv_dw_glass_catalog_v3");
+        localStorage.removeItem("pdv_dw_glass_catalog_v4");
+        localStorage.removeItem("pdv_dw_glass_catalog_v5");
+        localStorage.removeItem("pdv_dw_glass_catalog_v6");
+        localStorage.removeItem("pdv_dw_glass_catalog_v7");
+        localStorage.removeItem("pdv_dw_glass_catalog_v8");
         return DEFAULT_GLASS_ITEMS.map((item) => ({ ...item, quantity: 0 }));
       }
       const stored = localStorage.getItem("pdv_glass_items_inventory_v1");
@@ -252,6 +260,35 @@ export function GlassRecyclingCalculator({
     };
     window.addEventListener("dw_glass_zero_yard_from_child", handleChildZero);
     return () => window.removeEventListener("dw_glass_zero_yard_from_child", handleChildZero);
+  }, []);
+
+  // Ouvinte para quando o catálogo / balança for calibrado (atualiza pesos no pátio sincronizadamente)
+  useEffect(() => {
+    const handleCatalogUpdate = (e: any) => {
+      const updatedCatalog = e.detail;
+      if (!Array.isArray(updatedCatalog)) return;
+
+      setItems((prev) =>
+        prev.map((item) => {
+          const matched = updatedCatalog.find(
+            (c: any) =>
+              c.category === item.category ||
+              c.name.toLowerCase().includes(item.name.toLowerCase()) ||
+              item.name.toLowerCase().includes(c.name.toLowerCase())
+          );
+          if (matched && matched.unitWeightKg) {
+            return {
+              ...item,
+              unitWeightKg: matched.unitWeightKg,
+              weightDescription: `1 un = ${matched.unitWeightGrams || (matched.unitWeightKg * 1000).toFixed(0)}g (balança)`
+            };
+          }
+          return item;
+        })
+      );
+    };
+    window.addEventListener("dw_glass_catalog_updated", handleCatalogUpdate);
+    return () => window.removeEventListener("dw_glass_catalog_updated", handleCatalogUpdate);
   }, []);
 
   // Histórico de compras registradas no portão na sessão de hoje
@@ -389,9 +426,12 @@ export function GlassRecyclingCalculator({
         });
 
         if (existingIdx >= 0) {
+          const calUnitKg = added.quantity > 0 && added.weightKg > 0 ? added.weightKg / added.quantity : updated[existingIdx].unitWeightKg;
           updated[existingIdx] = {
             ...updated[existingIdx],
-            quantity: updated[existingIdx].quantity + added.quantity
+            quantity: updated[existingIdx].quantity + added.quantity,
+            unitWeightKg: calUnitKg,
+            weightDescription: `1 un = ${(calUnitKg * 1000).toFixed(0)}g (balança)`
           };
         } else {
           const isLongneck = addedLower.includes("longneck");
@@ -909,7 +949,7 @@ export function GlassRecyclingCalculator({
           />
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <label className="text-[10px] font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
             <DollarSign className="w-3.5 h-3.5" />
             Preço Pago por Tonelada de Vidro (R$):
@@ -927,8 +967,29 @@ export function GlassRecyclingCalculator({
               placeholder="150,00"
             />
           </div>
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            {[
+              { label: "R$ 150/t (> 5t)", val: 150 },
+              { label: "R$ 100/t (3t a 5t)", val: 100 },
+              { label: "R$ 80/t (< 2.5t)", val: 80 },
+              { label: "R$ 200/t (Limpo)", val: 200 }
+            ].map((tier) => (
+              <button
+                key={tier.val}
+                type="button"
+                onClick={() => setSellPricePerTon(tier.val)}
+                className={`px-2 py-0.5 rounded-lg text-[9.5px] font-black transition-all cursor-pointer ${
+                  sellPricePerTon === tier.val
+                    ? "bg-emerald-500 text-slate-950 shadow-sm"
+                    : "bg-slate-950 text-slate-300 border border-white/10 hover:border-emerald-500/40"
+                }`}
+              >
+                {tier.label}
+              </button>
+            ))}
+          </div>
           <span className="text-[10px] text-slate-400 block">
-            = <strong className="text-white">R$ {calculations.sellPricePerKg.toFixed(2)} por kg</strong> (15 centavos o kg a R$ 150/t)
+            = <strong className="text-white">R$ {calculations.sellPricePerKg.toFixed(2)} por kg</strong> ({(calculations.sellPricePerKg * 100).toFixed(0)} centavos o kg a R$ {sellPricePerTon}/t)
           </span>
         </div>
 
@@ -980,6 +1041,7 @@ export function GlassRecyclingCalculator({
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
           <GlassBarcodeScannerCart
             sellPricePerTon={sellPricePerTon}
+            onSetSellPricePerTon={setSellPricePerTon}
             buyerName={buyerName}
             onAddItemsToYardStock={handleAddItemsFromCartToYardStock}
             showNotification={showNotification}
@@ -1523,20 +1585,32 @@ export function GlassRecyclingCalculator({
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[9px] font-black uppercase text-slate-400 block">
-                        Peso Unitário (kg):
-                      </label>
-                      <SmartNumericInput
-                        value={item.unitWeightKg}
-                        onChange={(val) => handleUpdateItem(item.id, "unitWeightKg", Math.max(0.01, val))}
-                        step={0.05}
-                        allowDecimals
-                        clearable
-                        className="py-1 text-xs font-mono text-slate-300"
-                        placeholder="0,50"
-                      />
-                      <span className="text-[9px] text-slate-500 block">
-                        {(item.unitWeightKg * 1000).toFixed(0)}g cada
+                      <div className="flex items-center justify-between">
+                        <label className="text-[9px] font-black uppercase text-emerald-400 block">
+                          Balança (Gramas):
+                        </label>
+                        <span className="text-[8.5px] text-slate-400 font-mono">
+                          {item.unitWeightKg.toFixed(3)} kg
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          defaultValue={Math.round(item.unitWeightKg * 1000)}
+                          key={`weight_${item.id}_${item.unitWeightKg}`}
+                          onBlur={(e) => {
+                            const clean = e.target.value.replace(/[^0-9.,]/g, "").replace(",", ".");
+                            const grams = Math.max(0.1, parseFloat(clean) || 100);
+                            handleUpdateItem(item.id, "unitWeightKg", grams / 1000);
+                          }}
+                          className="w-full bg-slate-900 border border-emerald-500/30 focus:border-emerald-400 rounded-lg px-2 py-1 text-xs font-mono font-black text-emerald-300 outline-none"
+                          placeholder="Ex: 182"
+                        />
+                        <span className="text-[10px] text-slate-400 font-bold shrink-0">g</span>
+                      </div>
+                      <span className="text-[8.5px] text-slate-500 block">
+                        {(item.unitWeightKg * 1000).toFixed(1)}g cada
                       </span>
                     </div>
 
@@ -1628,60 +1702,60 @@ export function GlassRecyclingCalculator({
               </p>
             </div>
 
-            {/* 3 NÍVEIS DE CARGA */}
+            {/* 3 NÍVEIS DE CARGA CONFORME REGRAS OFICIAIS DO VICTOR */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Meta 1: 1 Tonelada */}
+              {/* Meta 1: < 2,5 Toneladas */}
               <div className={`p-4 rounded-2xl border transition-all ${
-                calculations.totalWeightKg >= 1000
-                  ? "bg-emerald-950/40 border-emerald-500/60 shadow-lg shadow-emerald-950/40"
+                calculations.totalWeightKg >= 1000 && calculations.totalWeightKg < 3000
+                  ? "bg-amber-950/30 border-amber-500/40"
+                  : calculations.totalWeightKg >= 3000
+                  ? "bg-slate-950/80 border-white/5 opacity-80"
                   : "bg-slate-950/80 border-white/10"
               }`}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-black uppercase">
-                    Nível 1 • Básico
+                  <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-black uppercase">
+                    Nível 1 • &lt; 2,5 Ton (R$ 80/t)
                   </span>
-                  <span className="text-xs font-black text-white font-mono">1.000 kg (1 Ton)</span>
+                  <span className="text-xs font-black text-white font-mono">&lt; 2.500 kg</span>
                 </div>
-                <div className="text-lg font-black text-white mt-1">
-                  ~2.000 Garrafas de 51
+                <div className="text-sm font-black text-slate-300 mt-1">
+                  Carga Abaixo da Coleta
                 </div>
-                <div className="text-xs text-slate-400 mt-1">
-                  Valor Bruto a R$ 150/t: <strong className="text-emerald-400">R$ 150,00</strong>
+                <div className="text-xs text-rose-300 mt-1">
+                  Victor paga apenas <strong className="text-rose-400">R$ 80,00/ton</strong> (8¢/kg). Aguarde juntar 3t para chamar o caminhão!
                 </div>
 
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
                   <div
-                    className="bg-emerald-400 h-full transition-all duration-500"
-                    style={{ width: `${calculations.progressTo1Ton}%` }}
+                    className="bg-rose-400 h-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, (calculations.totalWeightKg / 2500) * 100)}%` }}
                   />
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1.5 flex justify-between">
-                  <span>{calculations.progressTo1Ton.toFixed(0)}% concluído</span>
-                  {calculations.kgNeededFor1Ton > 0 ? (
-                    <span className="text-amber-400 font-bold">Faltam {calculations.kgNeededFor1Ton.toFixed(0)} kg</span>
-                  ) : (
-                    <span className="text-emerald-400 font-bold">Concluído! ✔️</span>
-                  )}
+                  <span>{((calculations.totalWeightKg / 2500) * 100).toFixed(0)}% de 2,5t</span>
+                  <span className="text-slate-400">Evite despachar nesta faixa</span>
                 </div>
               </div>
 
-              {/* Meta 2: Carga Mínima (3 Toneladas) */}
+              {/* Meta 2: Carga Mínima de Coleta do Victor (3 Toneladas) */}
               <div className={`p-4 rounded-2xl border transition-all ${
-                calculations.totalWeightKg >= 3000
-                  ? "bg-emerald-950/40 border-emerald-500/60 shadow-lg shadow-emerald-950/40"
-                  : "bg-slate-950/80 border-white/10"
+                calculations.totalWeightKg >= 3000 && calculations.totalWeightKg < 5000
+                  ? "bg-emerald-950/50 border-emerald-400 shadow-xl shadow-emerald-950/50 ring-2 ring-emerald-500/30"
+                  : calculations.totalWeightKg >= 5000
+                  ? "bg-slate-950/80 border-white/5 opacity-80"
+                  : "bg-slate-950/80 border-amber-500/30"
               }`}>
                 <div className="flex items-center justify-between mb-2">
                   <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase">
-                    Nível 2 • Carga Mínima
+                    Nível 2 • Mínimo do Victor (3 Ton)
                   </span>
                   <span className="text-xs font-black text-white font-mono">3.000 kg (3 Ton)</span>
                 </div>
-                <div className="text-lg font-black text-white mt-1">
-                  ~6.000 Garrafas de 51
+                <div className="text-base font-black text-emerald-400 mt-1">
+                  Caminhão Pode Coletar! 🚛
                 </div>
-                <div className="text-xs text-slate-400 mt-1">
-                  Valor Bruto a R$ 150/t: <strong className="text-emerald-400">R$ 450,00</strong>
+                <div className="text-xs text-slate-300 mt-1">
+                  Victor paga <strong className="text-amber-400">R$ 100/t a R$ 150/t</strong>. Fornece <strong>1 ajudante</strong> para auxiliar!
                 </div>
 
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
@@ -1691,32 +1765,32 @@ export function GlassRecyclingCalculator({
                   />
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1.5 flex justify-between">
-                  <span>{calculations.progressTo3Ton.toFixed(0)}% concluído</span>
+                  <span>{calculations.progressTo3Ton.toFixed(0)}% da coleta mínima</span>
                   {calculations.kgNeededFor3Ton > 0 ? (
                     <span className="text-amber-400 font-bold">Faltam {calculations.kgNeededFor3Ton.toFixed(0)} kg</span>
                   ) : (
-                    <span className="text-emerald-400 font-bold">Concluído! ✔️</span>
+                    <span className="text-emerald-400 font-bold">Mínimo Atingido! ✔️</span>
                   )}
                 </div>
               </div>
 
-              {/* Meta 3: Melhor Carga (5 Toneladas) */}
+              {/* Meta 3: Melhor Carga (5 Toneladas - Cotação Máxima) */}
               <div className={`p-4 rounded-2xl border transition-all ${
                 calculations.totalWeightKg >= 5000
-                  ? "bg-emerald-950/40 border-emerald-500/60 shadow-lg shadow-emerald-950/40"
+                  ? "bg-emerald-950/60 border-emerald-400 shadow-2xl shadow-emerald-900/60 ring-2 ring-emerald-400"
                   : "bg-slate-950/80 border-cyan-500/30"
               }`}>
                 <div className="flex items-center justify-between mb-2">
                   <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-black uppercase">
-                    Nível 3 • Melhor Cotação
+                    Nível 3 • Cotação Máxima Usina
                   </span>
                   <span className="text-xs font-black text-white font-mono">5.000 kg (5 Ton)</span>
                 </div>
-                <div className="text-lg font-black text-white mt-1">
-                  ~10.000 Garrafas de 51
+                <div className="text-base font-black text-cyan-300 mt-1">
+                  Carga Cheia (R$ 150/t a R$ 200/t)
                 </div>
-                <div className="text-xs text-slate-400 mt-1">
-                  Valor Bruto a R$ 150/t: <strong className="text-emerald-400">R$ 750,00</strong>
+                <div className="text-xs text-slate-300 mt-1">
+                  Rendimento de <strong className="text-emerald-400">R$ 750 a R$ 1.000 bruto</strong>. Lucro máximo garantido para Denise!
                 </div>
 
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
@@ -1732,6 +1806,39 @@ export function GlassRecyclingCalculator({
                   ) : (
                     <span className="text-emerald-400 font-bold">Pronto para o Victor! 🚛🎉</span>
                   )}
+                </div>
+              </div>
+            </div>
+
+            {/* CHECKLIST OFICIAL DO WHATSAPP DO VICTOR ANTES DE CHAMAR O CAMINHÃO */}
+            <div className="p-4 bg-slate-950 rounded-2xl border border-amber-500/30 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-black text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                  <span>📋 Checklist Oficial do Victor antes de Mandar o Caminhão</span>
+                </h4>
+                <span className="text-[10px] px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded font-bold">
+                  Exigências do WhatsApp
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                <div className="p-2.5 bg-slate-900 rounded-xl border border-white/5 space-y-1">
+                  <span className="text-emerald-400 font-bold block">📸 1. Fotos e Vídeos</span>
+                  <span className="text-slate-400 text-[11px] leading-tight block">
+                    Grave vídeo mostrando o monte no pátio para Victor avaliar o volume e liberar o caminhão.
+                  </span>
+                </div>
+                <div className="p-2.5 bg-slate-900 rounded-xl border border-white/5 space-y-1">
+                  <span className="text-amber-400 font-bold block">👷 2. Ajudante & Carregamento</span>
+                  <span className="text-slate-400 text-[11px] leading-tight block">
+                    Victor manda 1 ajudante. Tenha pessoas no pátio prontas para agilizar o carregamento.
+                  </span>
+                </div>
+                <div className="p-2.5 bg-slate-900 rounded-xl border border-white/5 space-y-1">
+                  <span className="text-rose-400 font-bold block">🚫 3. Zero Contaminantes</span>
+                  <span className="text-slate-400 text-[11px] leading-tight block">
+                    Retire pratos de louça, cerâmica e pedras. Cargas com impurezas sofrem corte para R$ 80/t.
+                  </span>
                 </div>
               </div>
             </div>

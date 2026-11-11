@@ -879,17 +879,11 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     ) : (
                       <div className="space-y-1 select-text">
                         <h3 className="text-sm font-black text-white leading-tight uppercase tracking-wide">
-                          {storeName || "Nome da sua empresa"}
+                          {storeName || "D.W VIDROS & RECICLAGEM"}
                         </h3>
-                        {storeCnpjCpf ? (
-                          <p className="text-[10px] font-extrabold text-amber-400/90 truncate max-w-full font-mono uppercase tracking-wider">
-                            📄 CNPJ/CPF: {storeCnpjCpf}
-                          </p>
-                        ) : (
-                          <p className="text-[9px] font-medium text-slate-400 italic">
-                            (Sem CNPJ/CPF cadastrado)
-                          </p>
-                        )}
+                        <p className="text-[10.5px] font-extrabold text-amber-400 truncate max-w-full font-mono uppercase tracking-wider">
+                          📄 CNPJ: {storeCnpjCpf || "67.965.725/0001-95"}
+                        </p>
                         <p className="text-[10.5px] font-bold text-emerald-200/90 truncate max-w-full font-mono mt-0.5">
                           ✉️ {user?.email || "visitante@cerebro.com"}
                         </p>
