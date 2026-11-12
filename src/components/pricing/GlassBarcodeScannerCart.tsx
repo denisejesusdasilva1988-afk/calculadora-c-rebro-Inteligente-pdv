@@ -632,21 +632,24 @@ const playScannerBeep = (freq = 1900, duration = 0.08) => {
 };
 
 interface Props {
-  sellPricePerTon: number; // Preço pago pela usina (ex: R$ 150/ton = R$ 0,15/kg)
+  sellPricePerTon?: number; // Preço pago pela usina (ex: R$ 150/ton = R$ 0,15/kg)
   onSetSellPricePerTon?: (price: number) => void;
-  buyerName: string;
+  buyerName?: string;
   onAddItemsToYardStock?: (itemsToAdd: { name: string; quantity: number; weightKg: number; costPaid: number }[]) => void;
   showNotification?: (msg: string, type: "success" | "error" | "info" | "warning") => void;
 }
 
 export function GlassBarcodeScannerCart({
-  sellPricePerTon,
+  sellPricePerTon = 150,
   onSetSellPricePerTon,
-  buyerName,
+  buyerName = "Caminhão do Victor (Usina / Reciclagem)",
   onAddItemsToYardStock,
   showNotification
 }: Props) {
-  const sellPricePerKg = sellPricePerTon > 0 ? sellPricePerTon / 1000 : 0.15;
+  const [internalSellPricePerTon, setInternalSellPricePerTon] = useState<number>(sellPricePerTon || 150);
+  const activeSellPricePerTon = onSetSellPricePerTon ? sellPricePerTon : internalSellPricePerTon;
+  const activeSetSellPricePerTon = onSetSellPricePerTon || setInternalSellPricePerTon;
+  const sellPricePerKg = activeSellPricePerTon > 0 ? activeSellPricePerTon / 1000 : 0.15;
 
   // Catálogo com Nomes, ML, Códigos e Pesos (Fundido com os 8 itens estratégicos e Estoque Inicial Zerado)
   const [catalog, setCatalog] = useState<CatalogBottleItem[]>(() => {
@@ -800,6 +803,22 @@ export function GlassBarcodeScannerCart({
   const [showZeroConfirmModal, setShowZeroConfirmModal] = useState<boolean>(false);
   const [showStrategicGuideModal, setShowStrategicGuideModal] = useState<boolean>(false);
   const [showVictorRules, setShowVictorRules] = useState<boolean>(false);
+
+  // Digitação direta no teclado para quantidade de garrafas no pátio / compra (ex: 55 garrafas)
+  const [bottleInputQty, setBottleInputQty] = useState<Record<string, string>>({});
+
+  const handleAddDirectQuantity = (bottle: CatalogBottleItem) => {
+    const raw = bottleInputQty[bottle.id];
+    const qty = parseInt(raw || "0", 10);
+    const safeLot = getVictorSafeLotUnits(bottle.category, sellPricePerKg);
+    const finalQty = isNaN(qty) || qty <= 0 ? (safeLot || 1) : qty;
+    handleAddBottleToCart(bottle, finalQty);
+    if (showNotification) {
+      const totalAddedKg = ((finalQty * bottle.unitWeightGrams) / 1000).toFixed(2);
+      showNotification(`+${finalQty} un de ${bottle.name} (${totalAddedKg} kg) adicionadas ao carrinho! 🍾⚖️`, "success");
+    }
+    setBottleInputQty((prev) => ({ ...prev, [bottle.id]: "" }));
+  };
 
   // Persistência automática
   useEffect(() => {
@@ -1696,63 +1715,78 @@ export function GlassBarcodeScannerCart({
           </div>
         </div>
 
-        {/* BARRA DE METAS DE TONELADAS RUMO AO CAMINHÃO DO VICTOR */}
-        <div className="mt-5 pt-4 border-t border-white/10 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-          <div className="p-3 bg-slate-950/80 rounded-2xl border border-white/5 space-y-1">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block">Garrafas no Pátio:</span>
-            <strong className="text-xl sm:text-2xl font-mono text-white font-black">
-              {yardTotals.totalUnits.toLocaleString("pt-BR")} <span className="text-xs text-slate-400">un</span>
-            </strong>
-            <span className="text-[10px] text-emerald-400 block font-bold">Total contado real</span>
+        {/* 🚛 BARRA OFICIAL: ESTOQUE ACUMULADO NO PÁTIO (KG) RUMO À META DO CAMINHÃO DO VICTOR (3.000 KG) */}
+        <div className="mt-5 pt-4 border-t border-white/10 space-y-3">
+          {/* Card Central com Destaque Máximo */}
+          <div className="p-4 bg-gradient-to-r from-slate-950 via-emerald-950/50 to-slate-950 rounded-2xl border-2 border-emerald-500/50 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  ESTOQUE ACUMULADO NO PÁTIO (KG)
+                </span>
+                <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                  🚛 Meta Mínima de Coleta do Victor: 3.000 kg (3t)
+                </span>
+              </div>
+              <h3 className="text-2xl sm:text-3xl font-black font-mono text-white flex items-center gap-2">
+                <span>[ {yardTotals.totalWeightKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} kg / 3.000 kg ]</span>
+                <span className={`text-base font-bold ${yardTotals.totalWeightKg >= 3000 ? "text-emerald-400" : "text-amber-400"}`}>
+                  ({yardTotals.progressMinPct.toFixed(1)}%)
+                </span>
+              </h3>
+              <p className="text-xs text-slate-300">
+                {yardTotals.kgMissingForMin > 0 ? (
+                  <span>
+                    Faltam <strong className="text-amber-300 font-mono text-sm">{yardTotals.kgMissingForMin.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} kg</strong> para o caminhão do Victor vir coletar no pátio!
+                  </span>
+                ) : (
+                  <span className="text-emerald-300 font-black">
+                    🎉 Meta Mínima de 3.000 kg Atingida! O caminhão do Victor já pode vir carregar no seu pátio com 1 ajudante!
+                  </span>
+                )}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs min-w-[240px]">
+              <div className="p-2.5 bg-slate-900/90 rounded-xl border border-white/10 space-y-0.5">
+                <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Total de Garrafas:</span>
+                <strong className="text-lg font-mono text-white font-black">
+                  {yardTotals.totalUnits.toLocaleString("pt-BR")} <span className="text-[10px] text-slate-400 font-normal">un</span>
+                </strong>
+                <span className="text-[9px] text-emerald-400 block font-bold">= {yardTotals.totalWeightTon.toFixed(3)} Ton</span>
+              </div>
+              <div className="p-2.5 bg-slate-900/90 rounded-xl border border-white/10 space-y-0.5">
+                <span className="text-[9.5px] uppercase font-bold text-amber-400 block">Faturamento Bruto:</span>
+                <strong className="text-lg font-mono text-amber-400 font-black">
+                  R$ {yardTotals.grossRevenueTon.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </strong>
+                <span className="text-[9px] text-slate-400 block">Na usina (R$ {sellPricePerTon}/t)</span>
+              </div>
+            </div>
           </div>
 
-          <div className="p-3 bg-slate-950/80 rounded-2xl border border-white/5 space-y-1">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block">Peso Real no Pátio:</span>
-            <strong className="text-xl sm:text-2xl font-mono text-emerald-400 font-black">
-              {yardTotals.totalWeightKg.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} <span className="text-xs">kg</span>
-            </strong>
-            <span className="text-[10px] text-slate-300 block">
-              = <strong>{yardTotals.totalWeightTon.toFixed(3)} Toneladas</strong>
-            </span>
-          </div>
-
-          <div className="p-3 bg-slate-950/80 rounded-2xl border border-white/5 space-y-1">
-            <span className="text-[10px] uppercase font-bold text-amber-400 block">Faturamento Bruto na Usina:</span>
-            <strong className="text-xl sm:text-2xl font-mono text-amber-400 font-black">
-              R$ {yardTotals.grossRevenueTon.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </strong>
-            <span className="text-[10px] text-slate-400 block">Ao entregar pro Victor</span>
-          </div>
-
-          <div className="p-3 bg-slate-950/80 rounded-2xl border border-white/5 space-y-1">
-            <span className="text-[10px] uppercase font-bold text-teal-400 block">Meta Carga Cheia (5t):</span>
-            <strong className="text-xl sm:text-2xl font-mono text-teal-300 font-black">
-              {yardTotals.progressIdealPct.toFixed(0)}%
-            </strong>
-            <span className="text-[10px] text-slate-400 block">
-              {yardTotals.kgMissingForIdeal > 0
-                ? `Faltam ${yardTotals.kgMissingForIdeal.toFixed(0)} kg (~${Math.ceil(yardTotals.kgMissingForIdeal / 0.5)} garrafas)`
-                : "🎉 Pronto para carregar!"}
-            </span>
-          </div>
-        </div>
-
-        {/* Barra Visual de Progresso de Carga */}
-        <div className="mt-3 space-y-1">
-          <div className="flex justify-between text-[10px] font-bold text-slate-400">
-            <span>0 kg</span>
-            <span className={yardTotals.totalWeightKg >= 3000 ? "text-emerald-400 font-black" : ""}>
-              Carga Mínima (3.000 kg)
-            </span>
-            <span className={yardTotals.totalWeightKg >= 5000 ? "text-teal-400 font-black" : ""}>
-              Carga Ideal Victor (5.000 kg) ⭐
-            </span>
-          </div>
-          <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden border border-white/10 p-0.5">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-amber-400 rounded-full transition-all duration-500"
-              style={{ width: `${Math.min(100, Math.max(2, yardTotals.progressIdealPct))}%` }}
-            />
+          {/* Barra Visual de Progresso Rumo à Meta do Caminhão */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-[10.5px] font-mono font-bold text-slate-400">
+              <span>0 kg</span>
+              <span className={yardTotals.totalWeightKg >= 1500 ? "text-emerald-300 font-bold" : ""}>
+                1.500 kg (50%)
+              </span>
+              <span className={yardTotals.totalWeightKg >= 3000 ? "text-emerald-400 font-black" : "text-amber-400 font-black"}>
+                🎯 Meta Victor: 3.000 kg (3 Ton)
+              </span>
+              <span className={yardTotals.totalWeightKg >= 5000 ? "text-teal-400 font-black" : ""}>
+                ⭐ Carga Cheia: 5.000 kg (R$ 150/t)
+              </span>
+            </div>
+            <div className="h-4 w-full bg-slate-950 rounded-full overflow-hidden border border-emerald-500/40 p-0.5 shadow-inner">
+              <div
+                className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-amber-400 rounded-full transition-all duration-500 flex items-center justify-end pr-1.5 text-[9px] font-black text-slate-950"
+                style={{ width: `${Math.min(100, Math.max(3, yardTotals.progressMinPct))}%` }}
+              >
+                {yardTotals.progressMinPct >= 12 ? `${yardTotals.progressMinPct.toFixed(0)}%` : ""}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1832,7 +1866,7 @@ export function GlassBarcodeScannerCart({
                   Clique na cotação que o Victor vai pagar pela sua carga:
                 </span>
                 <span className="font-mono text-emerald-400 font-black">
-                  Ativo: R$ {sellPricePerTon}/ton (R$ {sellPricePerKg.toFixed(2)}/kg)
+                  Ativo: R$ {activeSellPricePerTon}/ton (R$ {sellPricePerKg.toFixed(2)}/kg)
                 </span>
               </div>
 
@@ -1863,12 +1897,12 @@ export function GlassBarcodeScannerCart({
                     desc: "Vidro puro sem impurezas"
                   }
                 ].map((tier) => {
-                  const isSelected = sellPricePerTon === tier.ton;
+                  const isSelected = activeSellPricePerTon === tier.ton;
                   return (
                     <button
                       key={tier.ton}
                       type="button"
-                      onClick={() => onSetSellPricePerTon?.(tier.ton)}
+                      onClick={() => activeSetSellPricePerTon(tier.ton)}
                       className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer touch-manipulation ${
                         isSelected
                           ? "bg-gradient-to-br from-indigo-600 to-indigo-700 text-white border-white shadow-lg shadow-indigo-900/50 scale-[1.02] ring-2 ring-indigo-400"
@@ -2154,38 +2188,92 @@ export function GlassBarcodeScannerCart({
                         )}
                       </div>
 
-                      {/* Botões de Presets rápidos (+1, +safeLot, +safeLot*2, etc) */}
-                      <div className="pt-2 border-t border-white/5 space-y-1">
-                        {!isReturnableBottle && bottle.category !== "caco" && (
-                          <div className="text-[9px] text-emerald-400 font-black flex items-center justify-between px-0.5">
-                            <span>Lote R$ 0,50: {safeLot} un</span>
-                            <span className="text-[8.5px] text-slate-400">({((safeLot * bottle.unitWeightGrams) / 1000).toFixed(1)}kg)</span>
+                      {/* Digitação Direta no Teclado (ex: 55 garrafas) */}
+                      <div className="pt-2 border-t border-white/10 space-y-2">
+                        <div className="bg-slate-900/90 p-2 rounded-xl border border-white/10 space-y-1">
+                          <div className="flex items-center justify-between text-[10px] text-slate-300 font-bold">
+                            <span>Digitar quantidade:</span>
+                            <span className="text-emerald-400 font-mono text-[9.5px]">
+                              {(() => {
+                                const rawVal = bottleInputQty[bottle.id];
+                                const val = parseInt(rawVal || "0", 10);
+                                if (val > 0) {
+                                  const calcKg = ((val * bottle.unitWeightGrams) / 1000).toFixed(2);
+                                  const cost = calculateGlassBuyCost(bottle.category, val, bottle.buyPricePerUnit, sellPricePerKg);
+                                  return `= ${calcKg} kg • R$ ${cost.toFixed(2)}`;
+                                }
+                                return `Balança: ${bottle.unitWeightGrams}g`;
+                              })()}
+                            </span>
                           </div>
-                        )}
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <button
-                            type="button"
-                            onClick={() => handleAddBottleToCart(bottle, 1)}
-                            className="min-h-[34px] px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono font-bold text-[11px] rounded-lg transition-all border border-white/5 cursor-pointer touch-manipulation"
-                            title="Adicionar 1 unidade"
-                          >
-                            +1
-                          </button>
-                          {presetsToShow.map((qty) => (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              placeholder="Ex: 55"
+                              value={bottleInputQty[bottle.id] ?? ""}
+                              onChange={(e) => {
+                                const cleaned = e.target.value.replace(/\D/g, "");
+                                setBottleInputQty((prev) => ({ ...prev, [bottle.id]: cleaned }));
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleAddDirectQuantity(bottle);
+                                }
+                              }}
+                              className="w-20 min-h-[44px] bg-slate-950 border border-emerald-500/50 focus:border-emerald-400 rounded-xl px-2 text-center text-white font-mono font-black text-sm outline-none shadow-inner"
+                            />
                             <button
-                              key={qty}
                               type="button"
-                              onClick={() => handleAddBottleToCart(bottle, qty)}
-                              className={`min-h-[34px] flex-1 min-w-[36px] py-1 font-mono text-[11px] rounded-lg transition-all border flex items-center justify-center cursor-pointer touch-manipulation ${
-                                qty === safeLot
-                                  ? "bg-amber-400 text-slate-950 font-black border-amber-300 shadow-sm shadow-amber-400/20"
-                                  : "bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-white font-bold border-white/5"
-                              }`}
-                              title={`Adicionar ${qty} unidades (${((qty * bottle.unitWeightGrams) / 1000).toFixed(2)} kg)`}
+                              onClick={() => handleAddDirectQuantity(bottle)}
+                              className="flex-1 min-h-[44px] px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer touch-manipulation shadow-md"
+                              title="Lançar quantidade digitada diretamente no carrinho"
                             >
-                              +{qty}
+                              <Plus className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">
+                                {bottleInputQty[bottle.id] && parseInt(bottleInputQty[bottle.id], 10) > 0
+                                  ? `Lançar ${bottleInputQty[bottle.id]} un 🍾`
+                                  : `Lançar (${safeLot} un)`}
+                              </span>
                             </button>
-                          ))}
+                          </div>
+                        </div>
+
+                        {/* Botões de Presets rápidos (+1, +safeLot, +50, +100) com Touch Alargado (min-h-[44px]) */}
+                        <div className="space-y-1">
+                          {!isReturnableBottle && bottle.category !== "caco" && (
+                            <div className="text-[9px] text-emerald-400 font-black flex items-center justify-between px-0.5">
+                              <span>Lote R$ 0,50: {safeLot} un</span>
+                              <span className="text-[8.5px] text-slate-400">({((safeLot * bottle.unitWeightGrams) / 1000).toFixed(1)}kg)</span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleAddBottleToCart(bottle, 1)}
+                              className="min-h-[44px] px-3 py-1 bg-slate-900 hover:bg-slate-800 active:scale-95 text-slate-200 font-mono font-black text-xs rounded-xl transition-all border border-white/10 cursor-pointer touch-manipulation flex items-center justify-center shadow-sm"
+                              title="Adicionar 1 unidade"
+                            >
+                              +1
+                            </button>
+                            {presetsToShow.map((qty) => (
+                              <button
+                                key={qty}
+                                type="button"
+                                onClick={() => handleAddBottleToCart(bottle, qty)}
+                                className={`min-h-[44px] flex-1 min-w-[42px] py-1 font-mono text-xs rounded-xl transition-all border flex items-center justify-center cursor-pointer touch-manipulation active:scale-95 ${
+                                  qty === safeLot
+                                    ? "bg-amber-400 text-slate-950 font-black border-amber-300 shadow-md shadow-amber-400/25 ring-1 ring-amber-300"
+                                    : "bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 active:bg-emerald-500 text-white font-black border-white/10 shadow-sm"
+                                }`}
+                                title={`Adicionar lote de ${qty} unidades (${((qty * bottle.unitWeightGrams) / 1000).toFixed(2)} kg)`}
+                              >
+                                +{qty}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2275,27 +2363,34 @@ export function GlassBarcodeScannerCart({
                     </div>
 
                     <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5 flex-wrap sm:flex-nowrap">
-                      {/* Ajuste de Quantidade com Stepper e Botões de Lote Rápido (+10, +30, +50, +100) */}
-                      <div className="flex flex-col gap-1 items-start sm:items-end">
-                        <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-white/5">
+                      {/* Ajuste de Quantidade com Digitação Direta no Teclado e Botões de Lote Rápido */}
+                      <div className="flex flex-col gap-1.5 items-start sm:items-end">
+                        <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-white/10 shadow-inner">
                           <button
                             type="button"
                             onClick={() => handleUpdateCartQuantity(item.id, item.quantity - 1)}
-                            className="w-8 h-8 rounded-lg bg-slate-950 hover:bg-slate-800 text-white font-bold text-sm flex items-center justify-center cursor-pointer touch-manipulation"
+                            className="w-10 h-10 min-h-[40px] min-w-[40px] rounded-lg bg-slate-950 hover:bg-slate-800 active:scale-95 text-white font-bold text-base flex items-center justify-center cursor-pointer touch-manipulation border border-white/10"
+                            title="Diminuir 1 garrafa"
                           >
                             -
                           </button>
                           <input
-                            type="number"
-                            min="1"
-                            value={item.quantity}
-                            onChange={(e) => handleUpdateCartQuantity(item.id, Math.max(0, Number(e.target.value) || 0))}
-                            className="w-14 text-center bg-transparent text-white font-mono font-black text-xs outline-none"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={item.quantity === 0 ? "" : item.quantity}
+                            onChange={(e) => {
+                              const cleaned = e.target.value.replace(/\D/g, "");
+                              handleUpdateCartQuantity(item.id, cleaned === "" ? 0 : parseInt(cleaned, 10));
+                            }}
+                            className="w-16 min-h-[40px] text-center bg-slate-950 border border-emerald-500/40 rounded-lg text-white font-mono font-black text-sm outline-none focus:border-emerald-400"
+                            placeholder="0"
                           />
                           <button
                             type="button"
                             onClick={() => handleUpdateCartQuantity(item.id, item.quantity + 1)}
-                            className="w-8 h-8 rounded-lg bg-slate-950 hover:bg-slate-800 text-white font-bold text-sm flex items-center justify-center cursor-pointer touch-manipulation"
+                            className="w-10 h-10 min-h-[40px] min-w-[40px] rounded-lg bg-slate-950 hover:bg-slate-800 active:scale-95 text-white font-bold text-base flex items-center justify-center cursor-pointer touch-manipulation border border-white/10"
+                            title="Aumentar 1 garrafa"
                           >
                             +
                           </button>
@@ -2306,8 +2401,8 @@ export function GlassBarcodeScannerCart({
                               key={add}
                               type="button"
                               onClick={() => handleUpdateCartQuantity(item.id, item.quantity + add)}
-                              className="px-1.5 py-0.5 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-slate-300 font-mono font-bold text-[9.5px] rounded border border-white/5 cursor-pointer touch-manipulation"
-                              title={`Adicionar +${add} unidades`}
+                              className="min-h-[32px] px-2 py-0.5 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 active:scale-95 text-slate-300 font-mono font-bold text-[10px] rounded-lg border border-white/10 cursor-pointer touch-manipulation"
+                              title={`Somar +${add} unidades`}
                             >
                               +{add}
                             </button>
@@ -2381,26 +2476,54 @@ export function GlassBarcodeScannerCart({
                       <span>Lançar Coleta Própria D.W (Economia de R$ {cartTotals.totalBuyCost.toFixed(2)}) 👑</span>
                     </button>
                   ) : (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleFinalizeTicket("pendente_caderninho")}
-                        className="w-full sm:w-auto min-h-[50px] px-5 py-2.5 bg-slate-950 hover:bg-slate-800 text-amber-300 font-black text-xs uppercase rounded-2xl border border-amber-500/40 transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation"
-                        title="Acumular para acertar no Bolsa Família ou no Caminhão do Victor"
-                      >
-                        <Calendar className="w-4 h-4 text-amber-400" />
-                        <span>Lançar no Caderninho (Pagar no Bolsa Família / Caminhão) 📖</span>
-                      </button>
+                    <div className="w-full space-y-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-slate-400 font-bold px-1 gap-1">
+                        <span className="flex items-center gap-1.5 text-emerald-400">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>
+                            Converte automaticamente para <strong className="text-white font-mono">{cartTotals.totalWeightKg.toFixed(2)} kg</strong> no Pátio rumo à meta do Victor!
+                          </span>
+                        </span>
+                        <span className="text-amber-300 font-mono">
+                          Colaborador: <strong className="text-white">{activeCollab.name}</strong> (R$ {cartTotals.totalBuyCost.toFixed(2)})
+                        </span>
+                      </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleFinalizeTicket("pago_na_hora")}
-                        className="w-full sm:w-auto min-h-[50px] px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/30 touch-manipulation"
-                      >
-                        <Check className="w-5 h-5" />
-                        <span>Pagar Agora na Mão (R$ {cartTotals.totalBuyCost.toFixed(2)}) 💵</span>
-                      </button>
-                    </>
+                      <div className="flex flex-col sm:flex-row items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleFinalizeTicket("pendente_caderninho")}
+                          className="w-full sm:flex-1 min-h-[52px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 active:scale-95 text-amber-300 font-black text-xs uppercase rounded-2xl border-2 border-amber-500/50 transition-all flex items-center justify-center gap-2.5 cursor-pointer touch-manipulation shadow-lg shadow-amber-950/40"
+                          title="Acumular para acertar no Bolsa Família ou no Caminhão do Victor (Caderninho do Colaborador)"
+                        >
+                          <Calendar className="w-5 h-5 text-amber-400 shrink-0" />
+                          <div className="text-left leading-tight">
+                            <span className="block font-black text-xs">📓 Lançar no Caderninho</span>
+                            <span className="block text-[10px] text-amber-200/80 font-normal">Pagar depois (Bolsa Família / Caminhão)</span>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleFinalizeTicket("pago_na_hora")}
+                          className="w-full sm:flex-1 min-h-[52px] px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2.5 cursor-pointer shadow-lg shadow-emerald-500/30 touch-manipulation"
+                          title="Pagar agora em dinheiro ou PIX na hora da entrega"
+                        >
+                          <Check className="w-5 h-5 shrink-0" />
+                          <div className="text-left leading-tight">
+                            <span className="block font-black text-xs">💵 Pagar Agora no Portão</span>
+                            <span className="block text-[10px] text-slate-900 font-bold">R$ {cartTotals.totalBuyCost.toFixed(2)} pago ao colaborador</span>
+                          </div>
+                        </button>
+                      </div>
+
+                      <div className="p-2 bg-slate-950/80 border border-white/5 rounded-xl text-[10px] text-slate-400 flex items-center gap-2">
+                        <span className="text-emerald-400 text-xs">ℹ️</span>
+                        <span>
+                          <strong>Caderninho dos Colaboradores:</strong> Este registro fica exclusivo para os recicladores parceiros da D.W Vidros. O fiado de clientes da loja continua 100% separado no módulo Fiado!
+                        </span>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>

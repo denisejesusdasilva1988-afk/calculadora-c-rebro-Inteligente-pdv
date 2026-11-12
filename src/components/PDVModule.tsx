@@ -105,7 +105,8 @@ import {
   HelpCircle,
   AlertTriangle,
   Flashlight,
-  Recycle
+  Recycle,
+  Wine
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { doc, getDoc, setDoc, serverTimestamp, collection, addDoc, getDocs, query, where, limit, onSnapshot } from "firebase/firestore";
@@ -132,6 +133,7 @@ import { PDVSalesTransitionStepper } from "./PDVSalesTransitionStepper";
 import { PDVPrinterConfigModal } from "./PDVPrinterConfigModal";
 import { PDVPrinterConfigView } from "./PDVPrinterConfigView";
 import { TechRecyclingTradeCalculator } from "./pricing/TechRecyclingTradeCalculator";
+import { GlassBarcodeScannerCart } from "./pricing/GlassBarcodeScannerCart";
 import { 
   PrinterConfig, 
   loadPrinterConfig, 
@@ -2672,6 +2674,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   // --- Barcode Scanner States ---
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isGlassPurchaseModalOpen, setIsGlassPurchaseModalOpen] = useState(false);
   const [scannerContinuousMode, setScannerContinuousMode] = useState(true);
   const [scannerTorchOn, setScannerTorchOn] = useState(false);
   const [scannerZoom, setScannerZoom] = useState(1);
@@ -20075,6 +20078,16 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                       <button
                         type="button"
+                        onClick={() => setIsGlassPurchaseModalOpen(true)}
+                        className="px-2.5 py-1 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-lg text-[8.5px] uppercase transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-950/40 border border-emerald-400/50 active:scale-95 touch-manipulation"
+                        title="Comprar Vidros & Cacos com Balança Digital e Caderninho dos Colaboradores (Reciclagem D.W)"
+                      >
+                        <Wine className="w-3 h-3 text-amber-300" />
+                        <span>Comprar Vidros / Sucata 🍾</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => setIsScannerOpen(true)}
                         className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black rounded-lg text-[8.5px] font-extrabold uppercase transition-all flex items-center gap-1 cursor-pointer shadow-md"
                         title="Ler Código de Barras via Câmera"
@@ -22624,6 +22637,58 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
               </div>
 
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: COMPRA DE GARRAFAS DE VIDRO & CACOS (RECICLAGEM / FERRO VELHO D.W) */}
+      <AnimatePresence>
+        {isGlassPurchaseModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-2 sm:p-4 text-white overflow-y-auto"
+          >
+            <div className="bg-slate-900 border-2 border-emerald-500/40 rounded-3xl max-w-5xl w-full max-h-[94vh] overflow-y-auto shadow-2xl relative p-3 sm:p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-xl shrink-0">
+                    🍾
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Ferro Velho & Reciclagem D.W
+                      </span>
+                      <span className="text-[10px] font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                        Balança Digital & Caderninho
+                      </span>
+                    </div>
+                    <h3 className="text-base sm:text-lg font-black text-white mt-0.5">
+                      Compra de Vidros no Portão & Gestão do Pátio
+                    </h3>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsGlassPurchaseModalOpen(false)}
+                  className="w-10 h-10 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center border border-white/10 transition-all cursor-pointer touch-manipulation"
+                  title="Fechar compra de vidros e voltar ao PDV"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Componente Completo de Compra, Balança e Caderninho */}
+              <GlassBarcodeScannerCart
+                showNotification={showNotification}
+                onAddItemsToYardStock={(items) => {
+                  showNotification(`Entrada de ${items.length} lote(s) somada ao Pátio rumo à meta do Victor! 🍾⚖️`, "success");
+                }}
+              />
             </div>
           </motion.div>
         )}
