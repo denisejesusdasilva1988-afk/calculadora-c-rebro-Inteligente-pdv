@@ -518,6 +518,26 @@ const PREDEFINED_CATEGORIES_BY_NICHE: Record<string, string[]> = {
   sacolao: ["Frutas Frescas", "Legumes & Raízes", "Verduras & Folhagens", "Temperos & Ervas", "Ovos & Granja", "Bebidas & Polpas", "Outros"],
   loja_racao: ["Rações a Granel (kg)", "Rações Pacote Fechado", "Petiscos & Sachês", "Medicamentos & Higiene", "Acessórios & Coleiras"],
   aviario: ["Rações para Aves & Postura", "Grãos & Sementes a Granel", "Gaiolas & Bebedouros", "Medicamentos & Vitaminas", "Rações Cães & Gatos"],
+  ferro_velho_vidros: [
+    "Garrafas Longneck (Verdes / Âmbar / Transparentes)",
+    "Garrafas 600ml & Litrão (Retornáveis / Caco)",
+    "Garrafas 900ml & Vinho (51, Dreher)",
+    "Potes de Vidro & Conservas",
+    "Cacos de Vidro (KG / Sacola / Balde)",
+    "Alumínio & Latinhas",
+    "Ferro & Sucata Pesada",
+    "Papelão & Plástico"
+  ],
+  ferro_velho: [
+    "Garrafas Longneck (Verdes / Âmbar / Transparentes)",
+    "Garrafas 600ml & Litrão (Retornáveis / Caco)",
+    "Garrafas 900ml & Vinho (51, Dreher)",
+    "Potes de Vidro & Conservas",
+    "Cacos de Vidro (KG / Sacola / Balde)",
+    "Alumínio & Latinhas",
+    "Ferro & Sucata Pesada",
+    "Papelão & Plástico"
+  ],
   comercio_geral: [
     "Vestuário & Moda",
     "Camisetas & Blusas",

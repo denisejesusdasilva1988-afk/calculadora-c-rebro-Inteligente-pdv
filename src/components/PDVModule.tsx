@@ -762,6 +762,20 @@ const defaultProductsByNiche: Record<string, { name: string; price: number; isSe
     { name: "Diagnóstico da Injeção Eletrônica", price: 90.0 },
     { name: "Mão de Obra Geral de Oficina (Hora)", price: 100.0 }
   ],
+  ferro_velho_vidros: [
+    { name: "Compra Longneck Verde (Lote 30 un)", price: 0.50 },
+    { name: "Compra Cacos de Vidro (Balde 16kg)", price: 1.50 },
+    { name: "Compra Garrafão 900ml (Lote 10 un)", price: 0.50 },
+    { name: "Revenda Casco 600ml Inteiro p/ Bar", price: 1.00 },
+    { name: "Revenda Litrão 1L Inteiro p/ Bar", price: 1.30 }
+  ],
+  ferro_velho: [
+    { name: "Compra Longneck Verde (Lote 30 un)", price: 0.50 },
+    { name: "Compra Cacos de Vidro (Balde 16kg)", price: 1.50 },
+    { name: "Compra Garrafão 900ml (Lote 10 un)", price: 0.50 },
+    { name: "Revenda Casco 600ml Inteiro p/ Bar", price: 1.00 },
+    { name: "Revenda Litrão 1L Inteiro p/ Bar", price: 1.30 }
+  ],
   outros_comercios: [
     { name: "Serviço Avulso de Suporte", price: 60.0 },
     { name: "Produto Geral Não Cadastrado", price: 10.0 },
@@ -1420,8 +1434,11 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   // "estoque" index = Smart Stock Inventory Control & AI Analysis
   const [pricingTab, setPricingTab] = useState<"calculadora" | "ficha">("calculadora");
   const [orcamentoSeedItems, setOrcamentoSeedItems] = useState<{ name: string; price: number; quantity: number; unit?: string }[] | undefined>(undefined);
-  const [opMode, setOpMode] = useState<"venda" | "manual" | "estoque" | "relatorios" | "cadastro_produtos" | "ficha_tecnica" | "clientes" | "proprietario" | "fiado" | "taxas" | "impressoras" | "orcamentos" | "cupons">(() => {
+  const [opMode, setOpMode] = useState<"venda" | "manual" | "estoque" | "relatorios" | "cadastro_produtos" | "ficha_tecnica" | "clientes" | "proprietario" | "fiado" | "taxas" | "impressoras" | "orcamentos" | "cupons" | "ferro_velho">(() => {
     if (onlyCheckout) return "venda";
+    if (activeSubTab === "ferro_velho" || activeSubTab === "patio" || activeSubTab === "reciclagem") {
+      return "ferro_velho";
+    }
     if (activeSubTab === "cupons" || activeSubTab === "notinhas" || activeSubTab === "recibos") {
       return "cupons";
     }
@@ -2444,6 +2461,12 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         setMentorshipTab("taxas");
         setActiveConfigTab("rates");
         setOpMode("taxas");
+      } else if (
+        activeSubTab === "ferro_velho" ||
+        activeSubTab === "patio" ||
+        activeSubTab === "reciclagem"
+      ) {
+        setOpMode("ferro_velho");
       } else if (
         activeSubTab === "impressoras" || 
         activeSubTab === "impressora" || 
@@ -8359,6 +8382,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     { id: "aviario", name: "Aviário & Rações", label: "Aviário", icon: Bird, color: "text-lime-400 border-lime-500/10 bg-slate-900/60", activeColor: "bg-lime-600 border-lime-500 text-white shadow-lg shadow-lime-500/15" },
     { id: "acougue", name: "Açougue & Carnes", label: "Açougue", icon: Scale, color: "text-red-400 border-red-500/10 bg-slate-900/60", activeColor: "bg-red-600 border-red-500 text-white shadow-lg shadow-red-500/15" },
     { id: "sacolao", name: "Sacolão & Hortifrúti", label: "Sacolão", icon: Apple, color: "text-lime-400 border-lime-500/10 bg-slate-900/60", activeColor: "bg-lime-600 border-lime-500 text-white shadow-lg shadow-lime-500/15" },
+    { id: "ferro_velho_vidros", name: "Ferro Velho & Reciclagem de Vidros", label: "Ferro Velho", icon: Recycle, color: "text-emerald-400 border-emerald-500/10 bg-slate-900/60", activeColor: "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/15" },
     { id: "outros_comercios", name: "Outros Segmentos", label: "Outros", icon: Layers, color: "text-slate-400 border-slate-500/10 bg-slate-900/60", activeColor: "bg-slate-600 border-slate-500 text-white shadow-lg shadow-slate-500/15" }
   ];
 
@@ -19402,7 +19426,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
       {/* 3.5 OPERATIONAL MODE SWITCHER */}
       {!onlyCheckout && (
-        <div className="mb-5 bg-slate-900 border border-white/10 rounded-2xl p-1.5 flex flex-wrap sm:flex-nowrap gap-1 max-w-3xl mx-auto w-full shadow-xl">
+        <div className="mb-5 bg-slate-900 border border-white/10 rounded-2xl p-1.5 flex flex-wrap gap-1.5 max-w-5xl mx-auto w-full shadow-xl">
           <button
             type="button"
             id="tab-mode-venda"
@@ -19410,14 +19434,14 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               setOpMode("venda");
               if (onSubTabChange) onSubTabChange(null);
             }}
-            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 min-w-[130px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
               opMode === "venda"
-                ? "bg-slate-950 text-white border border-emerald-500/25 shadow-lg"
-                : "text-slate-400 hover:text-white hover:bg-white/[0.02]"
+                ? "bg-slate-950 text-white border border-emerald-500/35 shadow-lg"
+                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
             }`}
           >
-            <ShoppingCart className="w-4 h-4 text-emerald-400" />
-            Catálogo & Carrinho
+            <ShoppingCart className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>Catálogo & Carrinho</span>
           </button>
           <button
             type="button"
@@ -19426,14 +19450,31 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               setOpMode("manual");
               if (onSubTabChange) onSubTabChange("caixa");
             }}
-            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 min-w-[130px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
               opMode === "manual"
-                ? "bg-slate-950 text-white border border-pink-500/25 shadow-lg"
-                : "text-slate-400 hover:text-white hover:bg-white/[0.02]"
+                ? "bg-slate-950 text-white border border-pink-500/35 shadow-lg"
+                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
             }`}
           >
-            <PlusCircle className="w-4 h-4 text-pink-500" />
-            Lançamento Direto
+            <PlusCircle className="w-4 h-4 text-pink-500 shrink-0" />
+            <span>Lançamento Direto</span>
+          </button>
+          <button
+            type="button"
+            id="tab-mode-ferro-velho"
+            onClick={() => {
+              setOpMode("ferro_velho");
+              if (onSubTabChange) onSubTabChange("ferro_velho");
+            }}
+            className={`flex-1 min-w-[160px] min-h-[44px] py-2.5 px-3 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
+              opMode === "ferro_velho"
+                ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border border-emerald-300 shadow-lg shadow-emerald-500/25"
+                : "bg-emerald-950/35 text-emerald-300 hover:text-white hover:bg-emerald-900/40 border border-emerald-500/25"
+            }`}
+            title="Modo Compra no Portão (PDV Invertido), Controle do Pátio de 3.000 kg e Caderninho dos Colaboradores"
+          >
+            <Recycle className="w-4 h-4 text-emerald-300 shrink-0" />
+            <span>Compra Ferro Velho & Pátio ♻️</span>
           </button>
           <button
             type="button"
@@ -19442,14 +19483,14 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               setOpMode("estoque");
               if (onSubTabChange) onSubTabChange(null);
             }}
-            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 min-w-[100px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
               opMode === "estoque"
-                ? "bg-slate-950 text-white border border-cyan-500/25 shadow-lg"
-                : "text-slate-400 hover:text-white hover:bg-white/[0.02]"
+                ? "bg-slate-950 text-white border border-cyan-500/35 shadow-lg"
+                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
             }`}
           >
-            <Layers className="w-4 h-4 text-cyan-400" />
-            Estoque
+            <Layers className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>Estoque</span>
           </button>
           <button
             type="button"
@@ -19458,14 +19499,14 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               setOpMode("ficha_tecnica");
               if (onSubTabChange) onSubTabChange("ficha_tecnica");
             }}
-            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 min-w-[140px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
               opMode === "ficha_tecnica"
-                ? "bg-slate-950 text-white border border-pink-500/30 shadow-lg"
-                : "text-slate-400 hover:text-white hover:bg-white/[0.02]"
+                ? "bg-slate-950 text-white border border-pink-500/35 shadow-lg"
+                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
             }`}
           >
-            <ChefHat className="w-4 h-4 text-pink-400" />
-            Precificação & Ficha Técnica ⚖️
+            <ChefHat className="w-4 h-4 text-pink-400 shrink-0" />
+            <span>Precificação & Ficha ⚖️</span>
           </button>
           <button
             type="button"
@@ -19474,14 +19515,14 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               setOpMode("clientes");
               if (onSubTabChange) onSubTabChange("clientes");
             }}
-            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 min-w-[125px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
               opMode === "clientes"
-                ? "bg-slate-950 text-white border border-amber-500/30 shadow-lg"
-                : "text-slate-400 hover:text-white hover:bg-white/[0.02]"
+                ? "bg-slate-950 text-white border border-amber-500/35 shadow-lg"
+                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
             }`}
           >
-            <Users className="w-4 h-4 text-amber-400" />
-            Clientes Fiéis 👥
+            <Users className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Clientes Fiéis 👥</span>
           </button>
           <button
             type="button"
@@ -19492,14 +19533,14 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 if (onSubTabChange) onSubTabChange(null);
               }, "view_reports");
             }}
-            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 min-w-[125px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
               opMode === "relatorios"
-                ? "bg-slate-950 text-white border border-purple-500/25 shadow-lg"
-                : "text-slate-400 hover:text-white hover:bg-white/[0.02]"
+                ? "bg-slate-950 text-white border border-purple-500/35 shadow-lg"
+                : "text-slate-400 hover:text-white hover:bg-white/[0.03]"
             }`}
           >
-            <BarChart className="w-4 h-4 text-purple-400" />
-            Relatórios & BI 📊
+            <BarChart className="w-4 h-4 text-purple-400 shrink-0" />
+            <span>Relatórios & BI 📊</span>
           </button>
           <button
             type="button"
@@ -19522,14 +19563,14 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 });
               }
             }}
-            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 min-w-[140px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
               opMode === "proprietario"
                 ? "bg-purple-600 text-white border border-purple-400 shadow-lg shadow-purple-500/25"
                 : "text-purple-300 hover:text-white hover:bg-purple-950/40 border border-purple-500/20"
             }`}
           >
-            <Crown className="w-4 h-4 text-amber-400" />
-            <span>Proprietário & Permissões 👑</span>
+            <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Proprietário 👑</span>
           </button>
           <button
             type="button"
@@ -19538,15 +19579,15 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               setOpMode("orcamentos");
               if (onSubTabChange) onSubTabChange("orcamentos");
             }}
-            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 min-w-[130px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
               opMode === "orcamentos"
                 ? "bg-amber-600 text-white border border-amber-400 shadow-lg shadow-amber-500/25"
                 : "text-amber-300 hover:text-white hover:bg-amber-950/40 border border-amber-500/20"
             }`}
             title="Aba de Orçamentos e Propostas: Notinhas Térmicas (58/80mm) e A4 sem mexer no estoque ou dinheiro"
           >
-            <FileText className="w-4 h-4 text-amber-300" />
-            <span>Orçamentos (Notinhas) 📄</span>
+            <FileText className="w-4 h-4 text-amber-300 shrink-0" />
+            <span>Orçamentos 📄</span>
           </button>
           <button
             type="button"
@@ -19555,15 +19596,15 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               setOpMode("cupons");
               if (onSubTabChange) onSubTabChange("cupons");
             }}
-            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 min-w-[125px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
               opMode === "cupons"
                 ? "bg-amber-500 text-slate-950 font-black border border-amber-300 shadow-lg shadow-amber-500/25"
                 : "text-amber-300 hover:text-white hover:bg-amber-950/40 border border-amber-500/20"
             }`}
             title="Pasta de Arquivos de Cupons e Notinhas: Todos os comprovantes gravados para reimprimir quantas vezes quiser"
           >
-            <Folder className="w-4 h-4 text-amber-400" />
-            <span>Pasta de Cupons 📂🧾</span>
+            <Folder className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Cupons 📂</span>
           </button>
           <button
             type="button"
@@ -19572,25 +19613,25 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               setOpMode("impressoras");
               if (onSubTabChange) onSubTabChange("impressoras");
             }}
-            className={`flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 min-w-[130px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
               opMode === "impressoras"
                 ? "bg-emerald-600 text-white border border-emerald-400 shadow-lg shadow-emerald-500/25"
                 : "text-emerald-400 hover:text-white hover:bg-emerald-500/10 border border-emerald-500/20"
             }`}
             title="Aba de Configuração de Impressoras Térmicas e Bobinas (58mm e 80mm)"
           >
-            <Printer className="w-4 h-4 text-emerald-300" />
-            <span>Bobinas & Impressoras 🖨️</span>
+            <Printer className="w-4 h-4 text-emerald-300 shrink-0" />
+            <span>Impressoras 🖨️</span>
           </button>
           <button
             type="button"
             id="btn-ajuda-duvidas-ia"
             onClick={() => setShowHelpModal(true)}
-            className="flex-1 py-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer bg-gradient-to-r from-amber-500/20 to-purple-600/30 text-amber-300 hover:text-white border border-amber-500/40 hover:border-amber-400 shadow-lg shadow-amber-500/10 active:scale-95"
+            className="flex-1 min-w-[115px] min-h-[44px] py-2.5 px-2.5 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer bg-gradient-to-r from-amber-500/20 to-purple-600/30 text-amber-300 hover:text-white border border-amber-500/40 hover:border-amber-400 shadow-lg shadow-amber-500/10 active:scale-95 touch-manipulation select-none"
             title="Abrir Central de Dúvidas, Manuais Rápidos e Perguntas para a IA"
           >
-            <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
-            <span>Ajuda & IA 💡🤖</span>
+            <Sparkles className="w-4 h-4 text-amber-400 animate-pulse shrink-0" />
+            <span>Ajuda & IA 💡</span>
           </button>
         </div>
       )}
@@ -19965,6 +20006,46 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               isEmbedded={true}
             />
           </div>
+        ) : opMode === "ferro_velho" ? (
+          <div className="lg:col-span-12 w-full text-left space-y-4">
+            <div className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-teal-950/90 border border-emerald-500/35 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 shrink-0">
+                  <Recycle className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Modo Compra no Portão (PDV Invertido)
+                    </span>
+                    <span className="text-[10px] font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                      Separado das Vendas & Fiado da Loja
+                    </span>
+                  </div>
+                  <h2 className="text-sm sm:text-base font-black text-white mt-0.5">
+                    Ferro Velho & Pátio de Reciclagem — Compra de Vidros, Balança e Notinha
+                  </h2>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpMode("venda");
+                  if (onSubTabChange) onSubTabChange(null);
+                }}
+                className="min-h-[44px] px-4 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-slate-200 font-black text-xs uppercase rounded-xl border border-white/15 transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none shrink-0"
+              >
+                <ShoppingCart className="w-4 h-4 text-emerald-400" />
+                <span>Voltar para Vendas 🛒</span>
+              </button>
+            </div>
+            <GlassBarcodeScannerCart
+              showNotification={showNotification}
+              onAddItemsToYardStock={(items) => {
+                showNotification(`Entrada de ${items.length} lote(s) somada ao Pátio rumo à meta do caminhão! 🍾⚖️`, "success");
+              }}
+            />
+          </div>
         ) : (opMode === "venda" && salesLayoutMode === "stepper") ? (
           <div className="lg:col-span-12 w-full text-left">
             <PDVSalesTransitionStepper
@@ -20078,12 +20159,15 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                       <button
                         type="button"
-                        onClick={() => setIsGlassPurchaseModalOpen(true)}
-                        className="px-2.5 py-1 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-lg text-[8.5px] uppercase transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-950/40 border border-emerald-400/50 active:scale-95 touch-manipulation"
-                        title="Comprar Vidros & Cacos com Balança Digital e Caderninho dos Colaboradores (Reciclagem D.W)"
+                        onClick={() => {
+                          setOpMode("ferro_velho");
+                          if (onSubTabChange) onSubTabChange("ferro_velho");
+                        }}
+                        className="min-h-[36px] px-3 py-1 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-lg text-[9px] uppercase transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-950/40 border border-emerald-400/50 active:scale-95 touch-manipulation select-none"
+                        title="Abrir Compra de Vidros & Painel do Pátio de Reciclagem"
                       >
-                        <Wine className="w-3 h-3 text-amber-300" />
-                        <span>Comprar Vidros / Sucata 🍾</span>
+                        <Wine className="w-3.5 h-3.5 text-amber-300" />
+                        <span>Comprar Vidros / Pátio ♻️</span>
                       </button>
 
                       <button

@@ -36,16 +36,25 @@ import {
   Crown,
   ChevronRight,
   CheckSquare,
-  Copy
+  Copy,
+  Printer,
+  Sliders,
+  Package
 } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { SmartNumericInput } from "./SmartNumericInput";
+import {
+  loadPrinterConfig,
+  executeThermalPrint,
+  PrinterConfig
+} from "../../utils/thermalPrinterHelper";
 
 export interface CatalogBottleItem {
   id: string;
   name: string; // Nome da garrafa (ex: "Heineken Longneck", "Dreher", "Cachaça 51")
   volumeMl: number; // Volume em ML (ex: 330ml, 210ml, 275ml, 900ml, 600ml, 1000ml)
-  barcode: string; // Código de barras EAN (ex: "78936683")
+  barcode: string; // Código de barras principal EAN (ex: "78936683")
+  additionalBarcodes?: string[]; // Até 4 códigos extras (total de 1 a 5 códigos por item, ex: Stella, Império)
   unitWeightGrams: number; // Peso da garrafa vazia na balança em gramas (ex: 185g, 490g, 500g)
   unitWeightKg: number; // Peso em kg (ex: 0.185 kg)
   category: "longneck" | "900ml" | "litrao" | "cerveja600" | "vinho" | "pote" | "caco" | "outro";
@@ -55,6 +64,15 @@ export interface CatalogBottleItem {
   emoji: string;
   stockUnits: number; // Estoque real acumulado no pátio desta garrafa
   quickPresets: number[]; // [3, 6, 10, 20, 25, 30, 60] ou [2, 4, 10, 20, 25, 100]
+}
+
+export interface OtherScrapMaterial {
+  id: string;
+  name: string;
+  emoji: string;
+  stockKg: number;
+  buyPricePerKg: number;
+  notes?: string;
 }
 
 export interface GlassCartItem {
@@ -125,6 +143,7 @@ export interface CompletedPurchaseTicket {
   expectedPlantRevenue: number;
   netProfit: number;
   paymentStatus: "pago_na_hora" | "pendente_caderninho" | "coleta_propria_dw";
+  sellPricePerTonUsed?: number;
 }
 
 export interface DispatchedTruckShipment {
@@ -207,33 +226,29 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
   },
   {
     id: "bottle_cerveja_600",
-    name: "Cerveja 600ml Tradicional (Ambar / Retornável)",
+    name: "Cerveja 600ml Tradicional (Vidro Âmbar)",
     volumeMl: 600,
     barcode: "7891991000826",
-    unitWeightGrams: 450, // 450 gramas (~0.5 kg)
+    unitWeightGrams: 450, // 450 gramas vazia na balança
     unitWeightKg: 0.450,
     category: "cerveja600",
-    buyPricePerUnit: 0.50, // R$ 0,50 por garrafa intacta
-    returnableSellPrice: 1.00, // Revende por R$ 0,80 a R$ 1,00 para bares
-    warningAlert: "🚨 ATENÇÃO: Pagar R$ 0,50 cada SOMENTE se o casco estiver inteiro para revender a bares (R$ 0,80 a R$ 1,00). Se for quebrar para caco do Victor, dá prejuízo de R$ 0,43 por garrafa (peça 10 un por R$ 0,50)!",
+    buyPricePerUnit: 0.50 / 12, // Preço normal por peso: 12 un (~5.4 kg) = R$ 0,50
     emoji: "🍻",
     stockUnits: 0,
-    quickPresets: [1, 6, 12, 24]
+    quickPresets: [2, 6, 12, 24, 50]
   },
   {
     id: "bottle_litrao_1000",
-    name: "Garrafão Litrão 1 Litro (Retornável / Sucata)",
+    name: "Garrafão Litrão 1 Litro (Vidro)",
     volumeMl: 1000,
     barcode: "7891991001342",
-    unitWeightGrams: 700, // 700 gramas (~0.7 kg)
+    unitWeightGrams: 700, // 700 gramas vazia na balança
     unitWeightKg: 0.700,
     category: "litrao",
-    buyPricePerUnit: 0.50, // R$ 0,50 por unidade inteira
-    returnableSellPrice: 1.30, // Revende por R$ 1,00 a R$ 1,50 para bares
-    warningAlert: "🚨 ATENÇÃO: Pagar R$ 0,50 cada SOMENTE se estiver intacta para revender a bares (R$ 1,00 a R$ 1,50). Se for caco para o Victor, dá prejuízo de R$ 0,40 (peça 7 un por R$ 0,50)!",
+    buyPricePerUnit: 0.50 / 8, // Preço normal por peso: 8 un (~5.6 kg) = R$ 0,50
     emoji: "🍾",
     stockUnits: 0,
-    quickPresets: [1, 2, 6, 12]
+    quickPresets: [2, 4, 8, 16, 24]
   },
   {
     id: "bottle_vinho_750",
@@ -244,7 +259,6 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     unitWeightKg: 0.600,
     category: "vinho",
     buyPricePerUnit: 0.50 / 9, // Lote de 9 garrafas (~5.4 kg) = R$ 0,50
-    returnableSellPrice: 0.40,
     emoji: "🍷",
     stockUnits: 0,
     quickPresets: [9, 18, 27, 45, 90]
@@ -258,7 +272,6 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     unitWeightKg: 0.280,
     category: "pote",
     buyPricePerUnit: 0.50 / 18, // Lote de 18 potes (~5.0 kg) = R$ 0,50
-    returnableSellPrice: 0.50,
     emoji: "🫙",
     stockUnits: 0,
     quickPresets: [18, 36, 54, 90]
@@ -334,26 +347,24 @@ export const SIMILAR_GLASS_PRESETS = [
     description: "210g vazia"
   },
   {
-    name: "Cerveja 600ml Retornável (Brahma/Skol)",
+    name: "Cerveja 600ml (Vidro 450g)",
     volumeMl: 600,
     unitWeightGrams: 450,
     category: "cerveja600" as const,
     emoji: "🍻",
-    buyPricePerUnit: 0.50,
-    returnableSellPrice: 1.00,
-    quickPresets: [1, 2, 4, 6, 12, 24],
-    description: "450g vazia (Revenda inteiro para bar por R$ 1,00)"
+    buyPricePerUnit: 0.50 / 12,
+    quickPresets: [2, 6, 12, 24, 50],
+    description: "450g vazia (Preço por peso • Lote 12 un = R$ 0,50)"
   },
   {
-    name: "Garrafão Litrão 1 Litro (1000ml)",
+    name: "Garrafão Litrão 1 Litro (Vidro 700g)",
     volumeMl: 1000,
-    unitWeightGrams: 650,
+    unitWeightGrams: 700,
     category: "litrao" as const,
     emoji: "🍾",
-    buyPricePerUnit: 0.50,
-    returnableSellPrice: 1.30,
-    quickPresets: [1, 2, 4, 6, 12],
-    description: "650g vazia (Revenda inteiro para bar por R$ 1,30)"
+    buyPricePerUnit: 0.50 / 8,
+    quickPresets: [2, 4, 8, 16, 24],
+    description: "700g vazia (Preço por peso • Lote 8 un = R$ 0,50)"
   },
   {
     name: "Garrafa de Vinho / Espumante (750ml)",
@@ -372,7 +383,6 @@ export const SIMILAR_GLASS_PRESETS = [
     category: "pote" as const,
     emoji: "🫙",
     buyPricePerUnit: 0.50 / 18,
-    returnableSellPrice: 0.50,
     quickPresets: [18, 36, 54],
     description: "280g vazio (Lote de 18 potes = R$ 0,50)"
   },
@@ -506,107 +516,88 @@ const INITIAL_COLLABORATORS: CollaboratorAccount[] = [
   }
 ];
 
-// Cálculo de unidades no lote de R$ 0,50 calibrado dinamicamente para garantir no mínimo 38% a 45% de lucro para Denise com qualquer cotação do Victor
-export const getVictorSafeLotUnits = (category: string, sellPricePerKg = 0.15): number => {
-  if (sellPricePerKg <= 0.085) {
-    // Victor pagando R$ 80/t (R$ 0,08/kg) - Cargas < 2,5t ou com desconto de impureza
-    if (category === "longneck") return 60; // 60 un * 0.182kg = 10.92kg -> Victor paga R$ 0,87. Denise paga R$ 0,50. Lucro = R$ 0,37 (+43%)
-    if (category === "900ml") return 20;    // 20 un * 0.50kg = 10.0kg -> Victor paga R$ 0,80. Denise paga R$ 0,50. Lucro = R$ 0,30 (+38%)
-    if (category === "vinho") return 18;    // 18 un * 0.60kg = 10.8kg -> Victor paga R$ 0,86. Denise paga R$ 0,50. Lucro = R$ 0,36 (+42%)
-    if (category === "pote") return 36;     // 36 un * 0.28kg = 10.08kg -> Victor paga R$ 0,81. Denise paga R$ 0,50. Lucro = R$ 0,31 (+38%)
-    return 10;
-  }
-  if (sellPricePerKg <= 0.12) {
-    // Victor pagando R$ 100/t (R$ 0,10/kg) - Cargas entre 3 e 5 toneladas (Mínimo de Coleta)
-    if (category === "longneck") return 46; // 46 un * 0.182kg = 8.37kg -> Victor paga R$ 0,84. Denise paga R$ 0,50. Lucro = R$ 0,34 (+40%)
-    if (category === "900ml") return 16;    // 16 un * 0.50kg = 8.0kg -> Victor paga R$ 0,80. Denise paga R$ 0,50. Lucro = R$ 0,30 (+38%)
-    if (category === "vinho") return 14;    // 14 un * 0.60kg = 8.4kg -> Victor paga R$ 0,84. Denise paga R$ 0,50. Lucro = R$ 0,34 (+40%)
-    if (category === "pote") return 28;     // 28 un * 0.28kg = 7.84kg -> Victor paga R$ 0,78. Denise paga R$ 0,50. Lucro = R$ 0,28 (+36%)
-    return 8;
-  }
-  if (sellPricePerKg <= 0.17) {
-    // Victor pagando R$ 150/t (R$ 0,15/kg) - Cargas acima de 5 toneladas
-    if (category === "longneck") return 30; // 30 un * 0.182kg = 5.46kg -> Victor paga R$ 0,82. Denise paga R$ 0,50. Lucro = R$ 0,32 (+39%)
-    if (category === "900ml") return 10;    // 10 un * 0.50kg = 5.0kg -> Victor paga R$ 0,75. Denise paga R$ 0,50. Lucro = R$ 0,25 (+33%)
-    if (category === "vinho") return 9;     // 9 un * 0.60kg = 5.4kg -> Victor paga R$ 0,81. Denise paga R$ 0,50. Lucro = R$ 0,31 (+38%)
-    if (category === "pote") return 18;     // 18 un * 0.28kg = 5.04kg -> Victor paga R$ 0,76. Denise paga R$ 0,50. Lucro = R$ 0,26 (+34%)
-    return 6;
-  }
-  // Victor pagando R$ 200/t (R$ 0,20/kg) - Cotação especial de vidro puro sem impureza
-  if (category === "longneck") return 25;
-  if (category === "900ml") return 8;
-  if (category === "vinho") return 7;
-  if (category === "pote") return 14;
-  return 5;
+// Peso padrão de referência em gramas por categoria caso o item ainda não tenha gramatura informada
+const DEFAULT_CATEGORY_WEIGHT_GRAMS: Record<string, number> = {
+  longneck: 182,
+  "900ml": 500,
+  cerveja600: 450,
+  litrao: 700,
+  vinho: 600,
+  pote: 280,
+  caco: 5000,
+  outro: 350
 };
 
-// Cálculo de custo de lote e centavos com proteção automática de margem
+// Cálculo de unidades no lote de R$ 0,50 calibrado dinamicamente pelo PESO REAL da garrafa
+// e pela cotação ativa do Victor, garantindo ~38% de lucro para a D.W Vidros sem prejuízo!
+export const getVictorSafeLotUnits = (
+  category: string,
+  sellPricePerKg = 0.15,
+  unitWeightGrams?: number
+): number => {
+  if (category === "caco") return 1;
+  const effectiveSellKg = sellPricePerKg > 0 ? sellPricePerKg : 0.15;
+  const grams =
+    unitWeightGrams && unitWeightGrams > 0
+      ? unitWeightGrams
+      : DEFAULT_CATEGORY_WEIGHT_GRAMS[category] || 350;
+
+  // Margem protegida de ~38%: compramos pagando 62% do valor pago pelo Victor na usina
+  const buyTargetPerKg = effectiveSellKg * 0.62;
+  const targetLotGrams = (0.50 / buyTargetPerKg) * 1000;
+  return Math.max(1, Math.round(targetLotGrams / grams));
+};
+
+// Cálculo de custo de lote e centavos com proteção automática de margem POR PESO
 export const calculateGlassBuyCost = (
   category: string,
   quantity: number,
   defaultUnitCost?: number,
-  sellPricePerKg = 0.15
+  sellPricePerKg = 0.15,
+  unitWeightGrams?: number
 ): number => {
   if (quantity <= 0) return 0;
-  if (category === "longneck") {
-    const lotUnits = getVictorSafeLotUnits("longneck", sellPricePerKg);
-    const cost = quantity * (0.50 / lotUnits);
-    return Math.round(cost * 100) / 100;
-  }
-  if (category === "900ml") {
-    const lotUnits = getVictorSafeLotUnits("900ml", sellPricePerKg);
-    const cost = quantity * (0.50 / lotUnits);
-    return Math.round(cost * 100) / 100;
-  }
-  if (category === "vinho") {
-    const lotUnits = getVictorSafeLotUnits("vinho", sellPricePerKg);
-    const cost = quantity * (0.50 / lotUnits);
-    return Math.round(cost * 100) / 100;
-  }
-  if (category === "pote") {
-    const lotUnits = getVictorSafeLotUnits("pote", sellPricePerKg);
-    const cost = quantity * (0.50 / lotUnits);
-    return Math.round(cost * 100) / 100;
-  }
+  const effectiveSellKg = sellPricePerKg > 0 ? sellPricePerKg : 0.15;
+
   if (category === "caco") {
-    // Para caco em sacola: se Victor pagar menos por kg, o valor por sacola de 5kg é ajustado
-    const sackCost = sellPricePerKg <= 0.085 ? 0.25 : sellPricePerKg <= 0.12 ? 0.35 : (defaultUnitCost || 0.50);
-    return Math.round(quantity * sackCost * 100) / 100;
+    const weightKg = (unitWeightGrams && unitWeightGrams > 0 ? unitWeightGrams : 5000) / 1000;
+    const isDefault150Tier = effectiveSellKg >= 0.145 && effectiveSellKg <= 0.155;
+    const unitCost =
+      isDefault150Tier && defaultUnitCost && defaultUnitCost > 0
+        ? defaultUnitCost
+        : Math.max(0.05, Number((weightKg * effectiveSellKg * 0.62).toFixed(2)));
+    return Math.round(quantity * unitCost * 100) / 100;
   }
-  if (category === "cerveja600" || category === "litrao") {
-    return Math.round(quantity * (defaultUnitCost || 0.50) * 100) / 100;
-  }
-  return Math.round(quantity * (defaultUnitCost || 0.02) * 100) / 100;
+
+  // Todas as garrafas e potes de vidro (incluindo 600ml e Litrão!) são pagos normalmente CONFORME O PESO
+  const lotUnits = getVictorSafeLotUnits(category, effectiveSellKg, unitWeightGrams);
+  const cost = quantity * (0.50 / lotUnits);
+  return Math.round(cost * 100) / 100;
 };
 
-// Rótulo explicativo claro em centavos para cada garrafa com proteção de lucro
+// Rótulo explicativo claro em centavos e peso real para cada garrafa
 export const getBottleCentavosLabel = (
   category: string,
   defaultUnitCost?: number,
-  sellPricePerKg = 0.15
+  sellPricePerKg = 0.15,
+  unitWeightGrams?: number
 ): string => {
-  const lotUnits = getVictorSafeLotUnits(category, sellPricePerKg);
-  const centavos = ((0.50 / lotUnits) * 100).toFixed(2);
-
-  if (category === "longneck") {
-    return `${centavos}¢ por garrafa (${lotUnits} un = R$ 0,50 • Lucro ~40%)`;
-  }
-  if (category === "900ml") {
-    return `${centavos}¢ por garrafa (${lotUnits} un = R$ 0,50 • Lucro ~38%)`;
-  }
-  if (category === "vinho") {
-    return `${centavos}¢ por garrafa (${lotUnits} un = R$ 0,50 • Lucro ~40%)`;
-  }
-  if (category === "pote") {
-    return `${centavos}¢ por pote (${lotUnits} un = R$ 0,50 • Lucro ~38%)`;
-  }
-  if (category === "cerveja600" || category === "litrao") {
-    return "R$ 0,50 cada (SOMENTE se casco intacto para bar! Caco pro Victor: ~4¢ a 7¢/un)";
-  }
+  const effectiveSellKg = sellPricePerKg > 0 ? sellPricePerKg : 0.15;
   if (category === "caco") {
-    return sellPricePerKg <= 0.12 ? "Sacola 9kg = R$ 0,50 (Lucro 50%)" : "Sacola 5kg = R$ 0,50 (Lucro 33%)";
+    const kg = (unitWeightGrams && unitWeightGrams > 0 ? unitWeightGrams : 5000) / 1000;
+    const unitCost = calculateGlassBuyCost("caco", 1, defaultUnitCost, effectiveSellKg, unitWeightGrams);
+    return `~${kg.toFixed(0)}kg = R$ ${unitCost.toFixed(2)} por un (Lucro ~38%)`;
   }
-  return `${((defaultUnitCost || 0.05) * 100).toFixed(1)}¢ por unidade`;
+
+  const grams =
+    unitWeightGrams && unitWeightGrams > 0
+      ? unitWeightGrams
+      : DEFAULT_CATEGORY_WEIGHT_GRAMS[category] || 350;
+  const lotUnits = getVictorSafeLotUnits(category, effectiveSellKg, grams);
+  const centavos = ((0.50 / lotUnits) * 100).toFixed(2);
+  const itemLabel = category === "pote" ? "pote" : "garrafa";
+
+  return `${centavos}¢ por ${itemLabel} (${lotUnits} un = R$ 0,50 • ${grams}g/un)`;
 };
 
 // Som sonoro de bip do scanner
@@ -631,6 +622,139 @@ const playScannerBeep = (freq = 1900, duration = 0.08) => {
   } catch {}
 };
 
+// Materiais iniciais de outros ferro velhos (mantidos 100% separados do pátio de vidros!)
+const INITIAL_OTHER_SCRAP_MATERIALS: OtherScrapMaterial[] = [
+  { id: "scrap_aluminio", name: "Alumínio & Latinhas", emoji: "🥫", stockKg: 0, buyPricePerKg: 5.5, notes: "Separado do vidro" },
+  { id: "scrap_ferro", name: "Ferro & Sucata Pesada", emoji: "🔩", stockKg: 0, buyPricePerKg: 0.7, notes: "Ferro batido / chaparia" },
+  { id: "scrap_papelao", name: "Papelão & Plástico Limpo", emoji: "📦", stockKg: 0, buyPricePerKg: 0.4, notes: "Fardos / caixas" },
+  { id: "scrap_cobre", name: "Cobre & Metais Nobres", emoji: "🪙", stockKg: 0, buyPricePerKg: 35.0, notes: "Fio descascado / misto" }
+];
+
+// Construtor de HTML térmico (58mm / 80mm / A4) para Comprovante de Compra no Portão
+function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: PrinterConfig, yardCurrentKg: number, yardGoalKg: number): string {
+  const is58mm = config.printerType === "58mm";
+  const isA4 = config.printerType === "A4";
+  const printableWidth = is58mm ? "48mm" : isA4 ? "100%" : "72mm";
+  const maxContainerWidth = is58mm ? "48mm" : isA4 ? "760px" : "72mm";
+  const pageSize = is58mm ? "58mm auto" : isA4 ? "A4 portrait" : "80mm auto";
+  const fontBasePx = config.fontSize === "pequena" ? (is58mm ? 9.5 : 10.5) : config.fontSize === "grande" ? (is58mm ? 12 : 13.5) : (is58mm ? 10.5 : 11.5);
+  const fontHeaderPx = fontBasePx + 2;
+  const fontSmallPx = fontBasePx - 1.5;
+
+  const storeTitle = config.storeName?.trim() || "D.W VIDROS & RECICLAGEM";
+  const storeCnpj = config.storeCnpjCpf?.trim() || "67.965.725/0001-95";
+  const statusLabel =
+    ticket.paymentStatus === "coleta_propria_dw"
+      ? "COLETA PRÓPRIA D.W (100% EMPRESA)"
+      : ticket.paymentStatus === "pago_na_hora"
+      ? "PAGO NA HORA (PORTÃO / CAIXA)"
+      : "LANÇADO NO CADERNINHO (A ACERTAR)";
+
+  const rowsHtml = ticket.items
+    .map(
+      (it) => `
+      <tr>
+        <td colspan="3" style="padding-top:3px;font-weight:900;font-size:${fontBasePx}px;">
+          ${it.name.toUpperCase()} (${it.volumeMl}ml)
+        </td>
+      </tr>
+      <tr style="border-bottom:1px dotted #444;">
+        <td style="padding-bottom:4px;font-size:${fontSmallPx}px;">
+          ${it.quantity} un × ${it.unitWeightGrams}g = ${it.totalWeightKg.toFixed(2)} kg
+        </td>
+        <td></td>
+        <td style="padding-bottom:4px;text-align:right;font-weight:900;font-family:monospace;">
+          R$ ${it.costPaid.toFixed(2).replace(".", ",")}
+        </td>
+      </tr>
+    `
+    )
+    .join("");
+
+  return `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>Comprovante Compra - ${ticket.id}</title>
+        <style>
+          @page { size: ${pageSize}; margin: 0mm; }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            color: #000 !important;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: ${fontBasePx}px;
+            width: ${printableWidth};
+            max-width: ${maxContainerWidth};
+            margin-left: auto !important;
+            margin-right: auto !important;
+          }
+        </style>
+      </head>
+      <body>
+        <div style="padding:4px 2px;">
+          <div style="text-align:center;margin-bottom:4px;">
+            <div style="font-size:${fontHeaderPx}px;font-weight:900;text-transform:uppercase;">${storeTitle}</div>
+            <div style="font-size:${fontSmallPx}px;">CNPJ: ${storeCnpj}</div>
+            <div style="font-size:${fontSmallPx}px;font-weight:900;margin-top:3px;border:1px solid #000;padding:2px;">
+              COMPROVANTE DE COMPRA - RECICLAGEM
+            </div>
+          </div>
+          <div style="border-top:1px dashed #000;border-bottom:1px dashed #000;padding:4px 0;margin:4px 0;font-size:${fontSmallPx}px;">
+            <div>DATA: ${ticket.timestamp}</div>
+            <div>TICKET: ${ticket.id.slice(-8).toUpperCase()}</div>
+            <div style="font-weight:900;">PARCEIRO: ${ticket.collectorName.toUpperCase()}</div>
+            <div style="font-weight:900;">STATUS: ${statusLabel}</div>
+            <div>COTAÇÃO VICTOR: R$ ${ticket.sellPricePerTonUsed || 150}/ton (R$ ${(((ticket.sellPricePerTonUsed || 150) / 1000)).toFixed(2).replace(".", ",")}/kg)</div>
+          </div>
+          <table style="width:100%;border-collapse:collapse;margin:4px 0;">
+            <thead>
+              <tr style="border-bottom:1px dashed #000;font-size:${fontSmallPx}px;font-weight:900;">
+                <th style="text-align:left;">MATERIAL / PESO</th>
+                <th></th>
+                <th style="text-align:right;">VALOR</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+          <div style="border-top:1px dashed #000;padding-top:4px;margin-top:4px;font-size:${fontBasePx}px;">
+            <div style="display:flex;justify-content:space-between;font-weight:900;">
+              <span>QTD TOTAL GARRAFAS:</span>
+              <span>${ticket.totalBottles} un</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-weight:900;">
+              <span>PESO SOMADO PÁTIO:</span>
+              <span>+${ticket.totalWeightKg.toFixed(2)} kg</span>
+            </div>
+            ${
+              ticket.isFounder
+                ? `<div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;font-weight:900;margin-top:2px;">
+                    <span>ECONOMIA D.W (VALOR EQUIV.):</span>
+                    <span>R$ ${ticket.items.reduce((s, it) => s + it.costPaid, 0).toFixed(2).replace(".", ",")}</span>
+                  </div>`
+                : ""
+            }
+            <div style="display:flex;justify-content:space-between;font-size:${fontHeaderPx}px;font-weight:900;border-top:1px solid #000;border-bottom:1px solid #000;padding:3px 0;margin:4px 0;">
+              <span>${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL COMPRA:"}</span>
+              <span>R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2).replace(".", ",")}</span>
+            </div>
+            <div style="font-size:${fontSmallPx}px;text-align:center;">
+              PÁTIO ATUAL: ${yardCurrentKg.toFixed(1)} kg / ${yardGoalKg.toLocaleString("pt-BR")} kg
+            </div>
+          </div>
+          <div style="text-align:center;margin-top:8px;border-top:1px dashed #000;padding-top:4px;font-size:${fontSmallPx}px;">
+            <div style="font-weight:900;">D.W VIDROS & RECICLAGEM</div>
+            <div>Obrigado pela parceria na reciclagem!</div>
+          </div>
+          <div style="height:${(config.feedLines || 4) * 9}px;"></div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
 interface Props {
   sellPricePerTon?: number; // Preço pago pela usina (ex: R$ 150/ton = R$ 0,15/kg)
   onSetSellPricePerTon?: (price: number) => void;
@@ -646,7 +770,13 @@ export function GlassBarcodeScannerCart({
   onAddItemsToYardStock,
   showNotification
 }: Props) {
-  const [internalSellPricePerTon, setInternalSellPricePerTon] = useState<number>(sellPricePerTon || 150);
+  const [internalSellPricePerTon, setInternalSellPricePerTon] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem("pdv_dw_sell_price_per_ton"));
+      if (Number.isFinite(saved) && saved >= 50) return saved;
+    } catch {}
+    return sellPricePerTon || 150;
+  });
   const activeSellPricePerTon = onSetSellPricePerTon ? sellPricePerTon : internalSellPricePerTon;
   const activeSetSellPricePerTon = onSetSellPricePerTon || setInternalSellPricePerTon;
   const sellPricePerKg = activeSellPricePerTon > 0 ? activeSellPricePerTon / 1000 : 0.15;
@@ -669,28 +799,98 @@ export function GlassBarcodeScannerCart({
           const existingIds = new Set(parsed.map((p) => p.id));
           const missing = DEFAULT_BOTTLE_CATALOG.filter((d) => !existingIds.has(d.id));
           const merged = parsed.map((p) => {
-            const def = DEFAULT_BOTTLE_CATALOG.find((d) => d.id === p.id);
             let item = { ...p };
             if (item.id === "bottle_heineken_330" && (item.unitWeightGrams === 185 || !item.unitWeightGrams)) {
               item.unitWeightGrams = 182;
               item.unitWeightKg = 0.182;
             }
-            if (def && def.warningAlert && !p.warningAlert) {
-              item = { ...item, warningAlert: def.warningAlert, category: def.category, returnableSellPrice: def.returnableSellPrice };
+            // Migração: 600ml e Litrão agora usam preço normal por peso (sem revenda para bar)
+            if (item.id === "bottle_cerveja_600") {
+              item.name = item.name.includes("Retornável") ? "Cerveja 600ml Tradicional (Vidro Âmbar)" : item.name;
+              item.buyPricePerUnit = 0.50 / 12;
+              item.quickPresets = [2, 6, 12, 24, 50];
             }
-            return item;
+            if (item.id === "bottle_litrao_1000") {
+              item.name = item.name.includes("Retornável") || item.name.includes("Sucata") ? "Garrafão Litrão 1 Litro (Vidro)" : item.name;
+              item.buyPricePerUnit = 0.50 / 8;
+              item.quickPresets = [2, 4, 8, 16, 24];
+            }
+            delete item.returnableSellPrice;
+            if (item.warningAlert && (item.warningAlert.includes("bar") || item.warningAlert.includes("casco"))) {
+              delete item.warningAlert;
+            }
+            return {
+              ...item,
+              additionalBarcodes: Array.isArray(item.additionalBarcodes) ? item.additionalBarcodes : []
+            };
           });
-          return [...merged, ...missing];
+          return [...merged, ...missing.map((m) => ({ ...m, additionalBarcodes: m.additionalBarcodes || [] }))];
         }
       }
     } catch {}
-    return DEFAULT_BOTTLE_CATALOG.map((b) => ({ ...b, stockUnits: 0 }));
+    return DEFAULT_BOTTLE_CATALOG.map((b) => ({ ...b, stockUnits: 0, additionalBarcodes: [] }));
   });
 
-  // Ouvinte global para zerar o estoque do pátio quando acionado no painel geral
+  // Meta configurável do pátio de vidros (padrão 3.000 kg = Caminhão do Victor)
+  const [yardGoalKg, setYardGoalKg] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("pdv_dw_yard_goal_kg");
+      const n = Number(saved);
+      return Number.isFinite(n) && n >= 100 ? n : 3000;
+    } catch {
+      return 3000;
+    }
+  });
+  const [showGoalEditor, setShowGoalEditor] = useState<boolean>(false);
+  const [goalInputDraft, setGoalInputDraft] = useState<string>(() => String(yardGoalKg));
+
+  // Estoque separado de Outros Materiais do Ferro Velho (Alumínio, Ferro, Papelão, Cobre)
+  const [otherScrapMaterials, setOtherScrapMaterials] = useState<OtherScrapMaterial[]>(() => {
+    try {
+      const saved = localStorage.getItem("pdv_dw_other_scrap_materials_v1");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_OTHER_SCRAP_MATERIALS;
+  });
+
+  // Painel ativo no controle de materiais do Pátio ("vidro" vs "outros")
+  const [yardControlFilter, setYardControlFilter] = useState<"vidro" | "outros">("vidro");
+
+  // Modal de Confirmação Rápida após Bipar (Permite digitar ex: 55 direto no teclado antes de jogar no carrinho)
+  const [scannedPrompt, setScannedPrompt] = useState<{ bottle: CatalogBottleItem; matchedCode: string } | null>(null);
+  const [scannedPromptQtyStr, setScannedPromptQtyStr] = useState<string>("1");
+
+  // Comprovante térmico gerado ao finalizar compra no portão
+  const [lastPurchaseReceipt, setLastPurchaseReceipt] = useState<CompletedPurchaseTicket | null>(null);
+
+  // Destino da câmera: leitura de compra ("search") ou preenchimento dos 5 campos de código no modal Editar ("primary" ou índice 0..3)
+  const [cameraTargetField, setCameraTargetField] = useState<"search" | "primary" | number>("search");
+
+  // Ouvinte global para zerar todo o pátio e testes quando acionado no painel geral
   useEffect(() => {
     const handleYardZeroEvent = () => {
       setCatalog((prev) => prev.map((b) => ({ ...b, stockUnits: 0 })));
+      setCart([]);
+      setCollaborators((prev) =>
+        prev.map((c) => ({
+          ...c,
+          totalDeliveries: 0,
+          totalBottles: 0,
+          totalWeightKg: 0,
+          totalEarned: 0,
+          totalPaid: 0,
+          balancePending: 0
+        }))
+      );
+      setPurchaseHistory([]);
+      setPaymentHistory([]);
+      setTruckShipments([]);
+      setOtherScrapMaterials((prev) => prev.map((m) => ({ ...m, stockKg: 0 })));
+      setLastPurchaseReceipt(null);
+      setShowCheckoutModal(false);
     };
     window.addEventListener("dw_glass_zero_yard", handleYardZeroEvent);
     return () => window.removeEventListener("dw_glass_zero_yard", handleYardZeroEvent);
@@ -701,8 +901,16 @@ export function GlassBarcodeScannerCart({
     try {
       const stored = localStorage.getItem("pdv_dw_cart_items_v3");
       if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return parsed;
+        const parsed: GlassCartItem[] = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return parsed.map((c) => {
+            const cleanItem = { ...c };
+            if (cleanItem.warningAlert && (cleanItem.warningAlert.includes("bar") || cleanItem.warningAlert.includes("casco"))) {
+              delete cleanItem.warningAlert;
+            }
+            return cleanItem;
+          });
+        }
       }
     } catch {}
     return [];
@@ -794,7 +1002,13 @@ export function GlassBarcodeScannerCart({
   };
 
   const openEditBottleModal = (bottle: CatalogBottleItem, isNew = false) => {
-    setEditingBottle({ ...bottle });
+    const paddedAdditional = [
+      bottle.additionalBarcodes?.[0] || "",
+      bottle.additionalBarcodes?.[1] || "",
+      bottle.additionalBarcodes?.[2] || "",
+      bottle.additionalBarcodes?.[3] || ""
+    ];
+    setEditingBottle({ ...bottle, additionalBarcodes: paddedAdditional });
     setEditingWeightGramsInput(String(bottle.unitWeightGrams || 185));
     setIsRegisteringNew(isNew);
   };
@@ -803,22 +1017,58 @@ export function GlassBarcodeScannerCart({
   const [showZeroConfirmModal, setShowZeroConfirmModal] = useState<boolean>(false);
   const [showStrategicGuideModal, setShowStrategicGuideModal] = useState<boolean>(false);
   const [showVictorRules, setShowVictorRules] = useState<boolean>(false);
+  const [showCheckoutModal, setShowCheckoutModal] = useState<boolean>(false);
 
   // Digitação direta no teclado para quantidade de garrafas no pátio / compra (ex: 55 garrafas)
   const [bottleInputQty, setBottleInputQty] = useState<Record<string, string>>({});
 
-  const handleAddDirectQuantity = (bottle: CatalogBottleItem) => {
+  const handleAddDirectQuantity = (bottle: CatalogBottleItem, autoOpenCheckout = false) => {
     const raw = bottleInputQty[bottle.id];
     const qty = parseInt(raw || "0", 10);
-    const safeLot = getVictorSafeLotUnits(bottle.category, sellPricePerKg);
+    const safeLot = getVictorSafeLotUnits(bottle.category, sellPricePerKg, bottle.unitWeightGrams);
     const finalQty = isNaN(qty) || qty <= 0 ? (safeLot || 1) : qty;
     handleAddBottleToCart(bottle, finalQty);
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     if (showNotification) {
       const totalAddedKg = ((finalQty * bottle.unitWeightGrams) / 1000).toFixed(2);
-      showNotification(`+${finalQty} un de ${bottle.name} (${totalAddedKg} kg) adicionadas ao carrinho! 🍾⚖️`, "success");
+      showNotification(`+${finalQty} un de ${bottle.name} (${totalAddedKg} kg) no carrinho de compra! 🍾⚖️`, "success");
     }
     setBottleInputQty((prev) => ({ ...prev, [bottle.id]: "" }));
+    if (autoOpenCheckout) {
+      setShowCheckoutModal(true);
+    }
   };
+
+  // Persistência da cotação selecionada e recálculo automático do carrinho quando a cotação do Victor muda
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_sell_price_per_ton", String(activeSellPricePerTon));
+    } catch {}
+    setCart((prev) => {
+      if (prev.length === 0) return prev;
+      return prev.map((c) => {
+        const totalWeightKg = (c.quantity * c.unitWeightGrams) / 1000;
+        const totalBuyCost = calculateGlassBuyCost(
+          c.category,
+          c.quantity,
+          c.buyPricePerUnit,
+          sellPricePerKg,
+          c.unitWeightGrams
+        );
+        const totalRevenue = totalWeightKg * sellPricePerKg;
+        return {
+          ...c,
+          totalWeightKg,
+          totalBuyCost,
+          sellPriceUnitOrWeight: (c.unitWeightGrams / 1000) * sellPricePerKg,
+          totalRevenue,
+          profit: totalRevenue - totalBuyCost
+        };
+      });
+    });
+  }, [activeSellPricePerTon, sellPricePerKg]);
 
   // Persistência automática
   useEffect(() => {
@@ -862,7 +1112,24 @@ export function GlassBarcodeScannerCart({
     return collaborators.find((c) => c.id === selectedCollabId) || collaborators[0];
   }, [collaborators, selectedCollabId]);
 
-  // Totais do Estoque no Pátio
+  // Persistência de meta e materiais separados
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_yard_goal_kg", String(yardGoalKg));
+    } catch {}
+  }, [yardGoalKg]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_other_scrap_materials_v1", JSON.stringify(otherScrapMaterials));
+    } catch {}
+  }, [otherScrapMaterials]);
+
+  const otherMaterialsTotalKg = useMemo(() => {
+    return otherScrapMaterials.reduce((acc, m) => acc + (Number(m.stockKg) || 0), 0);
+  }, [otherScrapMaterials]);
+
+  // Totais do Estoque no Pátio (SOMENTE VIDROS DA RECICLAGEM!)
   const yardTotals = useMemo(() => {
     let totalUnits = 0;
     let totalWeightKg = 0;
@@ -875,11 +1142,9 @@ export function GlassBarcodeScannerCart({
     const totalWeightTon = totalWeightKg / 1000;
     const grossRevenueTon = totalWeightKg * sellPricePerKg;
 
-    // Metas do Victor:
-    // Carga mínima: 3.000 kg (3 toneladas)
-    // Carga ideal (melhor preço): 5.000 kg (5 toneladas)
-    const minTonTargetKg = 3000;
-    const idealTonTargetKg = 5000;
+    // Meta configurável (padrão 3.000 kg para o caminhão do Victor) e Carga Cheia 5.000 kg
+    const minTonTargetKg = Math.max(100, yardGoalKg || 3000);
+    const idealTonTargetKg = Math.max(minTonTargetKg, 5000);
     const kgMissingForMin = Math.max(0, minTonTargetKg - totalWeightKg);
     const kgMissingForIdeal = Math.max(0, idealTonTargetKg - totalWeightKg);
     const progressMinPct = Math.min(100, (totalWeightKg / minTonTargetKg) * 100);
@@ -890,12 +1155,14 @@ export function GlassBarcodeScannerCart({
       totalWeightKg,
       totalWeightTon,
       grossRevenueTon,
+      minTonTargetKg,
+      idealTonTargetKg,
       kgMissingForMin,
       kgMissingForIdeal,
       progressMinPct,
       progressIdealPct
     };
-  }, [catalog, sellPricePerKg]);
+  }, [catalog, sellPricePerKg, yardGoalKg]);
 
   // Resumo Financeiro Geral dos Colaboradores da Reciclagem
   const caderninhoTotals = useMemo(() => {
@@ -1011,7 +1278,7 @@ export function GlassBarcodeScannerCart({
               (decodedText) => {
                 if (isCancelled) return;
                 playScannerBeep(2100, 0.09);
-                handleProcessBarcode(decodedText.trim());
+                handleProcessBarcodeRef.current(decodedText.trim());
                 setShowCameraModal(false);
               },
               () => {}
@@ -1036,53 +1303,88 @@ export function GlassBarcodeScannerCart({
     }
   }, [showCameraModal]);
 
-  // Bipagem de Código de Barras
+  const handleProcessBarcodeRef = useRef<(code: string) => void>(() => {});
+
+  // Bipagem de Código de Barras (Suporta 1 a 5 códigos por garrafa + preenchimento direto de campo no cadastro)
   const handleProcessBarcode = (code: string) => {
     if (!code) return;
     const clean = code.trim();
-    setBarcodeInput("");
+    if (!clean) return;
 
-    const matched = catalog.find((c) => c.barcode && c.barcode.trim() === clean);
+    // Caso a câmera tenha sido aberta para preencher um dos 5 campos dentro do modal Editar/Cadastrar Garrafa:
+    if (cameraTargetField !== "search" && editingBottle) {
+      if (cameraTargetField === "primary") {
+        setEditingBottle((prev) => (prev ? { ...prev, barcode: clean } : null));
+        if (showNotification) showNotification(`Código Principal lido: ${clean} ✅`, "success");
+      } else if (typeof cameraTargetField === "number") {
+        const slotIdx = cameraTargetField;
+        setEditingBottle((prev) => {
+          if (!prev) return null;
+          const nextArr = [
+            prev.additionalBarcodes?.[0] || "",
+            prev.additionalBarcodes?.[1] || "",
+            prev.additionalBarcodes?.[2] || "",
+            prev.additionalBarcodes?.[3] || ""
+          ];
+          nextArr[slotIdx] = clean;
+          return { ...prev, additionalBarcodes: nextArr };
+        });
+        if (showNotification) showNotification(`Código Extra ${slotIdx + 2} lido: ${clean} ✅`, "success");
+      }
+      setCameraTargetField("search");
+      return;
+    }
+
+    setBarcodeInput("");
+    const normalizedTyped = clean.replace(/^0+/, "");
+
+    const matchesCode = (candidate?: string) => {
+      if (!candidate) return false;
+      const cTrim = candidate.trim();
+      if (!cTrim) return false;
+      if (cTrim === clean) return true;
+      return normalizedTyped.length >= 3 && cTrim.replace(/^0+/, "") === normalizedTyped;
+    };
+
+    const matched = catalog.find(
+      (c) =>
+        matchesCode(c.barcode) ||
+        (Array.isArray(c.additionalBarcodes) && c.additionalBarcodes.some((extra) => matchesCode(extra)))
+    );
 
     if (matched) {
-      // Padrão de compra no portão: Longneck = lote de 30 un (R$ 0,50), 900ml = lote de 10 un (R$ 0,50), Vinho = 9 un, Pote = 18 un, Retornável = 1 un
-      const defaultQty =
-        matched.category === "longneck"
-          ? 30
-          : matched.category === "900ml"
-          ? 10
-          : matched.category === "vinho"
-          ? 9
-          : matched.category === "pote"
-          ? 18
-          : 1;
-
-      handleAddBottleToCart(matched, defaultQty);
+      const safeLot = getVictorSafeLotUnits(matched.category, sellPricePerKg, matched.unitWeightGrams);
+      setScannedPrompt({ bottle: matched, matchedCode: clean });
+      setScannedPromptQtyStr(String(safeLot || 1));
       if (showNotification) {
-        showNotification(`Bipado: ${matched.name} (${matched.volumeMl}ml) +${defaultQty} un no lote! 🏷️🍾`, "success");
+        showNotification(`Identificado: ${matched.name}! Digite ou confirme a quantidade. 🏷️🍾`, "success");
       }
     } else {
-      setEditingBottle({
-        id: `bottle_${Date.now()}`,
-        name: "",
-        volumeMl: 330,
-        barcode: clean,
-        unitWeightGrams: 182,
-        unitWeightKg: 0.182,
-        category: "longneck",
-        buyPricePerUnit: 0.50 / 30,
-        emoji: "🍾",
-        stockUnits: 0,
-        quickPresets: [10, 20, 30, 50, 100]
-      });
-      setIsRegisteringNew(true);
+      openEditBottleModal(
+        {
+          id: `bottle_${Date.now()}`,
+          name: "",
+          volumeMl: 330,
+          barcode: clean,
+          additionalBarcodes: ["", "", "", ""],
+          unitWeightGrams: 182,
+          unitWeightKg: 0.182,
+          category: "longneck",
+          buyPricePerUnit: 0.50 / 30,
+          emoji: "🍾",
+          stockUnits: 0,
+          quickPresets: [10, 20, 30, 50, 100]
+        },
+        true
+      );
       if (showNotification) {
-        showNotification(`Código ${clean} novo! Pese na balança digital de cozinha e cadastre o peso em gramas! ⚖️`, "info");
+        showNotification(`Código ${clean} novo! Pese na balança digital e cadastre (ou adicione em uma garrafa existente)! ⚖️`, "info");
       }
     }
   };
+  handleProcessBarcodeRef.current = handleProcessBarcode;
 
-  // Adicionar garrafa ao carrinho (permite misturar tipos diferentes!)
+  // Adicionar garrafa ao carrinho (permite misturar tipos diferentes — tudo calculado conforme o peso!)
   const handleAddBottleToCart = (bottle: CatalogBottleItem, qty: number) => {
     if (qty <= 0) return;
     playScannerBeep(1800, 0.05);
@@ -1094,10 +1396,14 @@ export function GlassBarcodeScannerCart({
         const existing = updated[idx];
         const newQty = existing.quantity + qty;
         const totalWeightKg = (newQty * bottle.unitWeightGrams) / 1000;
-        const totalBuyCost = calculateGlassBuyCost(bottle.category, newQty, bottle.buyPricePerUnit, sellPricePerKg);
-        const totalRevenue = bottle.returnableSellPrice
-          ? newQty * bottle.returnableSellPrice
-          : totalWeightKg * sellPricePerKg;
+        const totalBuyCost = calculateGlassBuyCost(
+          bottle.category,
+          newQty,
+          bottle.buyPricePerUnit,
+          sellPricePerKg,
+          bottle.unitWeightGrams
+        );
+        const totalRevenue = totalWeightKg * sellPricePerKg;
         const profit = totalRevenue - totalBuyCost;
 
         updated[idx] = {
@@ -1105,16 +1411,21 @@ export function GlassBarcodeScannerCart({
           quantity: newQty,
           totalWeightKg,
           totalBuyCost,
+          sellPriceUnitOrWeight: (bottle.unitWeightGrams / 1000) * sellPricePerKg,
           totalRevenue,
           profit
         };
         return updated;
       } else {
         const totalWeightKg = (qty * bottle.unitWeightGrams) / 1000;
-        const totalBuyCost = calculateGlassBuyCost(bottle.category, qty, bottle.buyPricePerUnit, sellPricePerKg);
-        const totalRevenue = bottle.returnableSellPrice
-          ? qty * bottle.returnableSellPrice
-          : totalWeightKg * sellPricePerKg;
+        const totalBuyCost = calculateGlassBuyCost(
+          bottle.category,
+          qty,
+          bottle.buyPricePerUnit,
+          sellPricePerKg,
+          bottle.unitWeightGrams
+        );
+        const totalRevenue = totalWeightKg * sellPricePerKg;
         const profit = totalRevenue - totalBuyCost;
 
         const newItem: GlassCartItem = {
@@ -1124,7 +1435,6 @@ export function GlassBarcodeScannerCart({
           volumeMl: bottle.volumeMl,
           barcode: bottle.barcode,
           category: bottle.category,
-          warningAlert: bottle.warningAlert,
           emoji: bottle.emoji,
           quantity: qty,
           unitWeightGrams: bottle.unitWeightGrams,
@@ -1132,7 +1442,7 @@ export function GlassBarcodeScannerCart({
           totalWeightKg,
           buyPricePerUnit: bottle.buyPricePerUnit,
           totalBuyCost,
-          sellPriceUnitOrWeight: bottle.returnableSellPrice || (bottle.unitWeightGrams / 1000) * sellPricePerKg,
+          sellPriceUnitOrWeight: (bottle.unitWeightGrams / 1000) * sellPricePerKg,
           totalRevenue,
           profit
         };
@@ -1152,11 +1462,14 @@ export function GlassBarcodeScannerCart({
       prev.map((c) => {
         if (c.id === cartId) {
           const totalWeightKg = (newQty * c.unitWeightGrams) / 1000;
-          const totalBuyCost = calculateGlassBuyCost(c.category, newQty, c.buyPricePerUnit, sellPricePerKg);
-          const catalogItem = catalog.find((cat) => cat.id === c.catalogId);
-          const totalRevenue = catalogItem?.returnableSellPrice
-            ? newQty * catalogItem.returnableSellPrice
-            : totalWeightKg * sellPricePerKg;
+          const totalBuyCost = calculateGlassBuyCost(
+            c.category,
+            newQty,
+            c.buyPricePerUnit,
+            sellPricePerKg,
+            c.unitWeightGrams
+          );
+          const totalRevenue = totalWeightKg * sellPricePerKg;
           const profit = totalRevenue - totalBuyCost;
 
           return {
@@ -1164,6 +1477,7 @@ export function GlassBarcodeScannerCart({
             quantity: newQty,
             totalWeightKg,
             totalBuyCost,
+            sellPriceUnitOrWeight: (c.unitWeightGrams / 1000) * sellPricePerKg,
             totalRevenue,
             profit
           };
@@ -1196,19 +1510,28 @@ export function GlassBarcodeScannerCart({
       return nextCatalog;
     });
 
-    // Atualiza também itens que estejam no carrinho
+    // Atualiza também itens que estejam no carrinho recalculando valor pelo novo peso
     setCart((prev) =>
       prev.map((c) => {
         if (c.catalogId === calibratingBottle.id) {
           const totalWeightKg = (c.quantity * grams) / 1000;
+          const totalBuyCost = calculateGlassBuyCost(
+            c.category,
+            c.quantity,
+            c.buyPricePerUnit,
+            sellPricePerKg,
+            grams
+          );
           const totalRevenue = totalWeightKg * sellPricePerKg;
           return {
             ...c,
             unitWeightGrams: grams,
             unitWeightKg: kg,
             totalWeightKg,
+            totalBuyCost,
+            sellPriceUnitOrWeight: kg * sellPricePerKg,
             totalRevenue,
-            profit: totalRevenue - c.totalBuyCost
+            profit: totalRevenue - totalBuyCost
           };
         }
         return c;
@@ -1237,21 +1560,28 @@ export function GlassBarcodeScannerCart({
       return nextCatalog;
     });
 
-    // Atualizar itens no carrinho
+    // Atualizar itens no carrinho por peso real
     setCart((prev) =>
       prev.map((c) => {
         if (c.catalogId === bottleId) {
           const totalWeightKg = (c.quantity * grams) / 1000;
-          const totalRevenue = c.sellPriceUnitOrWeight
-            ? (c.category === "cerveja600" || c.category === "litrao" ? c.quantity * c.sellPriceUnitOrWeight : totalWeightKg * sellPricePerKg)
-            : totalWeightKg * sellPricePerKg;
+          const totalBuyCost = calculateGlassBuyCost(
+            c.category,
+            c.quantity,
+            c.buyPricePerUnit,
+            sellPricePerKg,
+            grams
+          );
+          const totalRevenue = totalWeightKg * sellPricePerKg;
           return {
             ...c,
             unitWeightGrams: grams,
             unitWeightKg: kg,
             totalWeightKg,
+            totalBuyCost,
+            sellPriceUnitOrWeight: kg * sellPricePerKg,
             totalRevenue,
-            profit: totalRevenue - c.totalBuyCost
+            profit: totalRevenue - totalBuyCost
           };
         }
         return c;
@@ -1276,9 +1606,16 @@ export function GlassBarcodeScannerCart({
     const kg = grams / 1000;
     const volume = Math.max(10, Number(editingBottle.volumeMl) || 300);
 
+    const cleanAdditional = (editingBottle.additionalBarcodes || [])
+      .map((c) => (c || "").trim())
+      .filter((c) => c.length > 0 && c !== editingBottle.barcode.trim())
+      .slice(0, 4);
+
     const saved: CatalogBottleItem = {
       ...editingBottle,
       name,
+      barcode: (editingBottle.barcode || "").trim(),
+      additionalBarcodes: cleanAdditional,
       volumeMl: volume,
       unitWeightGrams: grams,
       unitWeightKg: kg,
@@ -1300,7 +1637,11 @@ export function GlassBarcodeScannerCart({
     setIsRegisteringNew(false);
 
     if (showNotification) {
-      showNotification(`Garrafa/Pote "${saved.name}" salvo com sucesso! (${grams}g na balança • ${volume}ml) ⚖️✅`, "success");
+      const totalCodes = (saved.barcode ? 1 : 0) + cleanAdditional.length;
+      showNotification(
+        `Garrafa/Pote "${saved.name}" salvo! (${grams}g • ${totalCodes} cód. de barra) ⚖️✅`,
+        "success"
+      );
     }
   };
 
@@ -1320,14 +1661,17 @@ export function GlassBarcodeScannerCart({
 
   // Duplicar garrafa similar (para cadastrar garrafas parecidas de forma rápida)
   const handleDuplicateSimilar = (baseBottle: CatalogBottleItem) => {
-    setEditingBottle({
-      ...baseBottle,
-      id: `bottle_${Date.now()}`,
-      name: `${baseBottle.name} (Similar)`,
-      barcode: "",
-      stockUnits: 0
-    });
-    setIsRegisteringNew(true);
+    openEditBottleModal(
+      {
+        ...baseBottle,
+        id: `bottle_${Date.now()}`,
+        name: `${baseBottle.name} (Similar)`,
+        barcode: "",
+        additionalBarcodes: ["", "", "", ""],
+        stockUnits: 0
+      },
+      true
+    );
     if (showNotification) {
       showNotification(`Copiados peso (${baseBottle.unitWeightGrams}g) e ${baseBottle.volumeMl}ml. Digite o novo nome e confirme o peso na balança! 📑`, "info");
     }
@@ -1437,10 +1781,13 @@ export function GlassBarcodeScannerCart({
       totalPaid: isFounder ? 0 : cartTotals.totalBuyCost,
       expectedPlantRevenue: cartTotals.totalRevenue,
       netProfit: cartTotals.netProfit,
-      paymentStatus
+      paymentStatus,
+      sellPricePerTonUsed: activeSellPricePerTon
     };
 
     setPurchaseHistory((prev) => [ticket, ...prev.slice(0, 49)]);
+    setLastPurchaseReceipt(ticket);
+    setShowCheckoutModal(false);
 
     // 4. Limpar carrinho
     setCart([]);
@@ -1569,15 +1916,45 @@ export function GlassBarcodeScannerCart({
 
   // Zerar Todos os Testes e Começar do Zero com a Realidade da D.W Vidros
   const handleResetAllToZeroReal = () => {
-    // Zera o catálogo de estoque
+    // 1. Zera o estoque de vidros no pátio (mantendo garrafas e códigos cadastrados)
     const zeroedCatalog = catalog.map((b) => ({ ...b, stockUnits: 0 }));
     setCatalog(zeroedCatalog);
+
+    // 2. Zera o carrinho, modais e digitações temporárias
     setCart([]);
+    setBottleInputQty({});
+    setLastPurchaseReceipt(null);
+    setShowCheckoutModal(false);
+
+    // 3. Zera todos os saldos, entregas e contagens de teste do Caderninho (mantendo os nomes dos colaboradores)
+    const zeroedCollaborators = collaborators.map((c) => ({
+      ...c,
+      totalDeliveries: 0,
+      totalBottles: 0,
+      totalWeightKg: 0,
+      totalEarned: 0,
+      totalPaid: 0,
+      balancePending: 0
+    }));
+    setCollaborators(zeroedCollaborators);
+
+    // 4. Zera históricos de compras de teste, acertos de teste, despachos e outros materiais
+    setPurchaseHistory([]);
+    setPaymentHistory([]);
+    setTruckShipments([]);
+    const zeroedOtherScrap = otherScrapMaterials.map((m) => ({ ...m, stockKg: 0 }));
+    setOtherScrapMaterials(zeroedOtherScrap);
+
     setShowZeroConfirmModal(false);
     try {
       localStorage.setItem("pdv_dw_glass_catalog_v10", JSON.stringify(zeroedCatalog));
+      localStorage.setItem("pdv_dw_collaborators_accounts_v3", JSON.stringify(zeroedCollaborators));
+      localStorage.setItem("pdv_dw_other_scrap_materials_v1", JSON.stringify(zeroedOtherScrap));
       localStorage.removeItem("pdv_glass_items_inventory_v1");
       localStorage.removeItem("pdv_dw_cart_items_v3");
+      localStorage.removeItem("pdv_dw_purchase_tickets_v3");
+      localStorage.removeItem("pdv_dw_collaborator_payments_v3");
+      localStorage.removeItem("pdv_dw_truck_shipments_v3");
       window.dispatchEvent(new CustomEvent("dw_glass_zero_yard_from_child"));
       window.dispatchEvent(new CustomEvent("dw_glass_zero_yard"));
       window.dispatchEvent(new CustomEvent("dw_glass_catalog_updated", { detail: zeroedCatalog }));
@@ -1585,7 +1962,7 @@ export function GlassBarcodeScannerCart({
 
     if (showNotification) {
       showNotification(
-        "🧹 Pátio 100% zerado com sucesso! Total: 0.00 Toneladas (0 kg). Pronto para registrar suas pesagens e compras reais!",
+        "🧹 Tudo 100% zerado! Pátio (0 kg), Caderninho (R$ 0,00), Históricos e Outros Materiais limpos. Seus cadastros de garrafas e códigos foram mantidos!",
         "success"
       );
     }
@@ -1646,8 +2023,75 @@ export function GlassBarcodeScannerCart({
     window.open(url, "_blank");
   };
 
+  // Imprimir Notinha / Cupom Térmico de Compra no Portão (58mm / 80mm / A4)
+  const handlePrintGlassTicket = (ticket: CompletedPurchaseTicket) => {
+    const config = loadPrinterConfig();
+    const projectedKg =
+      lastPurchaseReceipt?.id === ticket.id
+        ? yardTotals.totalWeightKg
+        : yardTotals.totalWeightKg;
+    const html = buildGlassPurchaseThermalHtml(
+      ticket,
+      config,
+      projectedKg,
+      yardTotals.minTonTargetKg
+    );
+    executeThermalPrint(
+      html,
+      () => {
+        if (showNotification) {
+          showNotification("Notinha de compra enviada para impressão! 🖨️🧾", "success");
+        }
+      },
+      () => {
+        if (showNotification) {
+          showNotification("Não foi possível abrir a janela de impressão. Verifique permissões.", "warning");
+        }
+      }
+    );
+  };
+
+  // Enviar Notinha de Compra no WhatsApp
+  const handleShareGlassTicketWhatsApp = (ticket: CompletedPurchaseTicket) => {
+    const statusLabel =
+      ticket.paymentStatus === "coleta_propria_dw"
+        ? "👑 Coleta Própria D.W (100% Empresa)"
+        : ticket.paymentStatus === "pago_na_hora"
+        ? "💵 Pago na Hora no Portão"
+        : "📓 Lançado no Caderninho do Colaborador";
+
+    let msg = `🧾 *D.W VIDROS & RECICLAGEM*\n`;
+    msg += `_CNPJ: 67.965.725/0001-95 • Compra no Portão_\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `👤 *Parceiro:* ${ticket.collectorName}\n`;
+    msg += `📅 *Data:* ${ticket.timestamp}\n`;
+    msg += `📌 *Status:* ${statusLabel}\n`;
+    msg += `📊 *Cotação Victor:* R$ ${ticket.sellPricePerTonUsed || activeSellPricePerTon}/t (R$ ${(((ticket.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2)}/kg)\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    ticket.items.forEach((it) => {
+      msg += `• *${it.quantity}×* ${it.name} (${it.totalWeightKg.toFixed(2)} kg) — R$ ${it.costPaid.toFixed(2)}\n`;
+    });
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `⚖️ *Peso Somado ao Pátio:* +${ticket.totalWeightKg.toFixed(2)} kg (${ticket.totalBottles} un)\n`;
+    if (ticket.isFounder) {
+      const equiv = ticket.items.reduce((s, it) => s + it.costPaid, 0);
+      msg += `👑 *Economia Própria D.W:* R$ ${equiv.toFixed(2)}\n`;
+    }
+    msg += `💰 *${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA)" : "TOTAL COMPRA"}:* R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2)}\n`;
+    msg += `🚛 *Pátio Atual:* ${yardTotals.totalWeightKg.toFixed(1)} kg / ${yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg\n`;
+
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+    const opened = window.open(url, "_blank");
+    if (!opened && navigator.clipboard) {
+      navigator.clipboard.writeText(msg).catch(() => {});
+      if (showNotification) {
+        showNotification("Comprovante copiado para colar no WhatsApp! 📋💬", "info");
+      }
+    }
+  };
+
   return (
-    <div className="space-y-5 text-left font-sans">
+    <div className={`space-y-5 text-left font-sans ${cart.length > 0 ? "pb-28" : ""}`}>
       {/* CABEÇALHO OFICIAL: D.W VIDROS & RECICLAGEM */}
       <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 border-2 border-emerald-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
@@ -1668,7 +2112,7 @@ export function GlassBarcodeScannerCart({
                 Denise Jesus & Wellington Oliveira
               </span>
               <span className="text-[11px] bg-amber-500/20 text-amber-300 font-bold px-2.5 py-1 rounded-lg border border-amber-500/30">
-                Cotação: R$ {sellPricePerTon.toFixed(2)}/t (R$ {sellPricePerKg.toFixed(2)}/kg)
+                Cotação: R$ {activeSellPricePerTon.toFixed(2)}/t (R$ {sellPricePerKg.toFixed(2)}/kg)
               </span>
             </div>
 
@@ -1715,53 +2159,122 @@ export function GlassBarcodeScannerCart({
           </div>
         </div>
 
-        {/* 🚛 BARRA OFICIAL: ESTOQUE ACUMULADO NO PÁTIO (KG) RUMO À META DO CAMINHÃO DO VICTOR (3.000 KG) */}
+        {/* 🚛 PAINEL DE CONTROLE DO PÁTIO DE RECICLAGEM (META CONFIGURÁVEL & ESTOQUE SEPARADO) */}
         <div className="mt-5 pt-4 border-t border-white/10 space-y-3">
           {/* Card Central com Destaque Máximo */}
-          <div className="p-4 bg-gradient-to-r from-slate-950 via-emerald-950/50 to-slate-950 rounded-2xl border-2 border-emerald-500/50 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="space-y-1">
+          <div className="p-4 bg-gradient-to-r from-slate-950 via-emerald-950/50 to-slate-950 rounded-2xl border-2 border-emerald-500/50 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1.5 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                  ESTOQUE ACUMULADO NO PÁTIO (KG)
+                  ESTOQUE ACUMULADO NO PÁTIO (KG) • APENAS VIDROS
                 </span>
-                <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
-                  🚛 Meta Mínima de Coleta do Victor: 3.000 kg (3t)
-                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGoalInputDraft(String(yardGoalKg));
+                    setShowGoalEditor((v) => !v);
+                  }}
+                  className="min-h-[36px] px-3 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-black text-[10.5px] flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
+                  title="Alterar a meta em quilos para a coleta do caminhão"
+                >
+                  <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Meta: {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg (Editar)</span>
+                </button>
               </div>
-              <h3 className="text-2xl sm:text-3xl font-black font-mono text-white flex items-center gap-2">
-                <span>[ {yardTotals.totalWeightKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} kg / 3.000 kg ]</span>
-                <span className={`text-base font-bold ${yardTotals.totalWeightKg >= 3000 ? "text-emerald-400" : "text-amber-400"}`}>
+
+              {showGoalEditor && (
+                <div className="p-3 bg-slate-900/95 border border-amber-500/40 rounded-2xl flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-[10.5px] font-black uppercase text-amber-300">Nova Meta (kg):</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={goalInputDraft}
+                    onChange={(e) => setGoalInputDraft(e.target.value.replace(/\D/g, ""))}
+                    className="w-24 min-h-[44px] bg-slate-950 border border-amber-400/60 rounded-xl px-3 text-center text-white font-mono font-black text-sm outline-none"
+                    placeholder="3000"
+                  />
+                  {[3000, 5000, 10000].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => {
+                        setYardGoalKg(preset);
+                        setGoalInputDraft(String(preset));
+                        setShowGoalEditor(false);
+                        if (showNotification) showNotification(`Meta do Pátio definida em ${preset.toLocaleString("pt-BR")} kg! 🎯`, "success");
+                      }}
+                      className="min-h-[44px] px-3 bg-slate-950 hover:bg-amber-500 hover:text-slate-950 text-amber-200 border border-white/10 rounded-xl font-mono font-black text-xs cursor-pointer touch-manipulation select-none active:scale-95"
+                    >
+                      {(preset / 1000).toFixed(0)}t ({preset.toLocaleString("pt-BR")} kg)
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = Math.max(100, parseInt(goalInputDraft || "3000", 10) || 3000);
+                      setYardGoalKg(val);
+                      setShowGoalEditor(false);
+                      if (showNotification) showNotification(`Meta do Pátio atualizada para ${val.toLocaleString("pt-BR")} kg! 🎯`, "success");
+                    }}
+                    className="min-h-[44px] px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black uppercase text-xs rounded-xl cursor-pointer touch-manipulation select-none active:scale-95"
+                  >
+                    Salvar Meta ✅
+                  </button>
+                </div>
+              )}
+
+              <h3 className="text-2xl sm:text-3xl font-black font-mono text-white flex items-center gap-2 flex-wrap">
+                <span>
+                  [ {yardTotals.totalWeightKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} kg / {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg ]
+                </span>
+                <span className={`text-base font-bold ${yardTotals.totalWeightKg >= yardTotals.minTonTargetKg ? "text-emerald-400" : "text-amber-400"}`}>
                   ({yardTotals.progressMinPct.toFixed(1)}%)
                 </span>
               </h3>
               <p className="text-xs text-slate-300">
                 {yardTotals.kgMissingForMin > 0 ? (
                   <span>
-                    Faltam <strong className="text-amber-300 font-mono text-sm">{yardTotals.kgMissingForMin.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} kg</strong> para o caminhão do Victor vir coletar no pátio!
+                    Faltam <strong className="text-amber-300 font-mono text-sm">{yardTotals.kgMissingForMin.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} kg</strong> para bater a meta configurada de {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg no caminhão do Victor!
                   </span>
                 ) : (
                   <span className="text-emerald-300 font-black">
-                    🎉 Meta Mínima de 3.000 kg Atingida! O caminhão do Victor já pode vir carregar no seu pátio com 1 ajudante!
+                    🎉 Meta de {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg Atingida! O caminhão já pode carregar no seu pátio!
                   </span>
                 )}
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs min-w-[240px]">
-              <div className="p-2.5 bg-slate-900/90 rounded-xl border border-white/10 space-y-0.5">
-                <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Total de Garrafas:</span>
-                <strong className="text-lg font-mono text-white font-black">
+            <div className="grid grid-cols-3 gap-2 text-xs min-w-[270px]">
+              <div className="p-2.5 bg-slate-900/90 rounded-xl border border-emerald-500/25 space-y-0.5">
+                <span className="text-[9px] uppercase font-bold text-emerald-400 block">Vidros no Pátio:</span>
+                <strong className="text-base sm:text-lg font-mono text-white font-black">
                   {yardTotals.totalUnits.toLocaleString("pt-BR")} <span className="text-[10px] text-slate-400 font-normal">un</span>
                 </strong>
                 <span className="text-[9px] text-emerald-400 block font-bold">= {yardTotals.totalWeightTon.toFixed(3)} Ton</span>
               </div>
-              <div className="p-2.5 bg-slate-900/90 rounded-xl border border-white/10 space-y-0.5">
-                <span className="text-[9.5px] uppercase font-bold text-amber-400 block">Faturamento Bruto:</span>
-                <strong className="text-lg font-mono text-amber-400 font-black">
+              <div className="p-2.5 bg-slate-900/90 rounded-xl border border-amber-500/25 space-y-0.5">
+                <span className="text-[9px] uppercase font-bold text-amber-400 block">Faturamento Bruto:</span>
+                <strong className="text-base sm:text-lg font-mono text-amber-400 font-black">
                   R$ {yardTotals.grossRevenueTon.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </strong>
-                <span className="text-[9px] text-slate-400 block">Na usina (R$ {sellPricePerTon}/t)</span>
+                <span className="text-[9px] text-slate-400 block">A R$ {activeSellPricePerTon}/t</span>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setYardControlFilter("outros");
+                  setActiveTab("estoque");
+                }}
+                className="p-2.5 bg-slate-900/90 hover:bg-slate-800 rounded-xl border border-cyan-500/30 space-y-0.5 text-left cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
+                title="Gerenciar Alumínio, Ferro e Papelão separadamente do vidro"
+              >
+                <span className="text-[9px] uppercase font-bold text-cyan-300 block">Outros Materiais:</span>
+                <strong className="text-base sm:text-lg font-mono text-cyan-200 font-black">
+                  {otherMaterialsTotalKg.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} <span className="text-[10px] font-normal">kg</span>
+                </strong>
+                <span className="text-[9px] text-cyan-400 block font-bold">Separado 🔩 ➔</span>
+              </button>
             </div>
           </div>
 
@@ -1769,14 +2282,14 @@ export function GlassBarcodeScannerCart({
           <div className="space-y-1.5">
             <div className="flex justify-between text-[10.5px] font-mono font-bold text-slate-400">
               <span>0 kg</span>
-              <span className={yardTotals.totalWeightKg >= 1500 ? "text-emerald-300 font-bold" : ""}>
-                1.500 kg (50%)
+              <span className={yardTotals.totalWeightKg >= yardTotals.minTonTargetKg / 2 ? "text-emerald-300 font-bold" : ""}>
+                {(yardTotals.minTonTargetKg / 2).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} kg (50%)
               </span>
-              <span className={yardTotals.totalWeightKg >= 3000 ? "text-emerald-400 font-black" : "text-amber-400 font-black"}>
-                🎯 Meta Victor: 3.000 kg (3 Ton)
+              <span className={yardTotals.totalWeightKg >= yardTotals.minTonTargetKg ? "text-emerald-400 font-black" : "text-amber-400 font-black"}>
+                🎯 Meta: {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg ({(yardTotals.minTonTargetKg / 1000).toFixed(1)}t)
               </span>
-              <span className={yardTotals.totalWeightKg >= 5000 ? "text-teal-400 font-black" : ""}>
-                ⭐ Carga Cheia: 5.000 kg (R$ 150/t)
+              <span className={yardTotals.totalWeightKg >= yardTotals.idealTonTargetKg ? "text-teal-400 font-black" : ""}>
+                ⭐ Carga Cheia: {yardTotals.idealTonTargetKg.toLocaleString("pt-BR")} kg
               </span>
             </div>
             <div className="h-4 w-full bg-slate-950 rounded-full overflow-hidden border border-emerald-500/40 p-0.5 shadow-inner">
@@ -1948,20 +2461,24 @@ export function GlassBarcodeScannerCart({
               </div>
             )}
 
-            {/* DEMONSTRATIVO DINÂMICO DE SEGURANÇA */}
+            {/* DEMONSTRATIVO DINÂMICO DE SEGURANÇA POR PESO */}
             <div className="p-3 bg-slate-950/90 rounded-2xl border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
               <div className="space-y-0.5">
-                <span className="text-slate-400 text-[10.5px]">Proteção ativa para Denise na cotação de R$ {sellPricePerTon}/t (R$ {sellPricePerKg.toFixed(2)}/kg):</span>
+                <span className="text-slate-400 text-[10.5px]">
+                  Proteção ativa por peso na cotação de R$ {activeSellPricePerTon}/t (R$ {sellPricePerKg.toFixed(2)}/kg):
+                </span>
                 <div className="font-bold text-white flex items-center gap-2 flex-wrap text-[11px]">
-                  <span>Longneck: <strong className="text-emerald-400">{getVictorSafeLotUnits("longneck", sellPricePerKg)} un = R$ 0,50</strong></span>
+                  <span>Longneck (182g): <strong className="text-emerald-400">{getVictorSafeLotUnits("longneck", sellPricePerKg, 182)} un = R$ 0,50</strong></span>
                   <span>•</span>
-                  <span>Dreher/51: <strong className="text-emerald-400">{getVictorSafeLotUnits("900ml", sellPricePerKg)} un = R$ 0,50</strong></span>
+                  <span>600ml (450g): <strong className="text-emerald-400">{getVictorSafeLotUnits("cerveja600", sellPricePerKg, 450)} un = R$ 0,50</strong></span>
                   <span>•</span>
-                  <span>Vinho: <strong className="text-emerald-400">{getVictorSafeLotUnits("vinho", sellPricePerKg)} un = R$ 0,50</strong></span>
+                  <span>51/Dreher (500g): <strong className="text-emerald-400">{getVictorSafeLotUnits("900ml", sellPricePerKg, 500)} un = R$ 0,50</strong></span>
+                  <span>•</span>
+                  <span>Litrão (700g): <strong className="text-emerald-400">{getVictorSafeLotUnits("litrao", sellPricePerKg, 700)} un = R$ 0,50</strong></span>
                 </div>
               </div>
               <div className="shrink-0 px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-black text-xs font-mono text-center">
-                Denise lucra +38% a +45% sem risco!
+                Lucro Protegido ~38% por Peso!
               </div>
             </div>
           </div>
@@ -2056,6 +2573,7 @@ export function GlassBarcodeScannerCart({
                       name: "",
                       volumeMl: 330,
                       barcode: "",
+                      additionalBarcodes: ["", "", "", ""],
                       unitWeightGrams: 182,
                       unitWeightKg: 0.182,
                       category: "longneck",
@@ -2065,19 +2583,22 @@ export function GlassBarcodeScannerCart({
                       quickPresets: [10, 30, 50, 100]
                     }, true);
                   }}
-                  className="min-h-[48px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md shadow-emerald-500/20"
+                  className="min-h-[48px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation select-none shadow-md shadow-emerald-500/20"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>+ Cadastrar Garrafa Nova ⚖️</span>
+                  <span>+ Cadastrar Garrafa (até 5 códs) ⚖️</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setShowCameraModal(true)}
-                  className="min-h-[48px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 transition-all flex items-center gap-2 cursor-pointer touch-manipulation"
+                  onClick={() => {
+                    setCameraTargetField("search");
+                    setShowCameraModal(true);
+                  }}
+                  className="min-h-[48px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 active:scale-95 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 transition-all flex items-center gap-2 cursor-pointer touch-manipulation select-none"
                 >
                   <Camera className="w-4 h-4 text-emerald-400" />
-                  <span>Câmera 📷</span>
+                  <span>Bipar Câmera 📷</span>
                 </button>
               </div>
             </div>
@@ -2127,25 +2648,27 @@ export function GlassBarcodeScannerCart({
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
                 {catalog.map((bottle) => {
-                  const safeLot = getVictorSafeLotUnits(bottle.category, sellPricePerKg);
-                  const isReturnableBottle = bottle.category === "cerveja600" || bottle.category === "litrao";
-                  const presetsToShow =
-                    bottle.category === "longneck"
+                  const safeLot = getVictorSafeLotUnits(bottle.category, sellPricePerKg, bottle.unitWeightGrams);
+                  const rawPresets =
+                    bottle.category === "caco"
+                      ? [2, 3, 5, 10]
+                      : bottle.category === "longneck"
                       ? [10, safeLot, safeLot * 2, 50, 100]
-                      : bottle.category === "900ml"
-                      ? [2, safeLot, safeLot * 2, 25, 100]
-                      : bottle.category === "vinho"
-                      ? [safeLot, safeLot * 2, safeLot * 3, 45]
-                      : bottle.category === "pote"
-                      ? [safeLot, safeLot * 2, safeLot * 3, 100]
-                      : isReturnableBottle
-                      ? [1, 2, 6, 12, 24]
-                      : [1, 2, 3, 5, 10];
+                      : [2, safeLot, safeLot * 2, 24, 50];
+                  // Filtra > 1 pois o botão "+1" já é exibido fixo na esquerda (evita botão "+1" duplicado!)
+                  const presetsToShow = Array.from(new Set(rawPresets.filter((n) => n > 1))).sort((a, b) => a - b);
+                  const inCartItem = cart.find((c) => c.catalogId === bottle.id);
+                  const typedQtyNum = parseInt(bottleInputQty[bottle.id] || "0", 10);
+                  const activeActionQty = !isNaN(typedQtyNum) && typedQtyNum > 0 ? typedQtyNum : (safeLot || 1);
 
                   return (
                     <div
                       key={bottle.id}
-                      className="p-3 bg-slate-950 rounded-2xl border border-white/10 hover:border-emerald-500/40 transition-all flex flex-col justify-between space-y-2"
+                      className={`p-3 bg-slate-950 rounded-2xl border transition-all flex flex-col justify-between space-y-2 ${
+                        inCartItem
+                          ? "border-emerald-400/80 ring-1 ring-emerald-500/35 shadow-lg shadow-emerald-950/40"
+                          : "border-white/10 hover:border-emerald-500/40"
+                      }`}
                     >
                       <div>
                         <div className="flex items-center justify-between text-xs">
@@ -2153,44 +2676,67 @@ export function GlassBarcodeScannerCart({
                           <button
                             type="button"
                             onClick={() => openCalibrateBottleModal(bottle)}
-                            className="px-2 py-0.5 bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-[10.5px] font-black font-mono flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-sm"
+                            className="min-h-[44px] px-3 py-1 bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-[11px] font-black font-mono flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 touch-manipulation select-none shadow-sm"
                             title="Ajustar ou pesar esta garrafa na sua balança de cozinha"
                           >
-                            <Scale className="w-3 h-3 text-emerald-400" />
+                            <Scale className="w-3.5 h-3.5 text-emerald-400" />
                             <span>{bottle.unitWeightGrams}g</span>
-                            <Edit3 className="w-2.5 h-2.5 text-slate-400" />
+                            <Edit3 className="w-3 h-3 text-slate-400" />
                           </button>
                         </div>
-                        <div className="flex items-center justify-between gap-1 mt-1.5">
+                        <div className="flex items-center justify-between gap-1.5 mt-1.5">
                           <div className="font-black text-white text-xs truncate flex-1" title={bottle.name}>
                             {bottle.name}
                           </div>
                           <button
                             type="button"
                             onClick={() => openEditBottleModal(bottle, false)}
-                            className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded-md transition-all cursor-pointer"
-                            title="Editar cadastro completo (Nome, ML, Peso, Código)"
+                            className="min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-cyan-300 hover:text-white rounded-xl border border-cyan-500/30 transition-all cursor-pointer touch-manipulation select-none active:scale-95 shrink-0"
+                            title="Editar cadastro completo (Nome, Peso e 1 a 5 Códigos de Barras)"
                           >
-                            <Edit3 className="w-3.5 h-3.5" />
+                            <Edit3 className="w-4 h-4" />
                           </button>
                         </div>
-                        <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between mt-0.5">
+                        <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between gap-1 mt-0.5 flex-wrap">
                           <span>{bottle.volumeMl}ml</span>
-                          <span className="text-[9.5px] text-slate-500">{bottle.barcode ? `Cód: ${bottle.barcode}` : "Sem código"}</span>
+                          <span className="text-[9.5px] text-slate-500">
+                            {bottle.barcode ? `Cód: ${bottle.barcode}` : "Sem código"}
+                            {bottle.additionalBarcodes && bottle.additionalBarcodes.filter(Boolean).length > 0 && (
+                              <span className="ml-1 text-emerald-400 font-bold">
+                                (+{bottle.additionalBarcodes.filter(Boolean).length} extras)
+                              </span>
+                            )}
+                          </span>
                         </div>
                         <div className="text-[10px] font-bold text-amber-300 font-mono leading-tight mt-1 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-lg">
-                          {getBottleCentavosLabel(bottle.category, bottle.buyPricePerUnit, sellPricePerKg)}
+                          {getBottleCentavosLabel(bottle.category, bottle.buyPricePerUnit, sellPricePerKg, bottle.unitWeightGrams)}
                         </div>
-                        {isReturnableBottle && (
-                          <div className="text-[9px] text-cyan-300 font-bold bg-cyan-950/40 border border-cyan-500/30 px-1.5 py-0.5 rounded mt-1">
-                            ⭐ Retornável: Revender a Bar por R$ {bottle.returnableSellPrice?.toFixed(2)}
-                          </div>
-                        )}
                       </div>
+
+                      {/* Feedback instantâneo visível direto no card se já está no carrinho */}
+                      {inCartItem && (
+                        <div className="p-2 bg-emerald-950/60 border border-emerald-500/50 rounded-xl flex items-center justify-between gap-2 text-[10.5px]">
+                          <div className="min-w-0">
+                            <span className="text-emerald-300 font-black block">
+                              ✓ No Carrinho: {inCartItem.quantity} un
+                            </span>
+                            <span className="text-slate-200 font-mono">
+                              {inCartItem.totalWeightKg.toFixed(2)} kg • R$ {inCartItem.totalBuyCost.toFixed(2)}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowCheckoutModal(true)}
+                            className="min-h-[38px] px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-[10px] uppercase rounded-lg cursor-pointer touch-manipulation select-none shrink-0"
+                          >
+                            Pagar / Pátio ➔
+                          </button>
+                        </div>
+                      )}
 
                       {/* Digitação Direta no Teclado (ex: 55 garrafas) */}
                       <div className="pt-2 border-t border-white/10 space-y-2">
-                        <div className="bg-slate-900/90 p-2 rounded-xl border border-white/10 space-y-1">
+                        <div className="bg-slate-900/90 p-2 rounded-xl border border-white/10 space-y-2">
                           <div className="flex items-center justify-between text-[10px] text-slate-300 font-bold">
                             <span>Digitar quantidade:</span>
                             <span className="text-emerald-400 font-mono text-[9.5px]">
@@ -2199,7 +2745,13 @@ export function GlassBarcodeScannerCart({
                                 const val = parseInt(rawVal || "0", 10);
                                 if (val > 0) {
                                   const calcKg = ((val * bottle.unitWeightGrams) / 1000).toFixed(2);
-                                  const cost = calculateGlassBuyCost(bottle.category, val, bottle.buyPricePerUnit, sellPricePerKg);
+                                  const cost = calculateGlassBuyCost(
+                                    bottle.category,
+                                    val,
+                                    bottle.buyPricePerUnit,
+                                    sellPricePerKg,
+                                    bottle.unitWeightGrams
+                                  );
                                   return `= ${calcKg} kg • R$ ${cost.toFixed(2)}`;
                                 }
                                 return `Balança: ${bottle.unitWeightGrams}g`;
@@ -2220,30 +2772,37 @@ export function GlassBarcodeScannerCart({
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                   e.preventDefault();
-                                  handleAddDirectQuantity(bottle);
+                                  handleAddDirectQuantity(bottle, true);
                                 }
                               }}
-                              className="w-20 min-h-[44px] bg-slate-950 border border-emerald-500/50 focus:border-emerald-400 rounded-xl px-2 text-center text-white font-mono font-black text-sm outline-none shadow-inner"
+                              className="w-20 min-h-[46px] bg-slate-950 border-2 border-emerald-500/50 focus:border-emerald-400 rounded-xl px-2 text-center text-white font-mono font-black text-base outline-none shadow-inner"
                             />
                             <button
                               type="button"
-                              onClick={() => handleAddDirectQuantity(bottle)}
-                              className="flex-1 min-h-[44px] px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer touch-manipulation shadow-md"
-                              title="Lançar quantidade digitada diretamente no carrinho"
+                              onClick={() => handleAddDirectQuantity(bottle, false)}
+                              className="flex-1 min-h-[46px] px-3 bg-slate-800 hover:bg-slate-700 active:scale-95 text-emerald-300 border border-emerald-500/40 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer touch-manipulation select-none shadow-sm"
+                              title="Adicionar ao carrinho para continuar lançando outras garrafas"
                             >
                               <Plus className="w-3.5 h-3.5 shrink-0" />
-                              <span className="truncate">
-                                {bottleInputQty[bottle.id] && parseInt(bottleInputQty[bottle.id], 10) > 0
-                                  ? `Lançar ${bottleInputQty[bottle.id]} un 🍾`
-                                  : `Lançar (${safeLot} un)`}
-                              </span>
+                              <span className="truncate">+ Carrinho ({activeActionQty} un)</span>
                             </button>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => handleAddDirectQuantity(bottle, true)}
+                            className="w-full min-h-[46px] px-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none shadow-md shadow-emerald-500/25"
+                            title="Lança a quantidade e já abre a tela para Pagar, Caderninho e Somar no Pátio"
+                          >
+                            <Zap className="w-4 h-4 shrink-0" />
+                            <span className="truncate">
+                              Lançar {activeActionQty} un &amp; Pagar / Pátio ➔
+                            </span>
+                          </button>
                         </div>
 
                         {/* Botões de Presets rápidos (+1, +safeLot, +50, +100) com Touch Alargado (min-h-[44px]) */}
                         <div className="space-y-1">
-                          {!isReturnableBottle && bottle.category !== "caco" && (
+                          {bottle.category !== "caco" && (
                             <div className="text-[9px] text-emerald-400 font-black flex items-center justify-between px-0.5">
                               <span>Lote R$ 0,50: {safeLot} un</span>
                               <span className="text-[8.5px] text-slate-400">({((safeLot * bottle.unitWeightGrams) / 1000).toFixed(1)}kg)</span>
@@ -2253,7 +2812,7 @@ export function GlassBarcodeScannerCart({
                             <button
                               type="button"
                               onClick={() => handleAddBottleToCart(bottle, 1)}
-                              className="min-h-[44px] px-3 py-1 bg-slate-900 hover:bg-slate-800 active:scale-95 text-slate-200 font-mono font-black text-xs rounded-xl transition-all border border-white/10 cursor-pointer touch-manipulation flex items-center justify-center shadow-sm"
+                              className="min-h-[44px] px-3 py-1 bg-slate-900 hover:bg-slate-800 active:scale-95 text-slate-200 font-mono font-black text-xs rounded-xl transition-all border border-white/10 cursor-pointer touch-manipulation select-none flex items-center justify-center shadow-sm"
                               title="Adicionar 1 unidade"
                             >
                               +1
@@ -2263,7 +2822,7 @@ export function GlassBarcodeScannerCart({
                                 key={qty}
                                 type="button"
                                 onClick={() => handleAddBottleToCart(bottle, qty)}
-                                className={`min-h-[44px] flex-1 min-w-[42px] py-1 font-mono text-xs rounded-xl transition-all border flex items-center justify-center cursor-pointer touch-manipulation active:scale-95 ${
+                                className={`min-h-[44px] flex-1 min-w-[42px] py-1 font-mono text-xs rounded-xl transition-all border flex items-center justify-center cursor-pointer touch-manipulation select-none active:scale-95 ${
                                   qty === safeLot
                                     ? "bg-amber-400 text-slate-950 font-black border-amber-300 shadow-md shadow-amber-400/25 ring-1 ring-amber-300"
                                     : "bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 active:bg-emerald-500 text-white font-black border-white/10 shadow-sm"
@@ -2351,7 +2910,7 @@ export function GlassBarcodeScannerCart({
                           <strong className="text-emerald-400 font-black">{item.totalWeightKg.toFixed(2)} kg</strong>
                         </div>
                         <div className="text-[10px] font-bold text-amber-300 font-mono mt-0.5">
-                          {getBottleCentavosLabel(item.category, item.buyPricePerUnit, sellPricePerKg)}
+                          {getBottleCentavosLabel(item.category, item.buyPricePerUnit, sellPricePerKg, item.unitWeightGrams)}
                         </div>
                         {item.warningAlert && (
                           <div className="mt-1 px-2 py-1 rounded-lg bg-rose-500/15 border border-rose-500/30 text-[10px] text-rose-300 font-bold max-w-md leading-tight flex items-start gap-1">
@@ -2689,215 +3248,408 @@ export function GlassBarcodeScannerCart({
       )}
 
       {/* ========================================================= */}
-      {/* ABA 3: ESTOQUE REAL & CALIBRAÇÃO NA BALANÇA (GRAMAS E ML)  */}
+      {/* ABA 3: ESTOQUE SEPARADO (VIDROS DA RECICLAGEM VS OUTROS) */}
       {/* ========================================================= */}
       {activeTab === "estoque" && (
         <div className="space-y-5">
-          <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
-              <div>
-                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
-                  Balança de Precisão & Catálogo de Garrafas
-                </span>
-                <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
-                  <Scale className="w-5 h-5 text-emerald-400" />
-                  Estoque Real no Pátio (ML separado de Gramas)
-                </h3>
-                <p className="text-xs text-slate-300 mt-1">
-                  Pese 1 garrafa de amostra na sua balança, registre os gramas exatos e edite a quantidade real que você tem hoje no pátio. O app multiplica automaticamente e calcula as toneladas exatas!
-                </p>
+          {/* SELETOR DE SEPARAÇÃO ESTRITA: VIDROS VS OUTROS MATERIAIS */}
+          <div className="flex items-center gap-2 p-1.5 bg-slate-900 border border-white/10 rounded-2xl">
+            <button
+              type="button"
+              onClick={() => setYardControlFilter("vidro")}
+              className={`flex-1 min-h-[48px] px-4 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95 ${
+                yardControlFilter === "vidro"
+                  ? "bg-emerald-500 text-slate-950 shadow-md"
+                  : "bg-slate-950 text-slate-300 hover:text-white"
+              }`}
+            >
+              <Wine className="w-4 h-4" />
+              <span>🍾 Vidros do Pátio ({yardTotals.totalWeightKg.toFixed(1)} kg)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setYardControlFilter("outros")}
+              className={`flex-1 min-h-[48px] px-4 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95 ${
+                yardControlFilter === "outros"
+                  ? "bg-cyan-500 text-slate-950 shadow-md"
+                  : "bg-slate-950 text-slate-300 hover:text-white"
+              }`}
+            >
+              <Package className="w-4 h-4" />
+              <span>🔩 Outros Materiais Separados ({otherMaterialsTotalKg.toFixed(1)} kg)</span>
+            </button>
+          </div>
+
+          {yardControlFilter === "outros" ? (
+            <div className="bg-slate-900 border border-cyan-500/30 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+              <div className="border-b border-white/10 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-cyan-400 tracking-wider block">
+                    Estoque Isolado de Ferro Velho (Não mistura com a Meta do Caminhão de Vidros)
+                  </span>
+                  <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                    <Package className="w-5 h-5 text-cyan-400" />
+                    Outros Materiais (Alumínio, Ferro, Papelão, Cobre)
+                  </h3>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Tudo lançado aqui fica 100% separado da tonelagem de vidros do Victor e das mercadorias da loja.
+                  </p>
+                </div>
+                <div className="px-4 py-2 bg-slate-950 rounded-2xl border border-cyan-500/30 text-right shrink-0">
+                  <span className="text-[10px] uppercase font-bold text-cyan-400 block">Total Outros Materiais:</span>
+                  <strong className="text-xl font-mono font-black text-white">
+                    {otherMaterialsTotalKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} kg
+                  </strong>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowZeroConfirmModal(true)}
-                  className="min-h-[44px] px-3.5 py-2 bg-slate-950 hover:bg-rose-950/60 text-rose-300 font-black text-xs uppercase rounded-xl border border-rose-500/30 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation"
-                >
-                  <Eraser className="w-4 h-4 text-rose-400" />
-                  <span>Zerar Tudo 🧹</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    openEditBottleModal({
-                      id: `bottle_${Date.now()}`,
-                      name: "",
-                      volumeMl: 330,
-                      barcode: "",
-                      unitWeightGrams: 182,
-                      unitWeightKg: 0.182,
-                      category: "longneck",
-                      buyPricePerUnit: 0.50 / 30,
-                      emoji: "🍾",
-                      stockUnits: 0,
-                      quickPresets: [10, 30, 50, 100]
-                    }, true);
-                  }}
-                  className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>+ Cadastrar Nova Garrafa</span>
-                </button>
-              </div>
-            </div>
-
-            {/* TABELA DE GARRAFAS CADASTRADAS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {catalog.map((bottle) => {
-                const totalBottleWeightKg = ((bottle.stockUnits || 0) * bottle.unitWeightGrams) / 1000;
-                const totalValueVictor = totalBottleWeightKg * sellPricePerKg;
-
-                return (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {otherScrapMaterials.map((mat) => (
                   <div
-                    key={bottle.id}
-                    className="p-4 bg-slate-950 rounded-2xl border border-white/10 hover:border-emerald-500/40 transition-all space-y-3"
+                    key={mat.id}
+                    className="p-4 bg-slate-950 rounded-2xl border border-cyan-500/25 space-y-3"
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
-                        <span className="text-3xl p-2 bg-slate-900 rounded-xl border border-white/5">
-                          {bottle.emoji}
-                        </span>
+                        <span className="text-3xl p-2 bg-slate-900 rounded-xl">{mat.emoji}</span>
                         <div>
-                          <div className="text-white font-black text-sm">{bottle.name}</div>
-                          <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-                            <span className="font-bold text-emerald-400">Volume: {bottle.volumeMl} ml</span>
-                            <span>•</span>
-                            <span className="font-mono text-slate-300">
-                              Código: {bottle.barcode || "Não cadastrado"}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-amber-300 font-mono font-bold mt-0.5">
-                            {getBottleCentavosLabel(bottle.category, bottle.buyPricePerUnit, sellPricePerKg)}
+                          <div className="text-white font-black text-sm">{mat.name}</div>
+                          <div className="text-[10.5px] text-cyan-300 font-mono font-bold">
+                            Base R$ {mat.buyPricePerKg.toFixed(2)}/kg {mat.notes ? `• ${mat.notes}` : ""}
                           </div>
                         </div>
                       </div>
+                      <strong className="text-lg font-mono font-black text-cyan-300">
+                        {mat.stockKg.toFixed(1)} kg
+                      </strong>
+                    </div>
 
-                      <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={mat.stockKg === 0 ? "" : String(mat.stockKg)}
+                        placeholder="0 kg"
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value.replace(",", ".")) || 0;
+                          setOtherScrapMaterials((prev) =>
+                            prev.map((m) => (m.id === mat.id ? { ...m, stockKg: Math.max(0, v) } : m))
+                          );
+                        }}
+                        className="w-24 min-h-[44px] bg-slate-900 border border-cyan-500/40 rounded-xl px-3 text-center text-white font-mono font-black text-sm outline-none"
+                      />
+                      {[1, 5, 10, 50].map((addKg) => (
                         <button
+                          key={addKg}
                           type="button"
-                          onClick={() => openCalibrateBottleModal(bottle)}
-                          className="px-3 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 text-emerald-300 font-bold text-xs rounded-xl border border-emerald-500/40 flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-sm"
-                          title="Calibrar peso em gramas na balança digital de cozinha"
+                          onClick={() =>
+                            setOtherScrapMaterials((prev) =>
+                              prev.map((m) => (m.id === mat.id ? { ...m, stockKg: m.stockKg + addKg } : m))
+                            )
+                          }
+                          className="min-h-[44px] px-3 bg-slate-900 hover:bg-cyan-500 hover:text-slate-950 text-cyan-200 font-mono font-black text-xs rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none active:scale-95"
                         >
-                          <Scale className="w-4 h-4 text-emerald-400" />
-                          <span className="font-mono font-black">{bottle.unitWeightGrams}g</span>
+                          +{addKg}kg
                         </button>
-                      </div>
-                    </div>
-
-                    {/* EDIÇÃO DIRETA DA QUANTIDADE NO PÁTIO */}
-                    <div className="p-3 bg-slate-900 rounded-xl border border-white/5 grid grid-cols-2 sm:grid-cols-3 gap-2 items-center text-xs">
-                      <div className="space-y-1 col-span-2 sm:col-span-1">
-                        <label className="text-[10px] font-black uppercase text-amber-400 block">
-                          Unidades no Pátio:
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={bottle.stockUnits || 0}
-                          onChange={(e) => handleUpdateYardStockDirect(bottle.id, Number(e.target.value) || 0)}
-                          className="w-full bg-slate-950 border border-amber-500/40 focus:border-amber-400 rounded-lg px-2.5 py-1 text-sm font-mono font-black text-white outline-none"
-                        />
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Peso Acumulado:</span>
-                        <strong className="text-sm font-mono text-emerald-400 font-black block">
-                          {totalBottleWeightKg.toFixed(1)} kg
-                        </strong>
-                        <span className="text-[9px] text-slate-500 block">
-                          ({(totalBottleWeightKg / 1000).toFixed(3)} ton)
-                        </span>
-                      </div>
-
-                      <div className="space-y-0.5 text-right sm:text-left">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Valor no Victor:</span>
-                        <strong className="text-sm font-mono text-white font-bold block">
-                          R$ {totalValueVictor.toFixed(2)}
-                        </strong>
-                        <span className="text-[9px] text-emerald-300 block">a R$ 0,15/kg</span>
-                      </div>
-                    </div>
-
-                    {/* BOTÕES RÁPIDOS DE AJUSTE NO PÁTIO */}
-                    {/* AJUSTES RÁPIDOS DE ESTOQUE (+10, +30, +50, +100) */}
-                    <div className="flex items-center justify-between text-[11px] pt-1">
-                      <div className="flex items-center gap-1">
-                        {[
-                          { label: "+10", add: 10 },
-                          { label: "+30", add: 30 },
-                          { label: "+50", add: 50 },
-                          { label: "+100", add: 100 }
-                        ].map((btn) => (
-                          <button
-                            key={btn.add}
-                            type="button"
-                            onClick={() => handleUpdateYardStockDirect(bottle.id, (bottle.stockUnits || 0) + btn.add)}
-                            className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded font-mono font-bold border border-white/5 cursor-pointer touch-manipulation"
-                          >
-                            {btn.label}
-                          </button>
-                        ))}
-                      </div>
-
+                      ))}
                       <button
                         type="button"
-                        onClick={() => handleUpdateYardStockDirect(bottle.id, 0)}
-                        className="text-[10px] text-slate-500 hover:text-rose-400 font-bold transition-all px-1.5 py-1"
-                        title="Zerar unidades desta garrafa no pátio"
+                        onClick={() =>
+                          setOtherScrapMaterials((prev) =>
+                            prev.map((m) => (m.id === mat.id ? { ...m, stockKg: 0 } : m))
+                          )
+                        }
+                        className="min-h-[44px] px-3 bg-slate-900 hover:bg-rose-950/60 text-rose-300 font-bold text-xs rounded-xl border border-rose-500/20 cursor-pointer touch-manipulation select-none active:scale-95 ml-auto"
                       >
                         Zerar
                       </button>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                    Balança de Precisão & Catálogo de Garrafas (1 a 5 Códigos)
+                  </span>
+                  <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                    <Scale className="w-5 h-5 text-emerald-400" />
+                    Estoque Real no Pátio — Vidros (ML separado de Gramas)
+                  </h3>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Pese 1 garrafa de amostra na sua balança, cadastre até 5 códigos de barras iguais (ex: Heineken, Stella, Império) e edite a quantidade real do pátio.
+                  </p>
+                </div>
 
-                    {/* LINHA DE AÇÕES: EDITAR DADOS, CADASTRAR PARECIDA E CALIBRAR BALANÇA */}
-                    <div className="flex items-center justify-between gap-1.5 flex-wrap pt-2 border-t border-white/5 text-[11px]">
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setShowZeroConfirmModal(true)}
+                    className="min-h-[48px] px-3.5 py-2 bg-slate-950 hover:bg-rose-950/60 text-rose-300 font-black text-xs uppercase rounded-xl border border-rose-500/30 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                  >
+                    <Eraser className="w-4 h-4 text-rose-400" />
+                    <span>Zerar Tudo 🧹</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openEditBottleModal({
+                        id: `bottle_${Date.now()}`,
+                        name: "",
+                        volumeMl: 330,
+                        barcode: "",
+                        additionalBarcodes: ["", "", "", ""],
+                        unitWeightGrams: 182,
+                        unitWeightKg: 0.182,
+                        category: "longneck",
+                        buyPricePerUnit: 0.50 / 30,
+                        emoji: "🍾",
+                        stockUnits: 0,
+                        quickPresets: [10, 30, 50, 100]
+                      }, true);
+                    }}
+                    className="min-h-[48px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 shadow-md"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Cadastrar Garrafa (1-5 Códs)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* TABELA DE GARRAFAS CADASTRADAS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {catalog.map((bottle) => {
+                  const totalBottleWeightKg = ((bottle.stockUnits || 0) * bottle.unitWeightGrams) / 1000;
+                  const totalValueVictor = totalBottleWeightKg * sellPricePerKg;
+
+                  return (
+                    <div
+                      key={bottle.id}
+                      className="p-4 bg-slate-950 rounded-2xl border border-white/10 hover:border-emerald-500/40 transition-all space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-3xl p-2 bg-slate-900 rounded-xl border border-white/5">
+                            {bottle.emoji}
+                          </span>
+                          <div>
+                            <div className="text-white font-black text-sm">{bottle.name}</div>
+                            <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5 flex-wrap">
+                              <span className="font-bold text-emerald-400">Volume: {bottle.volumeMl} ml</span>
+                              <span>•</span>
+                              <span className="font-mono text-slate-300">
+                                Cód: {bottle.barcode || "Não cadastrado"}
+                                {bottle.additionalBarcodes && bottle.additionalBarcodes.filter(Boolean).length > 0 && (
+                                  <span className="ml-1 text-emerald-400 font-bold">
+                                    (+{bottle.additionalBarcodes.filter(Boolean).length} extras)
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-amber-300 font-mono font-bold mt-0.5">
+                              {getBottleCentavosLabel(bottle.category, bottle.buyPricePerUnit, sellPricePerKg, bottle.unitWeightGrams)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => openCalibrateBottleModal(bottle)}
+                            className="min-h-[44px] px-3 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 active:scale-95 text-emerald-300 font-bold text-xs rounded-xl border border-emerald-500/40 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none shadow-sm"
+                            title="Calibrar peso em gramas na balança digital de cozinha"
+                          >
+                            <Scale className="w-4 h-4 text-emerald-400" />
+                            <span className="font-mono font-black">{bottle.unitWeightGrams}g</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* EDIÇÃO DIRETA DA QUANTIDADE NO PÁTIO */}
+                      <div className="p-3 bg-slate-900 rounded-xl border border-white/5 grid grid-cols-2 sm:grid-cols-3 gap-2 items-center text-xs">
+                        <div className="space-y-1 col-span-2 sm:col-span-1">
+                          <label className="text-[10px] font-black uppercase text-amber-400 block">
+                            Unidades no Pátio:
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={bottle.stockUnits === 0 ? "" : String(bottle.stockUnits)}
+                            placeholder="0"
+                            onChange={(e) => {
+                              const cleaned = e.target.value.replace(/\D/g, "");
+                              handleUpdateYardStockDirect(bottle.id, cleaned === "" ? 0 : parseInt(cleaned, 10));
+                            }}
+                            className="w-full min-h-[44px] bg-slate-950 border border-amber-500/40 focus:border-amber-400 rounded-xl px-2.5 py-1 text-sm font-mono font-black text-white outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Peso Acumulado:</span>
+                          <strong className="text-sm font-mono text-emerald-400 font-black block">
+                            {totalBottleWeightKg.toFixed(1)} kg
+                          </strong>
+                          <span className="text-[9px] text-slate-500 block">
+                            ({(totalBottleWeightKg / 1000).toFixed(3)} ton)
+                          </span>
+                        </div>
+
+                        <div className="space-y-0.5 text-right sm:text-left">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Valor no Victor:</span>
+                          <strong className="text-sm font-mono text-white font-bold block">
+                            R$ {totalValueVictor.toFixed(2)}
+                          </strong>
+                          <span className="text-[9px] text-emerald-300 block">a R$ {sellPricePerKg.toFixed(2)}/kg</span>
+                        </div>
+                      </div>
+
+                      {/* BOTÕES RÁPIDOS DE AJUSTE NO PÁTIO */}
+                      <div className="flex items-center justify-between text-[11px] pt-1 gap-1.5 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {[
+                            { label: "+10", add: 10 },
+                            { label: "+30", add: 30 },
+                            { label: "+50", add: 50 },
+                            { label: "+100", add: 100 }
+                          ].map((btn) => (
+                            <button
+                              key={btn.add}
+                              type="button"
+                              onClick={() => handleUpdateYardStockDirect(bottle.id, (bottle.stockUnits || 0) + btn.add)}
+                              className="min-h-[44px] px-3 py-1 bg-slate-900 hover:bg-slate-800 active:scale-95 text-slate-300 hover:text-white rounded-xl font-mono font-bold border border-white/10 cursor-pointer touch-manipulation select-none"
+                            >
+                              {btn.label}
+                            </button>
+                          ))}
+                        </div>
+
                         <button
                           type="button"
-                          onClick={() => openEditBottleModal(bottle, false)}
-                          className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-cyan-300 font-bold rounded-lg border border-cyan-500/30 flex items-center gap-1 cursor-pointer touch-manipulation"
-                          title="Editar nome, ml, peso em gramas ou código"
+                          onClick={() => handleUpdateYardStockDirect(bottle.id, 0)}
+                          className="min-h-[44px] px-3 text-xs text-slate-400 hover:text-rose-400 font-bold transition-all rounded-xl border border-white/5 cursor-pointer touch-manipulation select-none active:scale-95"
+                          title="Zerar unidades desta garrafa no pátio"
                         >
-                          <Edit3 className="w-3 h-3 text-cyan-400" />
-                          <span>Editar ✍️</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDuplicateSimilar(bottle)}
-                          className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 font-bold rounded-lg border border-emerald-500/30 flex items-center gap-1 cursor-pointer touch-manipulation"
-                          title="Cadastrar outra garrafa ou pote parecido copiando este peso e ml"
-                        >
-                          <Copy className="w-3 h-3 text-emerald-400" />
-                          <span>Cadastrar Parecida 📑</span>
+                          Zerar
                         </button>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => openCalibrateBottleModal(bottle)}
-                        className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-amber-300 font-bold rounded-lg border border-amber-500/30 flex items-center gap-1 cursor-pointer touch-manipulation"
-                        title="Pesar amostra na balança digital de cozinha"
-                      >
-                        <Scale className="w-3 h-3 text-amber-400" />
-                        <span>Balança ({bottle.unitWeightGrams}g)</span>
-                      </button>
+                      {/* LINHA DE AÇÕES: EDITAR DADOS (1-5 CÓDIGOS), CADASTRAR PARECIDA E CALIBRAR BALANÇA */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-white/5 text-xs">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => openEditBottleModal(bottle, false)}
+                            className="min-h-[44px] px-3 py-1.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-cyan-300 font-bold rounded-xl border border-cyan-500/30 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                            title="Editar nome, ml, peso em gramas ou 1 a 5 códigos"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>Editar / Códigos ✍️</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDuplicateSimilar(bottle)}
+                            className="min-h-[44px] px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 text-emerald-300 font-bold rounded-xl border border-emerald-500/30 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                            title="Cadastrar outra garrafa ou pote parecido copiando este peso e ml"
+                          >
+                            <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Parecida 📑</span>
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => openCalibrateBottleModal(bottle)}
+                          className="min-h-[44px] px-3 py-1.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-amber-300 font-bold rounded-xl border border-amber-500/30 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                          title="Pesar amostra na balança digital de cozinha"
+                        >
+                          <Scale className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Balança ({bottle.unitWeightGrams}g)</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* ABA 4: HISTÓRICO DE CARGAS DO VICTOR & TÍQUETES            */}
+      {/* ABA 4: HISTÓRICO DE CARGAS DO VICTOR & TÍQUETES/NOTINHAS  */}
       {/* ========================================================= */}
       {activeTab === "cargas" && (
         <div className="space-y-5">
+          {/* HISTÓRICO DE NOTINHAS / TÍQUETES DE COMPRA NO PORTÃO */}
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="border-b border-white/10 pb-3">
+              <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                Comprovantes & Cupons de Compra na Reciclagem
+              </span>
+              <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                <Printer className="w-5 h-5 text-emerald-400" />
+                Histórico de Notinhas de Compra no Portão
+              </h3>
+            </div>
+
+            {purchaseHistory.length === 0 ? (
+              <div className="py-6 text-center text-slate-400 text-xs">
+                Nenhuma compra de vidro finalizada ainda. Ao finalizar um carrinho na aba "Bipar & Comprar", a notinha térmica aparecerá aqui!
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {purchaseHistory.map((ticket) => (
+                  <div
+                    key={ticket.id}
+                    className="p-4 bg-slate-950 rounded-2xl border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="space-y-1">
+                      <div className="font-black text-white text-sm flex items-center gap-2 flex-wrap">
+                        <span>🧾 {ticket.collectorName}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{ticket.timestamp}</span>
+                      </div>
+                      <div className="text-slate-300">
+                        <strong className="text-emerald-400 font-mono">{ticket.totalBottles} un</strong> ({ticket.totalWeightKg.toFixed(2)} kg) •{" "}
+                        {ticket.items.map((it) => `${it.quantity}× ${it.name}`).join(", ")}
+                      </div>
+                      <div className="text-[10.5px] font-bold text-amber-300">
+                        {ticket.paymentStatus === "coleta_propria_dw"
+                          ? "👑 Coleta Própria D.W"
+                          : ticket.paymentStatus === "pago_na_hora"
+                          ? `💵 Pago na Hora: R$ ${ticket.totalPaid.toFixed(2)}`
+                          : `📓 Lançado no Caderninho: R$ ${ticket.totalPaid.toFixed(2)}`}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handlePrintGlassTicket(ticket)}
+                        className="min-h-[44px] px-3.5 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-black text-xs rounded-xl border border-emerald-500/40 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                      >
+                        <Printer className="w-4 h-4 text-emerald-400" />
+                        <span>Imprimir Cupom</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleShareGlassTicketWhatsApp(ticket)}
+                        className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                      >
+                        <Share2 className="w-4 h-4" />
+                        <span>WhatsApp</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* CARGAS DESPACHADAS PARA O CAMINHÃO DO VICTOR */}
           <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
             <div className="border-b border-white/10 pb-3">
@@ -3010,7 +3762,7 @@ export function GlassBarcodeScannerCart({
       {/* MODAL: CADASTRO E BALANÇA DE GARRAFAS, POTES & SIMILARES  */}
       {/* ========================================================= */}
       {editingBottle && (
-        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[70] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 sm:p-6 max-w-xl w-full space-y-4 shadow-2xl text-left my-auto max-h-[92vh] overflow-y-auto">
             {/* Cabeçalho do Modal */}
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
@@ -3023,7 +3775,7 @@ export function GlassBarcodeScannerCart({
                     {isRegisteringNew ? "Cadastrar Garrafa ou Pote de Vidro" : "Editar Garrafa / Pote de Vidro"}
                   </h3>
                   <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">
-                    Balança Digital de Cozinha • Gramas & ML Exatos
+                    Balança Digital • 1 a 5 Códigos de Barras Aceitos
                   </span>
                 </div>
               </div>
@@ -3033,7 +3785,7 @@ export function GlassBarcodeScannerCart({
                   setEditingBottle(null);
                   setIsRegisteringNew(false);
                 }}
-                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all cursor-pointer touch-manipulation select-none active:scale-95"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -3064,7 +3816,6 @@ export function GlassBarcodeScannerCart({
                               category: preset.category as any,
                               emoji: preset.emoji,
                               buyPricePerUnit: preset.buyPricePerUnit,
-                              returnableSellPrice: preset.returnableSellPrice,
                               quickPresets: preset.quickPresets,
                               name: prev.name ? prev.name : preset.name
                             }
@@ -3177,8 +3928,8 @@ export function GlassBarcodeScannerCart({
                   >
                     <option value="900ml">🥃 Garrafa 900ml / 1L (Cachaças, Conhaques)</option>
                     <option value="longneck">🍺 Longneck (210ml a 355ml)</option>
-                    <option value="cerveja600">🍻 Garrafa 600ml Tradicional (Retornável)</option>
-                    <option value="litrao">🍾 Garrafão Litrão 1 Litro</option>
+                    <option value="cerveja600">🍻 Garrafa 600ml Tradicional (Vidro)</option>
+                    <option value="litrao">🍾 Garrafão Litrão 1 Litro (Vidro)</option>
                     <option value="vinho">🍷 Garrafa de Vinho / Espumante (750ml)</option>
                     <option value="pote">🫙 Pote de Conserva (Palmito, Maionese, Azeitona)</option>
                     <option value="caco">🛍️ Cacos de Vidro Quebrados</option>
@@ -3310,76 +4061,118 @@ export function GlassBarcodeScannerCart({
                 })()}
               </div>
 
-              {/* CÓDIGO DE BARRAS E LEITURA */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase text-slate-300 block">
-                  Código de Barras EAN (Opcional - deixe vazio se não tiver rótulo):
-                </label>
+              {/* 1 A 5 CÓDIGOS DE BARRAS ACEITOS PARA ESTE MESMO PESO/PREÇO */}
+              <div className="p-3.5 bg-slate-950 rounded-2xl border border-emerald-500/35 space-y-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <label className="text-[10.5px] font-black uppercase text-emerald-400 flex items-center gap-1.5">
+                    <Barcode className="w-4 h-4 text-emerald-400" />
+                    <span>Códigos de Barras Aceitos (de 1 a 5 códigos neste item):</span>
+                  </label>
+                  <span className="text-[9.5px] text-slate-400 font-bold">
+                    Ex: Heineken + Império + Stella juntas!
+                  </span>
+                </div>
+
+                {/* Código 1 (Principal) */}
                 <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black text-emerald-300 w-16 shrink-0">Cód. 1:</span>
                   <input
                     type="text"
                     value={editingBottle.barcode}
                     onChange={(e) =>
                       setEditingBottle((prev) => (prev ? { ...prev, barcode: e.target.value.trim() } : null))
                     }
-                    placeholder="Ex: 78936683, 7898915949162..."
-                    className="flex-1 bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
+                    placeholder="Principal (ex: 78936683)"
+                    className="flex-1 min-h-[44px] bg-slate-900 border border-white/15 focus:border-emerald-400 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowCameraModal(true)}
-                    className="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    onClick={() => {
+                      setCameraTargetField("primary");
+                      setShowCameraModal(true);
+                    }}
+                    className="min-h-[44px] px-3 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer touch-manipulation select-none shrink-0"
+                    title="Bipar com a câmera para este campo"
                   >
                     <Camera className="w-4 h-4" />
-                    <span>Câmera</span>
+                    <span>Bipar</span>
                   </button>
                 </div>
+
+                {/* Códigos Extras 2 a 5 */}
+                {[0, 1, 2, 3].map((slotIdx) => (
+                  <div key={slotIdx} className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-slate-400 w-16 shrink-0">Cód. {slotIdx + 2}:</span>
+                    <input
+                      type="text"
+                      value={editingBottle.additionalBarcodes?.[slotIdx] || ""}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        setEditingBottle((prev) => {
+                          if (!prev) return null;
+                          const nextArr = [
+                            prev.additionalBarcodes?.[0] || "",
+                            prev.additionalBarcodes?.[1] || "",
+                            prev.additionalBarcodes?.[2] || "",
+                            prev.additionalBarcodes?.[3] || ""
+                          ];
+                          nextArr[slotIdx] = val;
+                          return { ...prev, additionalBarcodes: nextArr };
+                        });
+                      }}
+                      placeholder={`Opcional ${slotIdx + 2} (ex: outra marca mesmo peso)`}
+                      className="flex-1 min-h-[44px] bg-slate-900 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-xs sm:text-sm font-mono font-bold text-white outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCameraTargetField(slotIdx);
+                        setShowCameraModal(true);
+                      }}
+                      className="min-h-[44px] px-3 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer touch-manipulation select-none shrink-0"
+                      title={`Bipar código ${slotIdx + 2} pela câmera`}
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>Bipar</span>
+                    </button>
+                  </div>
+                ))}
               </div>
 
-              {/* PREÇO PAGO NO PORTÃO & REVENDA RETORNÁVEL */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-950 rounded-2xl border border-white/5">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-amber-400 block">
-                    Preço de Compra por Unidade (R$):
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.005"
-                    value={editingBottle.buyPricePerUnit}
-                    onChange={(e) =>
-                      setEditingBottle((prev) =>
-                        prev ? { ...prev, buyPricePerUnit: Number(e.target.value) || 0 } : null
-                      )
-                    }
-                    className="w-full bg-slate-900 border border-white/10 focus:border-amber-400 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
-                  />
-                  <span className="text-[9px] text-slate-400 block">
-                    Ex: R$ 0,05 (ou R$ 0,50 a cada 10 unidades)
-                  </span>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-cyan-400 block">
-                    Se for Casco Inteiro (Revenda a Bares R$):
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.10"
-                    value={editingBottle.returnableSellPrice || 0}
-                    onChange={(e) =>
-                      setEditingBottle((prev) =>
-                        prev ? { ...prev, returnableSellPrice: Number(e.target.value) || 0 } : null
-                      )
-                    }
-                    placeholder="0,00 se for apenas caco"
-                    className="w-full bg-slate-900 border border-white/10 focus:border-cyan-400 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white outline-none"
-                  />
-                  <span className="text-[9px] text-slate-400 block">
-                    Deixe 0 se for moer ou mandar quebrado pro Victor
-                  </span>
-                </div>
+              {/* CÁLCULO AUTOMÁTICO POR PESO NA BALANÇA */}
+              <div className="p-3 bg-slate-950 rounded-2xl border border-white/10 space-y-2">
+                {(() => {
+                  const grams = parseFloat(String(editingWeightGramsInput).replace(",", ".")) || editingBottle.unitWeightGrams || 182;
+                  const safeLot = getVictorSafeLotUnits(editingBottle.category, sellPricePerKg, grams);
+                  const costUnit = calculateGlassBuyCost(editingBottle.category, 1, editingBottle.buyPricePerUnit, sellPricePerKg, grams);
+                  const victorValue = (grams / 1000) * sellPricePerKg;
+                  return (
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] font-black uppercase text-amber-400 block">
+                          Compra no Portão (por peso):
+                        </span>
+                        <strong className="text-sm font-mono font-black text-white block">
+                          R$ {costUnit.toFixed(4)} / un
+                        </strong>
+                        <span className="text-[10px] text-amber-300 font-mono block">
+                          Lote R$ 0,50: {safeLot} garrafas
+                        </span>
+                      </div>
+                      <div className="space-y-0.5 text-right">
+                        <span className="text-[10px] font-black uppercase text-emerald-400 block">
+                          Valor na Usina do Victor:
+                        </span>
+                        <strong className="text-sm font-mono font-black text-emerald-400 block">
+                          R$ {victorValue.toFixed(4)} / un
+                        </strong>
+                        <span className="text-[10px] text-slate-400 block">
+                          Cotação R$ {activeSellPricePerTon}/t (~38% lucro)
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -3390,9 +4183,9 @@ export function GlassBarcodeScannerCart({
                   <button
                     type="button"
                     onClick={() => handleDeleteBottle(editingBottle.id, editingBottle.name)}
-                    className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-bold rounded-xl border border-rose-500/30 flex items-center gap-1 cursor-pointer transition-all"
+                    className="min-h-[44px] px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 text-rose-300 text-xs font-bold rounded-xl border border-rose-500/30 flex items-center gap-1.5 cursor-pointer transition-all touch-manipulation select-none"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4" />
                     <span>Excluir</span>
                   </button>
                 )}
@@ -3405,14 +4198,14 @@ export function GlassBarcodeScannerCart({
                     setEditingBottle(null);
                     setIsRegisteringNew(false);
                   }}
-                  className="px-4 py-2 bg-slate-950 hover:bg-slate-800 text-slate-400 text-xs font-bold rounded-xl border border-white/10 cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-slate-300 text-xs font-bold rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none"
                 >
                   Cancelar
                 </button>
                 <button
                   type="button"
                   onClick={handleSaveBottle}
-                  className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer touch-manipulation"
+                  className="min-h-[48px] px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Salvar Garrafa / Pote ⚖️✅</span>
@@ -3439,7 +4232,7 @@ export function GlassBarcodeScannerCart({
               <button
                 type="button"
                 onClick={() => setCalibratingBottle(null)}
-                className="text-slate-400 hover:text-white"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 cursor-pointer touch-manipulation select-none active:scale-95"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -3512,7 +4305,7 @@ export function GlassBarcodeScannerCart({
                         const next = Math.max(0.1, Number((cur + adj.delta).toFixed(1)));
                         setCalibratedGramsInput(String(next));
                       }}
-                      className="px-2 py-1 bg-slate-900 hover:bg-slate-800 active:scale-95 text-slate-200 font-mono text-[10.5px] font-bold rounded-lg border border-white/5 cursor-pointer touch-manipulation"
+                      className="min-h-[44px] min-w-[48px] px-2.5 py-1 bg-slate-900 hover:bg-slate-800 active:scale-95 text-slate-200 font-mono text-xs font-bold rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none"
                     >
                       {adj.label}
                     </button>
@@ -3588,14 +4381,14 @@ export function GlassBarcodeScannerCart({
               <button
                 type="button"
                 onClick={() => setCalibratingBottle(null)}
-                className="px-4 py-2 bg-slate-950 text-slate-400 text-xs font-bold rounded-xl"
+                className="min-h-[44px] px-4 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-slate-300 text-xs font-bold rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleSaveCalibratedWeight}
-                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all"
+                className="min-h-[48px] px-5 py-2 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl transition-all cursor-pointer touch-manipulation select-none"
               >
                 Salvar Peso Exato ⚖️✅
               </button>
@@ -3701,14 +4494,14 @@ export function GlassBarcodeScannerCart({
               <button
                 type="button"
                 onClick={() => setPayingCollab(null)}
-                className="px-4 py-2 bg-slate-950 text-slate-400 text-xs font-bold rounded-xl"
+                className="min-h-[44px] px-4 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-slate-300 text-xs font-bold rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleExecuteCollaboratorPayment}
-                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all"
+                className="min-h-[48px] px-5 py-2 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl transition-all cursor-pointer touch-manipulation select-none"
               >
                 Confirmar Pagamento 🤝💸
               </button>
@@ -3782,14 +4575,14 @@ export function GlassBarcodeScannerCart({
               <button
                 type="button"
                 onClick={() => setShowAddCollabModal(false)}
-                className="px-4 py-2 bg-slate-950 text-slate-400 text-xs font-bold rounded-xl"
+                className="min-h-[44px] px-4 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-slate-300 text-xs font-bold rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleSaveNewCollaborator}
-                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all"
+                className="min-h-[48px] px-5 py-2 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl transition-all cursor-pointer touch-manipulation select-none"
               >
                 Salvar no Caderninho 👤✍️
               </button>
@@ -3837,7 +4630,7 @@ export function GlassBarcodeScannerCart({
                   </strong>
                 </div>
                 <div className="flex justify-between pt-1 border-t border-white/5">
-                  <span className="text-amber-400 font-bold">Valor Total a Receber (R$ 0,15/kg):</span>
+                  <span className="text-amber-400 font-bold">Valor Total a Receber (R$ {sellPricePerKg.toFixed(2)}/kg):</span>
                   <strong className="text-amber-400 font-mono text-base font-black">
                     R$ {yardTotals.grossRevenueTon.toFixed(2)}
                   </strong>
@@ -3853,14 +4646,14 @@ export function GlassBarcodeScannerCart({
               <button
                 type="button"
                 onClick={() => setShowTruckDispatchModal(false)}
-                className="px-4 py-2 bg-slate-950 text-slate-400 text-xs font-bold rounded-xl"
+                className="min-h-[44px] px-4 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-slate-300 text-xs font-bold rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleDispatchTruckCargo}
-                className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all shadow-lg shadow-emerald-500/30"
+                className="min-h-[48px] px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl transition-all shadow-lg shadow-emerald-500/30 cursor-pointer touch-manipulation select-none"
               >
                 Confirmar Despacho & Zerar Pátio 🚚🎉
               </button>
@@ -3890,21 +4683,21 @@ export function GlassBarcodeScannerCart({
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Deseja zerar as quantidades fictícias de teste do estoque? Assim o pátio começará <strong>100% limpo em 0 garrafas</strong>, permitindo que você e o Wellington digitem a quantidade real que vocês têm hoje!
+              Deseja zerar TODOS os dados de testes (estoque no pátio, carrinho, saldos do caderninho, notinhas de teste e histórico de cargas)? Seus cadastros de garrafas, códigos de barras e nomes dos colaboradores serão preservados!
             </p>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
               <button
                 type="button"
                 onClick={() => setShowZeroConfirmModal(false)}
-                className="px-4 py-2 bg-slate-950 text-slate-400 text-xs font-bold rounded-xl"
+                className="min-h-[44px] px-4 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-slate-300 text-xs font-bold rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none"
               >
                 Voltar
               </button>
               <button
                 type="button"
                 onClick={handleResetAllToZeroReal}
-                className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase rounded-xl transition-all shadow-md"
+                className="min-h-[48px] px-5 py-2 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-black text-xs uppercase rounded-xl transition-all shadow-md cursor-pointer touch-manipulation select-none"
               >
                 Sim, Zerar Testes Agora 🧹
               </button>
@@ -3914,20 +4707,27 @@ export function GlassBarcodeScannerCart({
       )}
 
       {/* ========================================================= */}
-      {/* MODAL: CÂMERA DO LEITOR DE CÓDIGO DE BARRAS               */}
+      {/* MODAL: CÂMERA DO LEITOR DE CÓDIGO DE BARRAS (z-[80])       */}
       {/* ========================================================= */}
       {showCameraModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[80] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 max-w-sm w-full space-y-3.5 shadow-2xl text-center">
             <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
               <span className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5">
                 <Camera className="w-4 h-4" />
-                Aponte para o Código de Barras
+                {cameraTargetField === "search"
+                  ? "Aponte para o Código de Barras"
+                  : cameraTargetField === "primary"
+                  ? "Bipar Código Principal (1)"
+                  : `Bipar Código Extra (${Number(cameraTargetField) + 2})`}
               </span>
               <button
                 type="button"
-                onClick={() => setShowCameraModal(false)}
-                className="text-slate-400 hover:text-white"
+                onClick={() => {
+                  setCameraTargetField("search");
+                  setShowCameraModal(false);
+                }}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 cursor-pointer touch-manipulation"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -3946,10 +4746,244 @@ export function GlassBarcodeScannerCart({
 
             <button
               type="button"
-              onClick={() => setShowCameraModal(false)}
-              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-all"
+              onClick={() => {
+                setCameraTargetField("search");
+                setShowCameraModal(false);
+              }}
+              className="w-full min-h-[48px] py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-black uppercase rounded-xl transition-all cursor-pointer touch-manipulation select-none"
             >
               Fechar Câmera
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CONFIRMAÇÃO RÁPIDA APÓS BIPAR CÓDIGO (PDV INVERTIDO) */}
+      {/* ========================================================= */}
+      {scannedPrompt && (
+        <div className="fixed inset-0 z-[75] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border-2 border-emerald-500/60 rounded-3xl p-5 sm:p-6 max-w-md w-full space-y-4 shadow-2xl text-left">
+            <div className="flex items-start justify-between border-b border-white/10 pb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                  IDENTIFICAÇÃO COMPLETA • MODO COMPRA
+                </span>
+                <h3 className="text-lg font-black text-white mt-0.5 flex items-center gap-2">
+                  <span>{scannedPrompt.bottle.emoji}</span>
+                  <span>{scannedPrompt.bottle.name}</span>
+                </h3>
+                <div className="text-xs text-slate-400 font-mono mt-1">
+                  Cód. Lido: <strong className="text-emerald-300">{scannedPrompt.matchedCode}</strong> •{" "}
+                  <span>{scannedPrompt.bottle.unitWeightGrams}g/un</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScannedPrompt(null)}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 cursor-pointer touch-manipulation"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {(() => {
+              const qty = Math.max(0, parseInt(scannedPromptQtyStr || "0", 10) || 0);
+              const totalKg = (qty * scannedPrompt.bottle.unitWeightGrams) / 1000;
+              const cost = calculateGlassBuyCost(
+                scannedPrompt.bottle.category,
+                qty,
+                scannedPrompt.bottle.buyPricePerUnit,
+                sellPricePerKg,
+                scannedPrompt.bottle.unitWeightGrams
+              );
+              return (
+                <div className="space-y-4">
+                  <div className="p-4 bg-slate-950 rounded-2xl border border-white/10 space-y-3">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-black uppercase text-amber-300">Quantidade a Lançar (un):</span>
+                      <span className="font-mono text-emerald-400 font-black">
+                        = {totalKg.toFixed(2)} kg • R$ {cost.toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setScannedPromptQtyStr(String(Math.max(1, qty - 1)))}
+                        className="w-12 h-12 min-w-[48px] min-h-[48px] rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-black text-xl border border-white/15 cursor-pointer touch-manipulation select-none"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autoFocus
+                        value={scannedPromptQtyStr}
+                        onChange={(e) => setScannedPromptQtyStr(e.target.value.replace(/\D/g, ""))}
+                        className="flex-1 min-h-[48px] bg-slate-900 border-2 border-emerald-500/60 focus:border-emerald-400 rounded-xl text-center text-2xl font-mono font-black text-white outline-none"
+                        placeholder="Ex: 55"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setScannedPromptQtyStr(String(qty + 1))}
+                        className="w-12 h-12 min-w-[48px] min-h-[48px] rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-black text-xl border border-white/15 cursor-pointer touch-manipulation select-none"
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {[1, 10, 30, 50, 55, 100].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setScannedPromptQtyStr(String(preset))}
+                          className={`min-h-[44px] flex-1 min-w-[48px] rounded-xl font-mono font-black text-xs border cursor-pointer touch-manipulation select-none active:scale-95 ${
+                            qty === preset
+                              ? "bg-amber-400 text-slate-950 border-amber-300"
+                              : "bg-slate-900 text-slate-200 border-white/10 hover:bg-slate-800"
+                          }`}
+                        >
+                          {preset} un
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const finalQty = Math.max(1, qty);
+                      handleAddBottleToCart(scannedPrompt.bottle, finalQty);
+                      if (showNotification) {
+                        const addKg = ((finalQty * scannedPrompt.bottle.unitWeightGrams) / 1000).toFixed(2);
+                        showNotification(
+                          `Adicionado: ${finalQty} un de ${scannedPrompt.bottle.name} (+${addKg} kg)! 🍾⚖️`,
+                          "success"
+                        );
+                      }
+                      setScannedPrompt(null);
+                    }}
+                    className="w-full min-h-[52px] px-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none"
+                  >
+                    <ShoppingCart className="w-5 h-5" />
+                    <span>ADICIONAR AO CARRINHO ({Math.max(1, qty)} UN) • R$ {cost.toFixed(2)}</span>
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: NOTINHA / COMPROVANTE TÉRMICO DE COMPRA NO PORTÃO  */}
+      {/* ========================================================= */}
+      {lastPurchaseReceipt && (
+        <div className="fixed inset-0 z-[75] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-5 sm:p-6 max-w-md w-full space-y-4 shadow-2xl text-left my-auto">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                <div>
+                  <span className="text-[10px] font-black uppercase text-emerald-400 block">
+                    Compra Registrada & Somada ao Pátio!
+                  </span>
+                  <h3 className="text-base font-black text-white">Notinha de Compra — D.W Vidros</h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLastPurchaseReceipt(null)}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 cursor-pointer touch-manipulation"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 bg-white text-slate-950 rounded-2xl font-mono text-xs space-y-2 shadow-inner">
+              <div className="text-center border-b border-dashed border-slate-400 pb-2">
+                <div className="font-black text-sm">D.W VIDROS & RECICLAGEM</div>
+                <div className="text-[10px]">CNPJ: 67.965.725/0001-95</div>
+                <div className="text-[10px] font-black mt-1">COMPROVANTE DE COMPRA (PORTÃO)</div>
+              </div>
+              <div className="text-[11px] space-y-0.5 border-b border-dashed border-slate-400 pb-2">
+                <div><strong>DATA:</strong> {lastPurchaseReceipt.timestamp}</div>
+                <div><strong>PARCEIRO:</strong> {lastPurchaseReceipt.collectorName}</div>
+                <div>
+                  <strong>STATUS:</strong>{" "}
+                  {lastPurchaseReceipt.paymentStatus === "coleta_propria_dw"
+                    ? "Coleta Própria D.W"
+                    : lastPurchaseReceipt.paymentStatus === "pago_na_hora"
+                    ? "Pago Agora no Portão"
+                    : "Lançado no Caderninho do Colaborador"}
+                </div>
+                <div>
+                  <strong>COTAÇÃO VICTOR:</strong>{" "}
+                  R$ {lastPurchaseReceipt.sellPricePerTonUsed || activeSellPricePerTon}/t (R${" "}
+                  {(((lastPurchaseReceipt.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2).replace(".", ",")}/kg)
+                </div>
+              </div>
+              <div className="space-y-1 border-b border-dashed border-slate-400 pb-2">
+                {lastPurchaseReceipt.items.map((it, idx) => (
+                  <div key={idx} className="flex justify-between gap-2 text-[11px]">
+                    <span>
+                      <strong>{it.quantity}×</strong> {it.name} ({it.totalWeightKg.toFixed(2)} kg)
+                    </span>
+                    <span className="font-black shrink-0">R$ {it.costPaid.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between font-black">
+                  <span>PESO SOMADO NO PÁTIO:</span>
+                  <span className="text-emerald-700">+{lastPurchaseReceipt.totalWeightKg.toFixed(2)} kg</span>
+                </div>
+                {lastPurchaseReceipt.isFounder && (
+                  <div className="flex justify-between text-[11px] font-bold text-slate-700">
+                    <span>ECONOMIA D.W (VALOR EQUIV.):</span>
+                    <span>R$ {lastPurchaseReceipt.items.reduce((s, it) => s + it.costPaid, 0).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-black text-sm border-t border-slate-300 pt-1">
+                  <span>{lastPurchaseReceipt.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL COMPRA:"}</span>
+                  <span>
+                    R$ {lastPurchaseReceipt.isFounder ? "0,00" : lastPurchaseReceipt.totalPaid.toFixed(2)}
+                  </span>
+                </div>
+                <div className="text-center text-[10px] text-slate-600 pt-1">
+                  Pátio Atual: {yardTotals.totalWeightKg.toFixed(1)} kg / {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handlePrintGlassTicket(lastPurchaseReceipt)}
+                className="min-h-[48px] px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Imprimir Bobina 58/80mm</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleShareGlassTicketWhatsApp(lastPurchaseReceipt)}
+                className="min-h-[48px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 active:scale-95 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none"
+              >
+                <Share2 className="w-4 h-4" />
+                <span>Enviar WhatsApp 💬</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setLastPurchaseReceipt(null)}
+              className="w-full min-h-[48px] py-2.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none"
+            >
+              ✔️ Fechar & Fazer Nova Compra
             </button>
           </div>
         </div>
@@ -3977,7 +5011,7 @@ export function GlassBarcodeScannerCart({
                     </span>
                   </div>
                   <p className="text-xs text-slate-300 mt-0.5">
-                    Compra no Portão (R$ 0,50 a R$ 1,50) vs Venda na Usina do Victor (R$ 0,15/kg) vs Revenda de Casco para Bares
+                    Compra no Portão conforme o Peso (R$ 0,50 a R$ 1,50) vs Venda na Usina do Victor (R$ {sellPricePerKg.toFixed(2)}/kg)
                   </p>
                 </div>
               </div>
@@ -4083,93 +5117,103 @@ export function GlassBarcodeScannerCart({
                 </button>
               </div>
 
-              {/* 3. Cerveja 600ml Tradicional */}
-              <div className="p-4 rounded-2xl bg-rose-950/20 border border-rose-500/40 space-y-2.5">
+              {/* 3. Cerveja 600ml Tradicional (Preço Normal por Peso) */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-white/10 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-2xl">🍻</span>
                     <div>
-                      <h4 className="font-black text-white text-sm">3. Cerveja 600ml Tradicional</h4>
-                      <span className="text-[10px] text-slate-400">1 unidade ~ 0.5 kg (Retornável)</span>
+                      <h4 className="font-black text-white text-sm">3. Cerveja 600ml Tradicional (450g)</h4>
+                      <span className="text-[10px] text-slate-400">
+                        Lote de {getVictorSafeLotUnits("cerveja600", sellPricePerKg, 450)} un ~ {((getVictorSafeLotUnits("cerveja600", sellPricePerKg, 450) * 450) / 1000).toFixed(1)} kg
+                      </span>
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                    🚨 ATENÇÃO!
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    POR PESO ✅
                   </span>
                 </div>
                 <div className="bg-slate-900 p-2.5 rounded-xl border border-white/5 space-y-1 text-[11px]">
                   <div className="flex justify-between text-slate-300">
-                    <span>Você paga por 1 garrafa:</span>
-                    <strong className="text-amber-400 font-mono">R$ 0,50</strong>
+                    <span>Você paga ao colaborador:</span>
+                    <strong className="text-amber-400 font-mono">R$ 0,50 (lote)</strong>
                   </div>
                   <div className="flex justify-between text-slate-300">
-                    <span>Se vender como caco pro Victor (0.5kg):</span>
-                    <strong className="text-rose-400 font-mono">R$ 0,07 (Prejuízo de R$ 0,43!)</strong>
+                    <span>Você recebe do Victor (por kg):</span>
+                    <strong className="text-emerald-400 font-mono">
+                      R$ {(((getVictorSafeLotUnits("cerveja600", sellPricePerKg, 450) * 450) / 1000) * sellPricePerKg).toFixed(2)}
+                    </strong>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
-                    <span>Revenda Casco Inteiro para Bar:</span>
-                    <span>R$ 0,80 a R$ 1,00 (Lucro R$ 0,30 a R$ 0,50)</span>
+                    <span>Seu Lucro Líquido:</span>
+                    <span>~38% protegido conforme o peso</span>
                   </div>
                 </div>
-                <p className="text-[10.5px] text-amber-300 font-medium leading-tight">
-                  ⚠️ <strong>Veredito:</strong> SÓ ESTÁ CERTO SE FOR PARA REVENDA INTEIRA (CASCO). Se estiver quebrada/para caco, peça 10 garrafas por R$ 0,50.
+                <p className="text-[10.5px] text-slate-400">
+                  💡 <strong>Veredito:</strong> Calculada normalmente pelo peso (450g) igual qualquer garrafa de vidro.
                 </p>
                 <button
                   type="button"
                   onClick={() => {
                     const b = catalog.find((c) => c.category === "cerveja600") || catalog[0];
-                    if (b) handleAddBottleToCart(b, 1);
+                    const lot = getVictorSafeLotUnits("cerveja600", sellPricePerKg, b?.unitWeightGrams || 450);
+                    if (b) handleAddBottleToCart(b, lot);
                     setShowStrategicGuideModal(false);
                   }}
-                  className="w-full py-1.5 bg-slate-900 hover:bg-amber-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  className="w-full py-1.5 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
                 >
                   <Plus className="w-3 h-3" />
-                  <span>Lançar 1 Casco Intacto (R$ 0,50) no Carrinho</span>
+                  <span>Lançar 1 Lote ({getVictorSafeLotUnits("cerveja600", sellPricePerKg, 450)} un / R$ 0,50) no Carrinho</span>
                 </button>
               </div>
 
-              {/* 4. Garrafão Litrão 1 Litro */}
-              <div className="p-4 rounded-2xl bg-rose-950/20 border border-rose-500/40 space-y-2.5">
+              {/* 4. Garrafão Litrão 1 Litro (Preço Normal por Peso) */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-white/10 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-2xl">🍾</span>
                     <div>
-                      <h4 className="font-black text-white text-sm">4. Garrafão Litrão 1 Litro</h4>
-                      <span className="text-[10px] text-slate-400">1 unidade ~ 0.7 kg (Retornável)</span>
+                      <h4 className="font-black text-white text-sm">4. Garrafão Litrão 1 Litro (700g)</h4>
+                      <span className="text-[10px] text-slate-400">
+                        Lote de {getVictorSafeLotUnits("litrao", sellPricePerKg, 700)} un ~ {((getVictorSafeLotUnits("litrao", sellPricePerKg, 700) * 700) / 1000).toFixed(1)} kg
+                      </span>
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                    🚨 ATENÇÃO!
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    POR PESO ✅
                   </span>
                 </div>
                 <div className="bg-slate-900 p-2.5 rounded-xl border border-white/5 space-y-1 text-[11px]">
                   <div className="flex justify-between text-slate-300">
-                    <span>Você paga por 1 garrafa:</span>
-                    <strong className="text-amber-400 font-mono">R$ 0,50</strong>
+                    <span>Você paga ao colaborador:</span>
+                    <strong className="text-amber-400 font-mono">R$ 0,50 (lote)</strong>
                   </div>
                   <div className="flex justify-between text-slate-300">
-                    <span>Se vender como caco pro Victor (0.7kg):</span>
-                    <strong className="text-rose-400 font-mono">R$ 0,10 (Prejuízo de R$ 0,40!)</strong>
+                    <span>Você recebe do Victor (por kg):</span>
+                    <strong className="text-emerald-400 font-mono">
+                      R$ {(((getVictorSafeLotUnits("litrao", sellPricePerKg, 700) * 700) / 1000) * sellPricePerKg).toFixed(2)}
+                    </strong>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
-                    <span>Revenda Casco Inteiro para Bar:</span>
-                    <span>R$ 1,00 a R$ 1,50 (Lucro R$ 0,50 a R$ 1,00)</span>
+                    <span>Seu Lucro Líquido:</span>
+                    <span>~38% protegido conforme o peso</span>
                   </div>
                 </div>
-                <p className="text-[10.5px] text-amber-300 font-medium leading-tight">
-                  ⚠️ <strong>Veredito:</strong> SÓ ESTÁ CERTO SE FOR PARA REVENDA INTEIRA (CASCO). Se for quebrar para o Victor, peça pelo menos 7 unidades por R$ 0,50.
+                <p className="text-[10.5px] text-slate-400">
+                  💡 <strong>Veredito:</strong> Garrafa pesada (700g), paga proporcionalmente mais por unidade e bate a meta rápido!
                 </p>
                 <button
                   type="button"
                   onClick={() => {
                     const b = catalog.find((c) => c.category === "litrao") || catalog[0];
-                    if (b) handleAddBottleToCart(b, 1);
+                    const lot = getVictorSafeLotUnits("litrao", sellPricePerKg, b?.unitWeightGrams || 700);
+                    if (b) handleAddBottleToCart(b, lot);
                     setShowStrategicGuideModal(false);
                   }}
-                  className="w-full py-1.5 bg-slate-900 hover:bg-amber-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  className="w-full py-1.5 bg-slate-900 hover:bg-emerald-600 hover:text-slate-950 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
                 >
                   <Plus className="w-3 h-3" />
-                  <span>Lançar 1 Litrão Intacto (R$ 0,50) no Carrinho</span>
+                  <span>Lançar 1 Lote ({getVictorSafeLotUnits("litrao", sellPricePerKg, 700)} un / R$ 0,50) no Carrinho</span>
                 </button>
               </div>
 
@@ -4362,10 +5406,7 @@ export function GlassBarcodeScannerCart({
               </span>
               <ul className="text-xs text-slate-200 space-y-1.5 list-disc list-inside">
                 <li>
-                  <strong className="text-emerald-300">Cacos, Longnecks, Potes, Vinhos e 51 / Dreher:</strong> Os cálculos estão perfeitos e super seguros para comprar nos lotinhos de R$ 0,50 a R$ 1,50.
-                </li>
-                <li>
-                  <strong className="text-rose-300">Garrafas de Cerveja Retornáveis (600ml e Litrão):</strong> Pagar R$ 0,50 por unidade <strong>SOMENTE se o casco estiver inteiro</strong> para revender para bares/mercados por R$ 0,80 a R$ 1,50. Se for para quebrar e mandar no caminhão de caco do Victor, <strong>coloque no seu cartaz que precisam ser lotes</strong> (ex: 8 a 10 garrafas de 600ml ou 7 de Litrão por R$ 0,50) para você não tomar prejuízo na sucata!
+                  <strong className="text-emerald-300">Todas as Garrafas (600ml, Litrão, Longnecks, Potes, Vinhos, 51 / Dreher e Cacos):</strong> Os cálculos são feitos automaticamente conforme o peso real da garrafa na balança e a cotação ativa do Victor, garantindo ~38% de lucro com zero risco!
                 </li>
               </ul>
             </div>
@@ -4378,7 +5419,7 @@ export function GlassBarcodeScannerCart({
               <button
                 type="button"
                 onClick={() => setShowStrategicGuideModal(false)}
-                className="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase rounded-xl transition-all cursor-pointer shadow-md"
+                className="min-h-[44px] px-5 py-2.5 bg-amber-400 hover:bg-amber-300 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl transition-all cursor-pointer touch-manipulation select-none shadow-md"
               >
                 Entendido, Fechar Guia 👍
               </button>
@@ -4386,6 +5427,280 @@ export function GlassBarcodeScannerCart({
           </div>
         </div>
       )}
+
+      {/* ========================================================= */}
+      {/* MODAL INSTANTÂNEO: CARRINHO DE PAGAMENTO & SOMAR PÁTIO   */}
+      {/* ========================================================= */}
+      {showCheckoutModal && (
+        <div className="fixed inset-0 z-[72] bg-slate-950/90 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border-t-2 sm:border-2 border-emerald-500/60 rounded-t-3xl sm:rounded-3xl p-4 sm:p-6 max-w-xl w-full space-y-4 shadow-2xl text-left max-h-[92vh] overflow-y-auto my-auto">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                  Conferência, Pagamento &amp; Contagem no Pátio
+                </span>
+                <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5 text-emerald-400" />
+                  <span>Fechar Compra ({cartTotals.totalBottles} un • {cartTotals.totalWeightKg.toFixed(2)} kg)</span>
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCheckoutModal(false)}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 cursor-pointer touch-manipulation select-none"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Seleção Rápida de Quem Trouxe (D.W Própria vs Colaborador) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-black uppercase text-amber-400">
+                  Quem trouxe as garrafas?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowAddCollabModal(true)}
+                  className="text-[10px] font-black text-emerald-400 hover:text-emerald-300 underline cursor-pointer touch-manipulation py-1 px-2"
+                >
+                  + Novo Colaborador
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {collaborators.map((collab) => {
+                  const isSel = selectedCollabId === collab.id;
+                  return (
+                    <button
+                      key={collab.id}
+                      type="button"
+                      onClick={() => setSelectedCollabId(collab.id)}
+                      className={`min-h-[42px] px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all cursor-pointer touch-manipulation select-none active:scale-95 flex items-center gap-1.5 ${
+                        isSel
+                          ? collab.isFounder
+                            ? "bg-amber-400 text-slate-950 border-amber-300 font-black"
+                            : "bg-emerald-500 text-slate-950 border-emerald-400 font-black"
+                          : "bg-slate-950 text-slate-300 border-white/10 hover:border-white/25"
+                      }`}
+                    >
+                      {collab.isFounder ? <Crown className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
+                      <span className="truncate max-w-[180px]">{collab.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Itens no Carrinho com Ajuste Rápido */}
+            {cart.length === 0 ? (
+              <div className="p-6 text-center text-slate-400 text-xs bg-slate-950 rounded-2xl border border-white/10">
+                O carrinho está vazio. Adicione garrafas para fechar a compra.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {cart.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3 bg-slate-950 rounded-2xl border border-white/10 flex items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-black text-white truncate">
+                        {item.emoji} {item.name}
+                      </div>
+                      <div className="text-[11px] text-emerald-400 font-mono font-bold mt-0.5">
+                        {item.totalWeightKg.toFixed(2)} kg • R$ {item.totalBuyCost.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateCartQuantity(item.id, item.quantity - 1)}
+                        className="w-10 h-10 min-w-[40px] min-h-[40px] rounded-xl bg-slate-900 text-white font-black text-base border border-white/10 cursor-pointer touch-manipulation active:scale-95"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={item.quantity === 0 ? "" : item.quantity}
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/\D/g, "");
+                          handleUpdateCartQuantity(item.id, cleaned === "" ? 0 : parseInt(cleaned, 10));
+                        }}
+                        className="w-14 min-h-[40px] bg-slate-900 border border-emerald-500/40 rounded-xl text-center text-white font-mono font-black text-sm outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateCartQuantity(item.id, item.quantity + 1)}
+                        className="w-10 h-10 min-w-[40px] min-h-[40px] rounded-xl bg-slate-900 text-white font-black text-base border border-white/10 cursor-pointer touch-manipulation active:scale-95"
+                      >
+                        +
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCartItem(item.id)}
+                        className="min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-500 hover:text-rose-400 cursor-pointer touch-manipulation"
+                        title="Remover item"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Prévia do Pátio + Totais */}
+            <div className="p-3.5 bg-slate-950 rounded-2xl border-2 border-emerald-500/35 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 font-bold uppercase text-[10px]">Pátio Atual ➔ Após Lançar:</span>
+                <span className="font-mono font-black text-emerald-300">
+                  {yardTotals.totalWeightKg.toFixed(1)} kg + {cartTotals.totalWeightKg.toFixed(2)} kg ={" "}
+                  <strong className="text-white text-sm">
+                    {(yardTotals.totalWeightKg + cartTotals.totalWeightKg).toFixed(1)} kg
+                  </strong>
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-t border-white/10 pt-2">
+                <span className="text-amber-300 font-black uppercase text-[11px]">
+                  {activeCollab.isFounder ? "Economia D.W (Coleta Própria):" : `Total a Pagar (${activeCollab.name}):`}
+                </span>
+                <strong className="text-xl font-mono font-black text-amber-400">
+                  R$ {cartTotals.totalBuyCost.toFixed(2)}
+                </strong>
+              </div>
+            </div>
+
+            {/* Botões Grandes de Finalizar (Contabiliza no Pátio + Gera Notinha) */}
+            {cart.length > 0 && (
+              <div className="space-y-2.5 pt-1">
+                {activeCollab.isFounder ? (
+                  <button
+                    type="button"
+                    onClick={() => handleFinalizeTicket("coleta_propria_dw" as any)}
+                    className="w-full min-h-[54px] px-5 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-400/30 touch-manipulation select-none"
+                  >
+                    <Crown className="w-5 h-5 shrink-0" />
+                    <span>CONFIRMAR &amp; SOMAR +{cartTotals.totalWeightKg.toFixed(2)} KG NO PÁTIO 👑</span>
+                  </button>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => handleFinalizeTicket("pago_na_hora")}
+                      className="min-h-[54px] px-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/30 touch-manipulation select-none"
+                    >
+                      <Check className="w-5 h-5 shrink-0" />
+                      <div className="text-left leading-tight">
+                        <span className="block font-black">💵 Pagar Agora (R$ {cartTotals.totalBuyCost.toFixed(2)})</span>
+                        <span className="block text-[10px] font-bold text-slate-900">Pago no portão + Soma no Pátio</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleFinalizeTicket("pendente_caderninho")}
+                      className="min-h-[54px] px-4 py-3 bg-slate-950 hover:bg-slate-800 active:scale-95 text-amber-300 font-black text-xs uppercase rounded-2xl border-2 border-amber-500/50 transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none"
+                    >
+                      <Calendar className="w-5 h-5 text-amber-400 shrink-0" />
+                      <div className="text-left leading-tight">
+                        <span className="block font-black">📓 Lançar no Caderninho</span>
+                        <span className="block text-[10px] font-normal text-amber-200/80">Pagar depois + Soma no Pátio</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowCheckoutModal(false)}
+              className="w-full min-h-[44px] py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-bold text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none"
+            >
+              Continuar Adicionando Outras Garrafas
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* BARRA FIXA INFERIOR DO CARRINHO DE COMPRA (IGUAL AO PDV)   */}
+      {/* ========================================================= */}
+      {cart.length > 0 &&
+        !showCheckoutModal &&
+        !lastPurchaseReceipt &&
+        !scannedPrompt &&
+        !editingBottle &&
+        !calibratingBottle &&
+        !showCameraModal &&
+        !showTruckDispatchModal &&
+        !showZeroConfirmModal &&
+        !showAddCollabModal &&
+        !payingCollab && (
+          <div className="fixed bottom-0 left-0 right-0 z-[65] bg-slate-900/95 backdrop-blur-md border-t-2 border-emerald-500/60 shadow-[0_-10px_35px_rgba(0,0,0,0.75)] py-3 px-3 sm:px-6 text-left">
+            <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5">
+              <div className="flex items-center justify-between sm:justify-start gap-3 w-full sm:w-auto">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="p-2.5 bg-emerald-500/15 text-emerald-400 rounded-xl relative shrink-0 border border-emerald-500/30">
+                    <ShoppingCart className="w-5 h-5" />
+                    <span className="absolute -top-2 -right-2 min-w-[22px] h-[22px] px-1 bg-emerald-500 text-slate-950 text-[10px] font-black rounded-full flex items-center justify-center border-2 border-slate-900 shadow">
+                      {cartTotals.totalBottles}
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-black uppercase text-white flex items-center gap-1.5 flex-wrap">
+                      <span>Carrinho de Vidros</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+                        +{cartTotals.totalWeightKg.toFixed(2)} kg pro Pátio
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-300 truncate max-w-[240px] sm:max-w-[340px]">
+                      {activeCollab.isFounder ? "👑 Coleta Própria D.W" : `👤 ${activeCollab.name}`} •{" "}
+                      {cart.map((c) => `${c.quantity}× ${c.name}`).join(", ")}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right sm:hidden shrink-0">
+                  <span className="text-[9px] uppercase font-bold text-slate-400 block">Total</span>
+                  <strong className="text-base font-mono font-black text-amber-400">
+                    R$ {cartTotals.totalBuyCost.toFixed(2)}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+                <div className="hidden sm:block text-right mr-2">
+                  <span className="text-[9px] uppercase font-black text-slate-400 block">
+                    {activeCollab.isFounder ? "Economia" : "Total Pagar"}
+                  </span>
+                  <strong className="text-lg font-mono font-black text-amber-400 leading-none">
+                    R$ {cartTotals.totalBuyCost.toFixed(2)}
+                  </strong>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setCart([])}
+                  className="min-h-[46px] px-3 py-2 bg-slate-950 hover:bg-rose-950/60 active:scale-95 text-rose-300 text-xs font-black uppercase rounded-xl border border-rose-500/30 cursor-pointer touch-manipulation select-none"
+                >
+                  Limpar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCheckoutModal(true)}
+                  className="flex-1 sm:flex-initial min-h-[48px] px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-xs sm:text-sm uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none"
+                >
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>Pagar &amp; Somar no Pátio ➔</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 }

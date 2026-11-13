@@ -125,6 +125,7 @@ import {
   VolumeX,
   Landmark,
   AlertTriangle,
+  Recycle,
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { CalculatorModule } from "./components/Calculator";
@@ -492,6 +493,8 @@ export const getNicheLabel = (nicheId: string, customNiches: any[] = []): string
     loja_racao: "Loja de Ração & Pet",
     aviario: "Aviário & Rações",
     odontologia: "Consultório Dentário & Odontologia",
+    ferro_velho_vidros: "Ferro Velho & Reciclagem de Vidros",
+    ferro_velho: "Ferro Velho & Reciclagem de Vidros",
     outros_comercios: "Outros Segmentos"
   };
   return predefined[nicheId] || "Comércio Geral";
@@ -871,6 +874,7 @@ const predefinedNichesApp: {
   { id: "acougue", name: "Açougue & Carnes", label: "Açougue", icon: Scale, color: "text-red-400 border-red-500/10 bg-slate-900/60", activeColor: "bg-red-600 border-red-500 text-white shadow-lg shadow-red-500/15" },
   { id: "sacolao", name: "Sacolão & Hortifrúti", label: "Sacolão", icon: Apple, color: "text-lime-400 border-lime-500/10 bg-slate-900/60", activeColor: "bg-lime-600 border-lime-500 text-white shadow-lg shadow-lime-500/15" },
   { id: "odontologia", name: "Consultório Dentário & Odonto", label: "Dentista", icon: Sparkles, color: "text-cyan-400 border-cyan-500/10 bg-slate-900/60", activeColor: "bg-cyan-600 border-cyan-500 text-white shadow-lg shadow-cyan-500/15" },
+  { id: "ferro_velho_vidros", name: "Ferro Velho & Reciclagem de Vidros", label: "Ferro Velho", icon: Recycle, color: "text-emerald-400 border-emerald-500/10 bg-slate-900/60", activeColor: "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/15" },
   { id: "outros_comercios", name: "Outros Segmentos", label: "Outros", icon: Layers, color: "text-slate-400 border-slate-500/10 bg-slate-900/60", activeColor: "bg-slate-600 border-slate-500 text-white shadow-lg shadow-slate-500/15" }
 ];
 
@@ -2609,7 +2613,7 @@ export default function App() {
     }
     const slug = "custom_" + newNicheName.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_");
     
-    if (customNiches.some(n => n.id === slug) || ["salao_beleza","barbearia","manicure","mercadinho","sushi","lojas","bar","serralheiro","estofador","marceneiro","doces","salgados","pensao","restaurante","padaria","academia","lava_jato","auto_pecas","mecanico","comercio_geral","loja_racao","aviario","acougue","sacolao","outros_comercios"].includes(slug)) {
+    if (customNiches.some(n => n.id === slug) || ["salao_beleza","barbearia","manicure","mercadinho","sushi","lojas","bar","serralheiro","estofador","marceneiro","doces","salgados","pensao","restaurante","padaria","academia","lava_jato","auto_pecas","mecanico","comercio_geral","loja_racao","aviario","acougue","sacolao","ferro_velho_vidros","ferro_velho","outros_comercios"].includes(slug)) {
       showNotification("Este segmento já existe! Escolha outro nome. ⚠️", "error");
       return;
     }
@@ -11131,7 +11135,7 @@ export default function App() {
                     setPdvActiveSubTab(null);
                     handleSetNotepadMode("pdv");
                   }}
-                  className={`flex-1 min-w-[160px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center ${
+                  className={`flex-1 min-w-[160px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center touch-manipulation select-none active:scale-95 ${
                     notepadMode === "pdv" && !pdvCheckoutOnly && !pdvActiveSubTab
                       ? "bg-emerald-600 text-white border-2 border-emerald-400 shadow-lg scale-[1.02]"
                       : "bg-slate-900/60 hover:bg-slate-900/90 border border-emerald-500/20 text-emerald-300 hover:text-white"
@@ -11152,7 +11156,7 @@ export default function App() {
                     setPdvActiveSubTab("caixa");
                     handleSetNotepadMode("pdv");
                   }}
-                  className={`flex-1 min-w-[155px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center ${
+                  className={`flex-1 min-w-[155px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center touch-manipulation select-none active:scale-95 ${
                     notepadMode === "pdv" && pdvActiveSubTab === "caixa"
                       ? "bg-pink-600 text-white border-2 border-pink-400 shadow-lg scale-[1.02]"
                       : "bg-slate-900/60 hover:bg-slate-900/90 border border-pink-500/20 text-pink-300 hover:text-white"
@@ -11165,6 +11169,27 @@ export default function App() {
                   </div>
                 </button>
 
+                {/* 2.5 COMPRA FERRO VELHO & PÁTIO DE RECICLAGEM */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPdvCheckoutOnly(false);
+                    setPdvActiveSubTab("ferro_velho");
+                    handleSetNotepadMode("pdv");
+                  }}
+                  className={`flex-1 min-w-[165px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center touch-manipulation select-none active:scale-95 ${
+                    notepadMode === "pdv" && pdvActiveSubTab === "ferro_velho"
+                      ? "bg-teal-600 text-white border-2 border-teal-300 shadow-lg scale-[1.02]"
+                      : "bg-teal-950/50 hover:bg-teal-900/80 border border-teal-500/30 text-teal-300 hover:text-white"
+                  }`}
+                  title="Compra de Vidros & Sucata (PDV Invertido), Pátio de 3.000 kg e Caderninho dos Colaboradores"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Recycle className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Ferro Velho & Pátio ♻️</span>
+                  </div>
+                </button>
+
                 {/* 3. ESTOQUE */}
                 <button
                   type="button"
@@ -11173,7 +11198,7 @@ export default function App() {
                     setPdvActiveSubTab("cadastro_produtos");
                     handleSetNotepadMode("pdv");
                   }}
-                  className={`flex-1 min-w-[130px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center ${
+                  className={`flex-1 min-w-[130px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center touch-manipulation select-none active:scale-95 ${
                     notepadMode === "pdv" && pdvActiveSubTab === "cadastro_produtos"
                       ? "bg-cyan-600 text-white border-2 border-cyan-400 shadow-lg scale-[1.02]"
                       : "bg-slate-900/60 hover:bg-slate-900/90 border border-cyan-500/20 text-cyan-300 hover:text-white"
@@ -11190,7 +11215,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleSetNotepadMode("balcao")}
-                  className="flex-1 min-w-[145px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center bg-indigo-950/50 hover:bg-indigo-900/70 border border-indigo-500/30 text-indigo-300 hover:text-white"
+                  className="flex-1 min-w-[145px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center bg-indigo-950/50 hover:bg-indigo-900/70 border border-indigo-500/30 text-indigo-300 hover:text-white touch-manipulation select-none active:scale-95"
                   title="Conferir Dinheiro da Gaveta vs Sistema"
                 >
                   <div className="flex items-center gap-1.5">
@@ -11203,7 +11228,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleSetNotepadMode("balcao")}
-                  className="flex-1 min-w-[140px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-[11px] uppercase tracking-wide transition-all duration-200 cursor-pointer text-center bg-slate-900/60 hover:bg-slate-900/90 border border-white/10 text-purple-300 hover:text-white"
+                  className="flex-1 min-w-[140px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-[11px] uppercase tracking-wide transition-all duration-200 cursor-pointer text-center bg-slate-900/60 hover:bg-slate-900/90 border border-white/10 text-purple-300 hover:text-white touch-manipulation select-none active:scale-95"
                   title="Teclas F2, F4, F8, F9, F10 e Esc"
                 >
                   <div className="flex items-center gap-1.5">
