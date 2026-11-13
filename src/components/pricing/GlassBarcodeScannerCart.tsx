@@ -39,10 +39,19 @@ import {
   Copy,
   Printer,
   Sliders,
-  Package
+  Package,
+  Cloud,
+  Link2
 } from "lucide-react";
+import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { SmartNumericInput } from "./SmartNumericInput";
+import {
+  getIsFirestoreQuotaPaused,
+  isQuotaExhaustedError,
+  markFirestoreQuotaPaused
+} from "../../utils/firestoreQuotaManager";
 import {
   loadPrinterConfig,
   executeThermalPrint,
@@ -163,7 +172,8 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     id: "bottle_cachaca_51_900",
     name: "Cachaça 51 Garrafa (900ml)",
     volumeMl: 900,
-    barcode: "", // Aberto para bipar e cadastrar código quando tiver em mãos
+    barcode: "7896002100014",
+    additionalBarcodes: ["7891154010001"],
     unitWeightGrams: 500, // 500 gramas vazia (2 garrafas = 1 kg exato)
     unitWeightKg: 0.500,
     category: "900ml",
@@ -177,6 +187,7 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     name: "Dreher Garrafa (900ml)",
     volumeMl: 900,
     barcode: "7896010006360",
+    additionalBarcodes: ["7896010000108"],
     unitWeightGrams: 490, // ~490g a 500g vazia na balança
     unitWeightKg: 0.490,
     category: "900ml",
@@ -190,6 +201,7 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     name: "Heineken Longneck (330ml)",
     volumeMl: 330,
     barcode: "78936683",
+    additionalBarcodes: ["7891991010856", "8712000025649", "7896045506101"],
     unitWeightGrams: 182, // 182 gramas vazia na balança da Denise!
     unitWeightKg: 0.182,
     category: "longneck",
@@ -203,6 +215,7 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     name: "Império Longneck (210ml)",
     volumeMl: 210,
     barcode: "7898915949162",
+    additionalBarcodes: [],
     unitWeightGrams: 150, // 150 gramas vazia na balança
     unitWeightKg: 0.150,
     category: "longneck",
@@ -216,6 +229,7 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     name: "Ice Longneck (275ml)",
     volumeMl: 275,
     barcode: "7896002111034",
+    additionalBarcodes: [],
     unitWeightGrams: 170, // 170 gramas vazia na balança
     unitWeightKg: 0.170,
     category: "longneck",
@@ -229,6 +243,7 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     name: "Cerveja 600ml Tradicional (Vidro Âmbar)",
     volumeMl: 600,
     barcode: "7891991000826",
+    additionalBarcodes: ["7891149100101"],
     unitWeightGrams: 450, // 450 gramas vazia na balança
     unitWeightKg: 0.450,
     category: "cerveja600",
@@ -242,6 +257,7 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     name: "Garrafão Litrão 1 Litro (Vidro)",
     volumeMl: 1000,
     barcode: "7891991001342",
+    additionalBarcodes: [],
     unitWeightGrams: 700, // 700 gramas vazia na balança
     unitWeightKg: 0.700,
     category: "litrao",
@@ -254,7 +270,8 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     id: "bottle_vinho_750",
     name: "Garrafas de Vinho / Espumante (750ml)",
     volumeMl: 750,
-    barcode: "",
+    barcode: "7891050000107",
+    additionalBarcodes: [],
     unitWeightGrams: 600, // 600g (vidro espesso ~5.4 kg em 9 un)
     unitWeightKg: 0.600,
     category: "vinho",
@@ -267,7 +284,8 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     id: "bottle_potes_conserva",
     name: "Potes de Conserva (Palmito, Azeitona, Maionese)",
     volumeMl: 500,
-    barcode: "",
+    barcode: "7891000053508",
+    additionalBarcodes: [],
     unitWeightGrams: 280, // 280g (~5.0 kg em 18 un)
     unitWeightKg: 0.280,
     category: "pote",
@@ -756,6 +774,8 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
 }
 
 interface Props {
+  db?: any;
+  userId?: string;
   sellPricePerTon?: number; // Preço pago pela usina (ex: R$ 150/ton = R$ 0,15/kg)
   onSetSellPricePerTon?: (price: number) => void;
   buyerName?: string;
@@ -764,6 +784,8 @@ interface Props {
 }
 
 export function GlassBarcodeScannerCart({
+  db,
+  userId,
   sellPricePerTon = 150,
   onSetSellPricePerTon,
   buyerName = "Caminhão do Victor (Usina / Reciclagem)",
@@ -781,7 +803,7 @@ export function GlassBarcodeScannerCart({
   const activeSetSellPricePerTon = onSetSellPricePerTon || setInternalSellPricePerTon;
   const sellPricePerKg = activeSellPricePerTon > 0 ? activeSellPricePerTon / 1000 : 0.15;
 
-  // Catálogo com Nomes, ML, Códigos e Pesos (Fundido com os 8 itens estratégicos e Estoque Inicial Zerado)
+  // Catálogo com Nomes, ML, Códigos (1 a 5) e Pesos
   const [catalog, setCatalog] = useState<CatalogBottleItem[]>(() => {
     try {
       const isCleaned = localStorage.getItem("pdv_dw_glass_zero_clean_v10");
@@ -790,21 +812,32 @@ export function GlassBarcodeScannerCart({
         localStorage.removeItem("pdv_dw_glass_catalog_v10");
         localStorage.removeItem("pdv_dw_glass_catalog_v4");
         localStorage.removeItem("pdv_dw_glass_catalog_v3");
-        return DEFAULT_BOTTLE_CATALOG.map((b) => ({ ...b, stockUnits: 0 }));
+        return DEFAULT_BOTTLE_CATALOG.map((b) => ({
+          ...b,
+          stockUnits: 0,
+          additionalBarcodes: Array.isArray(b.additionalBarcodes) ? b.additionalBarcodes : []
+        }));
       }
       const stored = localStorage.getItem("pdv_dw_glass_catalog_v10") || localStorage.getItem("pdv_dw_glass_catalog_v4") || localStorage.getItem("pdv_dw_glass_catalog_v3");
       if (stored) {
         const parsed: CatalogBottleItem[] = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
           const existingIds = new Set(parsed.map((p) => p.id));
+          const usedCodes = new Set<string>();
+          parsed.forEach((p) => {
+            if (p.barcode) usedCodes.add(p.barcode.trim());
+            (p.additionalBarcodes || []).forEach((c) => {
+              if (c) usedCodes.add(c.trim());
+            });
+          });
           const missing = DEFAULT_BOTTLE_CATALOG.filter((d) => !existingIds.has(d.id));
           const merged = parsed.map((p) => {
             let item = { ...p };
+            const defMatch = DEFAULT_BOTTLE_CATALOG.find((d) => d.id === item.id);
             if (item.id === "bottle_heineken_330" && (item.unitWeightGrams === 185 || !item.unitWeightGrams)) {
               item.unitWeightGrams = 182;
               item.unitWeightKg = 0.182;
             }
-            // Migração: 600ml e Litrão agora usam preço normal por peso (sem revenda para bar)
             if (item.id === "bottle_cerveja_600") {
               item.name = item.name.includes("Retornável") ? "Cerveja 600ml Tradicional (Vidro Âmbar)" : item.name;
               item.buyPricePerUnit = 0.50 / 12;
@@ -814,6 +847,11 @@ export function GlassBarcodeScannerCart({
               item.name = item.name.includes("Retornável") || item.name.includes("Sucata") ? "Garrafão Litrão 1 Litro (Vidro)" : item.name;
               item.buyPricePerUnit = 0.50 / 8;
               item.quickPresets = [2, 4, 8, 16, 24];
+            }
+            // Preenche código padrão caso garrafa do catálogo padrão estivesse "Sem código"
+            if ((!item.barcode || !item.barcode.trim()) && defMatch?.barcode && !usedCodes.has(defMatch.barcode)) {
+              item.barcode = defMatch.barcode;
+              usedCodes.add(defMatch.barcode);
             }
             delete item.returnableSellPrice;
             if (item.warningAlert && (item.warningAlert.includes("bar") || item.warningAlert.includes("casco"))) {
@@ -828,7 +866,11 @@ export function GlassBarcodeScannerCart({
         }
       }
     } catch {}
-    return DEFAULT_BOTTLE_CATALOG.map((b) => ({ ...b, stockUnits: 0, additionalBarcodes: [] }));
+    return DEFAULT_BOTTLE_CATALOG.map((b) => ({
+      ...b,
+      stockUnits: 0,
+      additionalBarcodes: Array.isArray(b.additionalBarcodes) ? b.additionalBarcodes : []
+    }));
   });
 
   // Meta configurável do pátio de vidros (padrão 3.000 kg = Caminhão do Victor)
@@ -863,15 +905,78 @@ export function GlassBarcodeScannerCart({
   const [scannedPrompt, setScannedPrompt] = useState<{ bottle: CatalogBottleItem; matchedCode: string } | null>(null);
   const [scannedPromptQtyStr, setScannedPromptQtyStr] = useState<string>("1");
 
+  // Modal inteligente para código ainda não vinculado -> "Vincular a uma garrafa já cadastrada (1-5 códs)" ou "Cadastrar nova"
+  const [unmatchedBarcodePrompt, setUnmatchedBarcodePrompt] = useState<{ code: string } | null>(null);
+
+  // Modo "Só Quero Bipar!" Contínuo (adiciona +1/+N direto ao bipar sem fechar câmera) + HUD de feedback
+  const [continuousBeepMode, setContinuousBeepMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("pdv_dw_continuous_beep_mode") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [continuousBatchQty, setContinuousBatchQty] = useState<number>(1);
+  const [lastBeepHud, setLastBeepHud] = useState<{
+    bottleId: string;
+    bottleName: string;
+    emoji: string;
+    code: string;
+    addedQty: number;
+    unitGrams: number;
+    timestamp: number;
+  } | null>(null);
+  const [lastMatchedBottleId, setLastMatchedBottleId] = useState<string | null>(null);
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>("");
+
+  // Sincronização em Nuvem (Firestore) para espelhar Pátio e Códigos entre navegador e PWA instalado no Chrome
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<"synced" | "syncing" | "local_only">("local_only");
+  const [activeAuthUid, setActiveAuthUid] = useState<string | null>(() => {
+    if (userId && userId !== "guest_visitor") return userId;
+    return null;
+  });
+  const isApplyingCloudRef = useRef<boolean>(false);
+  const hasHydratedCloudOnceRef = useRef<boolean>(false);
+  const localMutationTsRef = useRef<number>((() => {
+    try {
+      return Number(localStorage.getItem("pdv_dw_last_updated_at")) || 0;
+    } catch {
+      return 0;
+    }
+  })());
+
   // Comprovante térmico gerado ao finalizar compra no portão
   const [lastPurchaseReceipt, setLastPurchaseReceipt] = useState<CompletedPurchaseTicket | null>(null);
 
   // Destino da câmera: leitura de compra ("search") ou preenchimento dos 5 campos de código no modal Editar ("primary" ou índice 0..3)
   const [cameraTargetField, setCameraTargetField] = useState<"search" | "primary" | number>("search");
+  const continuousBeepModeRef = useRef<boolean>(continuousBeepMode);
+  continuousBeepModeRef.current = continuousBeepMode;
+  const continuousBatchQtyRef = useRef<number>(continuousBatchQty);
+  continuousBatchQtyRef.current = continuousBatchQty;
+  const cameraTargetFieldRef = useRef<"search" | "primary" | number>(cameraTargetField);
+  cameraTargetFieldRef.current = cameraTargetField;
+  const lastScannedCooldownRef = useRef<{ code: string; at: number } | null>(null);
+
+  const markLocalYardMutation = () => {
+    if (isApplyingCloudRef.current) return;
+    const now = Date.now();
+    localMutationTsRef.current = now;
+    try {
+      localStorage.setItem("pdv_dw_last_updated_at", String(now));
+    } catch {}
+  };
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_continuous_beep_mode", continuousBeepMode ? "true" : "false");
+    } catch {}
+  }, [continuousBeepMode]);
 
   // Ouvinte global para zerar todo o pátio e testes quando acionado no painel geral
   useEffect(() => {
     const handleYardZeroEvent = () => {
+      markLocalYardMutation();
       setCatalog((prev) => prev.map((b) => ({ ...b, stockUnits: 0 })));
       setCart([]);
       setCollaborators((prev) =>
@@ -1070,7 +1175,7 @@ export function GlassBarcodeScannerCart({
     });
   }, [activeSellPricePerTon, sellPricePerKg]);
 
-  // Persistência automática
+  // Persistência automática + marcação para sincronização em nuvem
   useEffect(() => {
     try {
       localStorage.setItem("pdv_dw_glass_catalog_v10", JSON.stringify(catalog));
@@ -1124,6 +1229,176 @@ export function GlassBarcodeScannerCart({
       localStorage.setItem("pdv_dw_other_scrap_materials_v1", JSON.stringify(otherScrapMaterials));
     } catch {}
   }, [otherScrapMaterials]);
+
+  // Helper para enviar snapshot do Pátio & Códigos para Firestore userData/{uid}
+  const latestCloudPayloadRef = useRef<any>(null);
+  latestCloudPayloadRef.current = {
+    updatedAt: localMutationTsRef.current || Date.now(),
+    catalog,
+    collaborators,
+    purchaseHistory: purchaseHistory.slice(0, 50),
+    paymentHistory: paymentHistory.slice(0, 50),
+    truckShipments: truckShipments.slice(0, 50),
+    yardGoalKg,
+    sellPricePerTon: activeSellPricePerTon,
+    otherScrapMaterials
+  };
+
+  const pushYardDataToCloud = async (explicitTs?: number, forceNotify = false) => {
+    try {
+      const authInstance = getAuth();
+      const uid = authInstance?.currentUser?.uid || (userId && userId !== "guest_visitor" ? userId : null);
+      if (!db || !uid || !authInstance?.currentUser || authInstance.currentUser.uid !== uid || getIsFirestoreQuotaPaused()) {
+        return;
+      }
+      setCloudSyncStatus("syncing");
+      const ts = explicitTs || localMutationTsRef.current || Date.now();
+      localMutationTsRef.current = ts;
+      try {
+        localStorage.setItem("pdv_dw_last_updated_at", String(ts));
+      } catch {}
+      const payload = {
+        ...latestCloudPayloadRef.current,
+        updatedAt: ts
+      };
+      await setDoc(
+        doc(db, "userData", uid),
+        {
+          userId: uid,
+          dwGlassYardData: payload
+        },
+        { merge: true }
+      );
+      setCloudSyncStatus("synced");
+      if (forceNotify && showNotification) {
+        showNotification("Pátio e códigos sincronizados na nuvem! ☁️✅", "success");
+      }
+    } catch (err: any) {
+      if (isQuotaExhaustedError(err)) {
+        markFirestoreQuotaPaused();
+      }
+      setCloudSyncStatus("local_only");
+    }
+  };
+
+  // Escuta conta logada e sincroniza Pátio/Códigos em tempo real com userData/{uid}
+  useEffect(() => {
+    if (!db) {
+      setCloudSyncStatus("local_only");
+      return;
+    }
+    let unsubSnap: (() => void) | null = null;
+    let unsubAuth: (() => void) | null = null;
+    try {
+      const authInstance = getAuth();
+      const attachUserListener = (uid: string | null) => {
+        if (unsubSnap) {
+          unsubSnap();
+          unsubSnap = null;
+        }
+        if (!uid || uid === "guest_visitor" || getIsFirestoreQuotaPaused()) {
+          setActiveAuthUid(null);
+          setCloudSyncStatus("local_only");
+          return;
+        }
+        setActiveAuthUid(uid);
+        setCloudSyncStatus("syncing");
+        const userDocRef = doc(db, "userData", uid);
+        unsubSnap = onSnapshot(
+          userDocRef,
+          (snap) => {
+            if (!snap.exists()) {
+              setCloudSyncStatus("synced");
+              return;
+            }
+            const cloudYard = snap.data()?.dwGlassYardData;
+            if (cloudYard && typeof cloudYard === "object") {
+              const cloudTs = Number(cloudYard.updatedAt) || 0;
+              const localTs = localMutationTsRef.current || 0;
+              if (cloudTs > localTs && !snap.metadata.hasPendingWrites) {
+                isApplyingCloudRef.current = true;
+                try {
+                  if (Array.isArray(cloudYard.catalog) && cloudYard.catalog.length > 0) {
+                    setCatalog(cloudYard.catalog);
+                  }
+                  if (Array.isArray(cloudYard.collaborators) && cloudYard.collaborators.length > 0) {
+                    setCollaborators(cloudYard.collaborators);
+                  }
+                  if (Array.isArray(cloudYard.purchaseHistory)) {
+                    setPurchaseHistory(cloudYard.purchaseHistory);
+                  }
+                  if (Array.isArray(cloudYard.paymentHistory)) {
+                    setPaymentHistory(cloudYard.paymentHistory);
+                  }
+                  if (Array.isArray(cloudYard.truckShipments)) {
+                    setTruckShipments(cloudYard.truckShipments);
+                  }
+                  if (typeof cloudYard.yardGoalKg === "number" && cloudYard.yardGoalKg >= 100) {
+                    setYardGoalKg(cloudYard.yardGoalKg);
+                  }
+                  if (typeof cloudYard.sellPricePerTon === "number" && cloudYard.sellPricePerTon >= 50 && !onSetSellPricePerTon) {
+                    setInternalSellPricePerTon(cloudYard.sellPricePerTon);
+                  }
+                  if (Array.isArray(cloudYard.otherScrapMaterials) && cloudYard.otherScrapMaterials.length > 0) {
+                    setOtherScrapMaterials(cloudYard.otherScrapMaterials);
+                  }
+                  localMutationTsRef.current = cloudTs;
+                  try {
+                    localStorage.setItem("pdv_dw_last_updated_at", String(cloudTs));
+                  } catch {}
+                } finally {
+                  setTimeout(() => {
+                    isApplyingCloudRef.current = false;
+                  }, 150);
+                }
+              } else if (!hasHydratedCloudOnceRef.current && localTs > cloudTs) {
+                pushYardDataToCloud(localTs);
+              }
+            } else if (!hasHydratedCloudOnceRef.current && localMutationTsRef.current > 0) {
+              pushYardDataToCloud(localMutationTsRef.current);
+            }
+            hasHydratedCloudOnceRef.current = true;
+            setCloudSyncStatus("synced");
+          },
+          () => {
+            setCloudSyncStatus("local_only");
+          }
+        );
+      };
+
+      unsubAuth = onAuthStateChanged(authInstance, (currentUser) => {
+        attachUserListener(currentUser?.uid || null);
+      });
+    } catch {
+      setCloudSyncStatus("local_only");
+    }
+
+    return () => {
+      if (unsubAuth) unsubAuth();
+      if (unsubSnap) unsubSnap();
+    };
+  }, [db, userId]);
+
+  // Debounce sync para nuvem quando dados do Pátio ou Códigos mudarem localmente
+  useEffect(() => {
+    if (isApplyingCloudRef.current || !activeAuthUid || !db || getIsFirestoreQuotaPaused()) return;
+    const timer = setTimeout(() => {
+      if (localMutationTsRef.current > 0) {
+        pushYardDataToCloud(localMutationTsRef.current);
+      }
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [
+    catalog,
+    collaborators,
+    purchaseHistory,
+    paymentHistory,
+    truckShipments,
+    yardGoalKg,
+    activeSellPricePerTon,
+    otherScrapMaterials,
+    activeAuthUid
+  ]);
 
   const otherMaterialsTotalKg = useMemo(() => {
     return otherScrapMaterials.reduce((acc, m) => acc + (Number(m.stockKg) || 0), 0);
@@ -1277,8 +1552,25 @@ export function GlassBarcodeScannerCart({
               },
               (decodedText) => {
                 if (isCancelled) return;
+                const trimmed = decodedText.trim();
+                if (!trimmed) return;
+                const now = Date.now();
+                const isTargetSearch = cameraTargetFieldRef.current === "search";
+                if (isTargetSearch && continuousBeepModeRef.current) {
+                  if (
+                    lastScannedCooldownRef.current &&
+                    lastScannedCooldownRef.current.code === trimmed &&
+                    now - lastScannedCooldownRef.current.at < 1400
+                  ) {
+                    return;
+                  }
+                  lastScannedCooldownRef.current = { code: trimmed, at: now };
+                  playScannerBeep(2150, 0.08);
+                  handleProcessBarcodeRef.current(trimmed, true);
+                  return;
+                }
                 playScannerBeep(2100, 0.09);
-                handleProcessBarcodeRef.current(decodedText.trim());
+                handleProcessBarcodeRef.current(trimmed, false);
                 setShowCameraModal(false);
               },
               () => {}
@@ -1303,12 +1595,66 @@ export function GlassBarcodeScannerCart({
     }
   }, [showCameraModal]);
 
-  const handleProcessBarcodeRef = useRef<(code: string) => void>(() => {});
+  const handleProcessBarcodeRef = useRef<(code: string, fromContinuousCamera?: boolean) => void>(() => {});
 
-  // Bipagem de Código de Barras (Suporta 1 a 5 códigos por garrafa + preenchimento direto de campo no cadastro)
-  const handleProcessBarcode = (code: string) => {
+  // Vincular código bipado a um grupo/garrafa já cadastrado (preenchendo slot 1..5 automaticamente)
+  const handleLinkBarcodeToBottle = (bottleId: string, rawCode: string) => {
+    const clean = rawCode.replace(/[\r\n\t\s]+/g, "").trim();
+    if (!clean) return;
+    let updatedBottle: CatalogBottleItem | null = null;
+    markLocalYardMutation();
+    setCatalog((prev) =>
+      prev.map((b) => {
+        if (b.id !== bottleId) return b;
+        const primary = (b.barcode || "").trim();
+        const extras = Array.isArray(b.additionalBarcodes) ? [...b.additionalBarcodes.filter(Boolean)] : [];
+        if (primary === clean || extras.includes(clean)) {
+          updatedBottle = b;
+          return b;
+        }
+        if (!primary) {
+          updatedBottle = { ...b, barcode: clean, additionalBarcodes: extras };
+        } else if (extras.length < 4) {
+          updatedBottle = { ...b, additionalBarcodes: [...extras, clean] };
+        } else {
+          // Substitui o 5º código caso já tenha 4 extras
+          updatedBottle = { ...b, additionalBarcodes: [...extras.slice(0, 3), clean] };
+        }
+        return updatedBottle;
+      })
+    );
+    setUnmatchedBarcodePrompt(null);
+    playScannerBeep(2300, 0.12);
+    if (updatedBottle) {
+      const matchedItem = updatedBottle as CatalogBottleItem;
+      setLastMatchedBottleId(matchedItem.id);
+      if (continuousBeepModeRef.current) {
+        const qtyToAdd = Math.max(1, continuousBatchQtyRef.current || 1);
+        handleAddBottleToCart(matchedItem, qtyToAdd);
+        setLastBeepHud({
+          bottleId: matchedItem.id,
+          bottleName: matchedItem.name,
+          emoji: matchedItem.emoji,
+          code: clean,
+          addedQty: qtyToAdd,
+          unitGrams: matchedItem.unitWeightGrams,
+          timestamp: Date.now()
+        });
+      } else {
+        const safeLot = getVictorSafeLotUnits(matchedItem.category, sellPricePerKg, matchedItem.unitWeightGrams);
+        setScannedPrompt({ bottle: matchedItem, matchedCode: clean });
+        setScannedPromptQtyStr(String(safeLot || 1));
+      }
+      if (showNotification) {
+        showNotification(`Código ${clean} vinculado em "${matchedItem.name}"! 🔗✅`, "success");
+      }
+    }
+  };
+
+  // Bipagem de Código de Barras (Suporta 1 a 5 códigos por garrafa + Modo Só Bipar Contínuo + Vinculador Inteligente)
+  const handleProcessBarcode = (code: string, fromContinuousCamera = false) => {
     if (!code) return;
-    const clean = code.trim();
+    const clean = code.replace(/[\r\n\t\s]+/g, "").trim();
     if (!clean) return;
 
     // Caso a câmera tenha sido aberta para preencher um dos 5 campos dentro do modal Editar/Cadastrar Garrafa:
@@ -1353,32 +1699,37 @@ export function GlassBarcodeScannerCart({
     );
 
     if (matched) {
-      const safeLot = getVictorSafeLotUnits(matched.category, sellPricePerKg, matched.unitWeightGrams);
-      setScannedPrompt({ bottle: matched, matchedCode: clean });
-      setScannedPromptQtyStr(String(safeLot || 1));
-      if (showNotification) {
-        showNotification(`Identificado: ${matched.name}! Digite ou confirme a quantidade. 🏷️🍾`, "success");
+      setLastMatchedBottleId(matched.id);
+      if (continuousBeepModeRef.current) {
+        const qtyToAdd = Math.max(1, continuousBatchQtyRef.current || 1);
+        handleAddBottleToCart(matched, qtyToAdd);
+        setLastBeepHud({
+          bottleId: matched.id,
+          bottleName: matched.name,
+          emoji: matched.emoji,
+          code: clean,
+          addedQty: qtyToAdd,
+          unitGrams: matched.unitWeightGrams,
+          timestamp: Date.now()
+        });
+        if (showNotification) {
+          showNotification(`⚡ +${qtyToAdd} un ${matched.name} (${matched.unitWeightGrams}g) no carrinho!`, "success");
+        }
+      } else {
+        const safeLot = getVictorSafeLotUnits(matched.category, sellPricePerKg, matched.unitWeightGrams);
+        setScannedPrompt({ bottle: matched, matchedCode: clean });
+        setScannedPromptQtyStr(String(safeLot || 1));
+        if (showNotification) {
+          showNotification(`Identificado: ${matched.name}! Digite ou confirme a quantidade. 🏷️🍾`, "success");
+        }
       }
     } else {
-      openEditBottleModal(
-        {
-          id: `bottle_${Date.now()}`,
-          name: "",
-          volumeMl: 330,
-          barcode: clean,
-          additionalBarcodes: ["", "", "", ""],
-          unitWeightGrams: 182,
-          unitWeightKg: 0.182,
-          category: "longneck",
-          buyPricePerUnit: 0.50 / 30,
-          emoji: "🍾",
-          stockUnits: 0,
-          quickPresets: [10, 20, 30, 50, 100]
-        },
-        true
-      );
+      if (fromContinuousCamera) {
+        setShowCameraModal(false);
+      }
+      setUnmatchedBarcodePrompt({ code: clean });
       if (showNotification) {
-        showNotification(`Código ${clean} novo! Pese na balança digital e cadastre (ou adicione em uma garrafa existente)! ⚖️`, "info");
+        showNotification(`Código ${clean} novo! Vincule a uma garrafa já cadastrada ou crie uma nova. 🔗`, "info");
       }
     }
   };
@@ -1500,7 +1851,7 @@ export function GlassBarcodeScannerCart({
     const kg = grams / 1000;
 
     let nextCatalog: CatalogBottleItem[] = [];
-    // Atualiza no catálogo
+    markLocalYardMutation();
     setCatalog((prev) => {
       nextCatalog = prev.map((b) =>
         b.id === calibratingBottle.id
@@ -1555,6 +1906,7 @@ export function GlassBarcodeScannerCart({
     const grams = Math.max(0.01, parseFloat(cleanStr) || 0);
     const kg = grams / 1000;
     let nextCatalog: CatalogBottleItem[] = [];
+    markLocalYardMutation();
     setCatalog((prev) => {
       nextCatalog = prev.map((b) => (b.id === bottleId ? { ...b, unitWeightGrams: grams, unitWeightKg: kg } : b));
       return nextCatalog;
@@ -1623,6 +1975,7 @@ export function GlassBarcodeScannerCart({
     };
 
     let nextCatalog: CatalogBottleItem[] = [];
+    markLocalYardMutation();
     setCatalog((prev) => {
       const exists = prev.some((b) => b.id === saved.id);
       nextCatalog = exists ? prev.map((b) => (b.id === saved.id ? saved : b)) : [saved, ...prev];
@@ -1635,6 +1988,7 @@ export function GlassBarcodeScannerCart({
 
     setEditingBottle(null);
     setIsRegisteringNew(false);
+    setLastMatchedBottleId(saved.id);
 
     if (showNotification) {
       const totalCodes = (saved.barcode ? 1 : 0) + cleanAdditional.length;
@@ -1651,6 +2005,7 @@ export function GlassBarcodeScannerCart({
       if (showNotification) showNotification("Mantenha ao menos 1 item cadastrado no catálogo.", "warning");
       return;
     }
+    markLocalYardMutation();
     setCatalog((prev) => prev.filter((b) => b.id !== bottleId));
     setEditingBottle(null);
     setIsRegisteringNew(false);
@@ -1680,6 +2035,7 @@ export function GlassBarcodeScannerCart({
   // Alterar diretamente a quantidade real que tem no pátio hoje
   const handleUpdateYardStockDirect = (bottleId: string, newQty: number) => {
     const qty = Math.max(0, Math.round(newQty));
+    markLocalYardMutation();
     setCatalog((prev) =>
       prev.map((b) => (b.id === bottleId ? { ...b, stockUnits: qty } : b))
     );
@@ -1691,6 +2047,8 @@ export function GlassBarcodeScannerCart({
       if (showNotification) showNotification("O carrinho está vazio! Adicione garrafas.", "warning");
       return;
     }
+
+    markLocalYardMutation();
 
     const isFounder = !!activeCollab.isFounder;
     const paymentStatus = isFounder
@@ -1827,6 +2185,7 @@ export function GlassBarcodeScannerCart({
     const remaining = Math.max(0, prevPending - amount);
 
     // Atualiza saldo no caderninho
+    markLocalYardMutation();
     setCollaborators((prev) =>
       prev.map((c) =>
         c.id === payingCollab.id
@@ -1895,6 +2254,7 @@ export function GlassBarcodeScannerCart({
       summaryText
     };
 
+    markLocalYardMutation();
     setTruckShipments((prev) => [shipment, ...prev]);
 
     // Zera o estoque do pátio para recomeçar o ciclo de toneladas
@@ -1916,6 +2276,7 @@ export function GlassBarcodeScannerCart({
 
   // Zerar Todos os Testes e Começar do Zero com a Realidade da D.W Vidros
   const handleResetAllToZeroReal = () => {
+    markLocalYardMutation();
     // 1. Zera o estoque de vidros no pátio (mantendo garrafas e códigos cadastrados)
     const zeroedCatalog = catalog.map((b) => ({ ...b, stockUnits: 0 }));
     setCatalog(zeroedCatalog);
@@ -1991,6 +2352,7 @@ export function GlassBarcodeScannerCart({
       balancePending: 0
     };
 
+    markLocalYardMutation();
     setCollaborators((prev) => [...prev, newCollab]);
     setSelectedCollabId(newCollab.id);
     setNewCollabName("");
@@ -2114,6 +2476,25 @@ export function GlassBarcodeScannerCart({
               <span className="text-[11px] bg-amber-500/20 text-amber-300 font-bold px-2.5 py-1 rounded-lg border border-amber-500/30">
                 Cotação: R$ {activeSellPricePerTon.toFixed(2)}/t (R$ {sellPricePerKg.toFixed(2)}/kg)
               </span>
+              {activeAuthUid ? (
+                <button
+                  type="button"
+                  onClick={() => pushYardDataToCloud(Date.now(), true)}
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1 cursor-pointer touch-manipulation ${
+                    cloudSyncStatus === "synced"
+                      ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/25"
+                      : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                  }`}
+                  title="Sincronizar pátio e códigos com a sua conta na nuvem para o app instalado no celular"
+                >
+                  <Cloud className="w-3.5 h-3.5" />
+                  <span>{cloudSyncStatus === "syncing" ? "Sincronizando..." : "☁️ Nuvem Ativa (Sincronizar)"}</span>
+                </button>
+              ) : (
+                <span className="text-[10.5px] bg-slate-800/80 text-slate-300 font-bold px-2.5 py-1 rounded-lg border border-white/10">
+                  📱 Salvo neste aparelho (Entre na sua conta para sincronizar o Pátio no app instalado)
+                </span>
+              )}
             </div>
 
             <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
@@ -2199,6 +2580,7 @@ export function GlassBarcodeScannerCart({
                       key={preset}
                       type="button"
                       onClick={() => {
+                        markLocalYardMutation();
                         setYardGoalKg(preset);
                         setGoalInputDraft(String(preset));
                         setShowGoalEditor(false);
@@ -2213,6 +2595,7 @@ export function GlassBarcodeScannerCart({
                     type="button"
                     onClick={() => {
                       const val = Math.max(100, parseInt(goalInputDraft || "3000", 10) || 3000);
+                      markLocalYardMutation();
                       setYardGoalKg(val);
                       setShowGoalEditor(false);
                       if (showNotification) showNotification(`Meta do Pátio atualizada para ${val.toLocaleString("pt-BR")} kg! 🎯`, "success");
@@ -2415,7 +2798,10 @@ export function GlassBarcodeScannerCart({
                     <button
                       key={tier.ton}
                       type="button"
-                      onClick={() => activeSetSellPricePerTon(tier.ton)}
+                      onClick={() => {
+                        markLocalYardMutation();
+                        activeSetSellPricePerTon(tier.ton);
+                      }}
                       className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer touch-manipulation ${
                         isSelected
                           ? "bg-gradient-to-br from-indigo-600 to-indigo-700 text-white border-white shadow-lg shadow-indigo-900/50 scale-[1.02] ring-2 ring-indigo-400"
@@ -2556,15 +2942,29 @@ export function GlassBarcodeScannerCart({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
-                  Bipe ou Digite o Código de Barras
+                  Modo Tecnológico • Bipar Garrafas (1 a 5 Códigos por Grupo)
                 </span>
                 <h3 className="text-base font-black text-white flex items-center gap-2 mt-0.5">
                   <Barcode className="w-5 h-5 text-emerald-400" />
-                  Leitor de Códigos de Barras EAN (Dual Mode)
+                  Leitor Inteligente de Códigos de Barras (Só Bipar!)
                 </h3>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setContinuousBeepMode((v) => !v)}
+                  className={`min-h-[48px] px-3.5 py-2 font-black text-xs uppercase rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
+                    continuousBeepMode
+                      ? "bg-amber-400 text-slate-950 border-amber-300 shadow-lg shadow-amber-400/25"
+                      : "bg-slate-950 text-amber-300 border-amber-500/40 hover:bg-slate-800"
+                  }`}
+                  title="Ativar Modo Só Bipar Contínuo: cada bip soma direto no carrinho sem fechar a câmera!"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>{continuousBeepMode ? "⚡ Só Bipar Direto (ON)" : "🔢 Bipar & Digitar Lote"}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -2583,10 +2983,10 @@ export function GlassBarcodeScannerCart({
                       quickPresets: [10, 30, 50, 100]
                     }, true);
                   }}
-                  className="min-h-[48px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation select-none shadow-md shadow-emerald-500/20"
+                  className="min-h-[48px] px-3.5 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>+ Cadastrar Garrafa (até 5 códs) ⚖️</span>
+                  <span>Nova Garrafa (1-5 códs) ⚖️</span>
                 </button>
 
                 <button
@@ -2595,13 +2995,83 @@ export function GlassBarcodeScannerCart({
                     setCameraTargetField("search");
                     setShowCameraModal(true);
                   }}
-                  className="min-h-[48px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 active:scale-95 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 transition-all flex items-center gap-2 cursor-pointer touch-manipulation select-none"
+                  className="min-h-[48px] px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-2 cursor-pointer touch-manipulation select-none shadow-lg shadow-emerald-500/25"
                 >
-                  <Camera className="w-4 h-4 text-emerald-400" />
+                  <Camera className="w-4 h-4" />
                   <span>Bipar Câmera 📷</span>
                 </button>
               </div>
             </div>
+
+            {/* BARRA DO MODO SÓ BIPAR CONTÍNUO + LOTE POR BIP */}
+            {continuousBeepMode && (
+              <div className="p-3 bg-amber-950/35 border border-amber-400/40 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="text-amber-200 font-bold">
+                    Modo Só Bipar Contínuo ativo: bipa na câmera ou no leitor e já contabiliza na hora!
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[10px] font-black uppercase text-amber-300">Cada bip soma:</span>
+                  {[1, 6, 10, 30].map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => setContinuousBatchQty(q)}
+                      className={`min-h-[36px] px-2.5 rounded-lg font-mono font-black text-xs border cursor-pointer touch-manipulation ${
+                        continuousBatchQty === q
+                          ? "bg-amber-400 text-slate-950 border-amber-300"
+                          : "bg-slate-950 text-amber-200 border-amber-500/30 hover:bg-slate-800"
+                      }`}
+                    >
+                      +{q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* FEEDBACK AO VIVO DO ÚLTIMO ITEM BIPADO */}
+            {lastBeepHud && (
+              <div className="p-3 bg-emerald-950/60 border-2 border-emerald-400/60 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-2xl">{lastBeepHud.emoji}</span>
+                  <div>
+                    <div className="text-emerald-300 font-black uppercase text-[10px]">
+                      ⚡ Bipado &amp; Contabilizado ({lastBeepHud.code})
+                    </div>
+                    <div className="text-white font-black text-sm">
+                      +{lastBeepHud.addedQty}× {lastBeepHud.bottleName} ({((lastBeepHud.addedQty * lastBeepHud.unitGrams) / 1000).toFixed(2)} kg)
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const inCart = cart.find((c) => c.catalogId === lastBeepHud.bottleId);
+                      if (inCart) {
+                        handleUpdateCartQuantity(inCart.id, Math.max(0, inCart.quantity - lastBeepHud.addedQty));
+                      }
+                      setLastBeepHud(null);
+                    }}
+                    className="min-h-[38px] px-3 py-1 bg-slate-950 hover:bg-rose-950/60 text-rose-300 font-bold rounded-xl border border-rose-500/30 cursor-pointer touch-manipulation"
+                  >
+                    Desfazer
+                  </button>
+                  {cart.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCheckoutModal(true)}
+                      className="min-h-[38px] px-3.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black uppercase rounded-xl cursor-pointer touch-manipulation"
+                    >
+                      Pagar &amp; Pátio ➔
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* CAMPO DE TEXTO DO LEITOR USB / DIGITAÇÃO */}
             <form
@@ -2622,7 +3092,7 @@ export function GlassBarcodeScannerCart({
                       setTimeout(() => handleProcessBarcode(val), 250);
                     }
                   }}
-                  placeholder="Bipe com o leitor ou digite o código de barras (ex: 78936683)..."
+                  placeholder="Bipe qualquer código (Heineken, Império, Stella, 51, Dreher) ou digite..."
                   className="w-full min-h-[50px] bg-slate-950 border border-emerald-500/40 focus:border-emerald-400 rounded-2xl px-4 py-2.5 text-sm sm:text-base font-mono font-bold text-white outline-none placeholder:text-slate-500"
                 />
               </div>
@@ -2636,18 +3106,42 @@ export function GlassBarcodeScannerCart({
               </button>
             </form>
 
-            {/* BOTÕES DE 1 TOQUE PARA ADICIONAR QUALQUER GARRAFA CATALOGADA */}
-            <div className="space-y-2 pt-2 border-t border-white/5">
-              <div className="flex items-center justify-between">
+            {/* BUSCA RÁPIDA OPCIONAL + BOTÕES DE 1 TOQUE PARA QUALQUER GARRAFA CATALOGADA */}
+            <div className="space-y-2.5 pt-2 border-t border-white/5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <span className="text-[10px] uppercase font-black text-amber-400 block tracking-wider">
-                  Toque Rápido para Lançar no Carrinho (+10, +30, +50, +100 un):
+                  Ou toque no item abaixo (Todos aceitam de 1 a 5 Códigos de Barras):
                 </span>
-                <span className="text-[10px] text-slate-400 font-bold hidden sm:inline">
-                  Calculado por peso e centavos exatos
-                </span>
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={catalogSearchQuery}
+                    onChange={(e) => setCatalogSearchQuery(e.target.value)}
+                    placeholder="Filtrar nome ou código..."
+                    className="w-full min-h-[38px] bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl pl-8 pr-7 text-xs text-white outline-none placeholder:text-slate-500"
+                  />
+                  {catalogSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setCatalogSearchQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                {catalog.map((bottle) => {
+                {catalog
+                  .filter((bottle) => {
+                    const q = catalogSearchQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    const codes = [bottle.barcode, ...(bottle.additionalBarcodes || [])].filter(Boolean).join(" ").toLowerCase();
+                    return bottle.name.toLowerCase().includes(q) || codes.includes(q) || String(bottle.volumeMl).includes(q);
+                  })
+                  .map((bottle) => {
                   const safeLot = getVictorSafeLotUnits(bottle.category, sellPricePerKg, bottle.unitWeightGrams);
                   const rawPresets =
                     bottle.category === "caco"
@@ -2655,22 +3149,31 @@ export function GlassBarcodeScannerCart({
                       : bottle.category === "longneck"
                       ? [10, safeLot, safeLot * 2, 50, 100]
                       : [2, safeLot, safeLot * 2, 24, 50];
-                  // Filtra > 1 pois o botão "+1" já é exibido fixo na esquerda (evita botão "+1" duplicado!)
                   const presetsToShow = Array.from(new Set(rawPresets.filter((n) => n > 1))).sort((a, b) => a - b);
                   const inCartItem = cart.find((c) => c.catalogId === bottle.id);
                   const typedQtyNum = parseInt(bottleInputQty[bottle.id] || "0", 10);
                   const activeActionQty = !isNaN(typedQtyNum) && typedQtyNum > 0 ? typedQtyNum : (safeLot || 1);
+                  const allBottleCodes = [bottle.barcode, ...(bottle.additionalBarcodes || [])].map((c) => (c || "").trim()).filter(Boolean);
+                  const isJustScanned = lastMatchedBottleId === bottle.id;
 
                   return (
                     <div
                       key={bottle.id}
                       className={`p-3 bg-slate-950 rounded-2xl border transition-all flex flex-col justify-between space-y-2 ${
-                        inCartItem
+                        isJustScanned
+                          ? "border-cyan-400 ring-2 ring-cyan-400/50 shadow-xl shadow-cyan-950/50"
+                          : inCartItem
                           ? "border-emerald-400/80 ring-1 ring-emerald-500/35 shadow-lg shadow-emerald-950/40"
                           : "border-white/10 hover:border-emerald-500/40"
                       }`}
                     >
                       <div>
+                        {isJustScanned && (
+                          <div className="mb-1.5 px-2 py-0.5 rounded-lg bg-cyan-500/20 border border-cyan-400/50 text-cyan-300 text-[9.5px] font-black uppercase tracking-wider flex items-center gap-1">
+                            <Zap className="w-3 h-3 text-cyan-300" />
+                            <span>Identificado pelo Leitor!</span>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-2xl p-1 bg-slate-900 rounded-lg">{bottle.emoji}</span>
                           <button
@@ -2697,16 +3200,33 @@ export function GlassBarcodeScannerCart({
                             <Edit3 className="w-4 h-4" />
                           </button>
                         </div>
-                        <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between gap-1 mt-0.5 flex-wrap">
+                        <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between gap-1 mt-1 flex-wrap">
                           <span>{bottle.volumeMl}ml</span>
-                          <span className="text-[9.5px] text-slate-500">
-                            {bottle.barcode ? `Cód: ${bottle.barcode}` : "Sem código"}
-                            {bottle.additionalBarcodes && bottle.additionalBarcodes.filter(Boolean).length > 0 && (
-                              <span className="ml-1 text-emerald-400 font-bold">
-                                (+{bottle.additionalBarcodes.filter(Boolean).length} extras)
-                              </span>
-                            )}
-                          </span>
+                          {allBottleCodes.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => openEditBottleModal(bottle, false)}
+                              className="px-2 py-0.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-bold text-[9.5px] flex items-center gap-1 cursor-pointer touch-manipulation"
+                              title={`Códigos vinculados: ${allBottleCodes.join(", ")}`}
+                            >
+                              <Barcode className="w-3 h-3" />
+                              <span>{allBottleCodes.length}/5 códs ({allBottleCodes[0]})</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                openEditBottleModal(bottle, false);
+                                setCameraTargetField("primary");
+                                setShowCameraModal(true);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-300 font-black text-[9.5px] flex items-center gap-1 cursor-pointer touch-manipulation animate-pulse"
+                              title="Clique para bipar o código desta garrafa com a câmera"
+                            >
+                              <Camera className="w-3 h-3" />
+                              <span>Bipar Cód. 📷</span>
+                            </button>
+                          )}
                         </div>
                         <div className="text-[10px] font-bold text-amber-300 font-mono leading-tight mt-1 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-lg">
                           {getBottleCentavosLabel(bottle.category, bottle.buyPricePerUnit, sellPricePerKg, bottle.unitWeightGrams)}
@@ -2784,7 +3304,7 @@ export function GlassBarcodeScannerCart({
                               title="Adicionar ao carrinho para continuar lançando outras garrafas"
                             >
                               <Plus className="w-3.5 h-3.5 shrink-0" />
-                              <span className="truncate">+ Carrinho ({activeActionQty} un)</span>
+                              <span className="truncate">Carrinho ({activeActionQty} un)</span>
                             </button>
                           </div>
                           <button
@@ -3332,6 +3852,7 @@ export function GlassBarcodeScannerCart({
                         placeholder="0 kg"
                         onChange={(e) => {
                           const v = parseFloat(e.target.value.replace(",", ".")) || 0;
+                          markLocalYardMutation();
                           setOtherScrapMaterials((prev) =>
                             prev.map((m) => (m.id === mat.id ? { ...m, stockKg: Math.max(0, v) } : m))
                           );
@@ -3342,11 +3863,12 @@ export function GlassBarcodeScannerCart({
                         <button
                           key={addKg}
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            markLocalYardMutation();
                             setOtherScrapMaterials((prev) =>
                               prev.map((m) => (m.id === mat.id ? { ...m, stockKg: m.stockKg + addKg } : m))
-                            )
-                          }
+                            );
+                          }}
                           className="min-h-[44px] px-3 bg-slate-900 hover:bg-cyan-500 hover:text-slate-950 text-cyan-200 font-mono font-black text-xs rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none active:scale-95"
                         >
                           +{addKg}kg
@@ -3354,11 +3876,12 @@ export function GlassBarcodeScannerCart({
                       ))}
                       <button
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
+                          markLocalYardMutation();
                           setOtherScrapMaterials((prev) =>
                             prev.map((m) => (m.id === mat.id ? { ...m, stockKg: 0 } : m))
-                          )
-                        }
+                          );
+                        }}
                         className="min-h-[44px] px-3 bg-slate-900 hover:bg-rose-950/60 text-rose-300 font-bold text-xs rounded-xl border border-rose-500/20 cursor-pointer touch-manipulation select-none active:scale-95 ml-auto"
                       >
                         Zerar
@@ -4710,16 +5233,20 @@ export function GlassBarcodeScannerCart({
       {/* MODAL: CÂMERA DO LEITOR DE CÓDIGO DE BARRAS (z-[80])       */}
       {/* ========================================================= */}
       {showCameraModal && (
-        <div className="fixed inset-0 z-[80] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 max-w-sm w-full space-y-3.5 shadow-2xl text-center">
-            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-              <span className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5">
-                <Camera className="w-4 h-4" />
-                {cameraTargetField === "search"
-                  ? "Aponte para o Código de Barras"
-                  : cameraTargetField === "primary"
-                  ? "Bipar Código Principal (1)"
-                  : `Bipar Código Extra (${Number(cameraTargetField) + 2})`}
+        <div className="fixed inset-0 z-[80] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-4 sm:p-5 max-w-sm w-full space-y-3 shadow-2xl text-center my-auto">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2.5 gap-2">
+              <span className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5 text-left">
+                <Camera className="w-4 h-4 shrink-0" />
+                <span>
+                  {cameraTargetField === "search"
+                    ? continuousBeepMode
+                      ? "⚡ Só Bipar Contínuo (ON)"
+                      : "Aponte para o Código de Barras"
+                    : cameraTargetField === "primary"
+                    ? "Bipar Código Principal (1)"
+                    : `Bipar Código Extra (${Number(cameraTargetField) + 2})`}
+                </span>
               </span>
               <button
                 type="button"
@@ -4733,10 +5260,66 @@ export function GlassBarcodeScannerCart({
               </button>
             </div>
 
+            {cameraTargetField === "search" && (
+              <div className="flex items-center justify-between gap-2 bg-slate-950 p-2 rounded-2xl border border-white/10 text-[10.5px]">
+                <button
+                  type="button"
+                  onClick={() => setContinuousBeepMode((v) => !v)}
+                  className={`flex-1 min-h-[38px] px-2.5 py-1 rounded-xl font-black uppercase flex items-center justify-center gap-1 cursor-pointer touch-manipulation ${
+                    continuousBeepMode
+                      ? "bg-amber-400 text-slate-950"
+                      : "bg-slate-900 text-slate-300 border border-white/10"
+                  }`}
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>{continuousBeepMode ? "Só Bipar Direto (ON)" : "Ativar Só Bipar Contínuo"}</span>
+                </button>
+                {continuousBeepMode && (
+                  <div className="flex items-center gap-1">
+                    {[1, 6, 10, 30].map((q) => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setContinuousBatchQty(q)}
+                        className={`min-h-[36px] px-2 rounded-lg font-mono font-black border cursor-pointer touch-manipulation ${
+                          continuousBatchQty === q
+                            ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                            : "bg-slate-900 text-slate-300 border-white/10"
+                        }`}
+                      >
+                        +{q}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div
               id="mobile-glass-scanner-viewport"
               className="w-full aspect-[4/3] bg-black rounded-2xl overflow-hidden relative border-2 border-emerald-500/40"
             />
+
+            {cameraTargetField === "search" && continuousBeepMode && (
+              <div className="p-2.5 bg-slate-950 rounded-2xl border border-emerald-500/40 text-left space-y-1.5 text-xs">
+                {lastBeepHud ? (
+                  <div className="text-emerald-300 font-black flex items-center justify-between gap-2">
+                    <span className="truncate">
+                      {lastBeepHud.emoji} +{lastBeepHud.addedQty} {lastBeepHud.bottleName}
+                    </span>
+                    <span className="font-mono text-amber-300 shrink-0">{lastBeepHud.unitGrams}g</span>
+                  </div>
+                ) : (
+                  <div className="text-slate-400 text-[11px] font-bold">
+                    Aponte para cada garrafa: cada bip soma +{continuousBatchQty} un direto no carrinho!
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-[11px] font-mono border-t border-white/10 pt-1.5">
+                  <span className="text-slate-300">Carrinho: <strong className="text-white">{cartTotals.totalBottles} un</strong></span>
+                  <span className="text-emerald-400 font-black">{cartTotals.totalWeightKg.toFixed(2)} kg • R$ {cartTotals.totalBuyCost.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
 
             {cameraError && (
               <p className="text-[11px] text-amber-300 font-bold bg-amber-950/40 p-2 rounded-xl">
@@ -4744,16 +5327,148 @@ export function GlassBarcodeScannerCart({
               </p>
             )}
 
-            <button
-              type="button"
-              onClick={() => {
-                setCameraTargetField("search");
-                setShowCameraModal(false);
-              }}
-              className="w-full min-h-[48px] py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-black uppercase rounded-xl transition-all cursor-pointer touch-manipulation select-none"
-            >
-              Fechar Câmera
-            </button>
+            {cameraTargetField === "search" && continuousBeepMode && cart.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCameraTargetField("search");
+                    setShowCameraModal(false);
+                  }}
+                  className="min-h-[48px] py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-black uppercase rounded-xl cursor-pointer touch-manipulation"
+                >
+                  Fechar Câmera
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCameraTargetField("search");
+                    setShowCameraModal(false);
+                    setShowCheckoutModal(true);
+                  }}
+                  className="min-h-[48px] py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black uppercase rounded-xl cursor-pointer touch-manipulation"
+                >
+                  Concluir ({cartTotals.totalBottles} un) ➔
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setCameraTargetField("search");
+                  setShowCameraModal(false);
+                }}
+                className="w-full min-h-[48px] py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-black uppercase rounded-xl transition-all cursor-pointer touch-manipulation select-none"
+              >
+                Fechar Câmera
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL INTELIGENTE: CÓDIGO NOVO -> VINCULAR OU CRIAR NOVO  */}
+      {/* ========================================================= */}
+      {unmatchedBarcodePrompt && (
+        <div className="fixed inset-0 z-[78] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border-2 border-amber-400/60 rounded-3xl p-5 sm:p-6 max-w-lg w-full space-y-4 shadow-2xl text-left my-auto max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-white/10 pb-3 gap-2">
+              <div>
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider block">
+                  Código Novo Detectado pelo Leitor
+                </span>
+                <h3 className="text-lg font-black text-white font-mono mt-0.5 flex items-center gap-2">
+                  <Barcode className="w-5 h-5 text-amber-400" />
+                  <span>{unmatchedBarcodePrompt.code}</span>
+                </h3>
+                <p className="text-xs text-slate-300 mt-1">
+                  Este código já é de algum grupo que você separou (ex: Longneck Verde Heineken / Stella / Império de 200g)? Vincule em 1 toque (até 5 códigos por grupo)!
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUnmatchedBarcodePrompt(null)}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 cursor-pointer touch-manipulation"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-[10.5px] font-black uppercase text-emerald-400 flex items-center gap-1.5">
+                <Link2 className="w-4 h-4" />
+                <span>Opção 1 (Rápida): Vincular este código a uma garrafa já cadastrada:</span>
+              </span>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                {catalog.map((b) => {
+                  const usedCount = (b.barcode ? 1 : 0) + (b.additionalBarcodes?.filter(Boolean).length || 0);
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => handleLinkBarcodeToBottle(b.id, unmatchedBarcodePrompt.code)}
+                      className="w-full min-h-[54px] p-3 bg-slate-950 hover:bg-emerald-950/50 border border-white/10 hover:border-emerald-400 rounded-2xl flex items-center justify-between gap-2 text-left transition-all cursor-pointer touch-manipulation active:scale-[0.99]"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="text-2xl shrink-0">{b.emoji}</span>
+                        <div className="min-w-0">
+                          <div className="text-white font-black text-xs sm:text-sm truncate">{b.name}</div>
+                          <div className="text-[10.5px] text-slate-400 font-mono">
+                            {b.unitWeightGrams}g • {b.volumeMl}ml •{" "}
+                            <span className={usedCount === 0 ? "text-amber-300 font-bold" : "text-emerald-400 font-bold"}>
+                              {usedCount}/5 códs
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <span className="px-3 py-1.5 bg-emerald-500 text-slate-950 font-black text-[10.5px] uppercase rounded-xl shrink-0">
+                        Vincular ✅
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-white/10 flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const codeToKeep = unmatchedBarcodePrompt.code;
+                  setUnmatchedBarcodePrompt(null);
+                  openEditBottleModal(
+                    {
+                      id: `bottle_${Date.now()}`,
+                      name: "",
+                      volumeMl: 330,
+                      barcode: codeToKeep,
+                      additionalBarcodes: ["", "", "", ""],
+                      unitWeightGrams: 182,
+                      unitWeightKg: 0.182,
+                      category: "longneck",
+                      buyPricePerUnit: 0.50 / 30,
+                      emoji: "🍾",
+                      stockUnits: 0,
+                      quickPresets: [10, 20, 30, 50, 100]
+                    },
+                    true
+                  );
+                }}
+                className="flex-1 min-h-[48px] px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-black text-xs uppercase rounded-xl border border-amber-500/30 flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Opção 2: Cadastrar Nova Garrafa na Balança</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUnmatchedBarcodePrompt(null)}
+                className="min-h-[48px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 text-slate-300 font-bold text-xs uppercase rounded-xl border border-white/10 cursor-pointer touch-manipulation"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -4852,25 +5567,41 @@ export function GlassBarcodeScannerCart({
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const finalQty = Math.max(1, qty);
-                      handleAddBottleToCart(scannedPrompt.bottle, finalQty);
-                      if (showNotification) {
-                        const addKg = ((finalQty * scannedPrompt.bottle.unitWeightGrams) / 1000).toFixed(2);
-                        showNotification(
-                          `Adicionado: ${finalQty} un de ${scannedPrompt.bottle.name} (+${addKg} kg)! 🍾⚖️`,
-                          "success"
-                        );
-                      }
-                      setScannedPrompt(null);
-                    }}
-                    className="w-full min-h-[52px] px-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none"
-                  >
-                    <ShoppingCart className="w-5 h-5" />
-                    <span>ADICIONAR AO CARRINHO ({Math.max(1, qty)} UN) • R$ {cost.toFixed(2)}</span>
-                  </button>
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const finalQty = Math.max(1, qty);
+                        handleAddBottleToCart(scannedPrompt.bottle, finalQty);
+                        if (showNotification) {
+                          const addKg = ((finalQty * scannedPrompt.bottle.unitWeightGrams) / 1000).toFixed(2);
+                          showNotification(
+                            `Adicionado: ${finalQty} un de ${scannedPrompt.bottle.name} (+${addKg} kg)! 🍾⚖️`,
+                            "success"
+                          );
+                        }
+                        setScannedPrompt(null);
+                      }}
+                      className="w-full min-h-[52px] px-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none"
+                    >
+                      <ShoppingCart className="w-5 h-5" />
+                      <span>ADICIONAR AO CARRINHO ({Math.max(1, qty)} UN) • R$ {cost.toFixed(2)}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const finalQty = Math.max(1, qty);
+                        handleAddBottleToCart(scannedPrompt.bottle, finalQty);
+                        setScannedPrompt(null);
+                        setShowCheckoutModal(true);
+                      }}
+                      className="w-full min-h-[46px] px-4 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none"
+                    >
+                      <Zap className="w-4 h-4" />
+                      <span>Lançar &amp; Pagar / Somar no Pátio Agora ➔</span>
+                    </button>
+                  </div>
                 </div>
               );
             })()}
@@ -5632,6 +6363,7 @@ export function GlassBarcodeScannerCart({
         !showCheckoutModal &&
         !lastPurchaseReceipt &&
         !scannedPrompt &&
+        !unmatchedBarcodePrompt &&
         !editingBottle &&
         !calibratingBottle &&
         !showCameraModal &&

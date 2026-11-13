@@ -934,7 +934,7 @@ const saveUserProfileToFirestore = async (currentUser: any) => {
 };
 
 export default function App() {
-  const runningVersion = "v_online_1.5";
+  const runningVersion = "v_online_1.6";
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [downloadZipStatus, setDownloadZipStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [downloadZipError, setDownloadZipError] = useState<string | null>(null);
@@ -1207,6 +1207,7 @@ export default function App() {
     const checkServerVersion = async () => {
       try {
         const response = await fetch(`/version.json?t=${Date.now()}`, {
+          cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
         });
         if (response.ok) {
@@ -1222,12 +1223,20 @@ export default function App() {
       }
     };
 
-    // Verifica ao abrir o app
     checkServerVersion();
 
-    // Verifica a cada 60 segundos
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        checkServerVersion();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
     const interval = setInterval(checkServerVersion, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      clearInterval(interval);
+    };
   }, []);
 
   // Detect if inside an iframe (e.g., AI Studio preview)

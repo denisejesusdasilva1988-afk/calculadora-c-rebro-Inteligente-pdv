@@ -196,9 +196,16 @@
         } else {
           window.addEventListener('load', async function() {
             try {
-              var registration = await navigator.serviceWorker.register('/sw.js');
+              var registration = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
               console.log('Service Worker registrado com sucesso:', registration.scope);
-              
+              registration.update().catch(function() {});
+
+              document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'visible') {
+                  registration.update().catch(function() {});
+                }
+              });
+
               if ('SyncManager' in window) {
                 try {
                   await registration.sync.register('database-sync');

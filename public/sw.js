@@ -1,9 +1,7 @@
 // Service Worker para a Calculadora Cérebro Inteligente (PWA)
-// Incrementado para cerebro-pdv-v6 para atualizar o cache com suporte offline completo
-const CACHE_NAME = 'cerebro-pdv-v6';
+// Incrementado para cerebro-pdv-v7: Network-First para HTML/navegação/versão garantindo atualização imediata no app instalado
+const CACHE_NAME = 'cerebro-pdv-v7';
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/icon.svg',
   '/icon-192.png',
@@ -14,18 +12,14 @@ const ASSETS_TO_CACHE = [
   '/assets/icons/icon-512.png',
   '/assets/icons/icon-192-maskable.png',
   '/assets/icons/icon-512-maskable.png',
-  '/screenshot-desktop.png',
-  '/screenshot-mobile.png',
-  '/screenshot-1.png',
-  '/screenshot-2.png',
-  '/screenshot-3.png',
-  '/screenshot-4.png',
-  '/screenshot-5.png',
-  '/screenshot-6.png',
-  '/screenshot-7.png',
-  '/screenshot-8.png',
   '/splash-screen.png'
 ];
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -52,12 +46,10 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Ignora requisições que não sejam GET
   if (event.request.method !== 'GET') {
     return;
   }
 
-  // Ignora chamadas de API externas, Firebase e rotas de backend Express
   const url = event.request.url;
   if (
     url.includes('/api/') ||
@@ -70,12 +62,45 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Estratégia de Cache: Stale-While-Revalidate com Runtime Caching de bundles Vite (.js, .css, imagens)
+  const parsedUrl = new URL(url);
+  const isNavigationOrShell =
+    event.request.mode === 'navigate' ||
+    parsedUrl.pathname === '/' ||
+    parsedUrl.pathname === '/index.html' ||
+    parsedUrl.pathname === '/version.json' ||
+    parsedUrl.pathname === '/manifest.json';
+
+  // Navegação, index.html e version.json SEMPRE usam Network-First para atualizar o atalho instalado na hora!
+  if (isNavigationOrShell) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' })
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache).catch(() => {});
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return caches.match(event.request).then((cached) => {
+            if (cached) return cached;
+            if (event.request.mode === 'navigate') {
+              return caches.match('/index.html') || caches.match('/');
+            }
+            return new Response('Offline', { status: 503 });
+          });
+        })
+    );
+    return;
+  }
+
+  // Bundles com hash (.js, .css, imagens): Stale-While-Revalidate
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request)
         .then((networkResponse) => {
-          // Se obteve resposta válida do mesmo domínio ou assets locais, armazena no cache
           if (
             networkResponse &&
             networkResponse.status === 200 &&
@@ -89,13 +114,8 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(() => {
-          // Quando estiver sem conexão (ex: dentro do supermercado Guanabara)
           if (cachedResponse) {
             return cachedResponse;
-          }
-          // Fallback para navegação
-          if (event.request.mode === 'navigate') {
-            return caches.match('/index.html') || caches.match('/');
           }
           return new Response('Offline: Recurso indisponível sem conexão.', {
             status: 503,
@@ -104,7 +124,6 @@ self.addEventListener('fetch', (event) => {
           });
         });
 
-      // Se temos o asset no cache, responde imediatamente para abrir super rápido mesmo offline!
       return cachedResponse || fetchPromise;
     })
   );

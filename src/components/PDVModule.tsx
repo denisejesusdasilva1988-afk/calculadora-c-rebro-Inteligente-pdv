@@ -20040,6 +20040,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               </button>
             </div>
             <GlassBarcodeScannerCart
+              db={db}
+              userId={userId}
               showNotification={showNotification}
               onAddItemsToYardStock={(items) => {
                 showNotification(`Entrada de ${items.length} lote(s) somada ao Pátio rumo à meta do caminhão! 🍾⚖️`, "success");
@@ -22768,6 +22770,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
               {/* Componente Completo de Compra, Balança e Caderninho */}
               <GlassBarcodeScannerCart
+                db={db}
+                userId={userId}
                 showNotification={showNotification}
                 onAddItemsToYardStock={(items) => {
                   showNotification(`Entrada de ${items.length} lote(s) somada ao Pátio rumo à meta do Victor! 🍾⚖️`, "success");
