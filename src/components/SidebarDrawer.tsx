@@ -650,15 +650,15 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           if (onOpenPaywall) onOpenPaywall("Calculadora de Precificação Inteligente", "pro_tools");
           return;
         }
-      } else if (mode === "receipts" || mode === "brecho" || mode === "edit") {
-        // Ferramentas Pro (Talões, Recibos, Bloco com Excel) - R$ 14,90
+      } else if (mode === "receipts" || mode === "brecho") {
+        // Ferramentas Pro (Talões, Recibos) - R$ 14,90
         if (activeTier === "free" && !pdvLicenseActive) {
           showNotification("🔒 Este recurso profissional faz parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
           if (onOpenPaywall) onOpenPaywall("Ferramentas Pro", "pro_tools");
           return;
         }
       }
-      // "super" (Mercado lista), "encartes" (Ofertas folhetos), "notes" (Bloco comum), "agenda", "folders" (Calc normal) are ALWAYS 100% Free!
+      // "super" (Mercado lista), "encartes" (Ofertas folhetos), "notes" (Bloco comum), "agenda", "folders" (Calc normal), "edit" (Calc Nota Excel) are ALWAYS 100% Free!
     }
 
     // Permission checks

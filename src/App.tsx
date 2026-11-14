@@ -129,7 +129,7 @@ import {
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { CalculatorModule } from "./components/Calculator";
-import { PlannerModule } from "./components/Planner";
+import { PlannerModule, SavedExcelSheet } from "./components/Planner";
 import { PricingCalculator } from "./components/PricingCalculator";
 import { MarketCatalogModule } from "./components/MarketCatalog";
 import { NotesModule } from "./components/Notes";
@@ -1790,13 +1790,7 @@ export default function App() {
     const isOwnerOrAdmin = isAdmin || (user?.email && user.email.toLowerCase().includes("denise"));
 
     if (!isOwnerOrAdmin) {
-      if (mode === "edit") {
-        if (!isFeatureAllowedForTier("excel_notas", subscriptionTier, pdvLicenseActive)) {
-          showNotification("🔒 A Calculadora de Bloco com Excel faz parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
-          openSubscriptionModal("Calculadora Nota de Bloco & Excel (R$ 14,90)", "pro_tools");
-          return;
-        }
-      } else if (mode === "pricing") {
+      if (mode === "pricing") {
         if (!isFeatureAllowedForTier("precificacao", subscriptionTier, pdvLicenseActive)) {
           showNotification("🔒 A Calculadora de Precificação faz parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
           openSubscriptionModal("Calculadora de Precificação Inteligente (R$ 14,90)", "pro_tools");
@@ -1994,27 +1988,46 @@ export default function App() {
     setSavedNotes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, folder: folderName } : n))
     );
+    if (folderName && folderName !== "Sem Pasta") {
+      setCreatedFolders((prev) => (prev.includes(folderName) ? prev : [...prev, folderName]));
+    }
     showNotification("Documento movido com sucesso! 📁", "success");
 
-    if (user && user.uid !== "guest_visitor") {
+    const existingNote = ((latestStatesRef.current as any)?.savedNotes || []).find((n: any) => n.id === id);
+    const noteText = existingNote?.text ?? "";
+    const noteDate = existingNote?.date || new Date().toLocaleString("pt-BR");
+    const notePages = existingNote?.pages || (noteText ? [noteText] : [""]);
+
+    const isAuthActive = Boolean(auth?.currentUser && user?.uid && auth.currentUser.uid === user.uid);
+    if (user && user.uid !== "guest_visitor" && isAuthActive && db) {
       if (isOnline && !getIsFirestoreQuotaPaused()) {
         try {
-          await setDoc(doc(db, "notas", id), { folder: folderName }, { merge: true });
+          await setDoc(
+            doc(db, "notas", id),
+            {
+              userId: user.uid,
+              text: noteText,
+              date: noteDate,
+              pages: notePages,
+              folder: folderName,
+            },
+            { merge: true }
+          );
           await registerSyncTag("sync-notas");
         } catch (e: any) {
           if (isQuotaExhaustedError(e)) {
             markFirestoreQuotaPaused();
           }
           setLocalNotesQueue((prev) => [
-            ...prev,
-            { id, folder: folderName, action: "update-folder" as any },
+            ...prev.filter((q) => !(q.id === id && q.action === "update-folder")),
+            { id, text: noteText, date: noteDate, pages: notePages, folder: folderName, action: "update-folder" },
           ]);
           await registerSyncTag("sync-notas");
         }
       } else {
         setLocalNotesQueue((prev) => [
-          ...prev,
-          { id, folder: folderName, action: "update-folder" as any },
+          ...prev.filter((q) => !(q.id === id && q.action === "update-folder")),
+          { id, text: noteText, date: noteDate, pages: notePages, folder: folderName, action: "update-folder" },
         ]);
         await registerSyncTag("sync-notas");
       }
@@ -2039,25 +2052,41 @@ export default function App() {
     );
     showNotification("PIN redefinido com sucesso! 🛡️", "success");
 
-    if (user && user.uid !== "guest_visitor") {
+    const existingNote = ((latestStatesRef.current as any)?.savedNotes || []).find((n: any) => n.id === id);
+    const noteText = existingNote?.text ?? "";
+    const noteDate = existingNote?.date || new Date().toLocaleString("pt-BR");
+    const notePages = existingNote?.pages || (noteText ? [noteText] : [""]);
+
+    const isAuthActive = Boolean(auth?.currentUser && user?.uid && auth.currentUser.uid === user.uid);
+    if (user && user.uid !== "guest_visitor" && isAuthActive && db) {
       if (isOnline && !getIsFirestoreQuotaPaused()) {
         try {
-          await setDoc(doc(db, "notas", id), { pin: newPin }, { merge: true });
+          await setDoc(
+            doc(db, "notas", id),
+            {
+              userId: user.uid,
+              text: noteText,
+              date: noteDate,
+              pages: notePages,
+              pin: newPin,
+            },
+            { merge: true }
+          );
           await registerSyncTag("sync-notas");
         } catch (e: any) {
           if (isQuotaExhaustedError(e)) {
             markFirestoreQuotaPaused();
           }
           setLocalNotesQueue((prev) => [
-            ...prev,
-            { id, pin: newPin, action: "update-pin" as any },
+            ...prev.filter((q) => !(q.id === id && q.action === "update-pin")),
+            { id, text: noteText, date: noteDate, pages: notePages, pin: newPin, action: "update-pin" },
           ]);
           await registerSyncTag("sync-notas");
         }
       } else {
         setLocalNotesQueue((prev) => [
-          ...prev,
-          { id, pin: newPin, action: "update-pin" as any },
+          ...prev.filter((q) => !(q.id === id && q.action === "update-pin")),
+          { id, text: noteText, date: noteDate, pages: notePages, pin: newPin, action: "update-pin" },
         ]);
         await registerSyncTag("sync-notas");
       }
@@ -2909,21 +2938,41 @@ export default function App() {
     } catch {}
   }, [showClientPublicAgendaPortal]);
 
+  const DEFAULT_FOLDERS = ["Geral", "Mercado", "Casa", "Trabalho", "Clientes", "Recibos"];
+  const DEFAULT_EXCEL_FOLDERS = ["Planilhas de Compras", "Cotações Fornecedores", "Despesas do Mês", "Orçamentos Excel", "Geral"];
+
   const [currentFolder, setCurrentFolder] = useState<string>("Geral");
   const [createdFolders, setCreatedFolders] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem("notepad_created_folders");
-      return saved ? JSON.parse(saved) : ["Geral", "Mercado", "Casa", "Trabalho", "Clientes", "Recibos"];
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) && parsed.length > 0
+        ? Array.from(new Set([...DEFAULT_FOLDERS, ...parsed]))
+        : DEFAULT_FOLDERS;
     } catch {
-      return ["Geral", "Mercado", "Casa", "Trabalho", "Clientes", "Recibos"];
+      return DEFAULT_FOLDERS;
     }
   });
-
-  useEffect(() => {
+  const [savedExcelSheets, setSavedExcelSheets] = useState<SavedExcelSheet[]>(() => {
     try {
-      localStorage.setItem("notepad_created_folders", JSON.stringify(createdFolders));
-    } catch {}
-  }, [createdFolders]);
+      const saved = localStorage.getItem("notepad_excel_saved_sheets");
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [excelFoldersList, setExcelFoldersList] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("notepad_excel_folders_list");
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) && parsed.length > 0
+        ? Array.from(new Set([...DEFAULT_EXCEL_FOLDERS, ...parsed]))
+        : DEFAULT_EXCEL_FOLDERS;
+    } catch {
+      return DEFAULT_EXCEL_FOLDERS;
+    }
+  });
   const [showFolderInput, setShowFolderInput] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [isCloudLoaded, setIsCloudLoaded] = useState(false);
@@ -3080,7 +3129,21 @@ export default function App() {
   const [localHistory, setLocalHistory] = useState<SavedList[]>([]);
 
   // Downstream Scope Background Sync & Offline state queues
-  const [localNotesQueue, setLocalNotesQueue] = useState<{ id: string; text?: string; date?: string; signatureImg?: string; folder?: string; pages?: string[]; action: "create" | "delete" }[]>(() => {
+  type LocalNoteQueueItem = {
+    id: string;
+    text?: string;
+    date?: string;
+    signatureImg?: string;
+    folder?: string;
+    pages?: string[];
+    pin?: string;
+    images?: string[];
+    imageSizes?: number[];
+    attachments?: any[];
+    action: "create" | "delete" | "update-folder" | "update-pin";
+  };
+
+  const [localNotesQueue, setLocalNotesQueue] = useState<LocalNoteQueueItem[]>(() => {
     try {
       const saved = localStorage.getItem("notepad_local_notes_queue");
       const parsed = saved ? JSON.parse(saved) : null;
@@ -3089,6 +3152,11 @@ export default function App() {
       return [];
     }
   });
+
+  const localNotesQueueRef = useRef<LocalNoteQueueItem[]>(localNotesQueue);
+  useEffect(() => {
+    localNotesQueueRef.current = localNotesQueue;
+  }, [localNotesQueue]);
 
   const [localAgendaQueue, setLocalAgendaQueue] = useState<{ id: string; event?: any; updates?: any; action: "create" | "update" | "delete" }[]>(() => {
     try {
@@ -3124,7 +3192,8 @@ export default function App() {
   // Sincronizar Notas Offline com Firestore
   const syncLocalNotes = useCallback(async () => {
     if (!user || localNotesQueue.length === 0 || !isOnline || getIsFirestoreQuotaPaused()) return;
-    const processedIds: string[] = [];
+    if (!auth?.currentUser || auth.currentUser.uid !== user.uid) return;
+    const processedKeys: string[] = [];
     for (const item of localNotesQueue) {
       try {
         if (item.action === "create") {
@@ -3141,10 +3210,36 @@ export default function App() {
             attachments: item.attachments || [],
             createdAt: serverTimestamp(),
           });
+        } else if (item.action === "update-folder") {
+          const existingNote = ((latestStatesRef.current as any)?.savedNotes || []).find((n: any) => n.id === item.id);
+          await setDoc(
+            doc(db, "notas", item.id),
+            {
+              userId: user.uid,
+              text: existingNote?.text ?? item.text ?? "",
+              date: existingNote?.date || item.date || new Date().toLocaleString("pt-BR"),
+              pages: existingNote?.pages || item.pages || [existingNote?.text ?? item.text ?? ""],
+              folder: item.folder || "",
+            },
+            { merge: true }
+          );
+        } else if (item.action === "update-pin") {
+          const existingNote = ((latestStatesRef.current as any)?.savedNotes || []).find((n: any) => n.id === item.id);
+          await setDoc(
+            doc(db, "notas", item.id),
+            {
+              userId: user.uid,
+              text: existingNote?.text ?? item.text ?? "",
+              date: existingNote?.date || item.date || new Date().toLocaleString("pt-BR"),
+              pages: existingNote?.pages || item.pages || [existingNote?.text ?? item.text ?? ""],
+              pin: item.pin || "",
+            },
+            { merge: true }
+          );
         } else if (item.action === "delete") {
           await deleteDoc(doc(db, "notas", item.id));
         }
-        processedIds.push(item.id);
+        processedKeys.push(`${item.id}_${item.action}`);
       } catch (e: any) {
         if (isQuotaExhaustedError(e)) {
           markFirestoreQuotaPaused();
@@ -3154,9 +3249,9 @@ export default function App() {
         console.error("Erro ao sincronizar nota offline:", e);
       }
     }
-    setLocalNotesQueue((prev) => prev.filter((item) => !processedIds.includes(item.id)));
-    if (processedIds.length > 0) {
-      showNotification(`${processedIds.length} notas atualizadas e salvas com segurança! ✨`, "success");
+    setLocalNotesQueue((prev) => prev.filter((item) => !processedKeys.includes(`${item.id}_${item.action}`)));
+    if (processedKeys.length > 0) {
+      showNotification(`${processedKeys.length} notas atualizadas e salvas com segurança! ✨`, "success");
     }
   }, [user, isOnline, localNotesQueue]);
 
@@ -3469,19 +3564,55 @@ export default function App() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const docs = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          text: doc.data().text || "",
-          date: doc.data().date || "",
-          signatureImg: doc.data().signatureImg || "",
-          folder: doc.data().folder || "",
-          pages: doc.data().pages || (doc.data().text ? [doc.data().text] : []),
-          pin: doc.data().pin || "",
-          images: doc.data().images || [],
-          imageSizes: doc.data().imageSizes || [],
-          attachments: doc.data().attachments || [],
-        }));
-        setSavedNotes(docs);
+        const pendingQueue = localNotesQueueRef.current || [];
+        const pendingDeleteIds = new Set(
+          pendingQueue.filter((item) => item.action === "delete").map((item) => item.id)
+        );
+        const pendingFolderUpdates = new Map<string, string>();
+        const pendingPinUpdates = new Map<string, string>();
+        pendingQueue.forEach((item) => {
+          if (item.action === "update-folder" && item.folder !== undefined) {
+            pendingFolderUpdates.set(item.id, item.folder);
+          } else if (item.action === "update-pin" && item.pin !== undefined) {
+            pendingPinUpdates.set(item.id, item.pin);
+          }
+        });
+
+        const docs = snapshot.docs
+          .filter((d) => !pendingDeleteIds.has(d.id))
+          .map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              text: data.text || "",
+              date: data.date || "",
+              signatureImg: data.signatureImg || "",
+              folder: pendingFolderUpdates.has(d.id) ? pendingFolderUpdates.get(d.id)! : (data.folder || ""),
+              pages: data.pages || (data.text ? [data.text] : []),
+              pin: pendingPinUpdates.has(d.id) ? pendingPinUpdates.get(d.id)! : (data.pin || ""),
+              images: data.images || [],
+              imageSizes: data.imageSizes || [],
+              attachments: data.attachments || [],
+            };
+          });
+
+        const docIds = new Set(docs.map((n) => n.id));
+        const pendingCreates = pendingQueue
+          .filter((item) => item.action === "create" && !docIds.has(item.id) && !pendingDeleteIds.has(item.id))
+          .map((item) => ({
+            id: item.id,
+            text: item.text || "",
+            date: item.date || "",
+            signatureImg: item.signatureImg || "",
+            folder: pendingFolderUpdates.has(item.id) ? pendingFolderUpdates.get(item.id)! : (item.folder || ""),
+            pages: item.pages || (item.text ? [item.text] : []),
+            pin: pendingPinUpdates.has(item.id) ? pendingPinUpdates.get(item.id)! : (item.pin || ""),
+            images: item.images || [],
+            imageSizes: item.imageSizes || [],
+            attachments: item.attachments || [],
+          }));
+
+        setSavedNotes([...pendingCreates, ...docs]);
       },
       (error) => {
         handleFirestoreError(error, OperationType.LIST, "notas");
@@ -5969,6 +6100,38 @@ export default function App() {
         "";
       if (cpfFromLocal) setStoreCnpjCpf(cpfFromLocal);
     } catch {}
+
+    try {
+      const savedFolders = localStorage.getItem(`notepad_created_folders${suffix}`) || localStorage.getItem("notepad_created_folders");
+      const parsedFolders = savedFolders ? JSON.parse(savedFolders) : [];
+      setCreatedFolders(
+        Array.isArray(parsedFolders) && parsedFolders.length > 0
+          ? Array.from(new Set([...DEFAULT_FOLDERS, ...parsedFolders]))
+          : DEFAULT_FOLDERS
+      );
+    } catch {
+      setCreatedFolders(DEFAULT_FOLDERS);
+    }
+
+    try {
+      const savedSheets = localStorage.getItem(`notepad_excel_saved_sheets${suffix}`) || localStorage.getItem("notepad_excel_saved_sheets");
+      const parsedSheets = savedSheets ? JSON.parse(savedSheets) : [];
+      setSavedExcelSheets(Array.isArray(parsedSheets) ? parsedSheets : []);
+    } catch {
+      setSavedExcelSheets([]);
+    }
+
+    try {
+      const savedExFolders = localStorage.getItem(`notepad_excel_folders_list${suffix}`) || localStorage.getItem("notepad_excel_folders_list");
+      const parsedExFolders = savedExFolders ? JSON.parse(savedExFolders) : [];
+      setExcelFoldersList(
+        Array.isArray(parsedExFolders) && parsedExFolders.length > 0
+          ? Array.from(new Set([...DEFAULT_EXCEL_FOLDERS, ...parsedExFolders]))
+          : DEFAULT_EXCEL_FOLDERS
+      );
+    } catch {
+      setExcelFoldersList(DEFAULT_EXCEL_FOLDERS);
+    }
   };
 
   // Handle Auth State
@@ -6096,6 +6259,33 @@ export default function App() {
         if (savedNotesRaw) localSavedNotes = JSON.parse(savedNotesRaw);
       } catch {}
 
+      let localCreatedFolders: string[] = DEFAULT_FOLDERS;
+      try {
+        const raw = localStorage.getItem(`notepad_created_folders${suffix}`) || localStorage.getItem("notepad_created_folders");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) localCreatedFolders = Array.from(new Set([...DEFAULT_FOLDERS, ...parsed]));
+        }
+      } catch {}
+
+      let localExcelSavedSheets: SavedExcelSheet[] = [];
+      try {
+        const raw = localStorage.getItem(`notepad_excel_saved_sheets${suffix}`) || localStorage.getItem("notepad_excel_saved_sheets");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) localExcelSavedSheets = parsed;
+        }
+      } catch {}
+
+      let localExcelFoldersList: string[] = DEFAULT_EXCEL_FOLDERS;
+      try {
+        const raw = localStorage.getItem(`notepad_excel_folders_list${suffix}`) || localStorage.getItem("notepad_excel_folders_list");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) localExcelFoldersList = Array.from(new Set([...DEFAULT_EXCEL_FOLDERS, ...parsed]));
+        }
+      } catch {}
+
       const docRef = doc(db, "userData", userId);
       await setDoc(
         docRef,
@@ -6111,6 +6301,9 @@ export default function App() {
           excelRows: localExcelRows,
           customCatalogProducts: localCatalogProducts,
           savedNotes: localSavedNotes,
+          createdFolders: localCreatedFolders,
+          excelSavedSheets: localExcelSavedSheets,
+          excelFoldersList: localExcelFoldersList,
           masterPinProfile: localMasterPinProfile,
           companyProfile: loadCompanyProfile(userId),
           storeName: loadCompanyProfile(userId).name || localStorage.getItem("pdv_store_name") || "",
@@ -6207,7 +6400,10 @@ export default function App() {
             'notepad_super_list_data',
             'notepad_custom_super_items',
             'notepad_local_history',
-            'notepad_checked_indices'
+            'notepad_checked_indices',
+            'notepad_created_folders',
+            'notepad_excel_saved_sheets',
+            'notepad_excel_folders_list'
           ];
           keysToMigrate.forEach(key => {
             const val = localStorage.getItem(`${key}${guestSuffix}`);
@@ -6255,6 +6451,33 @@ export default function App() {
                 }
               }
               localStorage.setItem(`notepad_saved_notes${suffix}`, JSON.stringify(merged));
+              return merged;
+            });
+          }
+          if (Array.isArray(data.createdFolders)) {
+            setCreatedFolders((prev) => {
+              const merged = Array.from(new Set([...DEFAULT_FOLDERS, ...prev, ...data.createdFolders]));
+              localStorage.setItem(`notepad_created_folders${suffix}`, JSON.stringify(merged));
+              localStorage.setItem("notepad_created_folders", JSON.stringify(merged));
+              return merged;
+            });
+          }
+          if (Array.isArray(data.excelFoldersList)) {
+            setExcelFoldersList((prev) => {
+              const merged = Array.from(new Set([...DEFAULT_EXCEL_FOLDERS, ...prev, ...data.excelFoldersList]));
+              localStorage.setItem(`notepad_excel_folders_list${suffix}`, JSON.stringify(merged));
+              localStorage.setItem("notepad_excel_folders_list", JSON.stringify(merged));
+              return merged;
+            });
+          }
+          if (Array.isArray(data.excelSavedSheets)) {
+            setSavedExcelSheets((prev) => {
+              const map = new Map<string, SavedExcelSheet>();
+              data.excelSavedSheets.forEach((s: SavedExcelSheet) => s?.id && map.set(s.id, s));
+              prev.forEach((s) => s?.id && map.set(s.id, s));
+              const merged = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+              localStorage.setItem(`notepad_excel_saved_sheets${suffix}`, JSON.stringify(merged));
+              localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(merged));
               return merged;
             });
           }
@@ -6409,6 +6632,7 @@ export default function App() {
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const data = docSnap.data();
+          const suffix = `_user_${user.uid}`;
           if (data.inputText !== undefined) setInputText(data.inputText);
           if (data.budget !== undefined) setBudget(data.budget);
           if (data.freeNotesText !== undefined) setFreeNotesText(data.freeNotesText);
@@ -6418,8 +6642,24 @@ export default function App() {
           if (data.superListData !== undefined) setSuperListData(data.superListData);
           if (data.excelRows !== undefined) setExcelRows(data.excelRows);
           if (data.customCatalogProducts !== undefined) setCustomCatalogProducts(data.customCatalogProducts);
+          if (Array.isArray(data.createdFolders)) {
+            const merged = Array.from(new Set([...DEFAULT_FOLDERS, ...data.createdFolders]));
+            setCreatedFolders(merged);
+            localStorage.setItem(`notepad_created_folders${suffix}`, JSON.stringify(merged));
+            localStorage.setItem("notepad_created_folders", JSON.stringify(merged));
+          }
+          if (Array.isArray(data.excelFoldersList)) {
+            const merged = Array.from(new Set([...DEFAULT_EXCEL_FOLDERS, ...data.excelFoldersList]));
+            setExcelFoldersList(merged);
+            localStorage.setItem(`notepad_excel_folders_list${suffix}`, JSON.stringify(merged));
+            localStorage.setItem("notepad_excel_folders_list", JSON.stringify(merged));
+          }
+          if (Array.isArray(data.excelSavedSheets)) {
+            setSavedExcelSheets(data.excelSavedSheets);
+            localStorage.setItem(`notepad_excel_saved_sheets${suffix}`, JSON.stringify(data.excelSavedSheets));
+            localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(data.excelSavedSheets));
+          }
 
-          const suffix = `_user_${user.uid}`;
           localStorage.setItem(`notepad_draft${suffix}`, data.inputText || "");
           localStorage.setItem(`notepad_budget${suffix}`, data.budget || "");
           localStorage.setItem(`notepad_free_notes${suffix}`, data.freeNotesText || "");
@@ -6475,6 +6715,9 @@ export default function App() {
     excelRows,
     customCatalogProducts,
     savedNotes,
+    createdFolders,
+    savedExcelSheets,
+    excelFoldersList,
     localHistory,
     notepadMode,
     isCloudLoaded,
@@ -6494,6 +6737,9 @@ export default function App() {
       excelRows,
       customCatalogProducts,
       savedNotes,
+      createdFolders,
+      savedExcelSheets,
+      excelFoldersList,
       localHistory,
       notepadMode,
       isCloudLoaded,
@@ -6511,6 +6757,9 @@ export default function App() {
     excelRows,
     customCatalogProducts,
     savedNotes,
+    createdFolders,
+    savedExcelSheets,
+    excelFoldersList,
     localHistory,
     notepadMode,
     isCloudLoaded,
@@ -6559,6 +6808,9 @@ export default function App() {
         superListData: latestSuperListData = {},
         excelRows: latestExcelRows = [],
         customCatalogProducts: latestCustomCatalogProducts = [],
+        createdFolders: latestCreatedFolders = DEFAULT_FOLDERS,
+        savedExcelSheets: latestSavedExcelSheets = [],
+        excelFoldersList: latestExcelFoldersList = DEFAULT_EXCEL_FOLDERS,
       } = latestStatesRef.current as any;
 
       const limitText = (t: string) => {
@@ -6593,6 +6845,9 @@ export default function App() {
           excelRows: latestExcelRows,
           customCatalogProducts: latestCustomCatalogProducts,
           savedNotes: cleanNotesToSync,
+          createdFolders: latestCreatedFolders,
+          excelSavedSheets: latestSavedExcelSheets,
+          excelFoldersList: latestExcelFoldersList,
           masterPinProfile: secProfile,
           updatedAt: serverTimestamp(),
           lastModifiedAt: now,
@@ -6678,6 +6933,9 @@ export default function App() {
             `notepad_super_list_data_user_${userId}`,
             `notepad_custom_super_items_user_${userId}`,
             `notepad_local_history_user_${userId}`,
+            `notepad_created_folders_user_${userId}`,
+            `notepad_excel_saved_sheets_user_${userId}`,
+            `notepad_excel_folders_list_user_${userId}`,
             'notepad_draft',
             'notepad_future_items',
             'notepad_free_notes',
@@ -6687,6 +6945,9 @@ export default function App() {
             'notepad_super_list_data',
             'notepad_custom_super_items',
             'notepad_local_history',
+            'notepad_created_folders',
+            'notepad_excel_saved_sheets',
+            'notepad_excel_folders_list',
             'brecho_clients_guest',
             `brecho_selected_client_id_guest`
           ];
@@ -6698,6 +6959,9 @@ export default function App() {
           setFreeNotesText("");
           setFutureItemsText("");
           setSavedNotes([]);
+          setCreatedFolders(DEFAULT_FOLDERS);
+          setSavedExcelSheets([]);
+          setExcelFoldersList(DEFAULT_EXCEL_FOLDERS);
           setExcelRows([
             {
               id: "1",
@@ -6747,7 +7011,7 @@ export default function App() {
       syncToCloud();
     }, 2000);
     return () => clearTimeout(timeout);
-  }, [inputText, budget, freeNotesText, receiptsDraftText, futureItemsText, checkedIndices, superListData, excelRows, user, isCloudLoaded]);
+  }, [inputText, budget, freeNotesText, receiptsDraftText, futureItemsText, checkedIndices, superListData, excelRows, createdFolders, savedExcelSheets, excelFoldersList, user, isCloudLoaded]);
 
   // Debounced localStorage saves for frequent changes
   useEffect(() => {
@@ -6798,6 +7062,27 @@ export default function App() {
     const suffix = user ? `_user_${user.uid}` : `_guest`;
     localStorage.setItem(`notepad_saved_notes${suffix}`, JSON.stringify(savedNotes));
   }, [savedNotes, user, isCloudLoaded]);
+
+  useEffect(() => {
+    if (!isCloudLoaded) return;
+    const suffix = user ? `_user_${user.uid}` : `_guest`;
+    localStorage.setItem(`notepad_created_folders${suffix}`, JSON.stringify(createdFolders));
+    localStorage.setItem("notepad_created_folders", JSON.stringify(createdFolders));
+  }, [createdFolders, user, isCloudLoaded]);
+
+  useEffect(() => {
+    if (!isCloudLoaded) return;
+    const suffix = user ? `_user_${user.uid}` : `_guest`;
+    localStorage.setItem(`notepad_excel_saved_sheets${suffix}`, JSON.stringify(savedExcelSheets));
+    localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(savedExcelSheets));
+  }, [savedExcelSheets, user, isCloudLoaded]);
+
+  useEffect(() => {
+    if (!isCloudLoaded) return;
+    const suffix = user ? `_user_${user.uid}` : `_guest`;
+    localStorage.setItem(`notepad_excel_folders_list${suffix}`, JSON.stringify(excelFoldersList));
+    localStorage.setItem("notepad_excel_folders_list", JSON.stringify(excelFoldersList));
+  }, [excelFoldersList, user, isCloudLoaded]);
 
   useEffect(() => {
     if (!isCloudLoaded) return;
@@ -6868,7 +7153,7 @@ export default function App() {
     }, 1500);
 
     return () => clearTimeout(timeout);
-  }, [inputText, budget, freeNotesText, futureItemsText, checkedIndices, superListData, excelRows, user, isCloudLoaded]);
+  }, [inputText, budget, freeNotesText, futureItemsText, checkedIndices, superListData, excelRows, createdFolders, savedExcelSheets, excelFoldersList, user, isCloudLoaded]);
 
   useEffect(() => {
     localStorage.setItem("notepad_mode", notepadMode);
@@ -6887,6 +7172,9 @@ export default function App() {
       customSuperItems,
       excelRows,
       savedNotes,
+      createdFolders,
+      savedExcelSheets,
+      excelFoldersList,
       localHistory,
       notepadMode,
       isCloudLoaded,
@@ -6902,6 +7190,12 @@ export default function App() {
       localStorage.setItem(`notepad_future_items${suffix}`, futureItemsText);
       localStorage.setItem(`notepad_budget${suffix}`, budget);
       localStorage.setItem(`notepad_saved_notes${suffix}`, JSON.stringify(savedNotes));
+      localStorage.setItem(`notepad_created_folders${suffix}`, JSON.stringify(createdFolders));
+      localStorage.setItem("notepad_created_folders", JSON.stringify(createdFolders));
+      localStorage.setItem(`notepad_excel_saved_sheets${suffix}`, JSON.stringify(savedExcelSheets));
+      localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(savedExcelSheets));
+      localStorage.setItem(`notepad_excel_folders_list${suffix}`, JSON.stringify(excelFoldersList));
+      localStorage.setItem("notepad_excel_folders_list", JSON.stringify(excelFoldersList));
       localStorage.setItem(`notepad_excel_rows${suffix}`, JSON.stringify(excelRows));
       localStorage.setItem(`notepad_super_list_data${suffix}`, JSON.stringify(superListData));
       localStorage.setItem(`notepad_custom_super_items${suffix}`, JSON.stringify(customSuperItems));
@@ -9608,7 +9902,7 @@ export default function App() {
                   )}
                 </div>
                 <p className="text-xs text-slate-300 font-medium">
-                  Desbloqueia a <strong>Calculadora de Precificação Inteligente</strong> (custo, margem e lucro), <strong>Calculadora Nota de Bloco com exportação para Excel e PDF</strong>, e o <strong>Emissor de Talões e Recibos Digitais</strong> para balcão e WhatsApp com salvamento na Nuvem!
+                  Desbloqueia a <strong>Calculadora de Precificação Inteligente</strong> (custo, margem e lucro) e o <strong>Emissor de Talões e Recibos Digitais</strong> para balcão e WhatsApp com salvamento na Nuvem! (A Calculadora Nota de Bloco com Excel &amp; Pastas e o Bloco de Notas são 100% GRÁTIS).
                 </p>
                 <button
                   type="button"
@@ -10728,7 +11022,7 @@ export default function App() {
                   <TableIcon className={`w-4 h-4 transition-transform ${notepadMode === "edit" ? "text-emerald-500 scale-110" : "text-slate-400"}`} />
                   <span className="flex items-center gap-1">
                     Calculadora
-                    <span className="text-[7.5px] bg-amber-500/20 text-amber-300 font-black px-1 rounded border border-amber-500/30">R$ 14,90</span>
+                    <span className="text-[7.5px] bg-emerald-500/20 text-emerald-400 font-black px-1 rounded border border-emerald-500/30">GRÁTIS</span>
                   </span>
                 </button>
                 <button
@@ -11762,6 +12056,7 @@ export default function App() {
                       balance={balance}
                       formatCurrency={formatCurrency}
                       excelRows={excelRows}
+                      setExcelRows={setExcelRows}
                       updateExcelRow={updateExcelRow}
                       removeExcelRow={removeExcelRow}
                       editingField={editingField}
@@ -11769,6 +12064,11 @@ export default function App() {
                       addExcelRow={addExcelRow}
                       excelTotal={excelTotal}
                       onAddToAgenda={handleAddToAgenda}
+                      savedExcelSheets={savedExcelSheets}
+                      setSavedExcelSheets={setSavedExcelSheets}
+                      excelFoldersList={excelFoldersList}
+                      setExcelFoldersList={setExcelFoldersList}
+                      showNotification={showNotification}
                     />
                   ) : notepadMode === "pricing" ? (
                     <PricingCalculator key="pricing-calculator" />
@@ -11792,7 +12092,11 @@ export default function App() {
                       savedNotes={savedNotes}
                       handleSaveNote={handleSaveNote}
                       handleDeleteSavedNote={handleDeleteSavedNote}
+                      handleUpdateNoteFolder={handleUpdateNoteFolder}
                       handleUpdateNotePin={handleUpdateNotePin}
+                      createdFolders={createdFolders}
+                      setCreatedFolders={setCreatedFolders}
+                      onOpenGaveteiro={() => handleSetNotepadMode("pastas")}
                       showNotification={showNotification}
                       user={user}
                       onOpenAccountTab={() => setActiveTab("account")}
@@ -11815,6 +12119,9 @@ export default function App() {
                       handleSaveNote={handleSaveNote}
                       handleUpdateNoteFolder={handleUpdateNoteFolder}
                       handleUpdateNotePin={handleUpdateNotePin}
+                      createdFolders={createdFolders}
+                      setCreatedFolders={setCreatedFolders}
+                      showNotification={showNotification}
                       user={user}
                       onOpenGaveteiro={() => handleSetNotepadMode("pastas")}
                       initialMode="receipts"
@@ -13707,14 +14014,44 @@ export default function App() {
                         setFreeNotesText(note.text);
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }}
-                      onDeleteNote={(id) => {
-                        setSavedNotes((prev) => prev.filter((n) => n.id !== id));
-                        showNotification("Nota removida do gaveteiro!", "info");
+                      onDeleteNote={handleDeleteSavedNote}
+                      onUpdateNoteFolder={handleUpdateNoteFolder}
+                      savedExcelSheets={savedExcelSheets}
+                      excelFoldersList={excelFoldersList}
+                      setExcelFoldersList={setExcelFoldersList}
+                      onLoadExcelSheet={(sheet) => {
+                        const rowsCopy = Array.isArray(sheet.rows) && sheet.rows.length > 0
+                          ? sheet.rows.map((r: any, idx: number) => ({
+                              ...r,
+                              id: r.id || `loaded_${Date.now()}_${idx}`,
+                            }))
+                          : [];
+                        setExcelRows([
+                          ...rowsCopy,
+                          {
+                            id: Date.now().toString() + "_empty",
+                            name: "",
+                            qty: 1,
+                            price: 0,
+                            unitType: "un",
+                            packSize: 1,
+                            checked: false,
+                          },
+                        ]);
+                        if (sheet.budget !== undefined) setBudget(sheet.budget);
+                        if (sheet.inputText !== undefined) setInputText(sheet.inputText);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
                       }}
-                      onUpdateNoteFolder={(id, newFolder) => {
-                        setSavedNotes((prev) =>
-                          prev.map((n) => (n.id === id ? { ...n, folder: newFolder } : n))
+                      onDeleteExcelSheet={(id) => {
+                        setSavedExcelSheets((prev) => prev.filter((s) => s.id !== id));
+                      }}
+                      onUpdateExcelSheetFolder={(id, newFolder) => {
+                        setSavedExcelSheets((prev) =>
+                          prev.map((s) => (s.id === id ? { ...s, folder: newFolder } : s))
                         );
+                        if (newFolder) {
+                          setExcelFoldersList((prev) => (prev.includes(newFolder) ? prev : [...prev, newFolder]));
+                        }
                       }}
                       agendaEvents={agendaEvents}
                       onUpdateEvent={updateAgendaEvent}

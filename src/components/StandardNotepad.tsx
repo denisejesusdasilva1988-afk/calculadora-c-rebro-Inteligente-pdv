@@ -44,6 +44,10 @@ import {
   RefreshCw,
   HardDrive,
   HelpCircle,
+  Folder,
+  FolderPlus,
+  FolderOpen,
+  Plus,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
@@ -84,6 +88,10 @@ interface StandardNotepadProps {
   ) => void;
   handleDeleteSavedNote: (id: string) => void;
   handleUpdateNotePin?: (id: string, newPin: string) => void;
+  handleUpdateNoteFolder?: (id: string, folderName: string) => void;
+  createdFolders?: string[];
+  setCreatedFolders?: React.Dispatch<React.SetStateAction<string[]>>;
+  onOpenGaveteiro?: () => void;
   showNotification: (msg: string, type: "success" | "error" | "info") => void;
   user?: any;
   onOpenAccountTab?: () => void;
@@ -97,6 +105,10 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
   handleSaveNote,
   handleDeleteSavedNote,
   handleUpdateNotePin,
+  handleUpdateNoteFolder,
+  createdFolders: propCreatedFolders,
+  setCreatedFolders: propSetCreatedFolders,
+  onOpenGaveteiro,
   showNotification,
   user,
   onOpenAccountTab,
@@ -872,9 +884,44 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
     }
   }, [user]);
 
-  // Save Modal States
+  // Save Modal & Folder States
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveCategory, setSaveCategory] = useState("Notas Pessoais");
+  const [isCreatingNoteFolder, setIsCreatingNoteFolder] = useState(false);
+  const [newNoteFolderInput, setNewNoteFolderInput] = useState("");
+  const [selectedSavedFolderFilter, setSelectedSavedFolderFilter] = useState<string>("all");
+  const [isCreatingFolderInSaved, setIsCreatingFolderInSaved] = useState(false);
+  const [newSavedViewFolderInput, setNewSavedViewFolderInput] = useState("");
+  const [movingNoteFolderId, setMovingNoteFolderId] = useState<string | null>(null);
+  const [confirmDeleteNoteId, setConfirmDeleteNoteId] = useState<string | null>(null);
+  const [confirmClearEditor, setConfirmClearEditor] = useState(false);
+  const [internalFolders, setInternalFolders] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("notepad_created_folders");
+      return saved ? JSON.parse(saved) : ["Notas Pessoais", "Geral", "Trabalho", "Casa", "Mercado", "Clientes", "Recibos"];
+    } catch {
+      return ["Notas Pessoais", "Geral", "Trabalho", "Casa", "Mercado", "Clientes", "Recibos"];
+    }
+  });
+  const activeCreatedFolders = propCreatedFolders ?? internalFolders;
+  const setActiveCreatedFolders = propSetCreatedFolders ?? setInternalFolders;
+
+  useEffect(() => {
+    if (!propSetCreatedFolders) {
+      try {
+        localStorage.setItem("notepad_created_folders", JSON.stringify(internalFolders));
+      } catch {}
+    }
+  }, [internalFolders, propSetCreatedFolders]);
+
+  const availableFolders = React.useMemo(() => {
+    const base = ["Notas Pessoais", "Geral", "Trabalho", "Casa", "Mercado", "Clientes", "Recibos"];
+    const fromNotes = savedNotes
+      .map((n) => (n.folder && n.folder !== "Sem Pasta" ? String(n.folder).trim() : ""))
+      .filter(Boolean);
+    return Array.from(new Set([...base, ...activeCreatedFolders, ...fromNotes])).filter(Boolean);
+  }, [activeCreatedFolders, savedNotes]);
+
   const [protectChoice, setProtectChoice] = useState<"no" | "yes">("no");
   const [useCustomPinInput, setUseCustomPinInput] = useState(false);
   const [customPinValue, setCustomPinValue] = useState("");
@@ -1298,6 +1345,13 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
       }
     }
 
+    const typedFolder = isCreatingNoteFolder ? newNoteFolderInput.trim() : "";
+    const targetFolder = (typedFolder || saveCategory || "Notas Pessoais").trim();
+
+    if (targetFolder && !activeCreatedFolders.includes(targetFolder)) {
+      setActiveCreatedFolders((prev) => Array.from(new Set([...prev, targetFolder])));
+    }
+
     const finalTextToSave = text.trim()
       ? text
       : attachments.length > 0
@@ -1307,7 +1361,7 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
     handleSaveNote(
       finalTextToSave,
       "",
-      saveCategory,
+      targetFolder,
       [finalTextToSave],
       finalPin,
       attachments.filter((a) => a.type === "image").map((a) => a.dataUrl),
@@ -1315,14 +1369,17 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
       attachments
     );
 
+    setSaveCategory(targetFolder);
+    setIsCreatingNoteFolder(false);
+    setNewNoteFolderInput("");
     setShowSaveModal(false);
     setAttachments([]);
     setProtectChoice("no");
     setCustomPinValue("");
     showNotification(
       finalPin
-        ? "Nota importante salva com proteção de PIN 🔒!"
-        : "Nota salva com sucesso 💾!",
+        ? `Nota protegida por PIN salva na pasta "${targetFolder}" 🔒📁!`
+        : `Nota salva com sucesso na pasta "${targetFolder}" 💾📁!`,
       "success"
     );
   };
@@ -1955,21 +2012,40 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
                   <span>{charCount} caracteres</span>
                   <span>•</span>
                   <span>{wordCount} palavras</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm("Deseja realmente limpar o bloco de notas?")) {
-                        setText("");
-                        setFreeNotesText("");
-                        setAttachments([]);
-                      }
-                    }}
-                    disabled={!text && attachments.length === 0}
-                    className="hover:text-red-400 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center gap-1 ml-2"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span>Limpar</span>
-                  </button>
+                  {confirmClearEditor ? (
+                    <div className="flex items-center gap-1 ml-2 bg-red-950/80 border border-red-500/40 px-2 py-0.5 rounded-lg">
+                      <span className="text-[10px] font-bold text-red-200">Limpar tudo?</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setText("");
+                          setFreeNotesText("");
+                          setAttachments([]);
+                          setConfirmClearEditor(false);
+                        }}
+                        className="px-2 py-0.5 bg-red-600 text-white rounded text-[10px] font-black uppercase cursor-pointer"
+                      >
+                        Sim
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmClearEditor(false)}
+                        className="px-1.5 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] font-bold cursor-pointer"
+                      >
+                        Não
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmClearEditor(true)}
+                      disabled={!text && attachments.length === 0}
+                      className="hover:text-red-400 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center gap-1 ml-2"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Limpar</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -2074,6 +2150,24 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
+                onClick={() => setIsCreatingFolderInSaved((prev) => !prev)}
+                className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+                <span>+ Nova Pasta</span>
+              </button>
+              {onOpenGaveteiro && (
+                <button
+                  type="button"
+                  onClick={onOpenGaveteiro}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/20 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  <span>Gaveteiro</span>
+                </button>
+              )}
+              <button
+                type="button"
                 onClick={() => setShowTransferModal(true)}
                 className="px-3 py-1.5 bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
                 title="Passar notas para outro aparelho ou salvar na nuvem"
@@ -2092,42 +2186,150 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
             </div>
           </div>
 
-          {savedNotes.length === 0 ? (
-            <div className="bg-slate-900 border border-dashed border-white/10 rounded-3xl p-12 text-center space-y-3">
-              <FileText className="w-12 h-12 text-slate-600 mx-auto" />
-              <p className="text-sm font-bold text-slate-400">
-                Nenhuma nota salva no momento.
-              </p>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Escreva suas anotações no editor, anexe documentos, áudios, músicas e fotos, e clique em{" "}
-                <strong className="text-amber-400">Salvar Nota 💾</strong>. Você pode
-                proteger notas importantes com PIN e recuperá-lo com CPF e E-mail!
-              </p>
-              <div className="pt-2 flex flex-wrap justify-center gap-2">
+          {/* Inline Create New Folder in Saved View */}
+          {isCreatingFolderInSaved && (
+            <div className="bg-slate-900 border border-emerald-500/40 p-3 rounded-2xl flex flex-wrap sm:flex-nowrap items-center gap-2">
+              <input
+                type="text"
+                value={newSavedViewFolderInput}
+                onChange={(e) => setNewSavedViewFolderInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newSavedViewFolderInput.trim()) {
+                    const name = newSavedViewFolderInput.trim();
+                    setActiveCreatedFolders((prev) => Array.from(new Set([...prev, name])));
+                    setSelectedSavedFolderFilter(name);
+                    setSaveCategory(name);
+                    setNewSavedViewFolderInput("");
+                    setIsCreatingFolderInSaved(false);
+                    showNotification(`Pasta "${name}" criada e salva! 📁`, "success");
+                  }
+                }}
+                placeholder="Nome da nova pasta (ex: Fornecedores, Pessoal, Clientes...)"
+                className="flex-1 bg-slate-950 border border-white/10 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
+                autoFocus
+              />
+              <div className="flex gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setViewTab("editor")}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md"
+                  onClick={() => {
+                    const name = newSavedViewFolderInput.trim();
+                    if (!name) {
+                      showNotification("Digite o nome da nova pasta!", "error");
+                      return;
+                    }
+                    setActiveCreatedFolders((prev) => Array.from(new Set([...prev, name])));
+                    setSelectedSavedFolderFilter(name);
+                    setSaveCategory(name);
+                    setNewSavedViewFolderInput("");
+                    setIsCreatingFolderInSaved(false);
+                    showNotification(`Pasta "${name}" criada e salva! 📁`, "success");
+                  }}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase cursor-pointer"
                 >
-                  Abrir Bloco de Notas
+                  Salvar Pasta ✓
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowTransferModal(true)}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-550 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                  onClick={() => {
+                    setIsCreatingFolderInSaved(false);
+                    setNewSavedViewFolderInput("");
+                  }}
+                  className="px-3 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold uppercase cursor-pointer"
                 >
-                  <CloudDownload className="w-4 h-4" />
-                  <span>Restaurar de Outro Aparelho / Nuvem 📲</span>
+                  Cancelar
                 </button>
               </div>
             </div>
-          ) : (
+          )}
+
+          {/* Folder Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+            <button
+              type="button"
+              onClick={() => setSelectedSavedFolderFilter("all")}
+              className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider shrink-0 transition-all cursor-pointer border ${
+                selectedSavedFolderFilter === "all"
+                  ? "bg-amber-500 text-slate-950 border-amber-400 shadow-md"
+                  : "bg-slate-900 text-slate-400 hover:text-white border-white/10"
+              }`}
+            >
+              📂 Todas ({savedNotes.length})
+            </button>
+            {availableFolders.map((folderName) => {
+              const count = savedNotes.filter((n) => n.folder === folderName).length;
+              return (
+                <button
+                  key={folderName}
+                  type="button"
+                  onClick={() => setSelectedSavedFolderFilter(folderName)}
+                  className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider shrink-0 transition-all cursor-pointer border flex items-center gap-1.5 ${
+                    selectedSavedFolderFilter === folderName
+                      ? "bg-amber-500 text-slate-950 border-amber-400 shadow-md"
+                      : "bg-slate-900 text-slate-400 hover:text-white border-white/10"
+                  }`}
+                >
+                  <span>📁 {folderName}</span>
+                  <span className={`text-[9px] px-1.5 py-0.2 rounded-full ${selectedSavedFolderFilter === folderName ? "bg-slate-950/20 text-slate-950" : "bg-white/10 text-slate-300"}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {(() => {
+            const filteredNotesList = savedNotes.filter((n) => {
+              if (selectedSavedFolderFilter === "all") return true;
+              return n.folder === selectedSavedFolderFilter;
+            });
+
+            if (filteredNotesList.length === 0) {
+              return (
+                <div className="bg-slate-900 border border-dashed border-white/10 rounded-3xl p-12 text-center space-y-3">
+                  <FileText className="w-12 h-12 text-slate-600 mx-auto" />
+                  <p className="text-sm font-bold text-slate-400">
+                    {selectedSavedFolderFilter === "all"
+                      ? "Nenhuma nota salva no momento."
+                      : `Nenhuma nota salva na pasta "${selectedSavedFolderFilter}".`}
+                  </p>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    Escreva suas anotações no editor, anexe documentos, áudios, músicas e fotos, e clique em{" "}
+                    <strong className="text-amber-400">Salvar Nota 💾</strong> escolhendo a pasta desejada!
+                  </p>
+                  <div className="pt-2 flex flex-wrap justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedSavedFolderFilter !== "all") {
+                          setSaveCategory(selectedSavedFolderFilter);
+                        }
+                        setViewTab("editor");
+                      }}
+                      className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md"
+                    >
+                      Escrever Nota {selectedSavedFolderFilter !== "all" ? `em "${selectedSavedFolderFilter}"` : ""}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowTransferModal(true)}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-550 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                    >
+                      <CloudDownload className="w-4 h-4" />
+                      <span>Restaurar de Outro Aparelho / Nuvem 📲</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {savedNotes.map((note) => {
+              {filteredNotesList.map((note) => {
                 const isLocked = !!note.pin && !unlockedNoteIds.includes(note.id);
                 const hasAttachments =
                   (note.attachments && note.attachments.length > 0) ||
                   (note.images && note.images.length > 0);
+                const noteFolderLabel = note.folder && note.folder !== "Sem Pasta" ? note.folder : "Geral";
 
                 return (
                   <div
@@ -2139,7 +2341,7 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
                     }`}
                   >
                     {/* Header */}
-                    <div className="flex items-center justify-between border-b border-white/5 pb-2.5 text-xs">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-2.5 text-xs gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         {note.pin ? (
                           <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase flex items-center gap-1">
@@ -2151,6 +2353,15 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
                             Nota Comum
                           </span>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setMovingNoteFolderId(movingNoteFolderId === note.id ? null : note.id)}
+                          className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-bold uppercase flex items-center gap-1 hover:bg-emerald-500/20 cursor-pointer"
+                          title="Clique para trocar de pasta"
+                        >
+                          <Folder className="w-2.5 h-2.5" />
+                          <span>{noteFolderLabel}</span>
+                        </button>
                         {hasAttachments && (
                           <span className="px-2 py-0.5 rounded-md bg-sky-950/60 text-sky-300 border border-sky-500/30 text-[10px] font-bold uppercase flex items-center gap-1">
                             <Paperclip className="w-2.5 h-2.5" />
@@ -2162,23 +2373,66 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
                         </span>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              "Deseja realmente excluir esta anotação salva?"
-                            )
-                          ) {
-                            handleDeleteSavedNote(note.id);
-                          }
-                        }}
-                        className="text-slate-500 hover:text-red-400 transition-colors cursor-pointer p-1"
-                        title="Excluir nota"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {confirmDeleteNoteId === note.id ? (
+                        <div className="flex items-center gap-1 bg-red-950/80 border border-red-500/40 px-2 py-1 rounded-xl shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleDeleteSavedNote(note.id);
+                              setConfirmDeleteNoteId(null);
+                            }}
+                            className="px-2 py-0.5 bg-red-600 text-white rounded text-[10px] font-black uppercase cursor-pointer"
+                          >
+                            Excluir
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteNoteId(null)}
+                            className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] font-bold cursor-pointer"
+                          >
+                            Não
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteNoteId(note.id)}
+                          className="text-slate-500 hover:text-red-400 transition-colors cursor-pointer p-1 shrink-0"
+                          title="Excluir nota"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
+
+                    {movingNoteFolderId === note.id && handleUpdateNoteFolder && (
+                      <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-emerald-500/30">
+                        <span className="text-[10px] font-bold text-emerald-300 uppercase shrink-0">Mover para:</span>
+                        <select
+                          value={noteFolderLabel}
+                          onChange={(e) => {
+                            const dest = e.target.value;
+                            handleUpdateNoteFolder(note.id, dest);
+                            if (dest && !activeCreatedFolders.includes(dest)) {
+                              setActiveCreatedFolders((prev) => Array.from(new Set([...prev, dest])));
+                            }
+                            setMovingNoteFolderId(null);
+                          }}
+                          className="flex-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none"
+                        >
+                          {availableFolders.map((f) => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setMovingNoteFolderId(null)}
+                          className="text-slate-400 hover:text-white p-1 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
 
                     {/* Content */}
                     {isLocked ? (
@@ -2521,7 +2775,8 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
                 );
               })}
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
@@ -2558,6 +2813,64 @@ export const StandardNotepad: React.FC<StandardNotepadProps> = ({
                 >
                   <X className="w-5 h-5" />
                 </button>
+              </div>
+
+              {/* Escolher ou Criar Pasta */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-white/5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1.5">
+                    <Folder className="w-3.5 h-3.5" />
+                    <span>Pasta para Salvar 📁</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingNoteFolder((prev) => !prev)}
+                    className="text-[11px] font-black text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>{isCreatingNoteFolder ? "Usar existente" : "+ Nova Pasta"}</span>
+                  </button>
+                </div>
+
+                {isCreatingNoteFolder ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newNoteFolderInput}
+                      onChange={(e) => setNewNoteFolderInput(e.target.value)}
+                      placeholder="Nome da nova pasta..."
+                      className="flex-1 bg-slate-900 border border-amber-500/40 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const name = newNoteFolderInput.trim();
+                        if (!name) return;
+                        setActiveCreatedFolders((prev) => Array.from(new Set([...prev, name])));
+                        setSaveCategory(name);
+                        setNewNoteFolderInput("");
+                        setIsCreatingNoteFolder(false);
+                        showNotification(`Pasta "${name}" adicionada! 📁`, "success");
+                      }}
+                      className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase cursor-pointer"
+                    >
+                      Criar
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={saveCategory}
+                    onChange={(e) => setSaveCategory(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-amber-500 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none"
+                  >
+                    {availableFolders.map((f) => (
+                      <option key={f} value={f}>
+                        📁 {f}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Salvar com PIN: Sim ou Não */}

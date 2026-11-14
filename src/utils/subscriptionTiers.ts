@@ -77,10 +77,11 @@ export const SUBSCRIPTION_PLANS: TierPlanInfo[] = [
     description: "Tudo o que os moradores e comerciantes precisam para não baixar múltiplos apps no celular:",
     features: [
       "Calculadora comum rápida do dia a dia",
+      "Calculadora Nota de Bloco com exportação para Excel e Pastas",
       "Lista de compras de supermercado com soma automática",
       "Mural de Encartes e Ofertas de Supermercados",
       "Notificações Push com promoções e ofertas do bairro",
-      "Bloco de notas comum para recados e lembretes",
+      "Bloco de notas completo com Pastas organizadas, recados e lembretes",
       "Agenda de compromissos e tarefas"
     ],
     ctaLabel: "Plano Grátis"
@@ -100,7 +101,7 @@ export const SUBSCRIPTION_PLANS: TierPlanInfo[] = [
       "Tudo incluído no Plano Grátis",
       "Calculadora de Precificação Inteligente (lucro, custo e margem)",
       "Talões e Papelarias (Recibos impressos e digitais de bazar/balcão)",
-      "Calculadora Nota de Bloco com exportação para Excel e PDF",
+      "Módulo Bazar / Brechó com crediário e controle de peças",
       "Comprovantes com assinatura e compartilhamento no WhatsApp"
     ],
     ctaLabel: "Assinar Ferramentas Pro (R$ 14,90)"
@@ -249,13 +250,14 @@ export function isFeatureAllowedForTier(feature: FeatureKey, tier: SubscriptionT
     feature === "super" ||
     feature === "encartes" ||
     feature === "notes_comum" ||
-    feature === "agenda"
+    feature === "agenda" ||
+    feature === "excel_notas"
   ) {
     return true;
   }
 
   // 2. Pro Tools tier features (R$ 14,90, R$ 29,90, R$ 39,90)
-  if (feature === "excel_notas" || feature === "taloes" || feature === "precificacao") {
+  if (feature === "taloes" || feature === "precificacao") {
     return tier === "pro_tools" || tier === "estoque_gestao" || tier === "pdv_total";
   }
 

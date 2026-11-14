@@ -9,9 +9,18 @@ export interface SavedExcelSheet {
   date: string;
   rows: any[];
   budget: string;
+  inputText?: string;
   total: number;
   createdAt: number;
 }
+
+const DEFAULT_EXCEL_FOLDERS = [
+  "Planilhas de Compras",
+  "Cotações Fornecedores",
+  "Despesas do Mês",
+  "Orçamentos Excel",
+  "Geral",
+];
 
 interface PlannerProps {
   inputText: string;
@@ -21,6 +30,8 @@ interface PlannerProps {
   setBudget: (val: string) => void;
   balance: number;
   excelRows: any[];
+  setExcelRows?: React.Dispatch<React.SetStateAction<any[]>>;
+  addExcelRow?: () => void;
   updateExcelRow: (id: string, field: string, value: any) => void;
   removeExcelRow: (id: string) => void;
   formatCurrency: (val: number) => string;
@@ -28,6 +39,11 @@ interface PlannerProps {
   setEditingField: (val: any) => void;
   excelTotal: number;
   onAddToAgenda?: (amount: number) => void;
+  savedExcelSheets?: SavedExcelSheet[];
+  setSavedExcelSheets?: React.Dispatch<React.SetStateAction<SavedExcelSheet[]>>;
+  excelFoldersList?: string[];
+  setExcelFoldersList?: React.Dispatch<React.SetStateAction<string[]>>;
+  showNotification?: (msg: string, type?: "success" | "error" | "info" | "warning") => void;
 }
 
 export const PlannerModule = React.memo(({
@@ -38,22 +54,47 @@ export const PlannerModule = React.memo(({
   setBudget,
   balance,
   excelRows,
+  setExcelRows,
   updateExcelRow,
   removeExcelRow,
   formatCurrency,
   editingField,
   setEditingField,
   excelTotal,
-  onAddToAgenda
+  onAddToAgenda,
+  savedExcelSheets: propSavedExcelSheets,
+  setSavedExcelSheets: propSetSavedExcelSheets,
+  excelFoldersList: propExcelFoldersList,
+  setExcelFoldersList: propSetExcelFoldersList,
+  showNotification
 }: PlannerProps) => {
-  // --- Dedicated Saved Folders Exclusively for Calculadora Nota Excel ---
-  const [savedExcelSheets, setSavedExcelSheets] = useState<SavedExcelSheet[]>(() => {
+  // --- Dedicated Saved Folders Exclusively for Calculadora Nota Excel (Cloud + LocalStorage synced via props) ---
+  const [internalSavedExcelSheets, setInternalSavedExcelSheets] = useState<SavedExcelSheet[]>(() => {
     try {
       const stored = localStorage.getItem("notepad_excel_saved_sheets");
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch (_) {}
     return [];
   });
+
+  const [internalExcelFoldersList, setInternalExcelFoldersList] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("notepad_excel_folders_list");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_) {}
+    return DEFAULT_EXCEL_FOLDERS;
+  });
+
+  const savedExcelSheets = propSavedExcelSheets ?? internalSavedExcelSheets;
+  const setSavedExcelSheets = propSetSavedExcelSheets ?? setInternalSavedExcelSheets;
+  const excelFoldersList = propExcelFoldersList && propExcelFoldersList.length > 0 ? propExcelFoldersList : internalExcelFoldersList;
+  const setExcelFoldersList = propSetExcelFoldersList ?? setInternalExcelFoldersList;
 
   const [isExcelFoldersOpen, setIsExcelFoldersOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -62,67 +103,175 @@ export const PlannerModule = React.memo(({
   const [selectedFolderTab, setSelectedFolderTab] = useState("all");
   const [newCustomFolderInput, setNewCustomFolderInput] = useState("");
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [newModalFolderInput, setNewModalFolderInput] = useState("");
+  const [isCreatingModalFolder, setIsCreatingModalFolder] = useState(false);
+  const [confirmDeleteSheetId, setConfirmDeleteSheetId] = useState<string | null>(null);
+  const [confirmLoadSheetId, setConfirmLoadSheetId] = useState<string | null>(null);
+  const [movingSheetId, setMovingSheetId] = useState<string | null>(null);
 
-  // Default and custom folders created in the Excel Calculator
-  const [excelFoldersList, setExcelFoldersList] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem("notepad_excel_folders_list");
-      if (stored) return JSON.parse(stored);
-    } catch (_) {}
-    return ["Planilhas de Compras", "Cotações Fornecedores", "Despesas do Mês", "Orçamentos Excel", "Geral"];
-  });
+  const notify = (msg: string, type: "success" | "error" | "info" | "warning" = "success") => {
+    if (showNotification) {
+      showNotification(msg, type);
+    }
+  };
 
-  // Save changes to localStorage
+  // Keep legacy localStorage in sync when using internal fallback state
   useEffect(() => {
-    localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(savedExcelSheets));
-  }, [savedExcelSheets]);
+    if (!propSetSavedExcelSheets) {
+      try {
+        localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(internalSavedExcelSheets));
+      } catch {}
+    }
+  }, [internalSavedExcelSheets, propSetSavedExcelSheets]);
 
   useEffect(() => {
-    localStorage.setItem("notepad_excel_folders_list", JSON.stringify(excelFoldersList));
-  }, [excelFoldersList]);
+    if (!propSetExcelFoldersList) {
+      try {
+        localStorage.setItem("notepad_excel_folders_list", JSON.stringify(internalExcelFoldersList));
+      } catch {}
+    }
+  }, [internalExcelFoldersList, propSetExcelFoldersList]);
+
+  // Keep saveFolder valid whenever excelFoldersList updates
+  useEffect(() => {
+    if (excelFoldersList.length > 0 && !excelFoldersList.includes(saveFolder)) {
+      setSaveFolder(excelFoldersList[0]);
+    }
+  }, [excelFoldersList, saveFolder]);
 
   // Handle Save Current Excel Sheet
   const handleSaveCurrentSheet = () => {
+    const typedNewFolder = isCreatingFolder ? newCustomFolderInput.trim() : "";
+    const targetFolder = (typedNewFolder || saveFolder || "Geral").trim();
+
+    if (!excelFoldersList.includes(targetFolder)) {
+      setExcelFoldersList(prev => Array.from(new Set([...prev, targetFolder])));
+    }
+
     const title = saveTitle.trim() || `Planilha Excel #${savedExcelSheets.length + 1}`;
     const newSheet: SavedExcelSheet = {
       id: `excel_sheet_${Date.now()}`,
       title,
-      folder: saveFolder,
+      folder: targetFolder,
       date: new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }),
       rows: JSON.parse(JSON.stringify(excelRows)),
       budget: budget,
+      inputText: inputText,
       total: excelTotal,
       createdAt: Date.now()
     };
 
     setSavedExcelSheets(prev => [newSheet, ...prev]);
+    setSaveFolder(targetFolder);
+    setNewCustomFolderInput("");
+    setIsCreatingFolder(false);
     setIsSaveModalOpen(false);
     setSaveTitle("");
-    alert(`Planilha "${title}" salva com sucesso na pasta "${saveFolder}"! 💾📊`);
+    notify(`Planilha "${title}" salva com sucesso na pasta "${targetFolder}"! 💾📊`, "success");
+  };
+
+  const handleCreateFolderFromModal = () => {
+    const name = newModalFolderInput.trim();
+    if (!name) {
+      notify("Digite um nome para a nova pasta!", "warning");
+      return;
+    }
+    if (!excelFoldersList.includes(name)) {
+      setExcelFoldersList(prev => Array.from(new Set([...prev, name])));
+      notify(`Pasta "${name}" criada e salva na Calculadora Excel! 📁`, "success");
+    } else {
+      notify(`A pasta "${name}" já existe.`, "info");
+    }
+    setSelectedFolderTab(name);
+    setSaveFolder(name);
+    setNewModalFolderInput("");
+    setIsCreatingModalFolder(false);
   };
 
   // Handle Load Sheet into Calculator
-  const handleLoadSheet = (sheet: SavedExcelSheet) => {
-    if (confirm(`Deseja carregar a planilha "${sheet.title}" (${sheet.rows.length} itens)? Os dados atuais serão substituídos.`)) {
-      // Rebuild rows into calculator
-      sheet.rows.forEach(r => {
+  const executeLoadSheet = (sheet: SavedExcelSheet) => {
+    const copiedRows = Array.isArray(sheet.rows) && sheet.rows.length > 0
+      ? JSON.parse(JSON.stringify(sheet.rows)).map((r: any, idx: number) => ({
+          id: r.id || `${Date.now()}_${idx}`,
+          name: r.name || "",
+          qty: Number(r.qty) || 1,
+          price: Number(r.price) || 0,
+          unitType: r.unitType || "un",
+          packSize: Number(r.packSize) || 1,
+          checked: Boolean(r.checked),
+        }))
+      : [
+          {
+            id: "1",
+            name: "",
+            qty: 1,
+            price: 0,
+            unitType: "un",
+            packSize: 1,
+            checked: false,
+          },
+        ];
+
+    // Ensure at least one trailing empty row for immediate typing
+    const lastRow = copiedRows[copiedRows.length - 1];
+    if (lastRow && (lastRow.name !== "" || lastRow.price > 0)) {
+      copiedRows.push({
+        id: `empty_${Date.now()}`,
+        name: "",
+        qty: 1,
+        price: 0,
+        unitType: "un",
+        packSize: 1,
+        checked: false,
+      });
+    }
+
+    if (setExcelRows) {
+      setExcelRows(copiedRows);
+    } else {
+      copiedRows.forEach((r: any) => {
         updateExcelRow(r.id, "name", r.name);
         updateExcelRow(r.id, "price", r.price);
         updateExcelRow(r.id, "qty", r.qty);
         updateExcelRow(r.id, "unitType", r.unitType);
         updateExcelRow(r.id, "checked", r.checked);
       });
-      setBudget(sheet.budget || "");
-      setIsExcelFoldersOpen(false);
-      alert(`Planilha "${sheet.title}" carregada com sucesso na Calculadora Nota Excel! ⚡`);
+    }
+
+    setBudget(sheet.budget || "");
+    if (typeof sheet.inputText === "string") {
+      setInputText(sheet.inputText);
+    }
+    setConfirmLoadSheetId(null);
+    setIsExcelFoldersOpen(false);
+    notify(`Planilha "${sheet.title}" carregada na Calculadora Nota Excel! ⚡`, "success");
+  };
+
+  const handleLoadSheet = (sheet: SavedExcelSheet) => {
+    const hasCurrentItems = excelRows.some(r => r.name && r.name.trim() !== "");
+    if (!hasCurrentItems || confirmLoadSheetId === sheet.id) {
+      executeLoadSheet(sheet);
+    } else {
+      setConfirmLoadSheetId(sheet.id);
     }
   };
 
   // Handle Delete Sheet
   const handleDeleteSheet = (id: string, title: string) => {
-    if (confirm(`Excluir a planilha "${title}" permanentemente?`)) {
-      setSavedExcelSheets(prev => prev.filter(s => s.id !== id));
+    setSavedExcelSheets(prev => prev.filter(s => s.id !== id));
+    setConfirmDeleteSheetId(null);
+    notify(`Planilha "${title}" excluída.`, "info");
+  };
+
+  const handleMoveSheetFolder = (sheetId: string, newFolder: string) => {
+    if (!excelFoldersList.includes(newFolder)) {
+      setExcelFoldersList(prev => Array.from(new Set([...prev, newFolder])));
     }
+    setSavedExcelSheets(prev =>
+      prev.map(s => (s.id === sheetId ? { ...s, folder: newFolder } : s))
+    );
+    setMovingSheetId(null);
+    notify(`Planilha movida para "${newFolder}"! 📁`, "success");
   };
 
   // Handle Export to CSV for Excel
@@ -145,7 +294,15 @@ export const PlannerModule = React.memo(({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    notify("Planilha exportada para Excel (.CSV)! 📊", "success");
   };
+
+  // Combine default/custom folders with any folder found on saved sheets
+  const mergedExcelFolders = React.useMemo(() => {
+    const set = new Set<string>([...excelFoldersList]);
+    savedExcelSheets.forEach(s => s.folder && set.add(s.folder));
+    return Array.from(set).filter(Boolean);
+  }, [excelFoldersList, savedExcelSheets]);
 
   // Filtered sheets based on folder tab
   const filteredSheets = savedExcelSheets.filter(s => {
@@ -429,7 +586,7 @@ export const PlannerModule = React.memo(({
                 onChange={(e) => setSaveFolder(e.target.value)}
                 className="w-full bg-slate-950 border border-white/10 focus:border-indigo-400 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none"
               >
-                {excelFoldersList.map(f => (
+                {mergedExcelFolders.map(f => (
                   <option key={f} value={f}>{f}</option>
                 ))}
               </select>
@@ -443,6 +600,18 @@ export const PlannerModule = React.memo(({
                     type="text"
                     value={newCustomFolderInput}
                     onChange={(e) => setNewCustomFolderInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newCustomFolderInput.trim()) {
+                        const name = newCustomFolderInput.trim();
+                        if (!excelFoldersList.includes(name)) {
+                          setExcelFoldersList(prev => Array.from(new Set([...prev, name])));
+                        }
+                        setSaveFolder(name);
+                        setNewCustomFolderInput("");
+                        setIsCreatingFolder(false);
+                        notify(`Pasta "${name}" adicionada! 📁`, "success");
+                      }
+                    }}
                     placeholder="Nome da nova pasta..."
                     className="flex-1 bg-slate-950 border border-indigo-400/50 rounded-xl px-3 py-1.5 text-xs text-white font-bold outline-none"
                   />
@@ -452,21 +621,25 @@ export const PlannerModule = React.memo(({
                       if (newCustomFolderInput.trim()) {
                         const name = newCustomFolderInput.trim();
                         if (!excelFoldersList.includes(name)) {
-                          setExcelFoldersList(prev => [...prev, name]);
+                          setExcelFoldersList(prev => Array.from(new Set([...prev, name])));
                         }
                         setSaveFolder(name);
                         setNewCustomFolderInput("");
                         setIsCreatingFolder(false);
+                        notify(`Pasta "${name}" criada! 📁`, "success");
                       }
                     }}
-                    className="px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase"
+                    className="px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase cursor-pointer"
                   >
                     Adicionar
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsCreatingFolder(false)}
-                    className="px-2 py-1.5 text-slate-400 text-xs"
+                    onClick={() => {
+                      setIsCreatingFolder(false);
+                      setNewCustomFolderInput("");
+                    }}
+                    className="px-2 py-1.5 text-slate-400 text-xs cursor-pointer"
                   >
                     X
                   </button>
@@ -475,7 +648,7 @@ export const PlannerModule = React.memo(({
                 <button
                   type="button"
                   onClick={() => setIsCreatingFolder(true)}
-                  className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1"
+                  className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1 cursor-pointer"
                 >
                   <Plus className="w-3 h-3" /> Criar uma nova pasta
                 </button>
@@ -497,14 +670,18 @@ export const PlannerModule = React.memo(({
               <button
                 type="button"
                 onClick={handleSaveCurrentSheet}
-                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-black text-xs uppercase rounded-xl transition-all shadow-lg shadow-indigo-600/20"
+                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-black text-xs uppercase rounded-xl transition-all shadow-lg shadow-indigo-600/20 cursor-pointer"
               >
                 Salvar Planilha na Pasta 💾
               </button>
               <button
                 type="button"
-                onClick={() => setIsSaveModalOpen(false)}
-                className="px-4 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-bold"
+                onClick={() => {
+                  setIsSaveModalOpen(false);
+                  setIsCreatingFolder(false);
+                  setNewCustomFolderInput("");
+                }}
+                className="px-4 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
               >
                 Cancelar
               </button>
@@ -518,7 +695,7 @@ export const PlannerModule = React.memo(({
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="bg-slate-900 border-2 border-indigo-500/40 rounded-3xl p-5 max-w-2xl w-full shadow-2xl text-left space-y-4 my-auto max-h-[90vh] flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/10 pb-3 shrink-0">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3 shrink-0 gap-2">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-indigo-500/20 rounded-xl text-indigo-400 border border-indigo-500/30">
                   <Folder className="w-5 h-5" />
@@ -528,18 +705,64 @@ export const PlannerModule = React.memo(({
                     Pastas da Calculadora Nota Excel 📊📁
                   </h3>
                   <p className="text-[10px] text-slate-400 font-bold">
-                    Mostrando exclusivamente as planilhas salvas nesta ferramenta
+                    Pastas e planilhas salvas no seu celular e na nuvem
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsExcelFoldersOpen(false)}
-                className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingModalFolder(prev => !prev)}
+                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer"
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  <span>+ Nova Pasta</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsExcelFoldersOpen(false)}
+                  className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
+
+            {/* Inline New Folder Bar inside Saved Folders Modal */}
+            {isCreatingModalFolder && (
+              <div className="flex flex-wrap sm:flex-nowrap gap-2 bg-slate-950 p-2.5 rounded-2xl border border-indigo-500/40 shrink-0">
+                <input
+                  type="text"
+                  value={newModalFolderInput}
+                  onChange={(e) => setNewModalFolderInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreateFolderFromModal();
+                  }}
+                  placeholder="Digite o nome da nova pasta (ex: Fornecedores, Obra...)"
+                  className="flex-1 bg-slate-900 border border-white/10 focus:border-indigo-400 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none"
+                  autoFocus
+                />
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleCreateFolderFromModal}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase cursor-pointer"
+                  >
+                    Salvar Pasta ✓
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingModalFolder(false);
+                      setNewModalFolderInput("");
+                    }}
+                    className="px-3 py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-[10px] font-bold uppercase cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Folder Filter Tabs */}
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 shrink-0">
@@ -554,7 +777,7 @@ export const PlannerModule = React.memo(({
               >
                 Todas ({savedExcelSheets.length})
               </button>
-              {excelFoldersList.map(folderName => {
+              {mergedExcelFolders.map(folderName => {
                 const count = savedExcelSheets.filter(s => s.folder === folderName).length;
                 return (
                   <button
@@ -579,7 +802,7 @@ export const PlannerModule = React.memo(({
               {filteredSheets.length === 0 ? (
                 <div className="py-12 text-center text-slate-400 space-y-3 border-2 border-dashed border-white/10 rounded-2xl">
                   <FileSpreadsheet className="w-10 h-10 mx-auto text-slate-600" />
-                  <p className="text-xs font-bold uppercase">Nenhuma planilha salva {selectedFolderTab === "all" ? "ainda" : "nesta pasta"}</p>
+                  <p className="text-xs font-bold uppercase">Nenhuma planilha salva {selectedFolderTab === "all" ? "ainda" : `em "${selectedFolderTab}"`}</p>
                   <p className="text-[10px] text-slate-500">
                     Clique em &quot;Salvar em Pasta 💾&quot; na barra superior da calculadora para guardar suas contas!
                   </p>
@@ -588,53 +811,125 @@ export const PlannerModule = React.memo(({
                 filteredSheets.map((sheet) => (
                   <div
                     key={sheet.id}
-                    className="p-3.5 bg-slate-950 border border-white/10 hover:border-indigo-500/40 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-all"
+                    className="p-3.5 bg-slate-950 border border-white/10 hover:border-indigo-500/40 rounded-2xl flex flex-col gap-3 transition-all"
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-black text-white uppercase tracking-tight">
-                          {sheet.title}
-                        </span>
-                        <span className="text-[9px] bg-indigo-500/20 text-indigo-300 font-bold px-2 py-0.5 rounded-full">
-                          {sheet.folder}
-                        </span>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-black text-white uppercase tracking-tight">
+                            {sheet.title}
+                          </span>
+                          <span className="text-[9px] bg-indigo-500/20 text-indigo-300 font-bold px-2 py-0.5 rounded-full">
+                            📁 {sheet.folder}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] text-slate-400 font-medium flex-wrap">
+                          <span>🗓️ {sheet.date}</span>
+                          <span>📦 {sheet.rows?.filter(r => r.name).length || 0} itens</span>
+                          <span className="text-emerald-400 font-bold font-mono">Total: {formatCurrency(sheet.total || 0)}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 text-[10px] text-slate-400 font-medium">
-                        <span>🗓️ {sheet.date}</span>
-                        <span>📦 {sheet.rows?.filter(r => r.name).length || 0} itens</span>
-                        <span className="text-emerald-400 font-bold font-mono">Total: {formatCurrency(sheet.total || 0)}</span>
+
+                      <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end flex-wrap">
+                        {confirmLoadSheetId === sheet.id ? (
+                          <div className="flex items-center gap-1 bg-emerald-950/80 border border-emerald-500/40 px-2 py-1 rounded-xl">
+                            <span className="text-[9px] font-bold text-emerald-200 mr-1">Substituir atual?</span>
+                            <button
+                              type="button"
+                              onClick={() => executeLoadSheet(sheet)}
+                              className="px-2 py-1 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase cursor-pointer"
+                            >
+                              Sim
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmLoadSheetId(null)}
+                              className="px-2 py-1 bg-slate-800 text-slate-300 rounded-lg text-[9px] font-bold uppercase cursor-pointer"
+                            >
+                              Não
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleLoadSheet(sheet)}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                            title="Carregar esta planilha de volta na calculadora"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Carregar ⚡</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => setMovingSheetId(movingSheetId === sheet.id ? null : sheet.id)}
+                          className="p-2 bg-indigo-950/70 hover:bg-indigo-800 text-indigo-300 rounded-xl transition-all cursor-pointer"
+                          title="Mover para outra pasta"
+                        >
+                          <Folder className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleExportCSV(sheet)}
+                          className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-all cursor-pointer"
+                          title="Baixar em formato Excel (.CSV)"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+
+                        {confirmDeleteSheetId === sheet.id ? (
+                          <div className="flex items-center gap-1 bg-rose-950 border border-rose-500/40 px-2 py-1 rounded-xl">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSheet(sheet.id, sheet.title)}
+                              className="px-2 py-1 bg-rose-600 text-white rounded-lg text-[9px] font-black uppercase cursor-pointer"
+                            >
+                              Excluir
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteSheetId(null)}
+                              className="px-2 py-1 bg-slate-800 text-slate-300 rounded-lg text-[9px] font-bold uppercase cursor-pointer"
+                            >
+                              Não
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteSheetId(sheet.id)}
+                            className="p-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 rounded-xl transition-all cursor-pointer"
+                            title="Excluir planilha"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
-                      <button
-                        type="button"
-                        onClick={() => handleLoadSheet(sheet)}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-sm"
-                        title="Carregar esta planilha de volta na calculadora"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Carregar ⚡</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleExportCSV(sheet)}
-                        className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-all"
-                        title="Baixar em formato Excel (.CSV)"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteSheet(sheet.id, sheet.title)}
-                        className="p-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 rounded-xl transition-all"
-                        title="Excluir planilha"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    {movingSheetId === sheet.id && (
+                      <div className="flex items-center gap-2 bg-slate-900 p-2 rounded-xl border border-indigo-500/30">
+                        <span className="text-[10px] font-bold text-indigo-300 uppercase shrink-0">Mover para:</span>
+                        <select
+                          value={sheet.folder}
+                          onChange={(e) => handleMoveSheetFolder(sheet.id, e.target.value)}
+                          className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none"
+                        >
+                          {mergedExcelFolders.map(f => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setMovingSheetId(null)}
+                          className="text-slate-400 hover:text-white p-1 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))
               )}
@@ -642,11 +937,11 @@ export const PlannerModule = React.memo(({
 
             {/* Footer */}
             <div className="pt-2 border-t border-white/10 flex justify-between items-center text-[10px] text-slate-400">
-              <span>Pastas e planilhas salvas com segurança no seu dispositivo</span>
+              <span>Pastas e planilhas salvas com segurança no dispositivo e na nuvem ☁️</span>
               <button
                 type="button"
                 onClick={() => setIsExcelFoldersOpen(false)}
-                className="px-4 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded-xl font-bold uppercase"
+                className="px-4 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded-xl font-bold uppercase cursor-pointer"
               >
                 Fechar
               </button>

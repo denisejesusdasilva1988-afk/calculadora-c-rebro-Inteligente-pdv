@@ -30,10 +30,12 @@ import {
   Calendar as CalendarIcon,
   BellRing,
   Copy,
-  CheckCheck
+  CheckCheck,
+  FileSpreadsheet
 } from "lucide-react";
 import { format, isSameDay } from "date-fns";
 import { SavedList, AgendaEvent } from "../types";
+import { SavedExcelSheet } from "./Planner";
 
 export type GaveteiroCategory = "all" | "calc" | "calc_excel" | "super" | "notes" | "taloes" | "contas" | "trash";
 
@@ -69,6 +71,14 @@ interface GaveteiroPastasProps {
   onNavigateToMode: (mode: any) => void;
   showNotification: (msg: string, type?: "success" | "error" | "info" | "warning") => void;
 
+  // Excel sheets from Calculadora Nota Excel
+  savedExcelSheets?: SavedExcelSheet[];
+  excelFoldersList?: string[];
+  setExcelFoldersList?: React.Dispatch<React.SetStateAction<string[]>>;
+  onLoadExcelSheet?: (sheet: SavedExcelSheet) => void;
+  onDeleteExcelSheet?: (id: string) => void;
+  onUpdateExcelSheetFolder?: (id: string, newFolder: string) => void;
+
   // Plan info
   subscriptionTier: string;
   onOpenSubscriptionModal: (source: string, planId?: string) => void;
@@ -95,6 +105,12 @@ export function GaveteiroPastasModule({
   setCreatedFolders,
   onNavigateToMode,
   showNotification,
+  savedExcelSheets: propSavedExcelSheets,
+  excelFoldersList = [],
+  setExcelFoldersList,
+  onLoadExcelSheet,
+  onDeleteExcelSheet,
+  onUpdateExcelSheetFolder,
   subscriptionTier,
   onOpenSubscriptionModal
 }: GaveteiroPastasProps) {
@@ -104,9 +120,21 @@ export function GaveteiroPastasModule({
   const [newFolderNameInput, setNewFolderNameInput] = useState<string>("");
   const [isCreatingFolder, setIsCreatingFolder] = useState<boolean>(false);
   const [movingItemId, setMovingItemId] = useState<string | null>(null);
-  const [movingItemType, setMovingItemType] = useState<"list" | "note" | null>(null);
+  const [movingItemType, setMovingItemType] = useState<"list" | "note" | "excel" | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [copiedBillId, setCopiedBillId] = useState<string | null>(null);
+  const [confirmDeleteExcelId, setConfirmDeleteExcelId] = useState<string | null>(null);
+
+  const excelSheets = useMemo<SavedExcelSheet[]>(() => {
+    if (Array.isArray(propSavedExcelSheets)) return propSavedExcelSheets;
+    try {
+      const stored = localStorage.getItem("notepad_excel_saved_sheets");
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [propSavedExcelSheets]);
 
   // Combine and deduplicate lists (cloud + local)
   const combinedLists = useMemo(() => {
@@ -120,15 +148,17 @@ export function GaveteiroPastasModule({
     return Array.from(map.values());
   }, [history, localHistory]);
 
-  // Extract all existing folder names from lists, notes and agenda
+  // Extract all existing folder names from lists, Excel sheets, notes and agenda
   const allFolderNames = useMemo(() => {
-    const set = new Set<string>(["Geral", "Fornecedores", "Boletos", "Contas Fixas", "Pagamentos", "Mercado", "Casa", "Trabalho", "Clientes", "Recibos"]);
+    const set = new Set<string>(["Geral", "Fornecedores", "Boletos", "Contas Fixas", "Pagamentos", "Mercado", "Casa", "Trabalho", "Clientes", "Recibos", "Planilhas de Compras", "Orçamentos Excel"]);
     createdFolders.forEach((f) => f && set.add(f.trim()));
+    excelFoldersList.forEach((f) => f && set.add(f.trim()));
     combinedLists.forEach((l) => l.pasta && set.add(l.pasta.trim()));
+    excelSheets.forEach((s) => s.folder && set.add(s.folder.trim()));
     savedNotes.forEach((n) => n.folder && n.folder !== "Sem Pasta" && set.add(n.folder.trim()));
     (agendaEvents || []).forEach((e) => e.folder && set.add(e.folder.trim()));
     return Array.from(set).filter(Boolean);
-  }, [createdFolders, combinedLists, savedNotes, agendaEvents]);
+  }, [createdFolders, excelFoldersList, combinedLists, excelSheets, savedNotes, agendaEvents]);
 
   // Calculate counters per folder
   const folderCounts = useMemo(() => {
@@ -139,6 +169,13 @@ export function GaveteiroPastasModule({
 
     combinedLists.forEach((l) => {
       const folder = l.pasta || "Geral";
+      if (!counts[folder]) counts[folder] = { total: 0, lists: 0, notes: 0, contas: 0 };
+      counts[folder].total += 1;
+      counts[folder].lists += 1;
+    });
+
+    excelSheets.forEach((s) => {
+      const folder = s.folder || "Geral";
       if (!counts[folder]) counts[folder] = { total: 0, lists: 0, notes: 0, contas: 0 };
       counts[folder].total += 1;
       counts[folder].lists += 1;
@@ -159,15 +196,11 @@ export function GaveteiroPastasModule({
     });
 
     return counts;
-  }, [allFolderNames, combinedLists, savedNotes, agendaEvents]);
+  }, [allFolderNames, combinedLists, excelSheets, savedNotes, agendaEvents]);
 
   // Count items per category and urgent bills
   const categoryCounts = useMemo(() => {
-    let excelSheetsCount = 0;
-    try {
-      const stored = localStorage.getItem("notepad_excel_saved_sheets");
-      if (stored) excelSheetsCount = JSON.parse(stored).length;
-    } catch (_) {}
+    const excelSheetsCount = excelSheets.length;
 
     const superCount = combinedLists.filter((l) => l.superListData || l.texto_digitado?.includes("[X]") || l.texto_digitado?.toLowerCase().includes("mercado")).length;
     const calcCount = combinedLists.length - superCount;
@@ -192,7 +225,7 @@ export function GaveteiroPastasModule({
       urgentContas: urgentCount,
       trash: deletedLists.length
     };
-  }, [combinedLists, savedNotes, agendaEvents, deletedLists]);
+  }, [combinedLists, excelSheets, savedNotes, agendaEvents, deletedLists]);
 
   // Create folder handler
   const handleCreateFolder = () => {
@@ -209,6 +242,9 @@ export function GaveteiroPastasModule({
       return;
     }
     setCreatedFolders((prev) => Array.from(new Set([...prev, trimmed])));
+    if (setExcelFoldersList) {
+      setExcelFoldersList((prev) => Array.from(new Set([...prev, trimmed])));
+    }
     setSelectedFolder(trimmed);
     setCurrentFolder(trimmed);
     setIsCreatingFolder(false);
@@ -218,7 +254,7 @@ export function GaveteiroPastasModule({
 
   // Filtered lists based on category, folder, and search
   const filteredLists = useMemo(() => {
-    if (activeGaveta === "notes" || activeGaveta === "taloes" || activeGaveta === "contas" || activeGaveta === "trash") {
+    if (activeGaveta === "notes" || activeGaveta === "taloes" || activeGaveta === "contas" || activeGaveta === "trash" || activeGaveta === "calc_excel") {
       return [];
     }
 
@@ -243,9 +279,29 @@ export function GaveteiroPastasModule({
     });
   }, [combinedLists, activeGaveta, selectedFolder, searchQuery]);
 
+  // Filtered Excel sheets from Calculadora Nota Excel
+  const filteredExcelSheets = useMemo(() => {
+    if (activeGaveta !== "all" && activeGaveta !== "calc_excel") {
+      return [];
+    }
+
+    return excelSheets.filter((sheet) => {
+      const folder = sheet.folder || "Geral";
+      const matchesFolder = selectedFolder === "all" || folder === selectedFolder;
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        (sheet.title && sheet.title.toLowerCase().includes(q)) ||
+        folder.toLowerCase().includes(q) ||
+        (sheet.rows || []).some((r: any) => (r.name || "").toLowerCase().includes(q));
+
+      return matchesFolder && matchesSearch;
+    });
+  }, [excelSheets, activeGaveta, selectedFolder, searchQuery]);
+
   // Filtered notes based on category, folder, and search
   const filteredNotes = useMemo(() => {
-    if (activeGaveta === "calc" || activeGaveta === "super" || activeGaveta === "contas" || activeGaveta === "trash") {
+    if (activeGaveta === "calc" || activeGaveta === "calc_excel" || activeGaveta === "super" || activeGaveta === "contas" || activeGaveta === "trash") {
       return [];
     }
 
@@ -272,7 +328,7 @@ export function GaveteiroPastasModule({
 
   // Filtered agenda events for payment commitments & suppliers
   const filteredAgendaEvents = useMemo(() => {
-    if (activeGaveta === "calc" || activeGaveta === "super" || activeGaveta === "notes" || activeGaveta === "taloes" || activeGaveta === "trash") {
+    if (activeGaveta === "calc" || activeGaveta === "calc_excel" || activeGaveta === "super" || activeGaveta === "notes" || activeGaveta === "taloes" || activeGaveta === "trash") {
       return [];
     }
 
@@ -739,7 +795,7 @@ export function GaveteiroPastasModule({
         ) : (
           /* Visualização Normal de Arquivos */
           <div>
-            {filteredLists.length === 0 && filteredNotes.length === 0 && filteredAgendaEvents.length === 0 ? (
+            {filteredLists.length === 0 && filteredExcelSheets.length === 0 && filteredNotes.length === 0 && filteredAgendaEvents.length === 0 ? (
               <div className="p-12 text-center bg-slate-900/50 rounded-3xl border-2 border-dashed border-white/10 space-y-3">
                 <FolderOpen className="w-12 h-12 text-emerald-400/40 mx-auto" />
                 <h3 className="text-sm font-black uppercase text-slate-300 tracking-wider">
@@ -748,7 +804,7 @@ export function GaveteiroPastasModule({
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
                   {searchQuery
                     ? "Tente buscar com outro termo ou selecione 'Todas as Pastas'."
-                    : "Você ainda não salvou listas, contas ou notas nesta pasta. Use a Calculadora, Bloco de Notas, Supermercado ou a Agenda para salvar seus documentos organizados!"}
+                    : "Você ainda não salvou listas, planilhas Excel, contas ou notas nesta pasta. Use a Calculadora Excel, Bloco de Notas, Supermercado ou a Agenda para salvar seus documentos organizados!"}
                 </p>
                 <div className="flex flex-wrap justify-center gap-2 pt-2">
                   <button
@@ -756,7 +812,7 @@ export function GaveteiroPastasModule({
                     onClick={() => onNavigateToMode("edit")}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl cursor-pointer"
                   >
-                    Abrir Calculadora 🧮
+                    Abrir Calculadora Excel 📊
                   </button>
                   <button
                     type="button"
@@ -783,7 +839,169 @@ export function GaveteiroPastasModule({
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* 1. Listas da Calculadora e Supermercado */}
+                {/* 1A. Planilhas Salvas da Calculadora Nota Excel */}
+                {filteredExcelSheets.map((sheet) => {
+                  const isExpanded = expandedItemId === sheet.id;
+                  const folder = sheet.folder || "Geral";
+                  const validRows = (sheet.rows || []).filter((r: any) => (r.name || "").trim() || Number(r.price) > 0);
+                  const previewText = validRows
+                    .map((r: any) => `${r.name || "Item"} (${r.qty || 1}x ${formatCurrency(Number(r.price) || 0)})`)
+                    .join("\n");
+
+                  return (
+                    <div
+                      key={sheet.id}
+                      className="bg-slate-900 border border-indigo-500/25 hover:border-indigo-400/60 rounded-3xl p-5 shadow-lg flex flex-col justify-between gap-4 transition-all"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border bg-indigo-500/15 text-indigo-300 border-indigo-500/30 flex items-center gap-1">
+                            <FileSpreadsheet className="w-2.5 h-2.5" />
+                            <span>Nota Excel 📊</span>
+                          </span>
+                          <span className="text-[9.5px] font-bold px-2 py-0.5 rounded-md bg-slate-950 text-slate-400 border border-white/5 flex items-center gap-1">
+                            <Folder className="w-2.5 h-2.5 text-indigo-400" />
+                            <span>{folder}</span>
+                          </span>
+                        </div>
+
+                        <h4 className="text-sm font-black text-white line-clamp-1 mb-1">
+                          {sheet.title || "Planilha Excel"}
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-medium">
+                          {sheet.date} • {validRows.length} {validRows.length === 1 ? "item" : "itens"}
+                        </p>
+
+                        <div className="flex items-baseline justify-between mt-2 pt-2 border-t border-white/5">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase">Total Planilha:</span>
+                          <span className="text-base font-black text-indigo-400 mono-display">
+                            {formatCurrency(sheet.total || 0)}
+                          </span>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="mt-3 p-3 bg-slate-950 rounded-2xl border border-white/5 space-y-1 text-xs text-slate-300 font-mono max-h-48 overflow-y-auto custom-scrollbar">
+                            <p className="text-[9px] font-black uppercase text-indigo-400 tracking-wider font-sans mb-1">
+                              Itens da Planilha:
+                            </p>
+                            {validRows.length > 0 ? (
+                              validRows.map((r: any, idx: number) => (
+                                <p key={idx} className="line-clamp-1">
+                                  {r.name || "Item"} — {r.qty || 1}x {formatCurrency(Number(r.price) || 0)}
+                                </p>
+                              ))
+                            ) : (
+                              <p className="text-slate-500 italic">Planilha sem itens detalhados</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2 pt-2 border-t border-white/5">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onLoadExcelSheet) onLoadExcelSheet(sheet);
+                              onNavigateToMode("edit");
+                              showNotification(`Planilha "${sheet.title}" aberta na Calculadora Excel! 📊`, "success");
+                            }}
+                            className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md"
+                          >
+                            <span>Abrir no Excel</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setExpandedItemId(isExpanded ? null : sheet.id)}
+                            className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs transition-all cursor-pointer"
+                            title={isExpanded ? "Ocultar itens" : "Ver itens"}
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleShareWhatsApp(`${previewText}\n\nTotal: ${formatCurrency(sheet.total || 0)}`, sheet.title)}
+                            className="p-2 bg-green-600/20 hover:bg-green-600 text-green-300 hover:text-white rounded-xl text-xs transition-all cursor-pointer"
+                            title="Compartilhar no WhatsApp"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          {confirmDeleteExcelId === sheet.id ? (
+                            <div className="flex items-center gap-1 bg-rose-950 border border-rose-500/40 px-1.5 py-1 rounded-xl">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onDeleteExcelSheet) onDeleteExcelSheet(sheet.id);
+                                  setConfirmDeleteExcelId(null);
+                                  showNotification("Planilha excluída do gaveteiro!", "info");
+                                }}
+                                className="px-2 py-0.5 bg-rose-600 text-white rounded text-[9px] font-black uppercase cursor-pointer"
+                              >
+                                Excluir
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteExcelId(null)}
+                                className="px-1.5 py-0.5 bg-slate-800 text-slate-300 rounded text-[9px] font-bold cursor-pointer"
+                              >
+                                Não
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteExcelId(sheet.id)}
+                              className="p-2 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-xl text-xs transition-all cursor-pointer"
+                              title="Excluir planilha"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {movingItemId === sheet.id && movingItemType === "excel" ? (
+                          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-indigo-500/40">
+                            <select
+                              value={folder}
+                              onChange={(e) => {
+                                if (onUpdateExcelSheetFolder) onUpdateExcelSheetFolder(sheet.id, e.target.value);
+                                setMovingItemId(null);
+                                showNotification(`Planilha movida para "${e.target.value}"! 📁`, "success");
+                              }}
+                              className="bg-transparent text-xs text-white p-1 rounded outline-none flex-1"
+                            >
+                              {allFolderNames.map((f) => (
+                                <option key={f} value={f} className="bg-slate-900 text-white">{f}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setMovingItemId(null)}
+                              className="p-1 text-slate-400 hover:text-white"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setMovingItemId(sheet.id); setMovingItemType("excel"); }}
+                            className="w-full text-center text-[9px] font-bold text-slate-500 hover:text-indigo-400 py-0.5 transition-colors cursor-pointer flex items-center justify-center gap-1"
+                          >
+                            <Folder className="w-2.5 h-2.5" />
+                            <span>Mover de Pasta (atual: {folder})</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* 1B. Listas da Calculadora e Supermercado */}
                 {filteredLists.map((list) => {
                   const isSuper = Boolean(list.superListData || list.texto_digitado?.includes("[X]") || list.texto_digitado?.toLowerCase().includes("mercado"));
                   const isExpanded = expandedItemId === list.id;

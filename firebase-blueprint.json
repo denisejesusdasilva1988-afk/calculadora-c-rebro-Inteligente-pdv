@@ -59,6 +59,9 @@
         "pdvProductOverrides": { "type": "object" },
         "pdvCustomNiches": { "type": "array" },
         "savedNotes": { "type": "array" },
+        "createdFolders": { "type": "array" },
+        "excelSavedSheets": { "type": "array" },
+        "excelFoldersList": { "type": "array" },
         "masterPinProfile": { "type": "object" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "lastModifiedAt": { "type": "number", "description": "Local timestamp of last modification in milliseconds" }

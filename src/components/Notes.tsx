@@ -273,6 +273,9 @@ interface NotesProps {
   user?: any;
   onOpenGaveteiro?: () => void;
   initialMode?: "notes" | "receipts";
+  createdFolders?: string[];
+  setCreatedFolders?: React.Dispatch<React.SetStateAction<string[]>>;
+  showNotification?: (msg: string, type?: "success" | "error" | "info") => void;
 }
 
 export const NotesModule = React.memo(
@@ -291,6 +294,9 @@ export const NotesModule = React.memo(
     user,
     onOpenGaveteiro,
     initialMode = "receipts",
+    createdFolders: propCreatedFolders,
+    setCreatedFolders: propSetCreatedFolders,
+    showNotification,
   }: NotesProps) => {
     const [localText, setLocalText] = React.useState<string>(() => {
       if (!freeNotesText) return "";
@@ -1046,7 +1052,10 @@ export const NotesModule = React.memo(
       };
     }, []);
     const [movingFolderInput, setMovingFolderInput] = React.useState("");
-    const [createdFolders, setCreatedFolders] = React.useState<string[]>(() => {
+    const [isCreatingFolderInline, setIsCreatingFolderInline] = React.useState(false);
+    const [inlineNewFolderName, setInlineNewFolderName] = React.useState("");
+    const [confirmDeleteFolderName, setConfirmDeleteFolderName] = React.useState<string | null>(null);
+    const [internalCreatedFolders, setInternalCreatedFolders] = React.useState<string[]>(() => {
       try {
         const saved = localStorage.getItem("notepad_created_folders");
         return saved ? JSON.parse(saved) : [];
@@ -1055,9 +1064,16 @@ export const NotesModule = React.memo(
       }
     });
 
+    const createdFolders = propCreatedFolders ?? internalCreatedFolders;
+    const setCreatedFolders = propSetCreatedFolders ?? setInternalCreatedFolders;
+
     React.useEffect(() => {
-      localStorage.setItem("notepad_created_folders", JSON.stringify(createdFolders));
-    }, [createdFolders]);
+      if (!propSetCreatedFolders) {
+        try {
+          localStorage.setItem("notepad_created_folders", JSON.stringify(internalCreatedFolders));
+        } catch {}
+      }
+    }, [internalCreatedFolders, propSetCreatedFolders]);
 
     const getNoteFolder = React.useCallback((note: any) => {
       if (note.folder && note.folder !== "Sem Pasta") {
@@ -2268,17 +2284,7 @@ Data: [Inserir Data]`;
                   {/* Create Folder Quick Button */}
                   <button
                     type="button"
-                    onClick={() => {
-                      const name = prompt(
-                        "Digite o nome da nova pasta (ex: Inquilino Carlos, Junho 2026, Contrato Aluguel):",
-                      );
-                      if (name && name.trim()) {
-                        setCreatedFolders((prev) =>
-                          Array.from(new Set([...prev, name.trim()])),
-                        );
-                        setSelectedViewFolder(name.trim());
-                      }
-                    }}
+                    onClick={() => setIsCreatingFolderInline((prev) => !prev)}
                     className="p-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors flex items-center gap-1 text-[9px] font-black uppercase tracking-wider active:scale-95 cursor-pointer"
                     title="Criar Nova Pasta"
                   >
@@ -2286,6 +2292,59 @@ Data: [Inserir Data]`;
                     Criar Pasta
                   </button>
                 </div>
+
+                {isCreatingFolderInline && (
+                  <div className="bg-white border border-amber-300 rounded-xl p-2.5 space-y-2 shadow-sm">
+                    <input
+                      type="text"
+                      value={inlineNewFolderName}
+                      onChange={(e) => setInlineNewFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && inlineNewFolderName.trim()) {
+                          const trimmed = inlineNewFolderName.trim();
+                          setCreatedFolders((prev) => Array.from(new Set([...prev, trimmed])));
+                          setSelectedViewFolder(trimmed);
+                          setInlineNewFolderName("");
+                          setIsCreatingFolderInline(false);
+                          showNotification?.(`Pasta "${trimmed}" criada com sucesso! 📁`, "success");
+                        }
+                      }}
+                      placeholder="Nome da pasta (ex: Clientes, Recibos...)"
+                      className="w-full bg-amber-50/50 border border-amber-200 rounded-lg px-2.5 py-1.5 text-xs text-amber-950 font-bold outline-none focus:border-amber-500"
+                      autoFocus
+                    />
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCreatingFolderInline(false);
+                          setInlineNewFolderName("");
+                        }}
+                        className="px-2.5 py-1 bg-amber-100 text-amber-900 rounded-lg text-[10px] font-bold uppercase cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const trimmed = inlineNewFolderName.trim();
+                          if (!trimmed) {
+                            showNotification?.("Digite um nome para a pasta!", "error");
+                            return;
+                          }
+                          setCreatedFolders((prev) => Array.from(new Set([...prev, trimmed])));
+                          setSelectedViewFolder(trimmed);
+                          setInlineNewFolderName("");
+                          setIsCreatingFolderInline(false);
+                          showNotification?.(`Pasta "${trimmed}" criada com sucesso! 📁`, "success");
+                        }}
+                        className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-black uppercase cursor-pointer"
+                      >
+                        Salvar Pasta ✓
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Busca Input */}
                 <div className="relative">
@@ -2383,37 +2442,53 @@ Data: [Inserir Data]`;
                           </span>
                         </button>
 
-                        {/* Delete Empty Folder button */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (
-                              confirm(
-                                `Deseja remover a pasta "${folderName}"? Os documentos continuarão existindo e serão movidos para "Sem Pasta".`,
-                              )
-                            ) {
-                              savedNotes.forEach((note) => {
-                                if (
-                                  note.folder === folderName &&
-                                  handleUpdateNoteFolder
-                                ) {
-                                  handleUpdateNoteFolder(note.id, "");
+                        {/* Delete Empty Folder button (inline 2-step confirmation) */}
+                        {confirmDeleteFolderName === folderName ? (
+                          <div className="flex items-center gap-1 ml-1 bg-red-50 border border-red-300 rounded-lg px-1.5 py-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                savedNotes.forEach((note) => {
+                                  if (note.folder === folderName && handleUpdateNoteFolder) {
+                                    handleUpdateNoteFolder(note.id, "");
+                                  }
+                                });
+                                setCreatedFolders((prev) => prev.filter((f) => f !== folderName));
+                                if (selectedViewFolder === folderName) {
+                                  setSelectedViewFolder("all");
                                 }
-                              });
-                              setCreatedFolders((prev) =>
-                                prev.filter((f) => f !== folderName),
-                              );
-                              if (selectedViewFolder === folderName) {
-                                setSelectedViewFolder("all");
-                              }
-                            }
-                          }}
-                          className="absolute right-12 opacity-0 group-hover:opacity-100 hover:bg-red-700 hover:text-white text-red-700 bg-white border border-red-200 p-1 rounded-md shadow-md transition-all text-[8px] font-black uppercase cursor-pointer"
-                          title="Excluir Pasta"
-                        >
-                          Excluir
-                        </button>
+                                setConfirmDeleteFolderName(null);
+                                showNotification?.(`Pasta "${folderName}" removida!`, "info");
+                              }}
+                              className="px-1.5 py-0.5 bg-red-600 text-white rounded text-[8px] font-black uppercase cursor-pointer"
+                            >
+                              Sim
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmDeleteFolderName(null);
+                              }}
+                              className="px-1.5 py-0.5 bg-amber-100 text-amber-900 rounded text-[8px] font-bold uppercase cursor-pointer"
+                            >
+                              Não
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDeleteFolderName(folderName);
+                            }}
+                            className="absolute right-12 opacity-0 group-hover:opacity-100 hover:bg-red-700 hover:text-white text-red-700 bg-white border border-red-200 p-1 rounded-md shadow-md transition-all text-[8px] font-black uppercase cursor-pointer"
+                            title="Excluir Pasta"
+                          >
+                            Excluir
+                          </button>
+                        )}
                       </div>
                     );
                   })}
