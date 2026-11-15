@@ -1060,7 +1060,22 @@ export function GlassBarcodeScannerCart({
   const [scaleSelectedMaterialId, setScaleSelectedMaterialId] = useState<string>("scrap_pet");
   const [scaleUnitMode, setScaleUnitMode] = useState<"kg" | "g">("kg");
   const [scaleGrossInput, setScaleGrossInput] = useState<string>("");
-  const [scaleTareInput, setScaleTareInput] = useState<string>("");
+  const [savedFixedTareKg, setSavedFixedTareKg] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem("pdv_dw_saved_scale_tare_kg_v1"));
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [scaleTareInput, setScaleTareInput] = useState<string>(() => {
+    try {
+      const v = Number(localStorage.getItem("pdv_dw_saved_scale_tare_kg_v1"));
+      return Number.isFinite(v) && v > 0 ? String(v) : "";
+    } catch {
+      return "";
+    }
+  });
   const [scaleUnitsInput, setScaleUnitsInput] = useState<string>("");
   const [scaleQueueReadings, setScaleQueueReadings] = useState<
     { id: string; grossKg: number; tareKg: number; netKg: number; label: string }[]
@@ -4506,7 +4521,7 @@ export function GlassBarcodeScannerCart({
 
                     <div className="space-y-1">
                       <label className="text-[11px] font-black uppercase text-slate-300 block">
-                        Tara Saco/Caixa ({scaleUnitMode})
+                        Tara: Tábua/Caixa/Saco ({scaleUnitMode})
                       </label>
                       <input
                         type="text"
@@ -4516,6 +4531,49 @@ export function GlassBarcodeScannerCart({
                         placeholder="0 (opcional)"
                         className="w-full min-h-[48px] bg-slate-900 border border-white/15 rounded-xl px-3 text-center text-amber-200 font-mono font-black text-base outline-none focus:border-amber-400"
                       />
+                      <div className="flex items-center gap-1 pt-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const tareKg = scaleTareKg;
+                            try {
+                              if (tareKg > 0) {
+                                localStorage.setItem("pdv_dw_saved_scale_tare_kg_v1", String(Number(tareKg.toFixed(3))));
+                              } else {
+                                localStorage.removeItem("pdv_dw_saved_scale_tare_kg_v1");
+                              }
+                            } catch {}
+                            setSavedFixedTareKg(tareKg);
+                            if (showNotification) {
+                              showNotification(
+                                tareKg > 0
+                                  ? `Tara da tábua/caixa (${tareKg.toFixed(2)} kg) salva como padrão! 📌⚖️`
+                                  : "Tara padrão limpa (0 kg). ⚖️",
+                                "info"
+                              );
+                            }
+                          }}
+                          className="flex-1 min-h-[34px] px-2 py-1 bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/35 rounded-lg text-[10px] font-black text-amber-200 cursor-pointer touch-manipulation select-none active:scale-95"
+                          title="Salvar esse peso da tábua/caixa para já abrir preenchido"
+                        >
+                          📌 Fixar Tábua/Caixa
+                        </button>
+                        {(scaleTareInput !== "" || savedFixedTareKg > 0) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setScaleTareInput("");
+                              setSavedFixedTareKg(0);
+                              try {
+                                localStorage.removeItem("pdv_dw_saved_scale_tare_kg_v1");
+                              } catch {}
+                            }}
+                            className="min-h-[34px] px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-white/10 rounded-lg text-[10px] font-bold text-slate-300 cursor-pointer touch-manipulation select-none"
+                          >
+                            Zerar
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {selectedScaleMaterial?.trackUnits ? (
@@ -4551,6 +4609,46 @@ export function GlassBarcodeScannerCart({
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* Explicação prática da Tara + Dica para Balança de Vidro Temperado + Tábua */}
+                <div className="p-3 bg-amber-950/25 border border-amber-500/30 rounded-xl text-[11.5px] text-slate-200 space-y-1.5 leading-relaxed">
+                  <div className="font-black text-amber-300 flex items-center gap-1.5">
+                    <span>💡</span>
+                    <span>O que é Tara & Dica para Balança de Vidro Temperado com Tábua:</span>
+                  </div>
+                  <p>
+                    <strong className="text-white">Sim, a tábua/caixa/balde vazio em cima da balança se chama TARA!</strong> O app faz{" "}
+                    <span className="font-mono text-emerald-300">Peso Bruto - Tara = Peso Líquido</span>. Se a sua balança já zerou (<span className="font-mono">0.0</span>) com a tábua em cima antes de pesar o material, deixe a Tara em <strong className="text-white">0</strong>.
+                  </p>
+                  <p className="text-amber-100/90">
+                    ⚠️ <strong className="text-white">Cuidado no vidro temperado:</strong> não apoie pés de fogão ou ferro duro direto no vidro (pode trincar o vidro ou dar erro nos 4 sensores dos cantos). Use uma borrachinha/EVA entre a tábua e o vidro e deixe a balança em chão reto.
+                  </p>
+                  <details className="pt-1.5 border-t border-amber-500/20">
+                    <summary className="cursor-pointer font-black text-cyan-300 hover:text-cyan-200 select-none">
+                      📊 Ver Peso Médio no Ferro Velho (Fogão, Geladeira, Armário de Ferro)
+                    </summary>
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                      <div className="p-2 rounded-lg bg-slate-950/75 border border-white/10">
+                        <strong className="text-white block">🔥 Fogão</strong>
+                        <span className="text-slate-300 block">• 4 bocas: <strong>22 a 32 kg</strong></span>
+                        <span className="text-slate-300 block">• 5/6 bocas: <strong>35 a 50 kg</strong></span>
+                        <span className="text-slate-400 block">• Industrial: 45 a 90 kg</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-950/75 border border-white/10">
+                        <strong className="text-white block">❄️ Geladeira</strong>
+                        <span className="text-slate-300 block">• Frigobar: <strong>20 a 32 kg</strong></span>
+                        <span className="text-slate-300 block">• 1 porta peq.: <strong>35 a 50 kg</strong></span>
+                        <span className="text-slate-400 block">• Duplex média: 55 a 80 kg</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-950/75 border border-white/10">
+                        <strong className="text-white block">🗄️ Armário de Ferro</strong>
+                        <span className="text-slate-300 block">• Estante aço: <strong>12 a 20 kg</strong></span>
+                        <span className="text-slate-300 block">• Médio 2 pts: <strong>22 a 35 kg</strong></span>
+                        <span className="text-slate-400 block">• Alto / Arquivo: 35 a 65 kg</span>
+                      </div>
+                    </div>
+                  </details>
                 </div>
 
                 {/* Lista Acumulada de Múltiplas Sacolas/Caixas + Botão Lançar */}
