@@ -778,12 +778,12 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
       (it) => `
       <tr>
         <td colspan="3" style="padding-top:3px;font-weight:900;font-size:${fontBasePx}px;">
-          ${it.name.toUpperCase()} (${it.volumeMl}ml)
+          ${it.name.toUpperCase()}${it.volumeMl > 0 ? ` (${it.volumeMl}ml)` : ""}
         </td>
       </tr>
       <tr style="border-bottom:1px dotted #444;">
         <td style="padding-bottom:4px;font-size:${fontSmallPx}px;">
-          ${it.quantity} un × ${it.unitWeightGrams}g = ${it.totalWeightKg.toFixed(2)} kg
+          ${it.volumeMl > 0 ? `${it.quantity} un × ${it.unitWeightGrams}g = ` : "Peso Líquido: "}${it.totalWeightKg.toFixed(2)} kg
         </td>
         <td></td>
         <td style="padding-bottom:4px;text-align:right;font-weight:900;font-family:monospace;">
@@ -1089,6 +1089,15 @@ export function GlassBarcodeScannerCart({
     } catch {}
   }, [scaleSubtractTare]);
   const [scaleUnitsInput, setScaleUnitsInput] = useState<string>("");
+  const [scalePricePerKgInput, setScalePricePerKgInput] = useState<string>("");
+  const [scaleSettlementMode, setScaleSettlementMode] = useState<"pago_dinheiro" | "pago_pix" | "caderninho" | "so_estoque">("pago_dinheiro");
+  const [scrapWeightDrafts, setScrapWeightDrafts] = useState<Record<string, string>>({});
+  const [cardPayMatId, setCardPayMatId] = useState<string | null>(null);
+  const [cardPayKgDraft, setCardPayKgDraft] = useState<string>("");
+  const [cardPayPriceDraft, setCardPayPriceDraft] = useState<string>("");
+  const [cardPayCollabId, setCardPayCollabId] = useState<string>("");
+  const [cardPayMethod, setCardPayMethod] = useState<"pago_dinheiro" | "pago_pix" | "caderninho">("pago_dinheiro");
+  const [cardPayAddToStock, setCardPayAddToStock] = useState<boolean>(true);
   const [scaleQueueReadings, setScaleQueueReadings] = useState<
     { id: string; grossKg: number; tareKg: number; netKg: number; label: string }[]
   >([]);
@@ -1654,6 +1663,22 @@ export function GlassBarcodeScannerCart({
     return otherScrapMaterials.find((m) => m.id === scaleSelectedMaterialId) || otherScrapMaterials[0];
   }, [otherScrapMaterials, scaleSelectedMaterialId]);
 
+  useEffect(() => {
+    const p = selectedScaleMaterial?.buyPricePerKg || 0;
+    setScalePricePerKgInput(p > 0 ? String(p).replace(".", ",") : "");
+  }, [selectedScaleMaterial?.id]);
+
+  const handleUpdateScrapPricePerKg = (materialId: string, newPrice: number) => {
+    const cleanPrice = Math.max(0, Number.isFinite(newPrice) ? newPrice : 0);
+    markLocalYardMutation();
+    setOtherScrapMaterials((prev) =>
+      prev.map((m) => (m.id === materialId ? { ...m, buyPricePerKg: cleanPrice } : m))
+    );
+    if (selectedScaleMaterial?.id === materialId) {
+      setScalePricePerKgInput(cleanPrice > 0 ? String(cleanPrice).replace(".", ",") : "");
+    }
+  };
+
   const scaleGrossKg = useMemo(() => {
     const raw = parseFloat(scaleGrossInput.replace(",", ".")) || 0;
     return Math.max(0, scaleUnitMode === "g" ? raw / 1000 : raw);
@@ -1675,6 +1700,16 @@ export function GlassBarcodeScannerCart({
   const scaleQueueTotalNetKg = useMemo(() => {
     return scaleQueueReadings.reduce((sum, r) => sum + r.netKg, 0);
   }, [scaleQueueReadings]);
+
+  const scaleEffectivePricePerKg = useMemo(() => {
+    const parsed = parseFloat(scalePricePerKgInput.replace(",", "."));
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    return selectedScaleMaterial?.buyPricePerKg || 0;
+  }, [scalePricePerKgInput, selectedScaleMaterial?.buyPricePerKg]);
+
+  const scaleCombinedWeightKg = scaleQueueTotalNetKg + scaleCurrentNetKg;
+  const scaleCurrentPayable = Number((scaleCurrentNetKg * scaleEffectivePricePerKg).toFixed(2));
+  const scaleTotalPayable = Number((scaleCombinedWeightKg * scaleEffectivePricePerKg).toFixed(2));
 
   const filteredScrapMaterials = useMemo(() => {
     const q = scrapSearchQuery.trim().toLowerCase();
@@ -1775,6 +1810,153 @@ export function GlassBarcodeScannerCart({
     playScannerBeep(980, 0.06);
   };
 
+  const registerScrapPurchaseForCollaborator = ({
+    material,
+    weightKg,
+    units,
+    pricePerKg,
+    collabId,
+    mode,
+    addWeightToStock
+  }: {
+    material: OtherScrapMaterial;
+    weightKg: number;
+    units: number;
+    pricePerKg: number;
+    collabId: string;
+    mode: "pago_dinheiro" | "pago_pix" | "caderninho" | "so_estoque";
+    addWeightToStock: boolean;
+  }) => {
+    const cleanWeightKg = Math.max(0, Number(weightKg.toFixed(3)));
+    const cleanUnits = Math.max(0, Math.round(units));
+    const cleanPricePerKg = Math.max(0, Number.isFinite(pricePerKg) ? pricePerKg : 0);
+    const totalAmount = Number((cleanWeightKg * cleanPricePerKg).toFixed(2));
+    const collab = collaborators.find((c) => c.id === collabId) || collaborators[0];
+    const isFounder = !!collab?.isFounder;
+
+    markLocalYardMutation();
+    setOtherScrapMaterials((prev) =>
+      prev.map((m) =>
+        m.id === material.id
+          ? {
+              ...m,
+              buyPricePerKg: cleanPricePerKg,
+              stockKg: addWeightToStock ? Number((m.stockKg + cleanWeightKg).toFixed(3)) : m.stockKg,
+              stockUnits: addWeightToStock ? (m.stockUnits || 0) + cleanUnits : (m.stockUnits || 0)
+            }
+          : m
+      )
+    );
+
+    const shouldRecordCollab = collab && (isFounder || (mode !== "so_estoque" && totalAmount > 0));
+    const paidNow = !isFounder && (mode === "pago_dinheiro" || mode === "pago_pix");
+    const isCaderninho = !isFounder && mode === "caderninho";
+
+    if (shouldRecordCollab && collab) {
+      setCollaborators((prev) =>
+        prev.map((c) => {
+          if (c.id !== collab.id) return c;
+          const newDeliveries = c.totalDeliveries + 1;
+          const newWeight = Number((c.totalWeightKg + cleanWeightKg).toFixed(3));
+          const newEarned = Number((c.totalEarned + totalAmount).toFixed(2));
+          if (c.isFounder) {
+            return {
+              ...c,
+              totalDeliveries: newDeliveries,
+              totalBottles: c.totalBottles + cleanUnits,
+              totalWeightKg: newWeight,
+              totalEarned: newEarned,
+              totalPaid: newEarned,
+              balancePending: 0
+            };
+          }
+          const addedPaid = paidNow ? totalAmount : 0;
+          const newPaid = Number((c.totalPaid + addedPaid).toFixed(2));
+          const newPending = Math.max(0, Number((newEarned - newPaid).toFixed(2)));
+          return {
+            ...c,
+            totalDeliveries: newDeliveries,
+            totalBottles: c.totalBottles + cleanUnits,
+            totalWeightKg: newWeight,
+            totalEarned: newEarned,
+            totalPaid: newPaid,
+            balancePending: newPending
+          };
+        })
+      );
+
+      const paymentStatus: CompletedPurchaseTicket["paymentStatus"] = isFounder
+        ? "coleta_propria_dw"
+        : paidNow
+        ? "pago_na_hora"
+        : "pendente_caderninho";
+
+      const ticket: CompletedPurchaseTicket = {
+        id: `ticket_scrap_${Date.now()}`,
+        timestamp: new Date().toLocaleString("pt-BR"),
+        collectorName: collab.name,
+        isFounder,
+        items: [
+          {
+            name: `${material.emoji} ${material.name} (R$ ${cleanPricePerKg.toFixed(2).replace(".", ",")}/kg)`,
+            volumeMl: 0,
+            barcode: "BALANCA",
+            quantity: cleanUnits > 0 ? cleanUnits : 1,
+            unitWeightGrams: Math.round(cleanWeightKg * 1000),
+            totalWeightKg: cleanWeightKg,
+            costPaid: totalAmount
+          }
+        ],
+        totalBottles: cleanUnits,
+        totalWeightKg: cleanWeightKg,
+        totalPaid: isFounder ? 0 : totalAmount,
+        expectedPlantRevenue: 0,
+        netProfit: 0,
+        paymentStatus,
+        sellPricePerTonUsed: activeSellPricePerTon
+      };
+
+      setPurchaseHistory((prev) => [ticket, ...prev.slice(0, 49)]);
+      setLastPurchaseReceipt(ticket);
+
+      if (syncToPdvCash && onSyncFinancialEventToPDV && paidNow && totalAmount > 0) {
+        onSyncFinancialEventToPDV({
+          id: `pdv_fv_scrap_${ticket.id}`,
+          type: "saida",
+          amount: totalAmount,
+          description: `COMPRA RECICLAGEM (${material.name.toUpperCase()}): ${collab.name.toUpperCase()} (${cleanWeightKg.toFixed(2)} kg × R$ ${cleanPricePerKg.toFixed(2)})`,
+          paymentMethod: mode === "pago_pix" ? "pix" : "dinheiro",
+          category: "despesa",
+          clientName: collab.name
+        });
+      }
+    }
+
+    playScannerBeep(1180, 0.09);
+
+    if (showNotification) {
+      const stockTxt = addWeightToStock && cleanWeightKg > 0 ? `+${cleanWeightKg.toFixed(2)} kg no estoque` : `${cleanWeightKg.toFixed(2)} kg`;
+      if (shouldRecordCollab && collab && !isFounder && totalAmount > 0) {
+        if (paidNow) {
+          showNotification(
+            `${material.emoji} ${material.name} (${stockTxt}) • Pago R$ ${totalAmount.toFixed(2).replace(".", ",")} para ${collab.name}! 💵✅`,
+            "success"
+          );
+        } else {
+          showNotification(
+            `${material.emoji} ${material.name} (${stockTxt}) • Anotado R$ ${totalAmount.toFixed(2).replace(".", ",")} no Caderninho de ${collab.name}! 📓✅`,
+            "info"
+          );
+        }
+      } else {
+        const parts: string[] = [];
+        if (cleanWeightKg > 0) parts.push(`+${cleanWeightKg.toFixed(2)} kg`);
+        if (cleanUnits > 0) parts.push(`+${cleanUnits} un`);
+        showNotification(`${material.emoji} ${material.name}: ${parts.join(" e ")} lançado no estoque! ⚖️✅`, "success");
+      }
+    }
+  };
+
   const handleCommitDigitalScaleToStock = () => {
     if (!selectedScaleMaterial) return;
     const totalWeightToAddKg = scaleQueueTotalNetKg + scaleCurrentNetKg;
@@ -1787,29 +1969,19 @@ export function GlassBarcodeScannerCart({
       return;
     }
 
-    markLocalYardMutation();
-    setOtherScrapMaterials((prev) =>
-      prev.map((m) =>
-        m.id === selectedScaleMaterial.id
-          ? {
-              ...m,
-              stockKg: Number((m.stockKg + totalWeightToAddKg).toFixed(3)),
-              stockUnits: (m.stockUnits || 0) + unitsToAdd
-            }
-          : m
-      )
-    );
+    registerScrapPurchaseForCollaborator({
+      material: selectedScaleMaterial,
+      weightKg: totalWeightToAddKg,
+      units: unitsToAdd,
+      pricePerKg: scaleEffectivePricePerKg,
+      collabId: activeCollab?.id || selectedCollabId,
+      mode: scaleSettlementMode,
+      addWeightToStock: true
+    });
+
     setScaleGrossInput("");
     setScaleUnitsInput("");
     setScaleQueueReadings([]);
-    playScannerBeep(1180, 0.09);
-
-    if (showNotification) {
-      const parts: string[] = [];
-      if (totalWeightToAddKg > 0) parts.push(`+${totalWeightToAddKg.toFixed(2)} kg`);
-      if (unitsToAdd > 0) parts.push(`+${unitsToAdd} un`);
-      showNotification(`${selectedScaleMaterial.emoji} ${selectedScaleMaterial.name}: ${parts.join(" e ")} lançado no estoque! ⚖️✅`, "success");
-    }
   };
 
   const handleSelectMaterialForScale = (materialId: string) => {
@@ -4517,6 +4689,60 @@ export function GlassBarcodeScannerCart({
                         Gramas (g)
                       </button>
                     </div>
+
+                    {/* Preço por kg direto na Balança Digital */}
+                    <div className="p-2.5 bg-slate-900/90 border border-emerald-500/35 rounded-xl space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-[11px] font-black uppercase text-emerald-300">
+                          💲 Preço Pago por kg (R$/kg):
+                        </label>
+                        {scaleEffectivePricePerKg > 0 ? (
+                          <span className="text-[10.5px] font-mono font-black text-emerald-300">
+                            R$ {scaleEffectivePricePerKg.toFixed(2).replace(".", ",")}/kg
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-amber-300">
+                            Opcional (para pagar)
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-slate-400">R$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={scalePricePerKgInput}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setScalePricePerKgInput(raw);
+                            if (selectedScaleMaterial) {
+                              const parsed = parseFloat(raw.replace(",", "."));
+                              const cleanPrice = raw.trim() === "" ? 0 : Number.isFinite(parsed) && parsed >= 0 ? parsed : selectedScaleMaterial.buyPricePerKg;
+                              markLocalYardMutation();
+                              setOtherScrapMaterials((prev) =>
+                                prev.map((m) => (m.id === selectedScaleMaterial.id ? { ...m, buyPricePerKg: cleanPrice } : m))
+                              );
+                            }
+                          }}
+                          placeholder="Ex: 3,00"
+                          className="flex-1 min-h-[44px] bg-slate-950 border border-emerald-500/40 rounded-xl px-3 text-center text-emerald-300 font-mono font-black text-base outline-none focus:border-emerald-400"
+                        />
+                        {scalePricePerKgInput !== "" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setScalePricePerKgInput("");
+                              if (selectedScaleMaterial) {
+                                handleUpdateScrapPricePerKg(selectedScaleMaterial.id, 0);
+                              }
+                            }}
+                            className="min-h-[44px] px-2.5 bg-slate-950 hover:bg-slate-800 border border-white/10 rounded-xl text-[10px] font-bold text-slate-300 cursor-pointer"
+                          >
+                            Zerar
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Peso + Tara + Unidades */}
@@ -4673,6 +4899,16 @@ export function GlassBarcodeScannerCart({
                           {Math.floor(scaleCurrentNetKg)} kg e {Math.round((scaleCurrentNetKg - Math.floor(scaleCurrentNetKg)) * 1000)} g
                         </span>
                       )}
+                      {scaleEffectivePricePerKg > 0 && (
+                        <div className="mt-1.5 pt-1.5 border-t border-emerald-500/20">
+                          <span className="text-[10px] font-black uppercase text-amber-300 block">
+                            💰 Total a Pagar ({scaleCombinedWeightKg.toFixed(2)} kg × R$ {scaleEffectivePricePerKg.toFixed(2).replace(".", ",")}):
+                          </span>
+                          <strong className="text-base font-mono font-black text-amber-300">
+                            R$ {scaleTotalPayable.toFixed(2).replace(".", ",")}
+                          </strong>
+                        </div>
+                      )}
                       {!scaleSubtractTare && scaleTareKg > 0 && (
                         <span className="text-[10px] text-amber-200 font-mono mt-0.5">
                           Tábua {scaleTareKg.toFixed(2)} kg (referência • não descontada)
@@ -4782,6 +5018,81 @@ export function GlassBarcodeScannerCart({
                   </div>
                 )}
 
+                {/* Seletor de Colaborador da Reciclagem + Forma de Pagamento direto na Balança */}
+                <div className="p-3 bg-slate-900/90 border border-emerald-500/30 rounded-xl space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-[10.5px] font-black uppercase text-emerald-300 block">
+                        👤 Quem está entregando / Receber pagamento:
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={activeCollab?.id || selectedCollabId}
+                          onChange={(e) => setSelectedCollabId(e.target.value)}
+                          className="flex-1 min-h-[44px] bg-slate-950 border border-emerald-500/35 rounded-xl px-3 text-white font-bold text-xs sm:text-sm outline-none"
+                        >
+                          {collaborators.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.isFounder ? "👑 " : "👤 "}
+                              {c.name}
+                              {!c.isFounder && c.balancePending > 0 ? ` (Devo R$ ${c.balancePending.toFixed(2)})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setShowAddCollabModal(true)}
+                          className="min-h-[44px] px-3 bg-emerald-600/20 hover:bg-emerald-600 hover:text-slate-950 text-emerald-300 font-black text-xs rounded-xl border border-emerald-500/40 flex items-center gap-1 cursor-pointer touch-manipulation select-none shrink-0"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>+ Novo</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {scaleCombinedWeightKg > 0 && scaleEffectivePricePerKg > 0 && (
+                      <div className="px-3.5 py-2 bg-slate-950 border border-amber-500/35 rounded-xl text-right shrink-0">
+                        <span className="text-[10px] font-bold uppercase text-amber-300 block">
+                          {activeCollab?.isFounder ? "Economia D.W:" : "Total a Pagar:"}
+                        </span>
+                        <strong className="text-lg font-mono font-black text-amber-300">
+                          R$ {scaleTotalPayable.toFixed(2).replace(".", ",")}
+                        </strong>
+                      </div>
+                    )}
+                  </div>
+
+                  {!activeCollab?.isFounder && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {(
+                        [
+                          { id: "pago_dinheiro", label: "💵 Pago Dinheiro" },
+                          { id: "pago_pix", label: "📱 Pago Pix" },
+                          { id: "caderninho", label: "📓 Caderninho" },
+                          { id: "so_estoque", label: "📦 Só Estoque" }
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setScaleSettlementMode(opt.id)}
+                          className={`min-h-[40px] px-2.5 py-1.5 rounded-xl text-[11px] font-black border transition-all cursor-pointer touch-manipulation select-none active:scale-95 ${
+                            scaleSettlementMode === opt.id
+                              ? opt.id === "caderninho"
+                                ? "bg-amber-500 text-slate-950 border-amber-400"
+                                : opt.id === "so_estoque"
+                                ? "bg-cyan-500 text-slate-950 border-cyan-400"
+                                : "bg-emerald-500 text-slate-950 border-emerald-400"
+                              : "bg-slate-950 text-slate-300 border-white/10 hover:text-white"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
                   <button
                     type="button"
@@ -4799,11 +5110,15 @@ export function GlassBarcodeScannerCart({
                   >
                     <Check className="w-4 h-4" />
                     <span>
-                      Lançar no Estoque ({(scaleQueueTotalNetKg + scaleCurrentNetKg).toFixed(2)} kg
-                      {selectedScaleMaterial?.trackUnits && (parseInt(scaleUnitsInput || "0", 10) || 0) > 0
-                        ? ` + ${parseInt(scaleUnitsInput || "0", 10)} un`
-                        : ""}
-                      )
+                      {!activeCollab?.isFounder && scaleTotalPayable > 0 && scaleSettlementMode !== "so_estoque"
+                        ? scaleSettlementMode === "caderninho"
+                          ? `Lançar ${scaleCombinedWeightKg.toFixed(2)} kg + Anotar R$ ${scaleTotalPayable.toFixed(2).replace(".", ",")}`
+                          : `Lançar ${scaleCombinedWeightKg.toFixed(2)} kg + Pagar R$ ${scaleTotalPayable.toFixed(2).replace(".", ",")}`
+                        : `Lançar no Estoque (${scaleCombinedWeightKg.toFixed(2)} kg${
+                            selectedScaleMaterial?.trackUnits && (parseInt(scaleUnitsInput || "0", 10) || 0) > 0
+                              ? ` + ${parseInt(scaleUnitsInput || "0", 10)} un`
+                              : ""
+                          })`}
                     </span>
                   </button>
                 </div>
@@ -5052,10 +5367,7 @@ export function GlassBarcodeScannerCart({
                             type="button"
                             onClick={() => {
                               const parsed = Math.max(0, parseFloat(editingScrapPriceDraft.replace(",", ".")) || 0);
-                              markLocalYardMutation();
-                              setOtherScrapMaterials((prev) =>
-                                prev.map((m) => (m.id === mat.id ? { ...m, buyPricePerKg: parsed } : m))
-                              );
+                              handleUpdateScrapPricePerKg(mat.id, parsed);
                               setEditingScrapPriceId(null);
                             }}
                             className="min-h-[40px] px-3 bg-emerald-500 text-slate-950 font-black text-xs rounded-lg cursor-pointer"
@@ -5073,53 +5385,235 @@ export function GlassBarcodeScannerCart({
                       )}
 
                       {/* Controles rápidos de Estoque & Balança */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={mat.stockKg === 0 ? "" : String(mat.stockKg)}
-                          placeholder="0 kg"
-                          onChange={(e) => {
-                            const v = parseFloat(e.target.value.replace(",", ".")) || 0;
-                            markLocalYardMutation();
-                            setOtherScrapMaterials((prev) =>
-                              prev.map((m) => (m.id === mat.id ? { ...m, stockKg: Math.max(0, v) } : m))
-                            );
-                          }}
-                          className="w-20 min-h-[44px] bg-slate-900 border border-cyan-500/40 rounded-xl px-2 text-center text-white font-mono font-black text-sm outline-none"
-                        />
-                        {[1, 5, 10, 50].map((addKg) => (
-                          <button
-                            key={addKg}
-                            type="button"
-                            onClick={() => {
-                              markLocalYardMutation();
-                              setOtherScrapMaterials((prev) =>
-                                prev.map((m) => (m.id === mat.id ? { ...m, stockKg: m.stockKg + addKg } : m))
-                              );
+                      <div className="space-y-1.5">
+                        <span className="text-[10.5px] font-black uppercase text-slate-400 block">
+                          ⚖️ Editar Peso no Estoque (kg — aceita vírgula/ponto ex: 3.100):
+                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={
+                              scrapWeightDrafts[mat.id] !== undefined
+                                ? scrapWeightDrafts[mat.id]
+                                : mat.stockKg === 0
+                                ? ""
+                                : String(mat.stockKg)
+                            }
+                            placeholder="Ex: 3.100"
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              setScrapWeightDrafts((prev) => ({ ...prev, [mat.id]: raw }));
+                              const parsed = parseFloat(raw.replace(",", "."));
+                              if (raw.trim() === "") {
+                                markLocalYardMutation();
+                                setOtherScrapMaterials((prev) =>
+                                  prev.map((m) => (m.id === mat.id ? { ...m, stockKg: 0 } : m))
+                                );
+                              } else if (Number.isFinite(parsed) && parsed >= 0) {
+                                markLocalYardMutation();
+                                setOtherScrapMaterials((prev) =>
+                                  prev.map((m) => (m.id === mat.id ? { ...m, stockKg: parsed } : m))
+                                );
+                              }
                             }}
-                            className="min-h-[44px] px-2.5 bg-slate-900 hover:bg-cyan-500 hover:text-slate-950 text-cyan-200 font-mono font-black text-xs rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none active:scale-95"
-                          >
-                            +{addKg}kg
-                          </button>
-                        ))}
-                        {mat.trackUnits && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              markLocalYardMutation();
-                              setOtherScrapMaterials((prev) =>
-                                prev.map((m) =>
-                                  m.id === mat.id ? { ...m, stockUnits: (m.stockUnits || 0) + 1 } : m
-                                )
-                              );
+                            onBlur={() => {
+                              setScrapWeightDrafts((prev) => {
+                                const next = { ...prev };
+                                delete next[mat.id];
+                                return next;
+                              });
                             }}
-                            className="min-h-[44px] px-2.5 bg-amber-500/15 hover:bg-amber-500 hover:text-slate-950 text-amber-300 font-mono font-black text-xs rounded-xl border border-amber-500/35 cursor-pointer touch-manipulation select-none active:scale-95"
-                          >
-                            +1 un
-                          </button>
+                            className="w-24 min-h-[44px] bg-slate-900 border border-cyan-500/45 rounded-xl px-2 text-center text-white font-mono font-black text-sm outline-none focus:border-cyan-300"
+                          />
+                          {[1, 5, 10, 50].map((addKg) => (
+                            <button
+                              key={addKg}
+                              type="button"
+                              onClick={() => {
+                                markLocalYardMutation();
+                                setScrapWeightDrafts((prev) => {
+                                  const next = { ...prev };
+                                  delete next[mat.id];
+                                  return next;
+                                });
+                                setOtherScrapMaterials((prev) =>
+                                  prev.map((m) => (m.id === mat.id ? { ...m, stockKg: Number((m.stockKg + addKg).toFixed(3)) } : m))
+                                );
+                              }}
+                              className="min-h-[44px] px-2.5 bg-slate-900 hover:bg-cyan-500 hover:text-slate-950 text-cyan-200 font-mono font-black text-xs rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none active:scale-95"
+                            >
+                              +{addKg}kg
+                            </button>
+                          ))}
+                          {mat.trackUnits && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                markLocalYardMutation();
+                                setOtherScrapMaterials((prev) =>
+                                  prev.map((m) =>
+                                    m.id === mat.id ? { ...m, stockUnits: (m.stockUnits || 0) + 1 } : m
+                                  )
+                                );
+                              }}
+                              className="min-h-[44px] px-2.5 bg-amber-500/15 hover:bg-amber-500 hover:text-slate-950 text-amber-300 font-mono font-black text-xs rounded-xl border border-amber-500/35 cursor-pointer touch-manipulation select-none active:scale-95"
+                            >
+                              +1 un
+                            </button>
+                          )}
+                        </div>
+
+                        {mat.stockKg > 0 && mat.buyPricePerKg > 0 && (
+                          <div className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs">
+                            <span className="text-emerald-200 font-bold">
+                              💰 {mat.stockKg.toFixed(2)} kg × R$ {mat.buyPricePerKg.toFixed(2).replace(".", ",")}
+                            </span>
+                            <strong className="text-emerald-300 font-mono font-black">
+                              R$ {(mat.stockKg * mat.buyPricePerKg).toFixed(2).replace(".", ",")}
+                            </strong>
+                          </div>
                         )}
                       </div>
+
+                      {/* Painel Inline para Editar Peso + Preço + Pagar Colaborador direto no card */}
+                      {cardPayMatId === mat.id && (
+                        <div className="p-3 bg-slate-900 border-2 border-emerald-500/45 rounded-2xl space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-black uppercase text-emerald-300">
+                              💸 Pagar / Anotar para Colaborador
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setCardPayMatId(null)}
+                              className="text-slate-400 hover:text-white cursor-pointer"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-black uppercase text-cyan-300 block">
+                                Peso (kg):
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={cardPayKgDraft}
+                                onChange={(e) => setCardPayKgDraft(e.target.value)}
+                                placeholder="Ex: 3.100"
+                                className="w-full min-h-[42px] bg-slate-950 border border-cyan-500/40 rounded-xl px-2 text-center text-white font-mono font-black text-sm outline-none"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-black uppercase text-amber-300 block">
+                                Preço (R$/kg):
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={cardPayPriceDraft}
+                                onChange={(e) => setCardPayPriceDraft(e.target.value)}
+                                placeholder="Ex: 3,00"
+                                className="w-full min-h-[42px] bg-slate-950 border border-amber-500/40 rounded-xl px-2 text-center text-amber-200 font-mono font-black text-sm outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase text-slate-300 block">
+                              Colaborador da Reciclagem:
+                            </label>
+                            <select
+                              value={cardPayCollabId || activeCollab?.id || selectedCollabId}
+                              onChange={(e) => setCardPayCollabId(e.target.value)}
+                              className="w-full min-h-[42px] bg-slate-950 border border-white/15 rounded-xl px-2.5 text-white font-bold text-xs outline-none"
+                            >
+                              {collaborators.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.isFounder ? "👑 " : "👤 "}
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {(
+                              [
+                                { id: "pago_dinheiro", label: "💵 Dinheiro" },
+                                { id: "pago_pix", label: "📱 Pix" },
+                                { id: "caderninho", label: "📓 Caderninho" }
+                              ] as const
+                            ).map((mOpt) => (
+                              <button
+                                key={mOpt.id}
+                                type="button"
+                                onClick={() => setCardPayMethod(mOpt.id)}
+                                className={`min-h-[38px] px-2 rounded-xl text-[10.5px] font-black border cursor-pointer touch-manipulation ${
+                                  cardPayMethod === mOpt.id
+                                    ? mOpt.id === "caderninho"
+                                      ? "bg-amber-500 text-slate-950 border-amber-400"
+                                      : "bg-emerald-500 text-slate-950 border-emerald-400"
+                                    : "bg-slate-950 text-slate-300 border-white/10"
+                                }`}
+                              >
+                                {mOpt.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          <label className="flex items-center gap-2 text-[11px] text-slate-300 font-bold cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={cardPayAddToStock}
+                              onChange={(e) => setCardPayAddToStock(e.target.checked)}
+                              className="w-4 h-4 accent-emerald-500"
+                            />
+                            <span>Somar esse peso no estoque do material ao confirmar</span>
+                          </label>
+
+                          {(() => {
+                            const w = Math.max(0, parseFloat(cardPayKgDraft.replace(",", ".")) || 0);
+                            const p = Math.max(0, parseFloat(cardPayPriceDraft.replace(",", ".")) || 0);
+                            const total = Number((w * p).toFixed(2));
+                            const targetCollab = collaborators.find((c) => c.id === (cardPayCollabId || activeCollab?.id || selectedCollabId));
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (w <= 0) {
+                                    if (showNotification) showNotification("Digite o peso (kg) para calcular e pagar.", "warning");
+                                    return;
+                                  }
+                                  if (!targetCollab?.isFounder && p <= 0) {
+                                    if (showNotification) showNotification("Digite o preço (R$/kg) para calcular o valor do colaborador.", "warning");
+                                    return;
+                                  }
+                                  registerScrapPurchaseForCollaborator({
+                                    material: mat,
+                                    weightKg: w,
+                                    units: 0,
+                                    pricePerKg: p,
+                                    collabId: targetCollab?.id || selectedCollabId,
+                                    mode: cardPayMethod,
+                                    addWeightToStock: cardPayAddToStock
+                                  });
+                                  setCardPayMatId(null);
+                                }}
+                                className="w-full min-h-[44px] px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none active:scale-95"
+                              >
+                                {targetCollab?.isFounder
+                                  ? `✓ Registrar ${w.toFixed(2)} kg (Coleta Própria D.W)`
+                                  : cardPayMethod === "caderninho"
+                                  ? `✓ Anotar R$ ${total.toFixed(2).replace(".", ",")} no Caderninho`
+                                  : `✓ Pagar R$ ${total.toFixed(2).replace(".", ",")} (${targetCollab?.name || "Colaborador"})`}
+                              </button>
+                            );
+                          })()}
+                        </div>
+                      )}
 
                       <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-white/5">
                         <button
@@ -5141,6 +5635,29 @@ export function GlassBarcodeScannerCart({
                         >
                           <DollarSign className="w-3.5 h-3.5 text-amber-400" />
                           <span>{mat.buyPricePerKg > 0 ? "Editar R$/kg" : "Definir Preço depois"}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (cardPayMatId === mat.id) {
+                              setCardPayMatId(null);
+                            } else {
+                              setCardPayMatId(mat.id);
+                              setCardPayKgDraft(mat.stockKg > 0 ? String(mat.stockKg) : "");
+                              setCardPayPriceDraft(mat.buyPricePerKg > 0 ? String(mat.buyPricePerKg) : "");
+                              setCardPayCollabId(activeCollab?.id || selectedCollabId);
+                              setCardPayAddToStock(mat.stockKg <= 0);
+                            }
+                          }}
+                          className={`min-h-[42px] px-3 font-black text-xs rounded-xl border flex items-center gap-1 cursor-pointer touch-manipulation select-none active:scale-95 ${
+                            cardPayMatId === mat.id
+                              ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                              : "bg-emerald-500/15 hover:bg-emerald-500 hover:text-slate-950 text-emerald-300 border-emerald-500/35"
+                          }`}
+                        >
+                          <Coins className="w-3.5 h-3.5" />
+                          <span>Pagar Colaborador</span>
                         </button>
 
                         {(mat.stockKg > 0 || (mat.stockUnits || 0) > 0) && (
@@ -5198,6 +5715,11 @@ export function GlassBarcodeScannerCart({
                           type="button"
                           onClick={() => {
                             markLocalYardMutation();
+                            setScrapWeightDrafts((prev) => {
+                              const next = { ...prev };
+                              delete next[mat.id];
+                              return next;
+                            });
                             setOtherScrapMaterials((prev) =>
                               prev.map((m) => (m.id === mat.id ? { ...m, stockKg: 0, stockUnits: 0 } : m))
                             );
