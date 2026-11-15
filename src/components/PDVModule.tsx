@@ -106,7 +106,8 @@ import {
   AlertTriangle,
   Flashlight,
   Recycle,
-  Wine
+  Wine,
+  BookOpen
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { doc, getDoc, setDoc, serverTimestamp, collection, addDoc, getDocs, query, where, limit, onSnapshot } from "firebase/firestore";
@@ -133,7 +134,7 @@ import { PDVSalesTransitionStepper } from "./PDVSalesTransitionStepper";
 import { PDVPrinterConfigModal } from "./PDVPrinterConfigModal";
 import { PDVPrinterConfigView } from "./PDVPrinterConfigView";
 import { TechRecyclingTradeCalculator } from "./pricing/TechRecyclingTradeCalculator";
-import { GlassBarcodeScannerCart } from "./pricing/GlassBarcodeScannerCart";
+import { GlassBarcodeScannerCart, PdvSyncedFinancialEvent } from "./pricing/GlassBarcodeScannerCart";
 import { 
   PrinterConfig, 
   loadPrinterConfig, 
@@ -766,15 +767,29 @@ const defaultProductsByNiche: Record<string, { name: string; price: number; isSe
     { name: "Compra Longneck Verde (Lote 30 un)", price: 0.50 },
     { name: "Compra Cacos de Vidro (Balde 16kg)", price: 1.50 },
     { name: "Compra Garrafão 900ml (Lote 10 un)", price: 0.50 },
-    { name: "Revenda Casco 600ml Inteiro p/ Bar", price: 1.00 },
-    { name: "Revenda Litrão 1L Inteiro p/ Bar", price: 1.30 }
+    { name: "Garrafa Cerveja 600ml (Peso Caco)", price: 0.00 },
+    { name: "Garrafão Litrão 1L (Peso Caco)", price: 0.00 },
+    { name: "Plástico PET Transparente / Verde (kg)", price: 0.00 },
+    { name: "Plástico Duro PEAD / PP (kg)", price: 0.00 },
+    { name: "Plástico Alto Impacto PS / PSAI (kg)", price: 0.00 },
+    { name: "Latinhas & Alumínio (kg)", price: 0.00 },
+    { name: "Ferro & Sucata Pesada (kg)", price: 0.00 },
+    { name: "Cobre Limpo / Queimado (kg)", price: 0.00 },
+    { name: "Eletrônicos, TVs & Eletrodomésticos", price: 0.00 },
+    { name: "Papelão, Papéis, Livros, CDs & DVDs (kg)", price: 0.00 }
   ],
   ferro_velho: [
     { name: "Compra Longneck Verde (Lote 30 un)", price: 0.50 },
     { name: "Compra Cacos de Vidro (Balde 16kg)", price: 1.50 },
     { name: "Compra Garrafão 900ml (Lote 10 un)", price: 0.50 },
-    { name: "Revenda Casco 600ml Inteiro p/ Bar", price: 1.00 },
-    { name: "Revenda Litrão 1L Inteiro p/ Bar", price: 1.30 }
+    { name: "Plástico PET Transparente / Verde (kg)", price: 0.00 },
+    { name: "Plástico Duro PEAD / PP (kg)", price: 0.00 },
+    { name: "Plástico Alto Impacto PS / PSAI (kg)", price: 0.00 },
+    { name: "Latinhas & Alumínio (kg)", price: 0.00 },
+    { name: "Ferro & Sucata Pesada (kg)", price: 0.00 },
+    { name: "Cobre Limpo / Queimado (kg)", price: 0.00 },
+    { name: "Eletrônicos, TVs & Eletrodomésticos", price: 0.00 },
+    { name: "Papelão, Papéis, Livros, CDs & DVDs (kg)", price: 0.00 }
   ],
   outros_comercios: [
     { name: "Serviço Avulso de Suporte", price: 60.0 },
@@ -1086,6 +1101,22 @@ const getDefaultCategoryForProduct = (name: string, niche: string): string => {
     if (lower.includes("quirera") || lower.includes("milho") || lower.includes("alpiste") || lower.includes("semente")) return "Grãos & Sementes a Granel";
     if (lower.includes("petisco") || lower.includes("bifinho") || lower.includes("sachê") || lower.includes("sache") || lower.includes("osso")) return "Petiscos & Sachês";
     return "Rações & Acessórios";
+  }
+
+  if (niche === "ferro_velho_vidros" || niche === "ferro_velho") {
+    if (lower.includes("pet") || lower.includes("plástico") || lower.includes("plastico") || lower.includes("impacto") || lower.includes("duro")) {
+      return "Plásticos (PET / Duro / Alto Impacto)";
+    }
+    if (lower.includes("latinha") || lower.includes("alumínio") || lower.includes("aluminio")) return "Alumínio & Latinhas";
+    if (lower.includes("ferro") || lower.includes("sucata")) return "Ferro & Sucata Pesada";
+    if (lower.includes("cobre") || lower.includes("metal")) return "Cobre & Metais Nobres";
+    if (lower.includes("eletrônico") || lower.includes("eletronico") || lower.includes("tv") || lower.includes("celular") || lower.includes("notebook") || lower.includes("eletro")) {
+      return "Eletrônicos, TVs & Eletrodomésticos";
+    }
+    if (lower.includes("papel") || lower.includes("papelão") || lower.includes("papelao") || lower.includes("livro") || lower.includes("cd") || lower.includes("dvd")) {
+      return "Papéis, CDs, DVDs, Livros & Papelão";
+    }
+    return "Vidros & Garrafas (Peso / Caco)";
   }
 
   return "Outros";
@@ -1434,9 +1465,26 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   // "estoque" index = Smart Stock Inventory Control & AI Analysis
   const [pricingTab, setPricingTab] = useState<"calculadora" | "ficha">("calculadora");
   const [orcamentoSeedItems, setOrcamentoSeedItems] = useState<{ name: string; price: number; quantity: number; unit?: string }[] | undefined>(undefined);
+  const [ferroVelhoInitialTab, setFerroVelhoInitialTab] = useState<"carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos">(() => {
+    if (activeSubTab === "ferro_velho_guia" || activeSubTab === "guia_plasticos") return "guia_plasticos";
+    if (activeSubTab === "ferro_velho_outros" || activeSubTab === "balanca_reciclagem") return "estoque";
+    return "carrinho";
+  });
+  const [ferroVelhoInitialFilter, setFerroVelhoInitialFilter] = useState<"vidro" | "outros">(() => {
+    if (activeSubTab === "ferro_velho_outros" || activeSubTab === "balanca_reciclagem") return "outros";
+    return "vidro";
+  });
   const [opMode, setOpMode] = useState<"venda" | "manual" | "estoque" | "relatorios" | "cadastro_produtos" | "ficha_tecnica" | "clientes" | "proprietario" | "fiado" | "taxas" | "impressoras" | "orcamentos" | "cupons" | "ferro_velho">(() => {
     if (onlyCheckout) return "venda";
-    if (activeSubTab === "ferro_velho" || activeSubTab === "patio" || activeSubTab === "reciclagem") {
+    if (
+      activeSubTab === "ferro_velho" ||
+      activeSubTab === "ferro_velho_outros" ||
+      activeSubTab === "ferro_velho_guia" ||
+      activeSubTab === "guia_plasticos" ||
+      activeSubTab === "balanca_reciclagem" ||
+      activeSubTab === "patio" ||
+      activeSubTab === "reciclagem"
+    ) {
       return "ferro_velho";
     }
     if (activeSubTab === "cupons" || activeSubTab === "notinhas" || activeSubTab === "recibos") {
@@ -1493,6 +1541,96 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       setOpMode("venda");
     }
   }, [onlyCheckout]);
+
+  const [yardSummaryVersion, setYardSummaryVersion] = useState(0);
+
+  useEffect(() => {
+    const bump = () => setYardSummaryVersion((v) => v + 1);
+    window.addEventListener("dw_glass_yard_updated", bump);
+    window.addEventListener("storage", bump);
+    return () => {
+      window.removeEventListener("dw_glass_yard_updated", bump);
+      window.removeEventListener("storage", bump);
+    };
+  }, []);
+
+  const ferroVelhoLiveSummary = useMemo(() => {
+    void yardSummaryVersion;
+    try {
+      const catRaw = localStorage.getItem("pdv_dw_glass_catalog_v10");
+      const cat: Array<{ stockUnits?: number; unitWeightKg?: number }> = catRaw ? JSON.parse(catRaw) : [];
+      const glassUnits = Array.isArray(cat) ? cat.reduce((s, b) => s + (Number(b.stockUnits) || 0), 0) : 0;
+      const glassKg = Array.isArray(cat)
+        ? cat.reduce((s, b) => s + (Number(b.stockUnits) || 0) * (Number(b.unitWeightKg) || 0), 0)
+        : 0;
+
+      const goalKg = Math.max(500, Number(localStorage.getItem("pdv_dw_yard_goal_kg")) || 3000);
+      const sellPricePerTon = Math.max(50, Number(localStorage.getItem("pdv_dw_sell_price_per_ton")) || 150);
+      const estimatedGlassPlantValue = (glassKg / 1000) * sellPricePerTon;
+
+      const scrapRaw = localStorage.getItem("pdv_dw_other_scrap_materials_v1");
+      const scrapList: Array<{
+        id: string;
+        name: string;
+        emoji?: string;
+        stockKg?: number;
+        stockUnits?: number;
+        buyPricePerKg?: number;
+        categoryGroup?: string;
+      }> = scrapRaw ? JSON.parse(scrapRaw) : [];
+
+      const otherTotalKg = Array.isArray(scrapList) ? scrapList.reduce((s, m) => s + (Number(m.stockKg) || 0), 0) : 0;
+      const otherTotalUnits = Array.isArray(scrapList) ? scrapList.reduce((s, m) => s + (Number(m.stockUnits) || 0), 0) : 0;
+
+      const collabRaw = localStorage.getItem("pdv_dw_collaborators_accounts_v3");
+      const collabs: Array<{ balancePending?: number }> = collabRaw ? JSON.parse(collabRaw) : [];
+      const pendingCaderninhoTotal = Array.isArray(collabs)
+        ? collabs.reduce((s, c) => s + (Number(c.balancePending) || 0), 0)
+        : 0;
+      const pendingCaderninhoCount = Array.isArray(collabs)
+        ? collabs.filter((c) => (Number(c.balancePending) || 0) > 0).length
+        : 0;
+
+      const shipRaw = localStorage.getItem("pdv_dw_truck_shipments_v3");
+      const ships: Array<{ totalWeightTon?: number; grossRevenueReceived?: number }> = shipRaw ? JSON.parse(shipRaw) : [];
+      const totalDispatchedTons = Array.isArray(ships) ? ships.reduce((s, sh) => s + (Number(sh.totalWeightTon) || 0), 0) : 0;
+      const totalDispatchedRevenue = Array.isArray(ships)
+        ? ships.reduce((s, sh) => s + (Number(sh.grossRevenueReceived) || 0), 0)
+        : 0;
+
+      return {
+        glassUnits,
+        glassKg,
+        goalKg,
+        sellPricePerTon,
+        estimatedGlassPlantValue,
+        scrapList: Array.isArray(scrapList) ? scrapList : [],
+        otherTotalKg,
+        otherTotalUnits,
+        pendingCaderninhoTotal,
+        pendingCaderninhoCount,
+        totalDispatchedTons,
+        totalDispatchedRevenue,
+        shipmentsCount: Array.isArray(ships) ? ships.length : 0
+      };
+    } catch {
+      return {
+        glassUnits: 0,
+        glassKg: 0,
+        goalKg: 3000,
+        sellPricePerTon: 150,
+        estimatedGlassPlantValue: 0,
+        scrapList: [],
+        otherTotalKg: 0,
+        otherTotalUnits: 0,
+        pendingCaderninhoTotal: 0,
+        pendingCaderninhoCount: 0,
+        totalDispatchedTons: 0,
+        totalDispatchedRevenue: 0,
+        shipmentsCount: 0
+      };
+    }
+  }, [yardSummaryVersion]);
 
   // --- Advanced Reports & BI States ---
   const [reportFilterType, setReportFilterType] = useState<"diario" | "semanal" | "mensal" | "anual">("diario");
@@ -2463,9 +2601,22 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         setOpMode("taxas");
       } else if (
         activeSubTab === "ferro_velho" ||
+        activeSubTab === "ferro_velho_outros" ||
+        activeSubTab === "ferro_velho_guia" ||
+        activeSubTab === "guia_plasticos" ||
+        activeSubTab === "balanca_reciclagem" ||
         activeSubTab === "patio" ||
         activeSubTab === "reciclagem"
       ) {
+        if (activeSubTab === "ferro_velho_guia" || activeSubTab === "guia_plasticos") {
+          setFerroVelhoInitialTab("guia_plasticos");
+        } else if (activeSubTab === "ferro_velho_outros" || activeSubTab === "balanca_reciclagem") {
+          setFerroVelhoInitialTab("estoque");
+          setFerroVelhoInitialFilter("outros");
+        } else {
+          setFerroVelhoInitialTab("carrinho");
+          setFerroVelhoInitialFilter("vidro");
+        }
         setOpMode("ferro_velho");
       } else if (
         activeSubTab === "impressoras" || 
@@ -4449,6 +4600,35 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     pushToCloud(transactions, initialCash, nextProds, productOverrides, customNiches, nextStock);
     showNotification(`Sucesso! ${foreignProductsList.length} itens de outro ramo foram removidos deste cadastro (${selectedNiche.replace("_", " ").toUpperCase()}) com isolamento total! 🛡️🧹`, "success");
   }, [foreignProductsList, customProducts, productStockData, transactions, initialCash, selectedNiche, productOverrides, customNiches, saveToLocalStorage, pushToCloud, showNotification]);
+
+  const handleSyncFerroVelhoEventToPDV = useCallback((evt: PdvSyncedFinancialEvent) => {
+    if (!evt || !evt.id || evt.amount <= 0) return;
+    setTransactions((prev) => {
+      if (prev.some((t) => t.id === evt.id)) return prev;
+      const now = new Date();
+      const newTx: PDVTransaction = {
+        id: evt.id,
+        type: evt.type,
+        amount: Number(evt.amount.toFixed(2)),
+        description: evt.description,
+        paymentMethod: evt.paymentMethod || "dinheiro",
+        category: evt.category,
+        date: now.toLocaleString("pt-BR"),
+        timestamp: now.getTime(),
+        clientName: evt.clientName || (evt.type === "entrada" ? "Usina / Reciclagem" : "Portão Ferro Velho"),
+        items: evt.items?.map((i) => ({
+          name: i.name,
+          price: i.price,
+          quantity: i.quantity,
+          unit: i.unit
+        }))
+      };
+      const nextTxs = [newTx, ...prev];
+      saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, productStockData);
+      pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, productStockData);
+      return nextTxs;
+    });
+  }, [initialCash, customProducts, selectedNiche, productOverrides, customNiches, productStockData]);
 
   // --- Portuguese Number Parser helper ---
   const parsePortugueseNumber = (valStr: string): number => {
@@ -11023,6 +11203,90 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
           </div>
         </div>
 
+        {/* INTEGRATED FERRO VELHO & BALANÇA BI PANEL */}
+        <div className="bg-gradient-to-br from-emerald-950/35 via-slate-900 to-teal-950/35 border border-emerald-500/25 rounded-2xl p-4 sm:p-5 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span className="text-[9px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                <Recycle className="w-3.5 h-3.5 text-emerald-400" />
+                Integração Ferro Velho, Balança Digital & Pátio
+              </span>
+              <h4 className="text-xs sm:text-sm font-black text-white mt-0.5">
+                Indicadores do Pátio & Reciclagem em Tempo Real
+              </h4>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setFerroVelhoInitialTab("estoque");
+                  setFerroVelhoInitialFilter("outros");
+                  setOpMode("ferro_velho");
+                  if (onSubTabChange) onSubTabChange("ferro_velho_outros");
+                }}
+                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-500/35 text-emerald-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer transition-all"
+              >
+                <Scale className="w-3.5 h-3.5" />
+                <span>Abrir Balança & Materiais</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFerroVelhoInitialTab("guia_plasticos");
+                  setOpMode("ferro_velho");
+                  if (onSubTabChange) onSubTabChange("ferro_velho_guia");
+                }}
+                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/35 text-amber-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer transition-all"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>Guia PET / Duro / Alto Impacto</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-slate-950/70 border border-white/10 rounded-xl p-3">
+              <span className="text-[9px] font-black uppercase text-slate-400 block">Vidros no Pátio (Victor)</span>
+              <span className="text-base font-black text-emerald-400 font-mono block mt-0.5">
+                {ferroVelhoLiveSummary.glassKg.toFixed(1)} kg
+              </span>
+              <span className="text-[9.5px] text-slate-400 block">
+                Meta: {ferroVelhoLiveSummary.goalKg} kg • Est. {formatCurrency(ferroVelhoLiveSummary.estimatedGlassPlantValue)}
+              </span>
+            </div>
+
+            <div className="bg-slate-950/70 border border-white/10 rounded-xl p-3">
+              <span className="text-[9px] font-black uppercase text-slate-400 block">12 Categorias (Balança)</span>
+              <span className="text-base font-black text-cyan-300 font-mono block mt-0.5">
+                {ferroVelhoLiveSummary.otherTotalKg.toFixed(1)} kg
+              </span>
+              <span className="text-[9.5px] text-slate-400 block">
+                {ferroVelhoLiveSummary.otherTotalUnits} un • Plásticos, Metais, Eletrônicos
+              </span>
+            </div>
+
+            <div className="bg-slate-950/70 border border-white/10 rounded-xl p-3">
+              <span className="text-[9px] font-black uppercase text-slate-400 block">Cargas Fechadas</span>
+              <span className="text-base font-black text-amber-300 font-mono block mt-0.5">
+                {ferroVelhoLiveSummary.totalDispatchedTons.toFixed(2)} t
+              </span>
+              <span className="text-[9.5px] text-slate-400 block">
+                {ferroVelhoLiveSummary.shipmentsCount} cargas • {formatCurrency(ferroVelhoLiveSummary.totalDispatchedRevenue)}
+              </span>
+            </div>
+
+            <div className="bg-slate-950/70 border border-white/10 rounded-xl p-3">
+              <span className="text-[9px] font-black uppercase text-slate-400 block">Caderninho (A Pagar)</span>
+              <span className="text-base font-black text-rose-300 font-mono block mt-0.5">
+                {formatCurrency(ferroVelhoLiveSummary.pendingCaderninhoTotal)}
+              </span>
+              <span className="text-[9.5px] text-slate-400 block">
+                {ferroVelhoLiveSummary.pendingCaderninhoCount} colaborador(es) com saldo
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* TWO COLUMN SUMMARY: PAYMENT METHODS BREAKDOWN & TOP PRODUCTS RANKING */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* PAYMENT METHODS BREAKDOWN (5/12) */}
@@ -11326,6 +11590,78 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
             </div>
           </div>
 
+        </div>
+
+        {/* INTEGRATED FERRO VELHO & BALANÇA INVENTORY OVERVIEW */}
+        <div className="bg-gradient-to-br from-emerald-950/35 via-slate-900 to-cyan-950/35 border border-emerald-500/25 rounded-2xl p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span className="text-[9px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                <Recycle className="w-3.5 h-3.5 text-emerald-400" />
+                Estoque Integrado do Ferro Velho & Balança Digital
+              </span>
+              <h4 className="text-xs font-black text-white mt-0.5">
+                Pátio de Vidros ({ferroVelhoLiveSummary.glassKg.toFixed(1)} kg / {ferroVelhoLiveSummary.goalKg} kg) + {ferroVelhoLiveSummary.scrapList.length} Categorias de Reciclagem ({ferroVelhoLiveSummary.otherTotalKg.toFixed(1)} kg)
+              </h4>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setFerroVelhoInitialTab("estoque");
+                  setFerroVelhoInitialFilter("outros");
+                  setOpMode("ferro_velho");
+                  if (onSubTabChange) onSubTabChange("ferro_velho_outros");
+                }}
+                className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/40 border border-emerald-500/40 text-emerald-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer"
+              >
+                <Scale className="w-3.5 h-3.5" />
+                <span>Pesar na Balança</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFerroVelhoInitialTab("guia_plasticos");
+                  setOpMode("ferro_velho");
+                  if (onSubTabChange) onSubTabChange("ferro_velho_guia");
+                }}
+                className="min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/35 text-amber-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>Guia PET / Duro / PS</span>
+              </button>
+            </div>
+          </div>
+
+          {ferroVelhoLiveSummary.scrapList.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+              {ferroVelhoLiveSummary.scrapList.map((mat) => (
+                <div
+                  key={mat.id}
+                  className="bg-slate-950/75 border border-white/10 rounded-xl px-2.5 py-2 flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <span className="text-[10.5px] font-bold text-white truncate block">
+                      {mat.emoji || "♻️"} {mat.name}
+                    </span>
+                    <span className="text-[9px] text-slate-400 block">
+                      {(Number(mat.buyPricePerKg) || 0) > 0
+                        ? `R$ ${Number(mat.buyPricePerKg).toFixed(2)}/kg`
+                        : "Sem preço ainda"}
+                    </span>
+                  </div>
+                  <div className="text-right shrink-0 font-mono">
+                    <span className="text-[11px] font-black text-emerald-300 block">
+                      {(Number(mat.stockKg) || 0).toFixed(1)} kg
+                    </span>
+                    {(Number(mat.stockUnits) || 0) > 0 && (
+                      <span className="text-[9px] text-amber-300 block">{mat.stockUnits} un</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* AI COACHING EXPANDABLE OUTPUT IF AVAILABLE */}
@@ -20027,21 +20363,47 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   </h2>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpMode("venda");
-                  if (onSubTabChange) onSubTabChange(null);
-                }}
-                className="min-h-[44px] px-4 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-slate-200 font-black text-xs uppercase rounded-xl border border-white/15 transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none shrink-0"
-              >
-                <ShoppingCart className="w-4 h-4 text-emerald-400" />
-                <span>Voltar para Vendas 🛒</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFerroVelhoInitialTab("guia_plasticos");
+                  }}
+                  className="min-h-[44px] px-3.5 py-2 bg-amber-500/20 hover:bg-amber-500/35 active:scale-95 text-amber-200 font-black text-xs uppercase rounded-xl border border-amber-500/40 transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                >
+                  <BookOpen className="w-4 h-4 text-amber-300" />
+                  <span>Guia Plásticos & Mercado</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpMode("relatorios");
+                    if (onSubTabChange) onSubTabChange("relatorios");
+                  }}
+                  className="min-h-[44px] px-3.5 py-2 bg-purple-600/20 hover:bg-purple-600/35 active:scale-95 text-purple-200 font-black text-xs uppercase rounded-xl border border-purple-500/40 transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                >
+                  <BarChart className="w-4 h-4 text-purple-300" />
+                  <span>BI & Gestões 📊</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpMode("venda");
+                    if (onSubTabChange) onSubTabChange(null);
+                  }}
+                  className="min-h-[44px] px-4 py-2 bg-slate-950 hover:bg-slate-800 active:scale-95 text-slate-200 font-black text-xs uppercase rounded-xl border border-white/15 transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none shrink-0"
+                >
+                  <ShoppingCart className="w-4 h-4 text-emerald-400" />
+                  <span>Voltar para Vendas 🛒</span>
+                </button>
+              </div>
             </div>
             <GlassBarcodeScannerCart
               db={db}
               userId={userId}
+              initialActiveTab={ferroVelhoInitialTab}
+              initialYardControlFilter={ferroVelhoInitialFilter}
+              onSyncFinancialEventToPDV={handleSyncFerroVelhoEventToPDV}
               showNotification={showNotification}
               onAddItemsToYardStock={(items) => {
                 showNotification(`Entrada de ${items.length} lote(s) somada ao Pátio rumo à meta do caminhão! 🍾⚖️`, "success");
@@ -22772,6 +23134,9 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               <GlassBarcodeScannerCart
                 db={db}
                 userId={userId}
+                initialActiveTab={ferroVelhoInitialTab}
+                initialYardControlFilter={ferroVelhoInitialFilter}
+                onSyncFinancialEventToPDV={handleSyncFerroVelhoEventToPDV}
                 showNotification={showNotification}
                 onAddItemsToYardStock={(items) => {
                   showNotification(`Entrada de ${items.length} lote(s) somada ao Pátio rumo à meta do Victor! 🍾⚖️`, "success");

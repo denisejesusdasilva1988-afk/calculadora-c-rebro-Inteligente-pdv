@@ -12522,6 +12522,10 @@ export default function App() {
                           handleSetNotepadMode("pdv");
                         } else if (action === "ajuda") {
                           handleSetNotepadMode("ajuda");
+                        } else if (action === "ferro_velho" || action === "ferro_velho_outros" || action === "ferro_velho_guia") {
+                          setPdvCheckoutOnly(false);
+                          setPdvActiveSubTab(action);
+                          handleSetNotepadMode("pdv");
                         } else if (action.startsWith("segmento_")) {
                           const seg = action.replace("segmento_", "");
                           localStorage.setItem("barbearia_selected_segment", seg);

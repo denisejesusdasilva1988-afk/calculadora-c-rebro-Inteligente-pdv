@@ -63,6 +63,7 @@
         "excelSavedSheets": { "type": "array" },
         "excelFoldersList": { "type": "array" },
         "masterPinProfile": { "type": "object" },
+        "dwGlassYardData": { "type": "object" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "lastModifiedAt": { "type": "number", "description": "Local timestamp of last modification in milliseconds" }
       },

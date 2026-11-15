@@ -41,7 +41,9 @@ import {
   MessageSquare,
   Heart,
   Zap,
-  Filter
+  Filter,
+  Recycle,
+  BookOpen
 } from "lucide-react";
 
 interface BalcaoComandosModuleProps {
@@ -147,6 +149,9 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
       else if (actionKey === "proprietario") onOpenPDVWithSubTab("proprietario");
       else if (actionKey === "orcamentos") onOpenPDVWithSubTab("orcamentos");
       else if (actionKey === "ajuda") onOpenPDVWithSubTab("ajuda");
+      else if (actionKey === "ferro_velho") onOpenPDVWithSubTab("ferro_velho");
+      else if (actionKey === "ferro_velho_outros") onOpenPDVWithSubTab("ferro_velho_outros");
+      else if (actionKey === "ferro_velho_guia") onOpenPDVWithSubTab("ferro_velho_guia");
       else if (actionKey === "scanner") {
         showNotification("Abrindo leitor de código de barras / câmera no Balcão...", "info");
         onOpenPDVWithSubTab(null);
@@ -349,6 +354,51 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
       keywords: ["ajuda", "suporte", "manual", "ia", "tutorial", "orientacao", "duvidas"],
       gradient: "from-amber-600/20 to-purple-950/40",
       borderColor: "border-amber-500/40 hover:border-amber-300",
+      textColor: "text-amber-300",
+      iconBg: "bg-amber-500/20 text-amber-300"
+    },
+    {
+      id: "ferro_velho",
+      title: "Ferro Velho & Compra no Portão",
+      subtitle: "Leitor de barras para garrafas, Pátio 3.000kg, Caderninho e Cargas",
+      category: "vendas",
+      categoryLabel: "Reciclagem",
+      icon: Recycle,
+      badge: "Portão & Pátio ♻️",
+      actionKey: "ferro_velho",
+      keywords: ["ferro velho", "reciclagem", "vidro", "garrafa", "patio", "bipar", "caderninho", "victor", "longneck", "caco"],
+      gradient: "from-emerald-600/20 to-teal-950/40",
+      borderColor: "border-emerald-500/40 hover:border-emerald-400",
+      textColor: "text-emerald-300",
+      iconBg: "bg-emerald-500/20 text-emerald-300"
+    },
+    {
+      id: "ferro_velho_outros",
+      title: "Balança Digital & 12 Materiais (Reciclagem)",
+      subtitle: "PET, Plástico Duro, Alto Impacto, Latinha, Ferro, Cobre, Eletrônicos e Papéis",
+      category: "estoque",
+      categoryLabel: "Balança",
+      icon: Scale,
+      badge: "Balança ⚖️",
+      actionKey: "ferro_velho_outros",
+      keywords: ["balanca", "pet", "plastico duro", "alto impacto", "latinha", "aluminio", "ferro", "cobre", "eletronico", "tv", "eletrodomestico", "papelao", "cd", "dvd", "livro"],
+      gradient: "from-cyan-600/20 to-emerald-950/40",
+      borderColor: "border-cyan-500/40 hover:border-cyan-400",
+      textColor: "text-cyan-300",
+      iconBg: "bg-cyan-500/20 text-cyan-300"
+    },
+    {
+      id: "ferro_velho_guia",
+      title: "Guia: PET vs Plástico Duro vs Alto Impacto",
+      subtitle: "Exemplos do mercado: potes de doces, ketchup, mostarda, maionese, ovo e uva",
+      category: "estoque",
+      categoryLabel: "Guia Prático",
+      icon: BookOpen,
+      badge: "Guia Plásticos 📘",
+      actionKey: "ferro_velho_guia",
+      keywords: ["guia", "plastico", "pet", "duro", "alto impacto", "ketchup", "mostarda", "maionese", "pote", "doce", "ovo", "uva", "mercado", "pead", "pp", "ps"],
+      gradient: "from-amber-600/20 to-amber-950/40",
+      borderColor: "border-amber-500/40 hover:border-amber-400",
       textColor: "text-amber-300",
       iconBg: "bg-amber-500/20 text-amber-300"
     },

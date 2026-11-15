@@ -41,12 +41,16 @@ import {
   Sliders,
   Package,
   Cloud,
-  Link2
+  Link2,
+  RotateCcw,
+  Usb,
+  BookOpen
 } from "lucide-react";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { SmartNumericInput } from "./SmartNumericInput";
+import { PlasticRecyclingGuidePanel } from "./PlasticRecyclingGuidePanel";
 import {
   getIsFirestoreQuotaPaused,
   isQuotaExhaustedError,
@@ -75,13 +79,19 @@ export interface CatalogBottleItem {
   quickPresets: number[]; // [3, 6, 10, 20, 25, 30, 60] ou [2, 4, 10, 20, 25, 100]
 }
 
+export type ScrapCategoryGroup = "plasticos" | "metais" | "eletronicos" | "papeis" | "outros";
+
 export interface OtherScrapMaterial {
   id: string;
   name: string;
   emoji: string;
+  categoryGroup?: ScrapCategoryGroup;
   stockKg: number;
-  buyPricePerKg: number;
+  stockUnits?: number;
+  trackUnits?: boolean;
+  buyPricePerKg: number; // 0 = Sem preço definido ainda
   notes?: string;
+  isCustom?: boolean;
 }
 
 export interface GlassCartItem {
@@ -640,13 +650,108 @@ const playScannerBeep = (freq = 1900, duration = 0.08) => {
   } catch {}
 };
 
-// Materiais iniciais de outros ferro velhos (mantidos 100% separados do pátio de vidros!)
+// Materiais iniciais de outros ferro velhos (100% separados do pátio de vidros e sem preços definidos inicialmente!)
 const INITIAL_OTHER_SCRAP_MATERIALS: OtherScrapMaterial[] = [
-  { id: "scrap_aluminio", name: "Alumínio & Latinhas", emoji: "🥫", stockKg: 0, buyPricePerKg: 5.5, notes: "Separado do vidro" },
-  { id: "scrap_ferro", name: "Ferro & Sucata Pesada", emoji: "🔩", stockKg: 0, buyPricePerKg: 0.7, notes: "Ferro batido / chaparia" },
-  { id: "scrap_papelao", name: "Papelão & Plástico Limpo", emoji: "📦", stockKg: 0, buyPricePerKg: 0.4, notes: "Fardos / caixas" },
-  { id: "scrap_cobre", name: "Cobre & Metais Nobres", emoji: "🪙", stockKg: 0, buyPricePerKg: 35.0, notes: "Fio descascado / misto" }
+  { id: "scrap_pet", name: "PET (Garrafas PET)", emoji: "🧴", categoryGroup: "plasticos", stockKg: 0, stockUnits: 0, buyPricePerKg: 0, notes: "PET cristal, verde, óleo ou bandeja limpa" },
+  { id: "scrap_plastico_duro", name: "Plásticos Duros (PEAD / PP)", emoji: "🪣", categoryGroup: "plasticos", stockKg: 0, stockUnits: 0, buyPricePerKg: 0, notes: "Baldes, bacias, potes de doce/margarina, galões e tampas" },
+  { id: "scrap_alto_impacto", name: "Plásticos Alto Impacto (PS / PSAI)", emoji: "🥛", categoryGroup: "plasticos", stockKg: 0, stockUnits: 0, buyPricePerKg: 0, notes: "Potinho de iogurte/Danone, copo descartável, forro de geladeira (racha ao dobrar)" },
+  { id: "scrap_latinhas", name: "Latinhas de Alumínio", emoji: "🥤", categoryGroup: "metais", stockKg: 0, stockUnits: 0, buyPricePerKg: 0, notes: "Latinhas de cerveja e refrigerante" },
+  { id: "scrap_aluminio", name: "Alumínio Grosso / Panelas / Perfil", emoji: "🍳", categoryGroup: "metais", stockKg: 0, stockUnits: 0, buyPricePerKg: 0, notes: "Panelas, chapas, perfis e peças de alumínio" },
+  { id: "scrap_ferro", name: "Ferro & Sucata Pesada", emoji: "🔩", categoryGroup: "metais", stockKg: 0, stockUnits: 0, buyPricePerKg: 0, notes: "Ferro batido, chaparia e ferragens" },
+  { id: "scrap_cobre", name: "Cobre (Mel / Misto / Fios)", emoji: "🪙", categoryGroup: "metais", stockKg: 0, stockUnits: 0, buyPricePerKg: 0, notes: "Fio descascado, encapado ou tubulação" },
+  { id: "scrap_eletronicos", name: "Eletrônicos (Celulares, Notebooks, PC)", emoji: "💻", categoryGroup: "eletronicos", stockKg: 0, stockUnits: 0, trackUnits: true, buyPricePerKg: 0, notes: "Celulares, notebooks, placas, fontes e gabinetes" },
+  { id: "scrap_tvs", name: "TVs (Tubo, LED, LCD, Smart)", emoji: "📺", categoryGroup: "eletronicos", stockKg: 0, stockUnits: 0, trackUnits: true, buyPricePerKg: 0, notes: "Televisores inteiros ou desmontados" },
+  { id: "scrap_eletrodomesticos", name: "Eletrodomésticos", emoji: "🧺", categoryGroup: "eletronicos", stockKg: 0, stockUnits: 0, trackUnits: true, buyPricePerKg: 0, notes: "Geladeira, fogão, máquina de lavar, micro-ondas" },
+  { id: "scrap_papeis_midias", name: "Papéis, CDs, DVDs e Livros", emoji: "📚", categoryGroup: "papeis", stockKg: 0, stockUnits: 0, buyPricePerKg: 0, notes: "Papel branco/misto, livros, cadernos, CDs e DVDs" },
+  { id: "scrap_papelao", name: "Papelão (Caixas & Fardos)", emoji: "📦", categoryGroup: "papeis", stockKg: 0, stockUnits: 0, buyPricePerKg: 0, notes: "Caixas onduladas e fardos de papelão" }
 ];
+
+const SCRAP_GROUP_META: Record<ScrapCategoryGroup, { label: string; badge: string }> = {
+  plasticos: { label: "🧴 Plásticos", badge: "Plásticos" },
+  metais: { label: "🔩 Metais", badge: "Metais" },
+  eletronicos: { label: "📺 Eletrônicos & Eletro", badge: "Eletrônicos & Eletro" },
+  papeis: { label: "📦 Papéis & Papelão", badge: "Papéis & Papelão" },
+  outros: { label: "🧩 Outros", badge: "Outros" }
+};
+
+function mergeScrapMaterialsWithDefaults(
+  rawList: any,
+  resetLegacyDummyPrices = false
+): OtherScrapMaterial[] {
+  const savedArr: any[] = Array.isArray(rawList) ? rawList : [];
+  const savedById = new Map<string, any>();
+  savedArr.forEach((item) => {
+    if (item && typeof item.id === "string") {
+      savedById.set(item.id, item);
+    }
+  });
+
+  const legacyPricesById: Record<string, number> = {
+    scrap_aluminio: 5.5,
+    scrap_ferro: 0.7,
+    scrap_papelao: 0.4,
+    scrap_cobre: 35.0
+  };
+
+  const mergedDefaults: OtherScrapMaterial[] = INITIAL_OTHER_SCRAP_MATERIALS.map((def) => {
+    const existing = savedById.get(def.id);
+    if (!existing) return { ...def };
+
+    const stockKg = Math.max(0, Number(existing.stockKg) || 0);
+    const stockUnits = Math.max(0, Math.round(Number(existing.stockUnits) || 0));
+    let buyPricePerKg = Math.max(0, Number(existing.buyPricePerKg) || 0);
+    if (
+      resetLegacyDummyPrices &&
+      stockKg === 0 &&
+      stockUnits === 0 &&
+      legacyPricesById[def.id] !== undefined &&
+      Math.abs(buyPricePerKg - legacyPricesById[def.id]) < 0.001
+    ) {
+      buyPricePerKg = 0;
+    }
+
+    let resolvedName = typeof existing.name === "string" && existing.name.trim() ? existing.name : def.name;
+    let resolvedNotes = typeof existing.notes === "string" && existing.notes.trim() ? existing.notes : def.notes;
+    if (def.id === "scrap_papelao" && resolvedName === "Papelão & Plástico Limpo") {
+      resolvedName = def.name;
+      resolvedNotes = def.notes;
+    }
+    if (def.id === "scrap_aluminio" && resolvedName === "Alumínio & Latinhas") {
+      resolvedName = def.name;
+      resolvedNotes = def.notes;
+    }
+
+    return {
+      ...def,
+      name: resolvedName,
+      emoji: typeof existing.emoji === "string" && existing.emoji.trim() ? existing.emoji : def.emoji,
+      categoryGroup: existing.categoryGroup || def.categoryGroup,
+      stockKg,
+      stockUnits,
+      trackUnits: existing.trackUnits ?? def.trackUnits,
+      buyPricePerKg,
+      notes: resolvedNotes
+    };
+  });
+
+  const defaultIds = new Set(INITIAL_OTHER_SCRAP_MATERIALS.map((d) => d.id));
+  const customSaved: OtherScrapMaterial[] = savedArr
+    .filter((item) => item && typeof item.id === "string" && !defaultIds.has(item.id))
+    .map((item) => ({
+      id: item.id,
+      name: String(item.name || "Material Personalizado"),
+      emoji: String(item.emoji || "♻️"),
+      categoryGroup: (item.categoryGroup as ScrapCategoryGroup) || "outros",
+      stockKg: Math.max(0, Number(item.stockKg) || 0),
+      stockUnits: Math.max(0, Math.round(Number(item.stockUnits) || 0)),
+      trackUnits: Boolean(item.trackUnits),
+      buyPricePerKg: Math.max(0, Number(item.buyPricePerKg) || 0),
+      notes: typeof item.notes === "string" ? item.notes : "",
+      isCustom: true
+    }));
+
+  return [...mergedDefaults, ...customSaved];
+}
 
 // Construtor de HTML térmico (58mm / 80mm / A4) para Comprovante de Compra no Portão
 function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: PrinterConfig, yardCurrentKg: number, yardGoalKg: number): string {
@@ -773,13 +878,27 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
   `;
 }
 
+export interface PdvSyncedFinancialEvent {
+  id: string;
+  type: "entrada" | "saida";
+  amount: number;
+  description: string;
+  paymentMethod: "dinheiro" | "pix" | "cartao_debito" | "cartao_credito";
+  category: "venda" | "despesa" | "outros";
+  clientName?: string;
+  items?: { name: string; price: number; quantity: number; unit?: string }[];
+}
+
 interface Props {
   db?: any;
   userId?: string;
   sellPricePerTon?: number; // Preço pago pela usina (ex: R$ 150/ton = R$ 0,15/kg)
   onSetSellPricePerTon?: (price: number) => void;
   buyerName?: string;
+  initialActiveTab?: "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos";
+  initialYardControlFilter?: "vidro" | "outros";
   onAddItemsToYardStock?: (itemsToAdd: { name: string; quantity: number; weightKg: number; costPaid: number }[]) => void;
+  onSyncFinancialEventToPDV?: (event: PdvSyncedFinancialEvent) => void;
   showNotification?: (msg: string, type: "success" | "error" | "info" | "warning") => void;
 }
 
@@ -789,7 +908,10 @@ export function GlassBarcodeScannerCart({
   sellPricePerTon = 150,
   onSetSellPricePerTon,
   buyerName = "Caminhão do Victor (Usina / Reciclagem)",
+  initialActiveTab,
+  initialYardControlFilter,
   onAddItemsToYardStock,
+  onSyncFinancialEventToPDV,
   showNotification
 }: Props) {
   const [internalSellPricePerTon, setInternalSellPricePerTon] = useState<number>(() => {
@@ -886,20 +1008,80 @@ export function GlassBarcodeScannerCart({
   const [showGoalEditor, setShowGoalEditor] = useState<boolean>(false);
   const [goalInputDraft, setGoalInputDraft] = useState<string>(() => String(yardGoalKg));
 
-  // Estoque separado de Outros Materiais do Ferro Velho (Alumínio, Ferro, Papelão, Cobre)
+  // Estoque separado de Outros Materiais do Ferro Velho (PET, Latinhas, Plásticos Duros, Ferro, Alumínio, Cobre, Eletrônicos, TVs, Eletrodomésticos, Papéis, Papelão)
   const [otherScrapMaterials, setOtherScrapMaterials] = useState<OtherScrapMaterial[]>(() => {
     try {
+      const hasZeroPriceMigrated = localStorage.getItem("pdv_dw_other_scrap_v2_noprice_init") === "1";
       const saved = localStorage.getItem("pdv_dw_other_scrap_materials_v1");
+      if (!hasZeroPriceMigrated) {
+        localStorage.setItem("pdv_dw_other_scrap_v2_noprice_init", "1");
+      }
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return mergeScrapMaterialsWithDefaults(parsed, !hasZeroPriceMigrated);
+        }
       }
     } catch {}
     return INITIAL_OTHER_SCRAP_MATERIALS;
   });
 
   // Painel ativo no controle de materiais do Pátio ("vidro" vs "outros")
-  const [yardControlFilter, setYardControlFilter] = useState<"vidro" | "outros">("vidro");
+  const [yardControlFilter, setYardControlFilter] = useState<"vidro" | "outros">(
+    initialYardControlFilter || "vidro"
+  );
+
+  // Integração automática com Caixa, Relatórios & BI do PDV
+  const [syncToPdvCash, setSyncToPdvCash] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("pdv_dw_sync_to_pdv_cash_v1");
+      return saved === null ? true : saved === "true";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_sync_to_pdv_cash_v1", syncToPdvCash ? "true" : "false");
+    } catch {}
+  }, [syncToPdvCash]);
+
+  // Modal de venda / baixa de lote de Outros Materiais do Ferro Velho integrado ao PDV
+  const [sellingScrapMaterial, setSellingScrapMaterial] = useState<OtherScrapMaterial | null>(null);
+  const [scrapSaleKgDraft, setScrapSaleKgDraft] = useState<string>("");
+  const [scrapSaleUnitsDraft, setScrapSaleUnitsDraft] = useState<string>("");
+  const [scrapSaleTotalValueDraft, setScrapSaleTotalValueDraft] = useState<string>("");
+  const [scrapSaleBuyerDraft, setScrapSaleBuyerDraft] = useState<string>("");
+  const [scrapSaleMethod, setScrapSaleMethod] = useState<"dinheiro" | "pix" | "cartao_debito" | "cartao_credito">("pix");
+
+  // Estados da Balança Digital & Filtro de Outros Materiais do Ferro Velho
+  const [scrapCategoryFilter, setScrapCategoryFilter] = useState<"todos" | ScrapCategoryGroup>("todos");
+  const [scrapSearchQuery, setScrapSearchQuery] = useState<string>("");
+  const [scaleSelectedMaterialId, setScaleSelectedMaterialId] = useState<string>("scrap_pet");
+  const [scaleUnitMode, setScaleUnitMode] = useState<"kg" | "g">("kg");
+  const [scaleGrossInput, setScaleGrossInput] = useState<string>("");
+  const [scaleTareInput, setScaleTareInput] = useState<string>("");
+  const [scaleUnitsInput, setScaleUnitsInput] = useState<string>("");
+  const [scaleQueueReadings, setScaleQueueReadings] = useState<
+    { id: string; grossKg: number; tareKg: number; netKg: number; label: string }[]
+  >([]);
+  const [serialConnected, setSerialConnected] = useState<boolean>(false);
+  const [serialStatusMsg, setSerialStatusMsg] = useState<string | null>(null);
+  const serialPortRef = useRef<any>(null);
+  const serialReaderCancelRef = useRef<boolean>(false);
+  const digitalScalePanelRef = useRef<HTMLDivElement | null>(null);
+
+  // Estados de criação de novo material, edição opcional de preço (quando quiser) e confirmações inline
+  const [editingScrapPriceId, setEditingScrapPriceId] = useState<string | null>(null);
+  const [editingScrapPriceDraft, setEditingScrapPriceDraft] = useState<string>("");
+  const [showAddCustomScrapForm, setShowAddCustomScrapForm] = useState<boolean>(false);
+  const [newScrapName, setNewScrapName] = useState<string>("");
+  const [newScrapEmoji, setNewScrapEmoji] = useState<string>("♻️");
+  const [newScrapGroup, setNewScrapGroup] = useState<ScrapCategoryGroup>("outros");
+  const [newScrapTrackUnits, setNewScrapTrackUnits] = useState<boolean>(false);
+  const [newScrapNotes, setNewScrapNotes] = useState<string>("");
+  const [confirmDeleteCustomScrapId, setConfirmDeleteCustomScrapId] = useState<string | null>(null);
+  const [confirmClearAllScrapPrices, setConfirmClearAllScrapPrices] = useState<boolean>(false);
 
   // Modal de Confirmação Rápida após Bipar (Permite digitar ex: 55 direto no teclado antes de jogar no carrinho)
   const [scannedPrompt, setScannedPrompt] = useState<{ bottle: CatalogBottleItem; matchedCode: string } | null>(null);
@@ -993,12 +1175,24 @@ export function GlassBarcodeScannerCart({
       setPurchaseHistory([]);
       setPaymentHistory([]);
       setTruckShipments([]);
-      setOtherScrapMaterials((prev) => prev.map((m) => ({ ...m, stockKg: 0 })));
+      setOtherScrapMaterials((prev) => prev.map((m) => ({ ...m, stockKg: 0, stockUnits: 0 })));
       setLastPurchaseReceipt(null);
       setShowCheckoutModal(false);
     };
     window.addEventListener("dw_glass_zero_yard", handleYardZeroEvent);
     return () => window.removeEventListener("dw_glass_zero_yard", handleYardZeroEvent);
+  }, []);
+
+  // Fecha porta serial da balança USB caso usuário saia da tela
+  useEffect(() => {
+    return () => {
+      serialReaderCancelRef.current = true;
+      try {
+        if (serialPortRef.current && typeof serialPortRef.current.close === "function") {
+          serialPortRef.current.close().catch(() => {});
+        }
+      } catch {}
+    };
   }, []);
 
   // Carrinho de compras no portão (permite misturar garrafas diferentes!)
@@ -1074,8 +1268,22 @@ export function GlassBarcodeScannerCart({
     return [];
   });
 
-  // Aba ativa: "carrinho" | "caderninho" | "estoque" | "cargas"
-  const [activeTab, setActiveTab] = useState<"carrinho" | "caderninho" | "estoque" | "cargas">("carrinho");
+  // Aba ativa: "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos"
+  const [activeTab, setActiveTab] = useState<"carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos">(
+    initialActiveTab || "carrinho"
+  );
+
+  useEffect(() => {
+    if (initialActiveTab) {
+      setActiveTab(initialActiveTab);
+    }
+  }, [initialActiveTab]);
+
+  useEffect(() => {
+    if (initialYardControlFilter) {
+      setYardControlFilter(initialYardControlFilter);
+    }
+  }, [initialYardControlFilter]);
 
   // Entrada de código de barras
   const [barcodeInput, setBarcodeInput] = useState<string>("");
@@ -1230,6 +1438,13 @@ export function GlassBarcodeScannerCart({
     } catch {}
   }, [otherScrapMaterials]);
 
+  // Notifica os demais painéis do PDV (Estoque, Relatórios & BI) sempre que o Pátio/Ferro Velho mudar
+  useEffect(() => {
+    try {
+      window.dispatchEvent(new CustomEvent("dw_glass_yard_updated"));
+    } catch {}
+  }, [catalog, otherScrapMaterials, collaborators, truckShipments, yardGoalKg, activeSellPricePerTon]);
+
   // Helper para enviar snapshot do Pátio & Códigos para Firestore userData/{uid}
   const latestCloudPayloadRef = useRef<any>(null);
   latestCloudPayloadRef.current = {
@@ -1340,7 +1555,7 @@ export function GlassBarcodeScannerCart({
                     setInternalSellPricePerTon(cloudYard.sellPricePerTon);
                   }
                   if (Array.isArray(cloudYard.otherScrapMaterials) && cloudYard.otherScrapMaterials.length > 0) {
-                    setOtherScrapMaterials(cloudYard.otherScrapMaterials);
+                    setOtherScrapMaterials(mergeScrapMaterialsWithDefaults(cloudYard.otherScrapMaterials, false));
                   }
                   localMutationTsRef.current = cloudTs;
                   try {
@@ -1403,6 +1618,268 @@ export function GlassBarcodeScannerCart({
   const otherMaterialsTotalKg = useMemo(() => {
     return otherScrapMaterials.reduce((acc, m) => acc + (Number(m.stockKg) || 0), 0);
   }, [otherScrapMaterials]);
+
+  const otherMaterialsTotalUnits = useMemo(() => {
+    return otherScrapMaterials.reduce((acc, m) => acc + (Number(m.stockUnits) || 0), 0);
+  }, [otherScrapMaterials]);
+
+  const selectedScaleMaterial = useMemo(() => {
+    return otherScrapMaterials.find((m) => m.id === scaleSelectedMaterialId) || otherScrapMaterials[0];
+  }, [otherScrapMaterials, scaleSelectedMaterialId]);
+
+  const scaleGrossKg = useMemo(() => {
+    const raw = parseFloat(scaleGrossInput.replace(",", ".")) || 0;
+    return Math.max(0, scaleUnitMode === "g" ? raw / 1000 : raw);
+  }, [scaleGrossInput, scaleUnitMode]);
+
+  const scaleTareKg = useMemo(() => {
+    const raw = parseFloat(scaleTareInput.replace(",", ".")) || 0;
+    return Math.max(0, scaleUnitMode === "g" ? raw / 1000 : raw);
+  }, [scaleTareInput, scaleUnitMode]);
+
+  const scaleCurrentNetKg = useMemo(() => {
+    return Math.max(0, scaleGrossKg - scaleTareKg);
+  }, [scaleGrossKg, scaleTareKg]);
+
+  const scaleQueueTotalNetKg = useMemo(() => {
+    return scaleQueueReadings.reduce((sum, r) => sum + r.netKg, 0);
+  }, [scaleQueueReadings]);
+
+  const filteredScrapMaterials = useMemo(() => {
+    const q = scrapSearchQuery.trim().toLowerCase();
+    return otherScrapMaterials.filter((mat) => {
+      if (scrapCategoryFilter !== "todos" && (mat.categoryGroup || "outros") !== scrapCategoryFilter) {
+        return false;
+      }
+      if (!q) return true;
+      const haystack = `${mat.name} ${mat.notes || ""}`.toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [otherScrapMaterials, scrapCategoryFilter, scrapSearchQuery]);
+
+  const handleDisconnectUsbScale = async () => {
+    serialReaderCancelRef.current = true;
+    setSerialConnected(false);
+    try {
+      if (serialPortRef.current && typeof serialPortRef.current.close === "function") {
+        await serialPortRef.current.close();
+      }
+    } catch {}
+    serialPortRef.current = null;
+    setSerialStatusMsg("Balança USB desconectada. Você pode digitar o peso do visor normalmente.");
+  };
+
+  const handleConnectUsbScale = async () => {
+    const navAny = navigator as any;
+    if (!navAny || !navAny.serial) {
+      setSerialStatusMsg(
+        "Este celular/navegador não usa cabo USB direto (Web Serial). Sem problemas: olhe o visor da sua balança digital e digite o peso abaixo!"
+      );
+      if (showNotification) {
+        showNotification("Use a balança digital normalmente e digite o peso do visor no campo abaixo! ⚖️", "info");
+      }
+      return;
+    }
+
+    try {
+      const port = await navAny.serial.requestPort();
+      await port.open({ baudRate: 9600 });
+      serialPortRef.current = port;
+      serialReaderCancelRef.current = false;
+      setSerialConnected(true);
+      setSerialStatusMsg("Balança USB conectada! Lendo peso em tempo real...");
+      if (showNotification) {
+        showNotification("Balança digital USB conectada ao app! ⚖️🔌", "success");
+      }
+
+      const decoder = new TextDecoderStream();
+      port.readable.pipeTo(decoder.writable).catch(() => {});
+      const reader = decoder.readable.getReader();
+      let buffer = "";
+
+      while (!serialReaderCancelRef.current) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) {
+          buffer += value;
+          const lines = buffer.split(/[\r\n]+/);
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const match = line.match(/(\d+[.,]\d+|\d+)/);
+            if (match) {
+              const numericWeight = parseFloat(match[1].replace(",", "."));
+              if (!isNaN(numericWeight) && numericWeight >= 0) {
+                setScaleUnitMode("kg");
+                setScaleGrossInput(numericWeight.toFixed(3).replace(/\.?0+$/, "") || "0");
+              }
+            }
+          }
+        }
+      }
+      reader.releaseLock();
+    } catch (err: any) {
+      setSerialConnected(false);
+      if (err?.name !== "NotFoundError") {
+        setSerialStatusMsg("Não foi possível ler a porta USB. Digite o peso direto do visor da sua balança.");
+      }
+    }
+  };
+
+  const handleAddReadingToScaleQueue = () => {
+    if (scaleCurrentNetKg <= 0) {
+      if (showNotification) showNotification("Digite o peso da balança maior que a tara antes de somar na lista.", "warning");
+      return;
+    }
+    setScaleQueueReadings((prev) => [
+      ...prev,
+      {
+        id: `pesada_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        grossKg: scaleGrossKg,
+        tareKg: scaleTareKg,
+        netKg: scaleCurrentNetKg,
+        label: `Pesada #${prev.length + 1}`
+      }
+    ]);
+    setScaleGrossInput("");
+    playScannerBeep(980, 0.06);
+  };
+
+  const handleCommitDigitalScaleToStock = () => {
+    if (!selectedScaleMaterial) return;
+    const totalWeightToAddKg = scaleQueueTotalNetKg + scaleCurrentNetKg;
+    const unitsToAdd = Math.max(0, parseInt(scaleUnitsInput || "0", 10) || 0);
+
+    if (totalWeightToAddKg <= 0 && unitsToAdd <= 0) {
+      if (showNotification) {
+        showNotification("Informe o peso da balança digital (ou a quantidade em unidades) para lançar.", "warning");
+      }
+      return;
+    }
+
+    markLocalYardMutation();
+    setOtherScrapMaterials((prev) =>
+      prev.map((m) =>
+        m.id === selectedScaleMaterial.id
+          ? {
+              ...m,
+              stockKg: Number((m.stockKg + totalWeightToAddKg).toFixed(3)),
+              stockUnits: (m.stockUnits || 0) + unitsToAdd
+            }
+          : m
+      )
+    );
+    setScaleGrossInput("");
+    setScaleUnitsInput("");
+    setScaleQueueReadings([]);
+    playScannerBeep(1180, 0.09);
+
+    if (showNotification) {
+      const parts: string[] = [];
+      if (totalWeightToAddKg > 0) parts.push(`+${totalWeightToAddKg.toFixed(2)} kg`);
+      if (unitsToAdd > 0) parts.push(`+${unitsToAdd} un`);
+      showNotification(`${selectedScaleMaterial.emoji} ${selectedScaleMaterial.name}: ${parts.join(" e ")} lançado no estoque! ⚖️✅`, "success");
+    }
+  };
+
+  const handleSelectMaterialForScale = (materialId: string) => {
+    setScaleSelectedMaterialId(materialId);
+    setYardControlFilter("outros");
+    setActiveTab("estoque");
+    setTimeout(() => {
+      digitalScalePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
+
+  const handleConfirmScrapSale = () => {
+    if (!sellingScrapMaterial) return;
+    const kgToDeduct = Math.max(0, parseFloat(scrapSaleKgDraft.replace(",", ".")) || 0);
+    const unitsToDeduct = Math.max(0, parseInt(scrapSaleUnitsDraft || "0", 10) || 0);
+    const saleAmount = Math.max(0, parseFloat(scrapSaleTotalValueDraft.replace(",", ".")) || 0);
+
+    if (kgToDeduct <= 0 && unitsToDeduct <= 0) {
+      if (showNotification) showNotification("Informe o peso (kg) ou unidades para dar baixa no lote.", "warning");
+      return;
+    }
+
+    markLocalYardMutation();
+    setOtherScrapMaterials((prev) =>
+      prev.map((m) =>
+        m.id === sellingScrapMaterial.id
+          ? {
+              ...m,
+              stockKg: Math.max(0, Number((m.stockKg - kgToDeduct).toFixed(3))),
+              stockUnits: Math.max(0, (m.stockUnits || 0) - unitsToDeduct)
+            }
+          : m
+      )
+    );
+
+    if (syncToPdvCash && onSyncFinancialEventToPDV && saleAmount > 0) {
+      onSyncFinancialEventToPDV({
+        id: `pdv_fv_sale_${Date.now()}`,
+        type: "entrada",
+        amount: saleAmount,
+        description: `VENDA FERRO VELHO: ${sellingScrapMaterial.name.toUpperCase()} (${kgToDeduct.toFixed(1)} kg${unitsToDeduct > 0 ? ` / ${unitsToDeduct} un` : ""})`,
+        paymentMethod: scrapSaleMethod,
+        category: "venda",
+        clientName: scrapSaleBuyerDraft.trim() || "Comprador Reciclagem",
+        items: [
+          {
+            name: `${sellingScrapMaterial.emoji} ${sellingScrapMaterial.name} (${kgToDeduct.toFixed(1)} kg)`,
+            price: saleAmount,
+            quantity: 1,
+            unit: "lote"
+          }
+        ]
+      });
+    }
+
+    const soldName = sellingScrapMaterial.name;
+    setSellingScrapMaterial(null);
+    setScrapSaleKgDraft("");
+    setScrapSaleUnitsDraft("");
+    setScrapSaleTotalValueDraft("");
+    setScrapSaleBuyerDraft("");
+    playScannerBeep(2100, 0.12);
+
+    if (showNotification) {
+      showNotification(
+        `Baixa realizada em ${soldName} (-${kgToDeduct.toFixed(1)} kg)${saleAmount > 0 && syncToPdvCash && onSyncFinancialEventToPDV ? ` e R$ ${saleAmount.toFixed(2)} lançado no Caixa/BI do PDV!` : "!"} 🚚✅`,
+        "success"
+      );
+    }
+  };
+
+  const handleCreateCustomScrapMaterial = () => {
+    const cleanName = newScrapName.trim();
+    if (!cleanName) {
+      if (showNotification) showNotification("Digite o nome do novo material do ferro velho.", "warning");
+      return;
+    }
+    const created: OtherScrapMaterial = {
+      id: `scrap_custom_${Date.now()}`,
+      name: cleanName,
+      emoji: newScrapEmoji || "♻️",
+      categoryGroup: newScrapGroup,
+      stockKg: 0,
+      stockUnits: 0,
+      trackUnits: newScrapTrackUnits,
+      buyPricePerKg: 0,
+      notes: newScrapNotes.trim() || "Sem preço definido ainda",
+      isCustom: true
+    };
+    markLocalYardMutation();
+    setOtherScrapMaterials((prev) => [...prev, created]);
+    setScaleSelectedMaterialId(created.id);
+    setScrapCategoryFilter("todos");
+    setNewScrapName("");
+    setNewScrapNotes("");
+    setNewScrapTrackUnits(false);
+    setShowAddCustomScrapForm(false);
+    if (showNotification) {
+      showNotification(`${created.emoji} ${created.name} configurado (sem preço definido ainda)! ✅`, "success");
+    }
+  };
 
   // Totais do Estoque no Pátio (SOMENTE VIDROS DA RECICLAGEM!)
   const yardTotals = useMemo(() => {
@@ -2147,6 +2624,19 @@ export function GlassBarcodeScannerCart({
     setLastPurchaseReceipt(ticket);
     setShowCheckoutModal(false);
 
+    // 3.5 Integra pagamento feito na hora no portão com Caixa & Relatórios do PDV
+    if (syncToPdvCash && onSyncFinancialEventToPDV && !isFounder && settlementMode === "pago_na_hora" && ticket.totalPaid > 0) {
+      onSyncFinancialEventToPDV({
+        id: `pdv_fv_buy_${ticket.id}`,
+        type: "saida",
+        amount: ticket.totalPaid,
+        description: `COMPRA VIDROS PORTÃO: ${activeCollab.name.toUpperCase()} (${ticket.totalBottles} un / ${ticket.totalWeightKg.toFixed(1)} kg)`,
+        paymentMethod: "dinheiro",
+        category: "despesa",
+        clientName: activeCollab.name
+      });
+    }
+
     // 4. Limpar carrinho
     setCart([]);
     playScannerBeep(2400, 0.15);
@@ -2222,6 +2712,18 @@ export function GlassBarcodeScannerCart({
     setPaymentHistory((prev) => [receipt, ...prev.slice(0, 49)]);
     setPayingCollab(null);
 
+    if (syncToPdvCash && onSyncFinancialEventToPDV && amount > 0) {
+      onSyncFinancialEventToPDV({
+        id: `pdv_fv_pay_${receipt.id}`,
+        type: "saida",
+        amount,
+        description: `ACERTO CADERNINHO RECICLAGEM: ${payingCollab.name.toUpperCase()}`,
+        paymentMethod: payMethod === "pix" ? "pix" : "dinheiro",
+        category: "despesa",
+        clientName: payingCollab.name
+      });
+    }
+
     playScannerBeep(2200, 0.12);
     if (showNotification) {
       showNotification(
@@ -2256,6 +2758,26 @@ export function GlassBarcodeScannerCart({
 
     markLocalYardMutation();
     setTruckShipments((prev) => [shipment, ...prev]);
+
+    if (syncToPdvCash && onSyncFinancialEventToPDV && shipment.grossRevenueReceived > 0) {
+      onSyncFinancialEventToPDV({
+        id: `pdv_fv_ship_${shipment.id}`,
+        type: "entrada",
+        amount: shipment.grossRevenueReceived,
+        description: `CARGA DESPACHADA VIDROS: ${shipment.buyerName.toUpperCase()} (${shipment.totalWeightTon.toFixed(2)}t)`,
+        paymentMethod: "pix",
+        category: "venda",
+        clientName: shipment.buyerName,
+        items: [
+          {
+            name: `🚚 Carga de Vidros (${shipment.totalWeightTon.toFixed(2)} Toneladas)`,
+            price: shipment.grossRevenueReceived,
+            quantity: 1,
+            unit: "carga"
+          }
+        ]
+      });
+    }
 
     // Zera o estoque do pátio para recomeçar o ciclo de toneladas
     setCatalog((prev) => prev.map((b) => ({ ...b, stockUnits: 0 })));
@@ -2303,7 +2825,7 @@ export function GlassBarcodeScannerCart({
     setPurchaseHistory([]);
     setPaymentHistory([]);
     setTruckShipments([]);
-    const zeroedOtherScrap = otherScrapMaterials.map((m) => ({ ...m, stockKg: 0 }));
+    const zeroedOtherScrap = otherScrapMaterials.map((m) => ({ ...m, stockKg: 0, stockUnits: 0 }));
     setOtherScrapMaterials(zeroedOtherScrap);
 
     setShowZeroConfirmModal(false);
@@ -2476,6 +2998,32 @@ export function GlassBarcodeScannerCart({
               <span className="text-[11px] bg-amber-500/20 text-amber-300 font-bold px-2.5 py-1 rounded-lg border border-amber-500/30">
                 Cotação: R$ {activeSellPricePerTon.toFixed(2)}/t (R$ {sellPricePerKg.toFixed(2)}/kg)
               </span>
+              {onSyncFinancialEventToPDV && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !syncToPdvCash;
+                    setSyncToPdvCash(next);
+                    if (showNotification) {
+                      showNotification(
+                        next
+                          ? "Integração com Caixa, Estoque e Relatórios/BI do PDV ATIVADA! 🔗✅"
+                          : "Modo isolado ativado: lançamentos não entram no Caixa do PDV.",
+                        "info"
+                      );
+                    }
+                  }}
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1 cursor-pointer touch-manipulation select-none active:scale-95 ${
+                    syncToPdvCash
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40"
+                      : "bg-slate-800 text-slate-300 border-white/10"
+                  }`}
+                  title="Sincronizar automaticamente pagamentos no portão, acertos e cargas despachadas com o Caixa e Relatórios do PDV"
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  <span>{syncToPdvCash ? "🔗 Integrado ao PDV / Gestões" : "PDV Isolado (Clique p/ Integrar)"}</span>
+                </button>
+              )}
               {activeAuthUid ? (
                 <button
                   type="button"
@@ -2650,13 +3198,16 @@ export function GlassBarcodeScannerCart({
                   setActiveTab("estoque");
                 }}
                 className="p-2.5 bg-slate-900/90 hover:bg-slate-800 rounded-xl border border-cyan-500/30 space-y-0.5 text-left cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
-                title="Gerenciar Alumínio, Ferro e Papelão separadamente do vidro"
+                title="Abrir Ferro Velho: PET, Latinhas, Plásticos, Ferro, Cobre, Eletrônicos, TVs, Papelão & Balança Digital"
               >
-                <span className="text-[9px] uppercase font-bold text-cyan-300 block">Outros Materiais:</span>
+                <span className="text-[9px] uppercase font-bold text-cyan-300 block">Outros Materiais & Balança:</span>
                 <strong className="text-base sm:text-lg font-mono text-cyan-200 font-black">
                   {otherMaterialsTotalKg.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} <span className="text-[10px] font-normal">kg</span>
+                  {otherMaterialsTotalUnits > 0 ? (
+                    <span className="text-[11px] font-bold text-amber-300 ml-1">+{otherMaterialsTotalUnits} un</span>
+                  ) : null}
                 </strong>
-                <span className="text-[9px] text-cyan-400 block font-bold">Separado 🔩 ➔</span>
+                <span className="text-[9px] text-cyan-400 block font-bold">PET, Ferro, TVs, Papelão ⚖️➔</span>
               </button>
             </div>
           </div>
@@ -2687,13 +3238,14 @@ export function GlassBarcodeScannerCart({
         </div>
       </div>
 
-      {/* ABAS DO SISTEMA D.W VIDROS */}
+      {/* ABAS DO SISTEMA D.W VIDROS & FERRO VELHO */}
       <div className="flex items-center gap-1.5 p-1.5 bg-slate-900 border border-white/10 rounded-2xl overflow-x-auto">
         {[
           { id: "carrinho", label: "🛒 Bipar & Comprar no Portão", badge: cart.length > 0 ? `${cart.length}` : null },
           { id: "caderninho", label: "📖 Caderninho dos Colaboradores", badge: caderninhoTotals.totalPendingAll > 0 ? `R$ ${caderninhoTotals.totalPendingAll.toFixed(0)}` : null },
-          { id: "estoque", label: "📦 Estoque & Balança (Gramas e ML)", badge: `${yardTotals.totalUnits}` },
-          { id: "cargas", label: "🚚 Histórico & Cargas Despachadas", badge: truckShipments.length > 0 ? `${truckShipments.length}` : null }
+          { id: "estoque", label: "📦 Estoque & Balança Digital", badge: `${yardTotals.totalUnits}` },
+          { id: "cargas", label: "🚚 Histórico & Cargas", badge: truckShipments.length > 0 ? `${truckShipments.length}` : null },
+          { id: "guia_plasticos", label: "📘 Guia Plásticos & Mercado", badge: "PET / Duro / PS" }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -3801,95 +4353,683 @@ export function GlassBarcodeScannerCart({
           </div>
 
           {yardControlFilter === "outros" ? (
-            <div className="bg-slate-900 border border-cyan-500/30 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
-              <div className="border-b border-white/10 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="bg-slate-900 border border-cyan-500/30 rounded-3xl p-4 sm:p-6 shadow-xl space-y-5">
+              {/* CABEÇALHO DO FERRO VELHO EXPANDIDO (SEM PREÇOS INICIAIS) */}
+              <div className="border-b border-white/10 pb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 <div>
-                  <span className="text-[10px] font-black uppercase text-cyan-400 tracking-wider block">
-                    Estoque Isolado de Ferro Velho (Não mistura com a Meta do Caminhão de Vidros)
-                  </span>
-                  <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black uppercase text-cyan-400 tracking-wider">
+                      Ferro Velho Isolado • Não Mistura com os 3.000 kg de Vidro
+                    </span>
+                    <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                      Configuração Inicial • Sem Preços Definidos
+                    </span>
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-black text-white flex items-center gap-2 mt-1">
                     <Package className="w-5 h-5 text-cyan-400" />
-                    Outros Materiais (Alumínio, Ferro, Papelão, Cobre)
+                    Ferro Velho Geral & Balança Digital ({otherScrapMaterials.length} Categorias)
                   </h3>
                   <p className="text-xs text-slate-300 mt-1">
-                    Tudo lançado aqui fica 100% separado da tonelagem de vidros do Victor e das mercadorias da loja.
+                    PET, Plástico Duro, Alto Impacto (PS), Latinhas, Alumínio, Ferro, Cobre, Eletrônicos (Celulares, Notebooks, PC), TVs, Eletrodomésticos, Papéis/CDs/DVDs/Livros e Papelão — tudo pronto para pesar sem preços fixos ainda.
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("guia_plasticos")}
+                    className="mt-2.5 min-h-[40px] px-3.5 py-1.5 bg-sky-500/15 hover:bg-sky-500 hover:text-slate-950 text-sky-300 font-black text-xs rounded-xl border border-sky-500/35 inline-flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>📘 Dúvida: O que é PET, Plástico Duro, Alto Impacto, Uva, Ovo, Doce, Ketchup? Abrir Guia</span>
+                  </button>
                 </div>
-                <div className="px-4 py-2 bg-slate-950 rounded-2xl border border-cyan-500/30 text-right shrink-0">
-                  <span className="text-[10px] uppercase font-bold text-cyan-400 block">Total Outros Materiais:</span>
+                <div className="px-4 py-2.5 bg-slate-950 rounded-2xl border border-cyan-500/30 text-right shrink-0">
+                  <span className="text-[10px] uppercase font-bold text-cyan-400 block">Acumulado Outros Materiais:</span>
                   <strong className="text-xl font-mono font-black text-white">
-                    {otherMaterialsTotalKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} kg
+                    {otherMaterialsTotalKg.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg
                   </strong>
+                  {otherMaterialsTotalUnits > 0 && (
+                    <span className="text-[11px] font-bold text-amber-300 block">
+                      + {otherMaterialsTotalUnits} aparelhos / unidades
+                    </span>
+                  )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {otherScrapMaterials.map((mat) => (
-                  <div
-                    key={mat.id}
-                    className="p-4 bg-slate-950 rounded-2xl border border-cyan-500/25 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-3xl p-2 bg-slate-900 rounded-xl">{mat.emoji}</span>
-                        <div>
-                          <div className="text-white font-black text-sm">{mat.name}</div>
-                          <div className="text-[10.5px] text-cyan-300 font-mono font-bold">
-                            Base R$ {mat.buyPricePerKg.toFixed(2)}/kg {mat.notes ? `• ${mat.notes}` : ""}
-                          </div>
-                        </div>
-                      </div>
-                      <strong className="text-lg font-mono font-black text-cyan-300">
-                        {mat.stockKg.toFixed(1)} kg
-                      </strong>
-                    </div>
+              {/* ========================================================= */}
+              {/* BALANÇA DIGITAL DO FERRO VELHO INTEGRADA AO APP            */}
+              {/* ========================================================= */}
+              <div
+                ref={digitalScalePanelRef}
+                className="p-4 sm:p-5 bg-gradient-to-br from-slate-950 via-cyan-950/25 to-slate-950 border-2 border-cyan-500/45 rounded-2xl shadow-lg space-y-4"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-cyan-300 tracking-wider block">
+                      ⚖️ Pesagem no Portão com Balança Digital + App
+                    </span>
+                    <h4 className="text-base sm:text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                      <Scale className="w-5 h-5 text-cyan-400" />
+                      Balança Digital (Peso + Tara + Múltiplas Sacolas)
+                    </h4>
+                  </div>
 
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {serialConnected ? (
+                      <button
+                        type="button"
+                        onClick={handleDisconnectUsbScale}
+                        className="min-h-[44px] px-3.5 py-2 bg-emerald-500/20 hover:bg-rose-950/60 text-emerald-300 hover:text-rose-200 font-black text-xs rounded-xl border border-emerald-400/40 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                      >
+                        <Usb className="w-4 h-4" />
+                        <span>Balança USB Ativa (Desconectar)</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleConnectUsbScale}
+                        className="min-h-[44px] px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-cyan-200 font-bold text-xs rounded-xl border border-cyan-500/35 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                        title="Conectar balança digital compatível via cabo USB/Serial no Chrome"
+                      >
+                        <Usb className="w-4 h-4 text-cyan-400" />
+                        <span>Conectar Balança USB/Serial</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {serialStatusMsg && (
+                  <div className="p-2.5 bg-slate-900/90 border border-cyan-500/30 rounded-xl text-[11.5px] text-cyan-100">
+                    {serialStatusMsg}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+                  {/* Seletor de Material + Unidade (kg ou g) */}
+                  <div className="lg:col-span-5 space-y-2">
+                    <label className="text-[11px] font-black uppercase text-slate-300 block">
+                      1. Escolha o material para pesar na balança:
+                    </label>
+                    <select
+                      value={selectedScaleMaterial?.id || "scrap_pet"}
+                      onChange={(e) => setScaleSelectedMaterialId(e.target.value)}
+                      className="w-full min-h-[48px] bg-slate-900 border border-cyan-500/40 rounded-xl px-3 text-white font-bold text-sm outline-none"
+                    >
+                      {otherScrapMaterials.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.emoji} {m.name} ({m.stockKg.toFixed(1)} kg
+                          {m.trackUnits || (m.stockUnits || 0) > 0 ? ` • ${m.stockUnits || 0} un` : ""})
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="text-[11px] font-bold text-slate-400">Visor da Balança em:</span>
+                      <button
+                        type="button"
+                        onClick={() => setScaleUnitMode("kg")}
+                        className={`min-h-[40px] px-3.5 rounded-xl text-xs font-black border cursor-pointer touch-manipulation select-none active:scale-95 ${
+                          scaleUnitMode === "kg"
+                            ? "bg-cyan-500 text-slate-950 border-cyan-400"
+                            : "bg-slate-900 text-slate-300 border-white/10"
+                        }`}
+                      >
+                        Quilos (kg)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScaleUnitMode("g")}
+                        className={`min-h-[40px] px-3.5 rounded-xl text-xs font-black border cursor-pointer touch-manipulation select-none active:scale-95 ${
+                          scaleUnitMode === "g"
+                            ? "bg-cyan-500 text-slate-950 border-cyan-400"
+                            : "bg-slate-900 text-slate-300 border-white/10"
+                        }`}
+                      >
+                        Gramas (g)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Peso Bruto + Tara + Unidades */}
+                  <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-black uppercase text-cyan-300 block">
+                        2. Peso Bruto ({scaleUnitMode})
+                      </label>
                       <input
                         type="text"
                         inputMode="decimal"
-                        value={mat.stockKg === 0 ? "" : String(mat.stockKg)}
-                        placeholder="0 kg"
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value.replace(",", ".")) || 0;
-                          markLocalYardMutation();
-                          setOtherScrapMaterials((prev) =>
-                            prev.map((m) => (m.id === mat.id ? { ...m, stockKg: Math.max(0, v) } : m))
-                          );
-                        }}
-                        className="w-24 min-h-[44px] bg-slate-900 border border-cyan-500/40 rounded-xl px-3 text-center text-white font-mono font-black text-sm outline-none"
+                        value={scaleGrossInput}
+                        onChange={(e) => setScaleGrossInput(e.target.value)}
+                        placeholder={scaleUnitMode === "kg" ? "Ex: 12.5" : "Ex: 850"}
+                        className="w-full min-h-[48px] bg-slate-900 border-2 border-cyan-400/50 rounded-xl px-3 text-center text-white font-mono font-black text-lg outline-none focus:border-cyan-300"
                       />
-                      {[1, 5, 10, 50].map((addKg) => (
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-black uppercase text-slate-300 block">
+                        Tara Saco/Caixa ({scaleUnitMode})
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={scaleTareInput}
+                        onChange={(e) => setScaleTareInput(e.target.value)}
+                        placeholder="0 (opcional)"
+                        className="w-full min-h-[48px] bg-slate-900 border border-white/15 rounded-xl px-3 text-center text-amber-200 font-mono font-black text-base outline-none focus:border-amber-400"
+                      />
+                    </div>
+
+                    {selectedScaleMaterial?.trackUnits ? (
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-black uppercase text-amber-300 block">
+                          Qtd Aparelhos (un)
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={scaleUnitsInput}
+                            onChange={(e) => setScaleUnitsInput(e.target.value.replace(/\D/g, ""))}
+                            placeholder="Ex: 1"
+                            className="w-full min-h-[48px] bg-slate-900 border border-amber-500/40 rounded-xl px-2 text-center text-white font-mono font-black text-base outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setScaleUnitsInput((prev) => String((parseInt(prev || "0", 10) || 0) + 1))}
+                            className="min-h-[48px] px-3 bg-amber-500/20 hover:bg-amber-500 hover:text-slate-950 text-amber-300 font-black text-xs rounded-xl border border-amber-500/40 cursor-pointer touch-manipulation select-none active:scale-95"
+                          >
+                            +1
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-2.5 bg-slate-900/90 border border-emerald-500/30 rounded-xl flex flex-col justify-center text-center">
+                        <span className="text-[10px] font-bold uppercase text-emerald-300">Peso Líquido Agora:</span>
+                        <strong className="text-lg font-mono font-black text-emerald-400">
+                          {scaleCurrentNetKg.toFixed(2)} kg
+                        </strong>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Lista Acumulada de Múltiplas Sacolas/Caixas + Botão Lançar */}
+                {scaleQueueReadings.length > 0 && (
+                  <div className="p-3 bg-slate-900/90 border border-cyan-500/30 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-black text-cyan-300">
+                        🧺 Pesagens Acumuladas ({scaleQueueReadings.length}): Total {scaleQueueTotalNetKg.toFixed(2)} kg líquido
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setScaleQueueReadings([])}
+                        className="text-rose-300 hover:text-rose-200 font-bold text-xs cursor-pointer"
+                      >
+                        Limpar Lista
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {scaleQueueReadings.map((r) => (
+                        <span
+                          key={r.id}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 border border-cyan-500/30 rounded-lg text-[11px] font-mono text-white"
+                        >
+                          <span>
+                            {r.label}: <strong className="text-emerald-300">{r.netKg.toFixed(2)} kg</strong>
+                            {r.tareKg > 0 ? ` (tara -${r.tareKg.toFixed(2)})` : ""}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setScaleQueueReadings((prev) => prev.filter((item) => item.id !== r.id))}
+                            className="text-rose-400 hover:text-rose-200 cursor-pointer"
+                            title="Remover esta pesada"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleAddReadingToScaleQueue}
+                    className="min-h-[48px] px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-cyan-200 font-black text-xs uppercase rounded-xl border border-cyan-500/40 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95"
+                  >
+                    <Plus className="w-4 h-4 text-cyan-400" />
+                    <span>Somar Pesada na Lista (+ Sacola / Caixa)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCommitDigitalScaleToStock}
+                    className="min-h-[50px] px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs sm:text-sm uppercase rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>
+                      Lançar no Estoque ({(scaleQueueTotalNetKg + scaleCurrentNetKg).toFixed(2)} kg
+                      {selectedScaleMaterial?.trackUnits && (parseInt(scaleUnitsInput || "0", 10) || 0) > 0
+                        ? ` + ${parseInt(scaleUnitsInput || "0", 10)} un`
+                        : ""}
+                      )
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* BARRA DE FILTROS POR GRUPO + BUSCA + NOVO MATERIAL */}
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {(
+                    [
+                      { id: "todos", label: `Todos (${otherScrapMaterials.length})` },
+                      { id: "plasticos", label: "🧴 Plásticos" },
+                      { id: "metais", label: "🔩 Metais" },
+                      { id: "eletronicos", label: "📺 Eletrônicos & TVs" },
+                      { id: "papeis", label: "📦 Papéis & Papelão" },
+                      { id: "outros", label: "🧩 Outros" }
+                    ] as const
+                  ).map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setScrapCategoryFilter(cat.id)}
+                      className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-black border transition-all cursor-pointer touch-manipulation select-none active:scale-95 ${
+                        scrapCategoryFilter === cat.id
+                          ? "bg-cyan-500 text-slate-950 border-cyan-400 shadow"
+                          : "bg-slate-950 text-slate-300 border-white/10 hover:text-white"
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCustomScrapForm((v) => !v)}
+                    className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ml-auto"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Novo Material</span>
+                  </button>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={scrapSearchQuery}
+                      onChange={(e) => setScrapSearchQuery(e.target.value)}
+                      placeholder="Buscar PET, Latinha, Plástico Duro, Ferro, Cobre, Celular, TV, Papelão..."
+                      className="w-full min-h-[46px] bg-slate-950 border border-white/15 rounded-xl pl-10 pr-9 text-sm text-white placeholder:text-slate-500 outline-none focus:border-cyan-400"
+                    />
+                    {scrapSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setScrapSearchQuery("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {otherScrapMaterials.some((m) => m.buyPricePerKg > 0) && (
+                    confirmClearAllScrapPrices ? (
+                      <div className="flex items-center gap-1.5 bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-1.5">
+                        <span className="text-[11px] font-bold text-amber-200">Zerar todos os preços?</span>
                         <button
-                          key={addKg}
+                          type="button"
+                          onClick={() => {
+                            markLocalYardMutation();
+                            setOtherScrapMaterials((prev) => prev.map((m) => ({ ...m, buyPricePerKg: 0 })));
+                            setConfirmClearAllScrapPrices(false);
+                            if (showNotification) showNotification("Todos os materiais voltaram para 'Sem preço definido'.", "info");
+                          }}
+                          className="min-h-[36px] px-2.5 bg-amber-500 text-slate-950 font-black text-xs rounded-lg cursor-pointer"
+                        >
+                          Sim
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmClearAllScrapPrices(false)}
+                          className="min-h-[36px] px-2.5 bg-slate-800 text-slate-200 font-bold text-xs rounded-lg cursor-pointer"
+                        >
+                          Não
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmClearAllScrapPrices(true)}
+                        className="min-h-[46px] px-3.5 py-2 bg-slate-950 hover:bg-slate-800 text-amber-300 font-bold text-xs rounded-xl border border-amber-500/30 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Deixar Tudo Sem Preço</span>
+                      </button>
+                    )
+                  )}
+                </div>
+
+                {/* FORMULÁRIO INLINE PARA CADASTRAR NOVO MATERIAL */}
+                {showAddCustomScrapForm && (
+                  <div className="p-4 bg-slate-950 border-2 border-emerald-500/40 rounded-2xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase text-emerald-400">
+                        + Cadastrar Novo Material no Ferro Velho (Sem preço inicial)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCustomScrapForm(false)}
+                        className="text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <input
+                        type="text"
+                        value={newScrapName}
+                        onChange={(e) => setNewScrapName(e.target.value)}
+                        placeholder="Nome (ex: Inox, Bateria, Motor...)"
+                        className="sm:col-span-2 min-h-[46px] bg-slate-900 border border-white/15 rounded-xl px-3 text-sm text-white outline-none focus:border-emerald-400"
+                      />
+                      <select
+                        value={newScrapGroup}
+                        onChange={(e) => setNewScrapGroup(e.target.value as ScrapCategoryGroup)}
+                        className="min-h-[46px] bg-slate-900 border border-white/15 rounded-xl px-3 text-sm text-white font-bold outline-none"
+                      >
+                        <option value="plasticos">🧴 Plásticos</option>
+                        <option value="metais">🔩 Metais</option>
+                        <option value="eletronicos">📺 Eletrônicos & Eletro</option>
+                        <option value="papeis">📦 Papéis & Papelão</option>
+                        <option value="outros">🧩 Outros</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-slate-400 font-bold">Ícone:</span>
+                      {["♻️", "🔋", "🔌", "🖥️", "⚙️", "🪣", "🧴", "📦", "🪙", "📚"].map((em) => (
+                        <button
+                          key={em}
+                          type="button"
+                          onClick={() => setNewScrapEmoji(em)}
+                          className={`min-h-[40px] min-w-[40px] rounded-xl text-lg border cursor-pointer touch-manipulation select-none active:scale-95 ${
+                            newScrapEmoji === em
+                              ? "bg-emerald-500/25 border-emerald-400"
+                              : "bg-slate-900 border-white/10"
+                          }`}
+                        >
+                          {em}
+                        </button>
+                      ))}
+                      <label className="flex items-center gap-2 text-xs text-slate-200 font-bold ml-auto cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newScrapTrackUnits}
+                          onChange={(e) => setNewScrapTrackUnits(e.target.checked)}
+                          className="w-4 h-4 accent-emerald-500"
+                        />
+                        <span>Contar também por unidade (un)</span>
+                      </label>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={newScrapNotes}
+                        onChange={(e) => setNewScrapNotes(e.target.value)}
+                        placeholder="Observação opcional (ex: baterias de carro/moto)"
+                        className="flex-1 min-h-[44px] bg-slate-900 border border-white/15 rounded-xl px-3 text-xs text-white outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreateCustomScrapMaterial}
+                        className="min-h-[44px] px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none active:scale-95"
+                      >
+                        Salvar Material ✓
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* GRADE DOS MATERIAIS CONFIGURADOS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {filteredScrapMaterials.map((mat) => {
+                  const groupInfo = SCRAP_GROUP_META[mat.categoryGroup || "outros"];
+                  const isEditingThisPrice = editingScrapPriceId === mat.id;
+                  const isSelectedOnScale = selectedScaleMaterial?.id === mat.id;
+
+                  return (
+                    <div
+                      key={mat.id}
+                      className={`p-4 bg-slate-950 rounded-2xl border transition-all space-y-3 ${
+                        isSelectedOnScale ? "border-cyan-400 shadow-md shadow-cyan-500/10" : "border-cyan-500/25"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <span className="text-3xl p-2 bg-slate-900 rounded-xl shrink-0">{mat.emoji}</span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-900 text-cyan-300 border border-cyan-500/25">
+                                {groupInfo.badge}
+                              </span>
+                              {mat.buyPricePerKg > 0 ? (
+                                <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                  R$ {mat.buyPricePerKg.toFixed(2).replace(".", ",")}/kg
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                  Sem preço ainda
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-white font-black text-sm mt-1">{mat.name}</div>
+                            {mat.notes && (
+                              <div className="text-[11px] text-slate-400 mt-0.5">{mat.notes}</div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <strong className="text-lg font-mono font-black text-cyan-300 block">
+                            {mat.stockKg.toFixed(1)} kg
+                          </strong>
+                          {(mat.trackUnits || (mat.stockUnits || 0) > 0) && (
+                            <span className="text-xs font-mono font-black text-amber-300 block">
+                              {mat.stockUnits || 0} un
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Edição opcional de preço R$/kg (só abre se quiser definir preço depois) */}
+                      {isEditingThisPrice && (
+                        <div className="p-2.5 bg-slate-900 border border-amber-500/35 rounded-xl flex items-center gap-2 flex-wrap">
+                          <span className="text-[11px] font-bold text-amber-300">Preço R$/kg:</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={editingScrapPriceDraft}
+                            onChange={(e) => setEditingScrapPriceDraft(e.target.value)}
+                            placeholder="0.00"
+                            className="w-24 min-h-[40px] bg-slate-950 border border-amber-400/50 rounded-lg px-2 text-center text-white font-mono font-black text-sm outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const parsed = Math.max(0, parseFloat(editingScrapPriceDraft.replace(",", ".")) || 0);
+                              markLocalYardMutation();
+                              setOtherScrapMaterials((prev) =>
+                                prev.map((m) => (m.id === mat.id ? { ...m, buyPricePerKg: parsed } : m))
+                              );
+                              setEditingScrapPriceId(null);
+                            }}
+                            className="min-h-[40px] px-3 bg-emerald-500 text-slate-950 font-black text-xs rounded-lg cursor-pointer"
+                          >
+                            Salvar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingScrapPriceId(null)}
+                            className="min-h-[40px] px-2.5 bg-slate-800 text-slate-300 font-bold text-xs rounded-lg cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Controles rápidos de Estoque & Balança */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={mat.stockKg === 0 ? "" : String(mat.stockKg)}
+                          placeholder="0 kg"
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value.replace(",", ".")) || 0;
+                            markLocalYardMutation();
+                            setOtherScrapMaterials((prev) =>
+                              prev.map((m) => (m.id === mat.id ? { ...m, stockKg: Math.max(0, v) } : m))
+                            );
+                          }}
+                          className="w-20 min-h-[44px] bg-slate-900 border border-cyan-500/40 rounded-xl px-2 text-center text-white font-mono font-black text-sm outline-none"
+                        />
+                        {[1, 5, 10, 50].map((addKg) => (
+                          <button
+                            key={addKg}
+                            type="button"
+                            onClick={() => {
+                              markLocalYardMutation();
+                              setOtherScrapMaterials((prev) =>
+                                prev.map((m) => (m.id === mat.id ? { ...m, stockKg: m.stockKg + addKg } : m))
+                              );
+                            }}
+                            className="min-h-[44px] px-2.5 bg-slate-900 hover:bg-cyan-500 hover:text-slate-950 text-cyan-200 font-mono font-black text-xs rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none active:scale-95"
+                          >
+                            +{addKg}kg
+                          </button>
+                        ))}
+                        {mat.trackUnits && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              markLocalYardMutation();
+                              setOtherScrapMaterials((prev) =>
+                                prev.map((m) =>
+                                  m.id === mat.id ? { ...m, stockUnits: (m.stockUnits || 0) + 1 } : m
+                                )
+                              );
+                            }}
+                            className="min-h-[44px] px-2.5 bg-amber-500/15 hover:bg-amber-500 hover:text-slate-950 text-amber-300 font-mono font-black text-xs rounded-xl border border-amber-500/35 cursor-pointer touch-manipulation select-none active:scale-95"
+                          >
+                            +1 un
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-white/5">
+                        <button
+                          type="button"
+                          onClick={() => handleSelectMaterialForScale(mat.id)}
+                          className="min-h-[42px] px-3 bg-cyan-500/15 hover:bg-cyan-500 hover:text-slate-950 text-cyan-300 font-black text-xs rounded-xl border border-cyan-500/35 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                        >
+                          <Scale className="w-3.5 h-3.5" />
+                          <span>Pesar na Balança</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingScrapPriceId(isEditingThisPrice ? null : mat.id);
+                            setEditingScrapPriceDraft(mat.buyPricePerKg > 0 ? String(mat.buyPricePerKg) : "");
+                          }}
+                          className="min-h-[42px] px-3 bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs rounded-xl border border-white/10 flex items-center gap-1 cursor-pointer touch-manipulation select-none active:scale-95"
+                        >
+                          <DollarSign className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{mat.buyPricePerKg > 0 ? "Editar R$/kg" : "Definir Preço depois"}</span>
+                        </button>
+
+                        {(mat.stockKg > 0 || (mat.stockUnits || 0) > 0) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSellingScrapMaterial(mat);
+                              setScrapSaleKgDraft(mat.stockKg > 0 ? String(mat.stockKg) : "");
+                              setScrapSaleUnitsDraft((mat.stockUnits || 0) > 0 ? String(mat.stockUnits) : "");
+                              setScrapSaleTotalValueDraft("");
+                              setScrapSaleBuyerDraft("");
+                            }}
+                            className="min-h-[42px] px-3 bg-emerald-500/15 hover:bg-emerald-500 hover:text-slate-950 text-emerald-300 font-black text-xs rounded-xl border border-emerald-500/35 flex items-center gap-1 cursor-pointer touch-manipulation select-none active:scale-95"
+                          >
+                            <Truck className="w-3.5 h-3.5" />
+                            <span>Vender / Baixar</span>
+                          </button>
+                        )}
+
+                        {mat.isCustom && (
+                          confirmDeleteCustomScrapId === mat.id ? (
+                            <div className="flex items-center gap-1 ml-auto">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  markLocalYardMutation();
+                                  setOtherScrapMaterials((prev) => prev.filter((m) => m.id !== mat.id));
+                                  setConfirmDeleteCustomScrapId(null);
+                                }}
+                                className="min-h-[40px] px-2.5 bg-rose-600 text-white font-black text-xs rounded-lg cursor-pointer"
+                              >
+                                Excluir
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteCustomScrapId(null)}
+                                className="min-h-[40px] px-2 bg-slate-800 text-slate-300 font-bold text-xs rounded-lg cursor-pointer"
+                              >
+                                Não
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteCustomScrapId(mat.id)}
+                              className="min-h-[42px] px-2.5 bg-slate-900 hover:bg-rose-950/60 text-rose-300 rounded-xl border border-rose-500/20 cursor-pointer ml-auto"
+                              title="Excluir material personalizado"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )
+                        )}
+
+                        <button
                           type="button"
                           onClick={() => {
                             markLocalYardMutation();
                             setOtherScrapMaterials((prev) =>
-                              prev.map((m) => (m.id === mat.id ? { ...m, stockKg: m.stockKg + addKg } : m))
+                              prev.map((m) => (m.id === mat.id ? { ...m, stockKg: 0, stockUnits: 0 } : m))
                             );
                           }}
-                          className="min-h-[44px] px-3 bg-slate-900 hover:bg-cyan-500 hover:text-slate-950 text-cyan-200 font-mono font-black text-xs rounded-xl border border-white/10 cursor-pointer touch-manipulation select-none active:scale-95"
+                          className={`min-h-[42px] px-3 bg-slate-900 hover:bg-rose-950/60 text-rose-300 font-bold text-xs rounded-xl border border-rose-500/20 cursor-pointer touch-manipulation select-none active:scale-95 ${
+                            mat.isCustom ? "" : "ml-auto"
+                          }`}
                         >
-                          +{addKg}kg
+                          Zerar
                         </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          markLocalYardMutation();
-                          setOtherScrapMaterials((prev) =>
-                            prev.map((m) => (m.id === mat.id ? { ...m, stockKg: 0 } : m))
-                          );
-                        }}
-                        className="min-h-[44px] px-3 bg-slate-900 hover:bg-rose-950/60 text-rose-300 font-bold text-xs rounded-xl border border-rose-500/20 cursor-pointer touch-manipulation select-none active:scale-95 ml-auto"
-                      >
-                        Zerar
-                      </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+
+              {filteredScrapMaterials.length === 0 && (
+                <div className="p-6 text-center bg-slate-950 border border-white/10 rounded-2xl text-slate-400 text-sm">
+                  Nenhum material encontrado para "{scrapSearchQuery}". Limpe a busca ou clique em{" "}
+                  <strong className="text-emerald-400">+ Novo Material</strong> para cadastrar!
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
@@ -4277,6 +5417,120 @@ export function GlassBarcodeScannerCart({
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* ABA 5: GUIA DE PLÁSTICOS & PRODUTOS DO MERCADO            */}
+      {/* ========================================================= */}
+      {activeTab === "guia_plasticos" && (
+        <PlasticRecyclingGuidePanel
+          onJumpToScaleCategory={(matId) => handleSelectMaterialForScale(matId)}
+        />
+      )}
+
+      {/* MODAL: VENDER / DAR BAIXA DE LOTE DE OUTROS MATERIAIS (INTEGRADO AO PDV) */}
+      {sellingScrapMaterial && (
+        <div className="fixed inset-0 z-[75] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 sm:p-6 max-w-md w-full space-y-4 shadow-2xl text-left my-auto">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl p-2 bg-slate-950 rounded-xl">{sellingScrapMaterial.emoji}</span>
+                <div>
+                  <h3 className="text-base font-black text-white">Vender / Dar Baixa no Lote</h3>
+                  <span className="text-xs text-cyan-300 font-bold block">{sellingScrapMaterial.name}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSellingScrapMaterial(null)}
+                className="p-2 rounded-xl bg-slate-950 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] font-black uppercase text-slate-300 block">
+                  Peso vendido (kg)
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={scrapSaleKgDraft}
+                  onChange={(e) => setScrapSaleKgDraft(e.target.value)}
+                  placeholder="0.0"
+                  className="w-full min-h-[44px] bg-slate-950 border border-cyan-500/40 rounded-xl px-3 text-center text-white font-mono font-black text-base outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-black uppercase text-slate-300 block">
+                  Unidades (opcional)
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={scrapSaleUnitsDraft}
+                  onChange={(e) => setScrapSaleUnitsDraft(e.target.value.replace(/\D/g, ""))}
+                  placeholder="0"
+                  className="w-full min-h-[44px] bg-slate-950 border border-white/15 rounded-xl px-3 text-center text-white font-mono font-black text-base outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-black uppercase text-emerald-300 block">
+                Valor recebido pela venda R$ (opcional — entra no Caixa & BI do PDV)
+              </label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={scrapSaleTotalValueDraft}
+                onChange={(e) => setScrapSaleTotalValueDraft(e.target.value)}
+                placeholder="Ex: 180.00 (ou deixe vazio para só baixar estoque)"
+                className="w-full min-h-[46px] bg-slate-950 border border-emerald-500/40 rounded-xl px-3 text-white font-mono font-black text-base outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={scrapSaleBuyerDraft}
+                onChange={(e) => setScrapSaleBuyerDraft(e.target.value)}
+                placeholder="Comprador (opcional)"
+                className="min-h-[44px] bg-slate-950 border border-white/15 rounded-xl px-3 text-xs text-white outline-none"
+              />
+              <select
+                value={scrapSaleMethod}
+                onChange={(e) => setScrapSaleMethod(e.target.value as any)}
+                className="min-h-[44px] bg-slate-950 border border-white/15 rounded-xl px-3 text-xs text-white font-bold outline-none"
+              >
+                <option value="pix">Pix</option>
+                <option value="dinheiro">Dinheiro</option>
+                <option value="cartao_debito">Cartão Débito</option>
+                <option value="cartao_credito">Cartão Crédito</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setSellingScrapMaterial(null)}
+                className="min-h-[44px] px-4 bg-slate-800 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmScrapSale}
+                className="min-h-[44px] px-5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none active:scale-95"
+              >
+                Confirmar Baixa ✓
+              </button>
+            </div>
           </div>
         </div>
       )}

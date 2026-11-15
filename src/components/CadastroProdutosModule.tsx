@@ -519,24 +519,22 @@ const PREDEFINED_CATEGORIES_BY_NICHE: Record<string, string[]> = {
   loja_racao: ["Rações a Granel (kg)", "Rações Pacote Fechado", "Petiscos & Sachês", "Medicamentos & Higiene", "Acessórios & Coleiras"],
   aviario: ["Rações para Aves & Postura", "Grãos & Sementes a Granel", "Gaiolas & Bebedouros", "Medicamentos & Vitaminas", "Rações Cães & Gatos"],
   ferro_velho_vidros: [
-    "Garrafas Longneck (Verdes / Âmbar / Transparentes)",
-    "Garrafas 600ml & Litrão (Retornáveis / Caco)",
-    "Garrafas 900ml & Vinho (51, Dreher)",
-    "Potes de Vidro & Conservas",
-    "Cacos de Vidro (KG / Sacola / Balde)",
+    "Vidros & Garrafas (Peso / Caco)",
+    "Plásticos (PET / Duro / Alto Impacto)",
     "Alumínio & Latinhas",
     "Ferro & Sucata Pesada",
-    "Papelão & Plástico"
+    "Cobre & Metais Nobres",
+    "Eletrônicos, TVs & Eletrodomésticos",
+    "Papéis, CDs, DVDs, Livros & Papelão"
   ],
   ferro_velho: [
-    "Garrafas Longneck (Verdes / Âmbar / Transparentes)",
-    "Garrafas 600ml & Litrão (Retornáveis / Caco)",
-    "Garrafas 900ml & Vinho (51, Dreher)",
-    "Potes de Vidro & Conservas",
-    "Cacos de Vidro (KG / Sacola / Balde)",
+    "Vidros & Garrafas (Peso / Caco)",
+    "Plásticos (PET / Duro / Alto Impacto)",
     "Alumínio & Latinhas",
     "Ferro & Sucata Pesada",
-    "Papelão & Plástico"
+    "Cobre & Metais Nobres",
+    "Eletrônicos, TVs & Eletrodomésticos",
+    "Papéis, CDs, DVDs, Livros & Papelão"
   ],
   comercio_geral: [
     "Vestuário & Moda",
