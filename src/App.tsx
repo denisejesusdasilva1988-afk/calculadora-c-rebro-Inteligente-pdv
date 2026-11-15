@@ -934,7 +934,7 @@ const saveUserProfileToFirestore = async (currentUser: any) => {
 };
 
 export default function App() {
-  const runningVersion = "v_online_1.6";
+  const runningVersion = "v_online_1.7";
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [downloadZipStatus, setDownloadZipStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [downloadZipError, setDownloadZipError] = useState<string | null>(null);
@@ -1206,7 +1206,7 @@ export default function App() {
   useEffect(() => {
     const checkServerVersion = async () => {
       try {
-        const response = await fetch(`/version.json?t=${Date.now()}`, {
+        const response = await fetch(`./version.json?t=${Date.now()}`, {
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
         });

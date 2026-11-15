@@ -1,18 +1,18 @@
 // Service Worker para a Calculadora Cérebro Inteligente (PWA)
-// Incrementado para cerebro-pdv-v7: Network-First para HTML/navegação/versão garantindo atualização imediata no app instalado
-const CACHE_NAME = 'cerebro-pdv-v7';
+// Incrementado para cerebro-pdv-v8: Network-First para HTML/navegação/versão garantindo atualização imediata no atalho instalado do Chrome
+const CACHE_NAME = 'cerebro-pdv-v8';
 const ASSETS_TO_CACHE = [
-  '/manifest.json',
-  '/icon.svg',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/icon-192-maskable.png',
-  '/icon-512-maskable.png',
-  '/assets/icons/icon-192.png',
-  '/assets/icons/icon-512.png',
-  '/assets/icons/icon-192-maskable.png',
-  '/assets/icons/icon-512-maskable.png',
-  '/splash-screen.png'
+  './manifest.json',
+  './icon.svg',
+  './icon-192.png',
+  './icon-512.png',
+  './icon-192-maskable.png',
+  './icon-512-maskable.png',
+  './assets/icons/icon-192.png',
+  './assets/icons/icon-512.png',
+  './assets/icons/icon-192-maskable.png',
+  './assets/icons/icon-512-maskable.png',
+  './splash-screen.png'
 ];
 
 self.addEventListener('message', (event) => {
@@ -63,12 +63,15 @@ self.addEventListener('fetch', (event) => {
   }
 
   const parsedUrl = new URL(url);
+  const scopePathname = new URL(self.registration.scope).pathname;
+  const normalizedPath = parsedUrl.pathname;
   const isNavigationOrShell =
     event.request.mode === 'navigate' ||
-    parsedUrl.pathname === '/' ||
-    parsedUrl.pathname === '/index.html' ||
-    parsedUrl.pathname === '/version.json' ||
-    parsedUrl.pathname === '/manifest.json';
+    normalizedPath === scopePathname ||
+    normalizedPath === '/' ||
+    normalizedPath.endsWith('/index.html') ||
+    normalizedPath.endsWith('/version.json') ||
+    normalizedPath.endsWith('/manifest.json');
 
   // Navegação, index.html e version.json SEMPRE usam Network-First para atualizar o atalho instalado na hora!
   if (isNavigationOrShell) {
@@ -87,7 +90,7 @@ self.addEventListener('fetch', (event) => {
           return caches.match(event.request).then((cached) => {
             if (cached) return cached;
             if (event.request.mode === 'navigate') {
-              return caches.match('/index.html') || caches.match('/');
+              return caches.match('./index.html') || caches.match(scopePathname) || caches.match('/');
             }
             return new Response('Offline', { status: 503 });
           });
