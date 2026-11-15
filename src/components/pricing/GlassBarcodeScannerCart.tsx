@@ -1076,6 +1076,18 @@ export function GlassBarcodeScannerCart({
       return "";
     }
   });
+  const [scaleSubtractTare, setScaleSubtractTare] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("pdv_dw_scale_subtract_tare_v1") === "true";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_scale_subtract_tare_v1", scaleSubtractTare ? "true" : "false");
+    } catch {}
+  }, [scaleSubtractTare]);
   const [scaleUnitsInput, setScaleUnitsInput] = useState<string>("");
   const [scaleQueueReadings, setScaleQueueReadings] = useState<
     { id: string; grossKg: number; tareKg: number; netKg: number; label: string }[]
@@ -1652,9 +1664,13 @@ export function GlassBarcodeScannerCart({
     return Math.max(0, scaleUnitMode === "g" ? raw / 1000 : raw);
   }, [scaleTareInput, scaleUnitMode]);
 
+  const scaleAppliedTareKg = useMemo(() => {
+    return scaleSubtractTare ? scaleTareKg : 0;
+  }, [scaleSubtractTare, scaleTareKg]);
+
   const scaleCurrentNetKg = useMemo(() => {
-    return Math.max(0, scaleGrossKg - scaleTareKg);
-  }, [scaleGrossKg, scaleTareKg]);
+    return Math.max(0, scaleGrossKg - scaleAppliedTareKg);
+  }, [scaleGrossKg, scaleAppliedTareKg]);
 
   const scaleQueueTotalNetKg = useMemo(() => {
     return scaleQueueReadings.reduce((sum, r) => sum + r.netKg, 0);
@@ -1750,7 +1766,7 @@ export function GlassBarcodeScannerCart({
       {
         id: `pesada_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         grossKg: scaleGrossKg,
-        tareKg: scaleTareKg,
+        tareKg: scaleAppliedTareKg,
         netKg: scaleCurrentNetKg,
         label: `Pesada #${prev.length + 1}`
       }
@@ -4503,25 +4519,59 @@ export function GlassBarcodeScannerCart({
                     </div>
                   </div>
 
-                  {/* Peso Bruto + Tara + Unidades */}
-                  <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {/* Peso + Tara + Unidades */}
+                  <div className="lg:col-span-7 space-y-2.5">
+                    {/* Seletor de Modo da Tara: Manter Peso Editado vs Descontar Tara do Bruto */}
+                    <div className="p-2.5 bg-slate-900/90 border border-white/10 rounded-xl space-y-1.5">
+                      <span className="text-[10.5px] font-black uppercase text-slate-300 block">
+                        Como a balança está mostrando o peso?
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setScaleSubtractTare(false)}
+                          className={`min-h-[40px] px-3 py-1.5 rounded-xl text-[11px] font-black border text-left transition-all cursor-pointer touch-manipulation select-none active:scale-95 ${
+                            !scaleSubtractTare
+                              ? "bg-emerald-500/20 text-emerald-200 border-emerald-400"
+                              : "bg-slate-950 text-slate-400 border-white/10 hover:text-white"
+                          }`}
+                        >
+                          ✅ Peso Direto (manter o peso digitado)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setScaleSubtractTare(true)}
+                          className={`min-h-[40px] px-3 py-1.5 rounded-xl text-[11px] font-black border text-left transition-all cursor-pointer touch-manipulation select-none active:scale-95 ${
+                            scaleSubtractTare
+                              ? "bg-amber-500/20 text-amber-200 border-amber-400"
+                              : "bg-slate-950 text-slate-400 border-white/10 hover:text-white"
+                          }`}
+                        >
+                          ➖ Descontar Tara (Visor − Tábua/Caixa)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     <div className="space-y-1">
                       <label className="text-[11px] font-black uppercase text-cyan-300 block">
-                        2. Peso Bruto ({scaleUnitMode})
+                        {scaleSubtractTare
+                          ? `2. Peso no Visor c/ Tábua (${scaleUnitMode})`
+                          : `2. Peso da Reciclagem (${scaleUnitMode})`}
                       </label>
                       <input
                         type="text"
                         inputMode="decimal"
                         value={scaleGrossInput}
                         onChange={(e) => setScaleGrossInput(e.target.value)}
-                        placeholder={scaleUnitMode === "kg" ? "Ex: 12.5" : "Ex: 850"}
+                        placeholder={scaleUnitMode === "kg" ? "Ex: 3.100" : "Ex: 850"}
                         className="w-full min-h-[48px] bg-slate-900 border-2 border-cyan-400/50 rounded-xl px-3 text-center text-white font-mono font-black text-lg outline-none focus:border-cyan-300"
                       />
                     </div>
 
                     <div className="space-y-1">
                       <label className="text-[11px] font-black uppercase text-slate-300 block">
-                        Tara: Tábua/Caixa/Saco ({scaleUnitMode})
+                        Tara: Tábua/Caixa ({scaleUnitMode})
                       </label>
                       <input
                         type="text"
@@ -4576,7 +4626,7 @@ export function GlassBarcodeScannerCart({
                       </div>
                     </div>
 
-                    {selectedScaleMaterial?.trackUnits ? (
+                    {selectedScaleMaterial?.trackUnits && (
                       <div className="space-y-1">
                         <label className="text-[11px] font-black uppercase text-amber-300 block">
                           Qtd Aparelhos (un)
@@ -4600,14 +4650,56 @@ export function GlassBarcodeScannerCart({
                           </button>
                         </div>
                       </div>
-                    ) : (
-                      <div className="p-2.5 bg-slate-900/90 border border-emerald-500/30 rounded-xl flex flex-col justify-center text-center">
-                        <span className="text-[10px] font-bold uppercase text-emerald-300">Peso Líquido Agora:</span>
-                        <strong className="text-lg font-mono font-black text-emerald-400">
-                          {scaleCurrentNetKg.toFixed(2)} kg
-                        </strong>
-                      </div>
                     )}
+
+                    <div
+                      className={`p-2.5 bg-slate-900/90 border rounded-xl flex flex-col justify-center text-center ${
+                        selectedScaleMaterial?.trackUnits ? "sm:col-span-3" : ""
+                      } ${
+                        scaleSubtractTare && scaleGrossKg > 0 && scaleTareKg > 0 && scaleGrossKg <= scaleTareKg
+                          ? "border-amber-500/60 bg-amber-950/30"
+                          : "border-emerald-500/30"
+                      }`}
+                    >
+                      <span className="text-[10px] font-bold uppercase text-emerald-300">Peso Líquido Agora:</span>
+                      <strong className="text-lg font-mono font-black text-emerald-400">
+                        {scaleCurrentNetKg % 1 !== 0 && Math.round((scaleCurrentNetKg * 1000) % 10) !== 0
+                          ? scaleCurrentNetKg.toFixed(3)
+                          : scaleCurrentNetKg.toFixed(2)}{" "}
+                        kg
+                      </strong>
+                      {scaleCurrentNetKg > 0 && (
+                        <span className="text-[10px] text-slate-300 font-mono">
+                          {Math.floor(scaleCurrentNetKg)} kg e {Math.round((scaleCurrentNetKg - Math.floor(scaleCurrentNetKg)) * 1000)} g
+                        </span>
+                      )}
+                      {!scaleSubtractTare && scaleTareKg > 0 && (
+                        <span className="text-[10px] text-amber-200 font-mono mt-0.5">
+                          Tábua {scaleTareKg.toFixed(2)} kg (referência • não descontada)
+                          {scaleCurrentNetKg > 0 ? ` • c/ tábua: ${(scaleTareKg + scaleCurrentNetKg).toFixed(2)} kg` : ""}
+                        </span>
+                      )}
+                      {scaleSubtractTare && scaleTareKg > 0 && scaleGrossKg > scaleTareKg && (
+                        <span className="text-[10px] text-cyan-300 font-mono mt-0.5">
+                          {scaleGrossKg.toFixed(2)} − {scaleTareKg.toFixed(2)} = {scaleCurrentNetKg.toFixed(2)} kg
+                        </span>
+                      )}
+                      {scaleSubtractTare && scaleGrossKg > 0 && scaleTareKg > 0 && scaleGrossKg <= scaleTareKg && (
+                        <div className="mt-1.5 space-y-1 text-[10.5px] text-amber-200 leading-snug">
+                          <span>
+                            ⚠️ Visor ({scaleGrossKg.toFixed(2)} kg) menor que a Tara ({scaleTareKg.toFixed(2)} kg).
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setScaleSubtractTare(false)}
+                            className="w-full min-h-[32px] px-2 py-1 bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/40 rounded-lg text-[10px] font-black text-emerald-100 cursor-pointer touch-manipulation"
+                          >
+                            Manter {scaleGrossKg.toFixed(2)} kg (Peso Direto)
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    </div>
                   </div>
                 </div>
 
