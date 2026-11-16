@@ -1,6 +1,6 @@
 // Service Worker para a Calculadora Cérebro Inteligente (PWA)
-// Incrementado para cerebro-pdv-v10: Network-First para HTML/navegação/versão garantindo atualização imediata no atalho instalado do Chrome
-const CACHE_NAME = 'cerebro-pdv-v10';
+// Incrementado para cerebro-pdv-v13: Network-First para HTML/navegação/versão garantindo atualização imediata no atalho instalado do Chrome
+const CACHE_NAME = 'cerebro-pdv-v13';
 const ASSETS_TO_CACHE = [
   './manifest.json',
   './icon.svg',

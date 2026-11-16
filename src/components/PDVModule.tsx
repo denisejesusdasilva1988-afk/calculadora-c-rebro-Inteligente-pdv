@@ -4630,6 +4630,36 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     });
   }, [initialCash, customProducts, selectedNiche, productOverrides, customNiches, productStockData]);
 
+  const handleCancelFerroVelhoEventFromPDV = useCallback((eventId: string, reason?: string) => {
+    if (!eventId) return;
+    setTransactions((prev) => {
+      const target = prev.find((t) => t.id === eventId);
+      if (!target || target.isDeleted) return prev;
+      const reasonSuffix = reason?.trim() ? ` (${reason.trim()})` : "";
+      const nextTxs = prev.map((tx) => {
+        if (tx.id === eventId) {
+          return {
+            ...tx,
+            isDeleted: true,
+            deletedAt: Date.now(),
+            description: tx.description.startsWith("[ESTORNADO FERRO VELHO]")
+              ? tx.description
+              : `[ESTORNADO FERRO VELHO] ${tx.description}${reasonSuffix}`
+          };
+        }
+        return tx;
+      });
+      saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, productStockData);
+      pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, productStockData);
+      return nextTxs;
+    });
+    logRiskAction(
+      "Estornar Compra Ferro Velho",
+      `Estorno automático sincronizado pelo Ferro Velho (ID: ${eventId})${reason ? ` — Motivo: ${reason}` : ""}`,
+      { transactionId: eventId, reason: reason || "" }
+    );
+  }, [initialCash, customProducts, selectedNiche, productOverrides, customNiches, productStockData, saveToLocalStorage, pushToCloud, logRiskAction]);
+
   // --- Portuguese Number Parser helper ---
   const parsePortugueseNumber = (valStr: string): number => {
     let clean = valStr.trim();
@@ -6785,8 +6815,20 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           setTransactions(nextTxs);
           saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche);
           pushToCloud(nextTxs, initialCash, customProducts);
+          if (id.startsWith("pdv_fv_")) {
+            window.dispatchEvent(
+              new CustomEvent("dw_fv_cancel_ticket_from_pdv", {
+                detail: { eventId: id, reason: "Estornado pelo Caixa do PDV" }
+              })
+            );
+          }
           logRiskAction("Estornar Venda", `Estorno/cancelamento do lançamento '${desc}' (ID: ${id})`, { transactionId: id, description: desc });
-          showNotification("Registro cancelado com sucesso! Log mantido na auditoria do sistema. 🛡️", "info");
+          showNotification(
+            id.startsWith("pdv_fv_")
+              ? "Compra estornada no PDV e estornada automaticamente no Ferro Velho! 🚫♻️"
+              : "Registro cancelado com sucesso! Log mantido na auditoria do sistema. 🛡️",
+            "info"
+          );
         }
       );
     }, "void_sale");
@@ -11241,6 +11283,17 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 <BookOpen className="w-3.5 h-3.5" />
                 <span>Guia PET / Duro / Alto Impacto</span>
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFerroVelhoInitialTab("cargas");
+                  setOpMode("ferro_velho");
+                  if (onSubTabChange) onSubTabChange("ferro_velho_cargas");
+                }}
+                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/35 text-rose-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer transition-all"
+              >
+                <span>🚫 Cancelar / Ver Compras</span>
+              </button>
             </div>
           </div>
 
@@ -11629,6 +11682,17 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               >
                 <BookOpen className="w-3.5 h-3.5" />
                 <span>Guia PET / Duro / PS</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFerroVelhoInitialTab("cargas");
+                  setOpMode("ferro_velho");
+                  if (onSubTabChange) onSubTabChange("ferro_velho_cargas");
+                }}
+                className="min-h-[38px] px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/35 text-rose-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>🚫 Cancelar / Ver Compras</span>
               </button>
             </div>
           </div>
@@ -20404,6 +20468,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               initialActiveTab={ferroVelhoInitialTab}
               initialYardControlFilter={ferroVelhoInitialFilter}
               onSyncFinancialEventToPDV={handleSyncFerroVelhoEventToPDV}
+              onCancelSyncedFinancialEventFromPDV={handleCancelFerroVelhoEventFromPDV}
               showNotification={showNotification}
               onAddItemsToYardStock={(items) => {
                 showNotification(`Entrada de ${items.length} lote(s) somada ao Pátio rumo à meta do caminhão! 🍾⚖️`, "success");
@@ -23137,6 +23202,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 initialActiveTab={ferroVelhoInitialTab}
                 initialYardControlFilter={ferroVelhoInitialFilter}
                 onSyncFinancialEventToPDV={handleSyncFerroVelhoEventToPDV}
+                onCancelSyncedFinancialEventFromPDV={handleCancelFerroVelhoEventFromPDV}
                 showNotification={showNotification}
                 onAddItemsToYardStock={(items) => {
                   showNotification(`Entrada de ${items.length} lote(s) somada ao Pátio rumo à meta do Victor! 🍾⚖️`, "success");

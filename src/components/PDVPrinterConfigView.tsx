@@ -29,6 +29,7 @@ import {
   PrinterConfig, 
   DEFAULT_PRINTER_CONFIG, 
   savePrinterConfig, 
+  buildMiniPrintPocketConfig,
   buildThermalReceiptHtml, 
   executeThermalPrint,
   isBluetoothPrintSupported,
@@ -223,6 +224,44 @@ export function PDVPrinterConfigView({
         {/* TAB 1: BOBINA & PRINT STYLING */}
         {activeTab === "bobina" && (
           <div className="space-y-4">
+            {/* Preset Dedicado MiniPrint PocketTM / Fun Print (57x30mm) */}
+            <div className={`p-3.5 rounded-2xl border-2 transition-all space-y-2.5 ${
+              localConfig.miniPrintPocketMode
+                ? "bg-pink-950/30 border-pink-400/70 shadow-lg shadow-pink-500/10"
+                : "bg-slate-950 border-pink-500/30"
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-pink-300 tracking-wider block">
+                    🐱 Mini Impressora Portátil Bluetooth (App Fun Print)
+                  </span>
+                  <h4 className="text-sm font-black text-white mt-0.5">
+                    MiniPrint PocketTM — Bobina 57×30mm (5,7×3cm)
+                  </h4>
+                  <p className="text-[10.5px] text-slate-300 mt-0.5">
+                    Ajusta largura útil 48mm (384/576px), alto contraste P&amp;B sem tinta, avanço curto para economizar rolo e suporte a <strong>1 Via ou 2 Vias</strong> (Empresa + Reciclador).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = buildMiniPrintPocketConfig(localConfig);
+                    setLocalConfig(next);
+                    savePrinterConfig(next);
+                    onSaveConfig(next);
+                    showNotification("MiniPrint PocketTM (57×30mm / Fun Print) configurada com sucesso! 🐱🖨️", "success");
+                  }}
+                  className={`min-h-[44px] px-4 py-2 rounded-xl font-black text-xs uppercase shrink-0 cursor-pointer transition-all active:scale-95 ${
+                    localConfig.miniPrintPocketMode
+                      ? "bg-pink-400 text-slate-950"
+                      : "bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-400 hover:to-rose-400 text-slate-950 shadow-md"
+                  }`}
+                >
+                  {localConfig.miniPrintPocketMode ? "✓ MiniPrint 57×30mm Ativa" : "⚡ Ativar MiniPrint 57×30mm"}
+                </button>
+              </div>
+            </div>
+
             {/* Paper Roll Width Selection */}
             <div>
               <label className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block mb-1.5">

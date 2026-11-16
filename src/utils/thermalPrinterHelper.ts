@@ -3,6 +3,7 @@ import { loadCompanyProfile } from "./companyProfile";
 
 export interface PrinterConfig {
   printerType: "58mm" | "80mm" | "A4";
+  miniPrintPocketMode?: boolean;
   feedLines: number; // 2, 4, 6, 8
   fontSize: "pequena" | "media" | "grande";
   highContrast: boolean;
@@ -36,6 +37,7 @@ export interface PrinterConfig {
 
 export const DEFAULT_PRINTER_CONFIG: PrinterConfig = {
   printerType: "80mm",
+  miniPrintPocketMode: false,
   feedLines: 4,
   fontSize: "media",
   highContrast: false,
@@ -153,6 +155,25 @@ export function savePrinterConfig(config: PrinterConfig) {
   } catch (e) {
     console.warn("Erro ao salvar pdv_printer_full_config:", e);
   }
+}
+
+export function buildMiniPrintPocketConfig(
+  base?: PrinterConfig,
+  printTwoCopies?: boolean
+): PrinterConfig {
+  const current = base || loadPrinterConfig();
+  return {
+    ...current,
+    printerType: "58mm",
+    miniPrintPocketMode: true,
+    highContrast: true,
+    fontSize: "media",
+    feedLines: 2,
+    autoCut: false,
+    openDrawer: false,
+    showQrCode: false,
+    printTwoCopies: printTwoCopies !== undefined ? printTwoCopies : current.printTwoCopies
+  };
 }
 
 /**
@@ -730,4 +751,563 @@ export async function printViaBluetoothEscPos(
     console.error("Erro Bluetooth:", err);
     throw err;
   }
+}
+
+export interface ThermalCanvasReceiptPayload {
+  title: string;
+  subtitle?: string;
+  storeName?: string;
+  storeCnpj?: string;
+  dateStr: string;
+  ticketId: string;
+  collaboratorName: string;
+  statusLabel: string;
+  extraMeta?: string[];
+  isCancelled?: boolean;
+  cancelReason?: string;
+  cancelledAt?: string;
+  lines: { left: string; right: string; detail?: string; bold?: boolean }[];
+  summaryLines: { label: string; value: string; bold?: boolean; big?: boolean; strike?: boolean }[];
+  caderninhoBox?: {
+    totalEarned: number;
+    totalPaid: number;
+    balancePending: number;
+    totalWeightKg?: number;
+    totalDeliveries?: number;
+  };
+  footerNote?: string;
+  copies: 1 | 2;
+}
+
+const escapeHtml = (str: string) =>
+  String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+export function buildThermalDocumentHtmlFromPayload(
+  payload: ThermalCanvasReceiptPayload,
+  config: PrinterConfig
+): string {
+  const is58mm = config.printerType === "58mm" || Boolean(config.miniPrintPocketMode);
+  const isA4 = config.printerType === "A4" && !config.miniPrintPocketMode;
+  const printableWidth = is58mm ? "48mm" : isA4 ? "100%" : "72mm";
+  const maxContainerWidth = is58mm ? "48mm" : isA4 ? "760px" : "72mm";
+  const pageSize = is58mm ? "58mm auto" : isA4 ? "A4 portrait" : "80mm auto";
+  const fontBasePx =
+    config.fontSize === "pequena"
+      ? is58mm
+        ? 9.5
+        : 10.5
+      : config.fontSize === "grande"
+      ? is58mm
+        ? 11.5
+        : 13
+      : is58mm
+      ? 10.5
+      : 11.5;
+  const fontHeaderPx = fontBasePx + 2;
+  const fontSmallPx = Math.max(8, fontBasePx - 1.5);
+  const boldWeight = "900";
+  const bodyWeight = config.highContrast || config.miniPrintPocketMode ? "700" : "500";
+  const storeTitle = payload.storeName?.trim() || config.storeName?.trim() || "D.W VIDROS & RECICLAGEM";
+  const storeCnpj = payload.storeCnpj?.trim() || config.storeCnpjCpf?.trim() || "67.965.725/0001-95";
+
+  const renderCopy = (viaLabel?: string) => {
+    const itemRows = payload.lines
+      .map(
+        (ln) => `
+      <tr>
+        <td colspan="2" style="padding-top:3px;font-weight:${ln.bold !== false ? boldWeight : bodyWeight};font-size:${fontBasePx}px;word-break:break-word;">
+          ${escapeHtml(ln.left)}
+        </td>
+        <td style="padding-top:3px;text-align:right;font-weight:${boldWeight};font-family:monospace;white-space:nowrap;vertical-align:top;">
+          ${escapeHtml(ln.right)}
+        </td>
+      </tr>
+      ${
+        ln.detail
+          ? `<tr style="border-bottom:1px dotted #444;">
+              <td colspan="3" style="padding-bottom:3px;font-size:${fontSmallPx}px;">${escapeHtml(ln.detail)}</td>
+            </tr>`
+          : `<tr style="border-bottom:1px dotted #444;"><td colspan="3" style="padding-bottom:2px;"></td></tr>`
+      }`
+      )
+      .join("");
+
+    const summaryRows = payload.summaryLines
+      .map((s) => {
+        if (s.big) {
+          return `<div style="display:flex;justify-content:space-between;font-size:${fontHeaderPx}px;font-weight:900;border-top:1.5px solid #000;border-bottom:1.5px solid #000;padding:3px 0;margin:4px 0;${
+            s.strike ? "text-decoration:line-through;" : ""
+          }">
+            <span>${escapeHtml(s.label)}</span>
+            <span>${escapeHtml(s.value)}</span>
+          </div>`;
+        }
+        return `<div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;font-weight:${
+          s.bold ? "900" : bodyWeight
+        };margin-top:2px;">
+          <span>${escapeHtml(s.label)}</span>
+          <span>${escapeHtml(s.value)}</span>
+        </div>`;
+      })
+      .join("");
+
+    const caderninhoHtml = payload.caderninhoBox
+      ? `<div style="border:1.5px solid #000;padding:4px;margin-top:6px;font-size:${fontSmallPx}px;">
+          <div style="text-align:center;font-weight:900;border-bottom:1px dashed #000;padding-bottom:2px;margin-bottom:3px;">
+            CADERNINHO - CONFERÊNCIA
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span>TOTAL COMPRADO:</span>
+            <span style="font-weight:900;">R$ ${payload.caderninhoBox.totalEarned.toFixed(2).replace(".", ",")}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span>TOTAL JÁ PAGO:</span>
+            <span style="font-weight:900;">R$ ${payload.caderninhoBox.totalPaid.toFixed(2).replace(".", ",")}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;border-top:1px dashed #000;margin-top:2px;padding-top:2px;font-size:${fontBasePx}px;font-weight:900;">
+            <span>SALDO A ACERTAR:</span>
+            <span>R$ ${payload.caderninhoBox.balancePending.toFixed(2).replace(".", ",")}</span>
+          </div>
+          ${
+            typeof payload.caderninhoBox.totalWeightKg === "number"
+              ? `<div style="font-size:${fontSmallPx}px;margin-top:2px;">PESO ACUM.: ${payload.caderninhoBox.totalWeightKg.toFixed(2)} kg (${payload.caderninhoBox.totalDeliveries || 0} entregas)</div>`
+              : ""
+          }
+          <div style="margin-top:4px;border-top:1px dotted #000;padding-top:3px;font-size:${Math.max(7.5, fontSmallPx - 0.5)}px;">
+            [ ] Grampeado D.W &nbsp; [ ] Conferido Reciclador
+          </div>
+        </div>`
+      : "";
+
+    return `
+      <div style="padding:3px 1px;">
+        ${
+          viaLabel
+            ? `<div style="border:1.5px solid #000;text-align:center;font-weight:900;font-size:${fontSmallPx}px;padding:2px 4px;margin-bottom:4px;text-transform:uppercase;">
+                ${escapeHtml(viaLabel)}
+              </div>`
+            : ""
+        }
+        ${
+          payload.isCancelled
+            ? `<div style="border:2px solid #000;background:#000;color:#fff;text-align:center;font-weight:900;font-size:${fontHeaderPx}px;padding:4px;margin-bottom:5px;">
+                *** CANCELADA / ESTORNADA ***
+                ${payload.cancelledAt ? `<div style="font-size:${fontSmallPx}px;font-weight:700;">EM: ${escapeHtml(payload.cancelledAt)}</div>` : ""}
+                ${payload.cancelReason ? `<div style="font-size:${fontSmallPx}px;font-weight:700;">MOTIVO: ${escapeHtml(payload.cancelReason.toUpperCase())}</div>` : ""}
+              </div>`
+            : ""
+        }
+        <div style="text-align:center;margin-bottom:4px;">
+          <div style="font-size:${fontHeaderPx}px;font-weight:900;text-transform:uppercase;">${escapeHtml(storeTitle)}</div>
+          ${storeCnpj ? `<div style="font-size:${fontSmallPx}px;">CNPJ: ${escapeHtml(storeCnpj)}</div>` : ""}
+          <div style="font-size:${fontSmallPx}px;font-weight:900;margin-top:3px;border:1px solid #000;padding:2px;">
+            ${escapeHtml(payload.title)}
+          </div>
+          ${payload.subtitle ? `<div style="font-size:${fontSmallPx}px;margin-top:2px;">${escapeHtml(payload.subtitle)}</div>` : ""}
+        </div>
+        <div style="border-top:1px dashed #000;border-bottom:1px dashed #000;padding:4px 0;margin:4px 0;font-size:${fontSmallPx}px;">
+          <div>DATA: ${escapeHtml(payload.dateStr)}</div>
+          <div>DOC: ${escapeHtml(payload.ticketId.slice(-8).toUpperCase())}</div>
+          <div style="font-weight:900;">PARCEIRO: ${escapeHtml(payload.collaboratorName.toUpperCase())}</div>
+          <div style="font-weight:900;">STATUS: ${escapeHtml(payload.isCancelled ? "CANCELADA / ESTORNADA" : payload.statusLabel)}</div>
+          ${(payload.extraMeta || []).map((m) => `<div>${escapeHtml(m)}</div>`).join("")}
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin:4px 0;">
+          <thead>
+            <tr style="border-bottom:1px dashed #000;font-size:${fontSmallPx}px;font-weight:900;">
+              <th colspan="2" style="text-align:left;">DESCRIÇÃO / PESO</th>
+              <th style="text-align:right;">VALOR</th>
+            </tr>
+          </thead>
+          <tbody>${itemRows}</tbody>
+        </table>
+        <div style="border-top:1px dashed #000;padding-top:4px;margin-top:4px;">
+          ${summaryRows}
+          ${caderninhoHtml}
+        </div>
+        <div style="text-align:center;margin-top:6px;border-top:1px dashed #000;padding-top:4px;font-size:${fontSmallPx}px;">
+          <div style="font-weight:900;">${escapeHtml(storeTitle)}</div>
+          <div>${escapeHtml(payload.isCancelled ? "DOCUMENTO ESTORNADO - SEM VALOR" : payload.footerNote || "Conferido e somado na pasta do colaborador!")}</div>
+        </div>
+      </div>
+    `;
+  };
+
+  const bodyContent =
+    payload.copies === 2
+      ? `
+      ${renderCopy("1ª VIA - CONTROLE D.W / CADERNINHO (GRAMPEAR)")}
+      <div style="text-align:center;border-top:2px dashed #000;border-bottom:2px dashed #000;margin:14px 0;padding:5px 0;font-size:${fontSmallPx}px;font-weight:900;">
+        ✂ - - CORTAR / GRAMPEAR AQUI - - ✂
+      </div>
+      ${renderCopy("2ª VIA - RECICLADOR (CONFERÊNCIA)")}
+    `
+      : renderCopy("VIA ÚNICA - CONTROLE RECICLAGEM");
+
+  return `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(payload.title)} - ${escapeHtml(payload.collaboratorName)}</title>
+        <style>
+          @page { size: ${pageSize}; margin: 0mm; }
+          * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            color: #000 !important;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: ${fontBasePx}px;
+            font-weight: ${bodyWeight};
+            line-height: 1.25;
+            width: ${printableWidth};
+            max-width: ${maxContainerWidth};
+            margin-left: auto !important;
+            margin-right: auto !important;
+          }
+        </style>
+      </head>
+      <body>
+        ${bodyContent}
+        <div style="height:${(config.feedLines || 2) * 8}px;"></div>
+      </body>
+    </html>
+  `;
+}
+
+export async function generateMiniPrint57mmPngBlob(
+  payload: ThermalCanvasReceiptPayload
+): Promise<Blob> {
+  // 576px width matches high-contrast 57mm thermal roll (~2x 288 or 1.5x 384 dots for razor sharp Fun Print rasterizing)
+  const W = 576;
+  const PAD = 22;
+  const INNER_W = W - PAD * 2;
+
+  const tempCanvas = document.createElement("canvas");
+  tempCanvas.width = W;
+  tempCanvas.height = 4000;
+  const ctx = tempCanvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Canvas 2D indisponível neste dispositivo.");
+  }
+
+  const wrapText = (text: string, font: string, maxWidth: number): string[] => {
+    ctx.font = font;
+    const words = String(text || "").split(/\s+/);
+    const out: string[] = [];
+    let current = "";
+    for (const w of words) {
+      const candidate = current ? `${current} ${w}` : w;
+      if (ctx.measureText(candidate).width <= maxWidth) {
+        current = candidate;
+      } else {
+        if (current) out.push(current);
+        current = w;
+      }
+    }
+    if (current) out.push(current);
+    return out.length > 0 ? out : [""];
+  };
+
+  type DrawCmd = (c: CanvasRenderingContext2D) => void;
+  const cmds: DrawCmd[] = [];
+  let y = 18;
+
+  const addCenteredText = (text: string, font: string, lineH: number, inverted = false) => {
+    const wrapped = wrapText(text, font, INNER_W - (inverted ? 16 : 0));
+    const blockH = wrapped.length * lineH + (inverted ? 14 : 0);
+    const startY = y;
+    cmds.push((c) => {
+      if (inverted) {
+        c.fillStyle = "#000000";
+        c.fillRect(PAD, startY, INNER_W, blockH);
+        c.fillStyle = "#FFFFFF";
+      } else {
+        c.fillStyle = "#000000";
+      }
+      c.font = font;
+      c.textAlign = "center";
+      c.textBaseline = "top";
+      wrapped.forEach((line, idx) => {
+        c.fillText(line, W / 2, startY + (inverted ? 7 : 0) + idx * lineH);
+      });
+      c.fillStyle = "#000000";
+    });
+    y += blockH + 4;
+  };
+
+  const addBoxedBanner = (text: string, font: string) => {
+    const wrapped = wrapText(text, font, INNER_W - 20);
+    const lineH = 26;
+    const boxH = wrapped.length * lineH + 14;
+    const startY = y;
+    cmds.push((c) => {
+      c.strokeStyle = "#000000";
+      c.lineWidth = 3;
+      c.strokeRect(PAD, startY, INNER_W, boxH);
+      c.fillStyle = "#000000";
+      c.font = font;
+      c.textAlign = "center";
+      c.textBaseline = "top";
+      wrapped.forEach((line, idx) => {
+        c.fillText(line, W / 2, startY + 7 + idx * lineH);
+      });
+    });
+    y += boxH + 8;
+  };
+
+  const addDashedRule = () => {
+    const lineY = y + 4;
+    cmds.push((c) => {
+      c.save();
+      c.strokeStyle = "#000000";
+      c.lineWidth = 2;
+      c.setLineDash([8, 6]);
+      c.beginPath();
+      c.moveTo(PAD, lineY);
+      c.lineTo(W - PAD, lineY);
+      c.stroke();
+      c.restore();
+    });
+    y += 14;
+  };
+
+  const addSolidRule = () => {
+    const lineY = y + 4;
+    cmds.push((c) => {
+      c.strokeStyle = "#000000";
+      c.lineWidth = 3;
+      c.beginPath();
+      c.moveTo(PAD, lineY);
+      c.lineTo(W - PAD, lineY);
+      c.stroke();
+    });
+    y += 12;
+  };
+
+  const addLeftText = (text: string, font: string, lineH = 25) => {
+    const wrapped = wrapText(text, font, INNER_W);
+    const startY = y;
+    cmds.push((c) => {
+      c.fillStyle = "#000000";
+      c.font = font;
+      c.textAlign = "left";
+      c.textBaseline = "top";
+      wrapped.forEach((line, idx) => {
+        c.fillText(line, PAD, startY + idx * lineH);
+      });
+    });
+    y += wrapped.length * lineH + 3;
+  };
+
+  const addKeyValueRow = (left: string, right: string, font: string, lineH = 28, strike = false) => {
+    ctx.font = font;
+    const rightW = right ? ctx.measureText(right).width + 14 : 0;
+    const wrappedLeft = wrapText(left, font, Math.max(140, INNER_W - rightW));
+    const startY = y;
+    cmds.push((c) => {
+      c.fillStyle = "#000000";
+      c.font = font;
+      c.textBaseline = "top";
+      c.textAlign = "left";
+      wrappedLeft.forEach((line, idx) => {
+        c.fillText(line, PAD, startY + idx * lineH);
+      });
+      if (right) {
+        c.textAlign = "right";
+        c.fillText(right, W - PAD, startY);
+      }
+      if (strike) {
+        c.strokeStyle = "#000000";
+        c.lineWidth = 3;
+        c.beginPath();
+        c.moveTo(PAD, startY + lineH * 0.48);
+        c.lineTo(W - PAD, startY + lineH * 0.48);
+        c.stroke();
+      }
+    });
+    y += wrappedLeft.length * lineH + 4;
+  };
+
+  const FONT_TITLE = "900 28px 'Courier New', monospace";
+  const FONT_BIG = "900 26px 'Courier New', monospace";
+  const FONT_BOLD = "900 21px 'Courier New', monospace";
+  const FONT_BODY = "700 20px 'Courier New', monospace";
+  const FONT_SMALL = "700 18px 'Courier New', monospace";
+
+  const drawSingleVia = (viaLabel: string) => {
+    addBoxedBanner(viaLabel, FONT_BOLD);
+    if (payload.isCancelled) {
+      addCenteredText("*** COMPRA CANCELADA / ESTORNADA ***", FONT_BIG, 30, true);
+      if (payload.cancelledAt) addCenteredText(`EM: ${payload.cancelledAt}`, FONT_SMALL, 22);
+      if (payload.cancelReason) addCenteredText(`MOTIVO: ${payload.cancelReason.toUpperCase()}`, FONT_SMALL, 22);
+    }
+
+    const storeTitle = payload.storeName?.trim() || "D.W VIDROS & RECICLAGEM";
+    const storeCnpj = payload.storeCnpj?.trim() || "67.965.725/0001-95";
+    addCenteredText(storeTitle.toUpperCase(), FONT_TITLE, 32);
+    addCenteredText(`CNPJ: ${storeCnpj}`, FONT_SMALL, 22);
+    addBoxedBanner(payload.title, FONT_BOLD);
+    if (payload.subtitle) addCenteredText(payload.subtitle, FONT_SMALL, 22);
+
+    addDashedRule();
+    addLeftText(`DATA: ${payload.dateStr}`, FONT_SMALL, 23);
+    addLeftText(`DOC: ${payload.ticketId.slice(-8).toUpperCase()}`, FONT_SMALL, 23);
+    addLeftText(`PARCEIRO: ${payload.collaboratorName.toUpperCase()}`, FONT_BOLD, 25);
+    addLeftText(
+      `STATUS: ${payload.isCancelled ? "CANCELADA / ESTORNADA" : payload.statusLabel.toUpperCase()}`,
+      FONT_BOLD,
+      25
+    );
+    (payload.extraMeta || []).forEach((m) => addLeftText(m, FONT_SMALL, 23));
+
+    addDashedRule();
+    addKeyValueRow("MATERIAL / PESO", "VALOR", FONT_BOLD, 26);
+    addDashedRule();
+
+    payload.lines.forEach((ln) => {
+      addKeyValueRow(ln.left, ln.right, ln.bold !== false ? FONT_BOLD : FONT_BODY, 25);
+      if (ln.detail) {
+        addLeftText(ln.detail, FONT_SMALL, 22);
+      }
+    });
+
+    addDashedRule();
+    payload.summaryLines.forEach((s) => {
+      if (s.big) {
+        addSolidRule();
+        addKeyValueRow(s.label, s.value, FONT_BIG, 32, Boolean(s.strike));
+        addSolidRule();
+      } else {
+        addKeyValueRow(s.label, s.value, s.bold ? FONT_BOLD : FONT_SMALL, 25);
+      }
+    });
+
+    if (payload.caderninhoBox) {
+      y += 4;
+      const boxStartY = y;
+      addCenteredText("CONFERÊNCIA DO CADERNINHO", FONT_BOLD, 26);
+      addKeyValueRow(
+        "TOTAL COMPRADO:",
+        `R$ ${payload.caderninhoBox.totalEarned.toFixed(2).replace(".", ",")}`,
+        FONT_BODY,
+        25
+      );
+      addKeyValueRow(
+        "TOTAL JÁ PAGO:",
+        `R$ ${payload.caderninhoBox.totalPaid.toFixed(2).replace(".", ",")}`,
+        FONT_BODY,
+        25
+      );
+      addKeyValueRow(
+        "SALDO A ACERTAR:",
+        `R$ ${payload.caderninhoBox.balancePending.toFixed(2).replace(".", ",")}`,
+        FONT_BIG,
+        30
+      );
+      if (typeof payload.caderninhoBox.totalWeightKg === "number") {
+        addLeftText(
+          `PESO ACUMULADO: ${payload.caderninhoBox.totalWeightKg.toFixed(2)} kg (${payload.caderninhoBox.totalDeliveries || 0} entregas)`,
+          FONT_SMALL,
+          22
+        );
+      }
+      addLeftText("[ ] Grampeado D.W   [ ] Conferido", FONT_SMALL, 22);
+      const boxEndY = y + 4;
+      cmds.push((c) => {
+        c.strokeStyle = "#000000";
+        c.lineWidth = 3;
+        c.strokeRect(PAD, boxStartY - 4, INNER_W, boxEndY - boxStartY + 6);
+      });
+      y += 10;
+    }
+
+    addDashedRule();
+    addCenteredText(storeTitle.toUpperCase(), FONT_BOLD, 25);
+    addCenteredText(
+      payload.isCancelled
+        ? "DOCUMENTO ESTORNADO - SEM VALOR"
+        : payload.footerNote || "Conferido e salvo na pasta do colaborador!",
+      FONT_SMALL,
+      22
+    );
+    y += 12;
+  };
+
+  if (payload.copies === 2) {
+    drawSingleVia("1ª VIA - CONTROLE D.W / CADERNINHO (GRAMPEAR)");
+    y += 6;
+    addDashedRule();
+    addCenteredText("✂  CORTAR / DESTACAR / GRAMPEAR AQUI  ✂", FONT_BOLD, 26);
+    addDashedRule();
+    y += 10;
+    drawSingleVia("2ª VIA - VIA DO RECICLADOR (CONFERÊNCIA)");
+  } else {
+    drawSingleVia("VIA ÚNICA - CONTROLE RECICLAGEM");
+  }
+
+  y += 28;
+
+  const finalCanvas = document.createElement("canvas");
+  finalCanvas.width = W;
+  finalCanvas.height = Math.max(240, y);
+  const fCtx = finalCanvas.getContext("2d");
+  if (!fCtx) {
+    throw new Error("Não foi possível inicializar imagem para Fun Print.");
+  }
+  fCtx.fillStyle = "#FFFFFF";
+  fCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+  fCtx.fillStyle = "#000000";
+  for (const cmd of cmds) {
+    cmd(fCtx);
+  }
+
+  return await new Promise<Blob>((resolve, reject) => {
+    finalCanvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("Falha ao gerar PNG 57mm."));
+    }, "image/png");
+  });
+}
+
+export async function shareOrDownloadReceiptPng(
+  blob: Blob,
+  filename: string,
+  title: string
+): Promise<"shared" | "downloaded"> {
+  const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  try {
+    const nav: any = typeof navigator !== "undefined" ? navigator : null;
+    if (nav && typeof nav.share === "function") {
+      const file = new File([blob], safeName, { type: "image/png" });
+      if (!nav.canShare || nav.canShare({ files: [file] })) {
+        await nav.share({
+          files: [file],
+          title
+        });
+        return "shared";
+      }
+    }
+  } catch (err: any) {
+    // Se usuário cancelou o share ou dispositivo bloqueou share com arquivo, faz download abaixo
+    if (err?.name === "AbortError") {
+      return "shared";
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = safeName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return "downloaded";
 }

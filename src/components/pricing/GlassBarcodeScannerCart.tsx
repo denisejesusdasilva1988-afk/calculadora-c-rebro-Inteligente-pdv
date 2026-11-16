@@ -44,7 +44,11 @@ import {
   Link2,
   RotateCcw,
   Usb,
-  BookOpen
+  BookOpen,
+  Folder,
+  FolderOpen,
+  Download,
+  Scissors
 } from "lucide-react";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
@@ -58,8 +62,14 @@ import {
 } from "../../utils/firestoreQuotaManager";
 import {
   loadPrinterConfig,
+  savePrinterConfig,
+  buildMiniPrintPocketConfig,
   executeThermalPrint,
-  PrinterConfig
+  PrinterConfig,
+  ThermalCanvasReceiptPayload,
+  buildThermalDocumentHtmlFromPayload,
+  generateMiniPrint57mmPngBlob,
+  shareOrDownloadReceiptPng
 } from "../../utils/thermalPrinterHelper";
 
 export interface CatalogBottleItem {
@@ -146,7 +156,13 @@ export interface CompletedPurchaseTicket {
   id: string;
   timestamp: string;
   collectorName: string;
+  collaboratorId?: string;
   isFounder: boolean; // Se foi coleta própria de Denise e Wellington
+  isScrapPurchase?: boolean; // Compra de Ferro Velho / Balança Digital (PET, Plástico Duro, Latinha, etc.)
+  syncedPdvEventId?: string;
+  isCancelled?: boolean;
+  cancelledAt?: string;
+  cancelReason?: string;
   items: {
     name: string;
     volumeMl: number;
@@ -155,9 +171,17 @@ export interface CompletedPurchaseTicket {
     unitWeightGrams: number;
     totalWeightKg: number;
     costPaid: number;
+    materialId?: string;
+    addedToStock?: boolean;
+    stockUnitsAdded?: number;
   }[];
   totalBottles: number;
   totalWeightKg: number;
+  subtotalAmount?: number;
+  bonusAmount?: number;
+  bonusReason?: string;
+  discountAmount?: number;
+  discountReason?: string;
   totalPaid: number;
   expectedPlantRevenue: number;
   netProfit: number;
@@ -818,19 +842,32 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
       </head>
       <body>
         <div style="padding:4px 2px;">
+          ${
+            ticket.isCancelled
+              ? `<div style="border:2px solid #000;background:#000;color:#fff;text-align:center;font-weight:900;font-size:${fontHeaderPx}px;padding:4px;margin-bottom:6px;">
+                  *** COMPRA CANCELADA / ESTORNADA ***
+                  ${ticket.cancelledAt ? `<div style="font-size:${fontSmallPx}px;font-weight:700;margin-top:2px;">EM: ${ticket.cancelledAt}</div>` : ""}
+                  ${ticket.cancelReason ? `<div style="font-size:${fontSmallPx}px;font-weight:700;">MOTIVO: ${ticket.cancelReason.toUpperCase()}</div>` : ""}
+                </div>`
+              : ""
+          }
           <div style="text-align:center;margin-bottom:4px;">
             <div style="font-size:${fontHeaderPx}px;font-weight:900;text-transform:uppercase;">${storeTitle}</div>
             <div style="font-size:${fontSmallPx}px;">CNPJ: ${storeCnpj}</div>
             <div style="font-size:${fontSmallPx}px;font-weight:900;margin-top:3px;border:1px solid #000;padding:2px;">
-              COMPROVANTE DE COMPRA - RECICLAGEM
+              ${ticket.isScrapPurchase ? "RECIBO - FERRO VELHO & RECICLAGEM" : "COMPROVANTE DE COMPRA - GARRAFAS / VIDROS"}
             </div>
           </div>
           <div style="border-top:1px dashed #000;border-bottom:1px dashed #000;padding:4px 0;margin:4px 0;font-size:${fontSmallPx}px;">
             <div>DATA: ${ticket.timestamp}</div>
             <div>TICKET: ${ticket.id.slice(-8).toUpperCase()}</div>
             <div style="font-weight:900;">PARCEIRO: ${ticket.collectorName.toUpperCase()}</div>
-            <div style="font-weight:900;">STATUS: ${statusLabel}</div>
-            <div>COTAÇÃO VICTOR: R$ ${ticket.sellPricePerTonUsed || 150}/ton (R$ ${(((ticket.sellPricePerTonUsed || 150) / 1000)).toFixed(2).replace(".", ",")}/kg)</div>
+            <div style="font-weight:900;">STATUS: ${ticket.isCancelled ? "CANCELADA / ESTORNADA" : statusLabel}</div>
+            ${
+              ticket.isScrapPurchase
+                ? `<div>MODALIDADE: FERRO VELHO &amp; RECICLAGEM</div>`
+                : `<div>COTAÇÃO VICTOR: R$ ${ticket.sellPricePerTonUsed || 150}/ton (R$ ${(((ticket.sellPricePerTonUsed || 150) / 1000)).toFixed(2).replace(".", ",")}/kg)</div>`
+            }
           </div>
           <table style="width:100%;border-collapse:collapse;margin:4px 0;">
             <thead>
@@ -843,14 +880,42 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
             <tbody>${rowsHtml}</tbody>
           </table>
           <div style="border-top:1px dashed #000;padding-top:4px;margin-top:4px;font-size:${fontBasePx}px;">
+            ${
+              !ticket.isScrapPurchase && ticket.totalBottles > 0
+                ? `<div style="display:flex;justify-content:space-between;font-weight:900;">
+                    <span>QTD TOTAL GARRAFAS:</span>
+                    <span>${ticket.totalBottles} un</span>
+                  </div>`
+                : ""
+            }
             <div style="display:flex;justify-content:space-between;font-weight:900;">
-              <span>QTD TOTAL GARRAFAS:</span>
-              <span>${ticket.totalBottles} un</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;font-weight:900;">
-              <span>PESO SOMADO PÁTIO:</span>
+              <span>${ticket.isScrapPurchase ? "PESO TOTAL COMPRADO:" : "PESO SOMADO PÁTIO:"}</span>
               <span>+${ticket.totalWeightKg.toFixed(2)} kg</span>
             </div>
+            ${
+              typeof ticket.subtotalAmount === "number" && ((ticket.bonusAmount || 0) > 0 || (ticket.discountAmount || 0) > 0)
+                ? `<div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;margin-top:2px;">
+                    <span>SUBTOTAL MATERIAIS:</span>
+                    <span>R$ ${ticket.subtotalAmount.toFixed(2).replace(".", ",")}</span>
+                  </div>`
+                : ""
+            }
+            ${
+              (ticket.bonusAmount || 0) > 0
+                ? `<div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;font-weight:900;">
+                    <span>(+) ACRÉSCIMO${ticket.bonusReason ? ` (${ticket.bonusReason.toUpperCase()})` : ""}:</span>
+                    <span>+R$ ${(ticket.bonusAmount || 0).toFixed(2).replace(".", ",")}</span>
+                  </div>`
+                : ""
+            }
+            ${
+              (ticket.discountAmount || 0) > 0
+                ? `<div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;font-weight:900;">
+                    <span>(-) DESCONTO / VALE${ticket.discountReason ? ` (${ticket.discountReason.toUpperCase()})` : ""}:</span>
+                    <span>-R$ ${(ticket.discountAmount || 0).toFixed(2).replace(".", ",")}</span>
+                  </div>`
+                : ""
+            }
             ${
               ticket.isFounder
                 ? `<div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;font-weight:900;margin-top:2px;">
@@ -859,17 +924,21 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
                   </div>`
                 : ""
             }
-            <div style="display:flex;justify-content:space-between;font-size:${fontHeaderPx}px;font-weight:900;border-top:1px solid #000;border-bottom:1px solid #000;padding:3px 0;margin:4px 0;">
-              <span>${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL COMPRA:"}</span>
+            <div style="display:flex;justify-content:space-between;font-size:${fontHeaderPx}px;font-weight:900;border-top:1px solid #000;border-bottom:1px solid #000;padding:3px 0;margin:4px 0;${ticket.isCancelled ? "text-decoration:line-through;" : ""}">
+              <span>${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL LÍQUIDO:"}</span>
               <span>R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2).replace(".", ",")}</span>
             </div>
-            <div style="font-size:${fontSmallPx}px;text-align:center;">
-              PÁTIO ATUAL: ${yardCurrentKg.toFixed(1)} kg / ${yardGoalKg.toLocaleString("pt-BR")} kg
-            </div>
+            ${
+              ticket.isScrapPurchase
+                ? ""
+                : `<div style="font-size:${fontSmallPx}px;text-align:center;">
+                    PÁTIO ATUAL: ${yardCurrentKg.toFixed(1)} kg / ${yardGoalKg.toLocaleString("pt-BR")} kg
+                  </div>`
+            }
           </div>
           <div style="text-align:center;margin-top:8px;border-top:1px dashed #000;padding-top:4px;font-size:${fontSmallPx}px;">
             <div style="font-weight:900;">D.W VIDROS & RECICLAGEM</div>
-            <div>Obrigado pela parceria na reciclagem!</div>
+            <div>${ticket.isCancelled ? "DOCUMENTO SEM VALOR FISCAL - ESTORNADO" : "Obrigado pela parceria na reciclagem!"}</div>
           </div>
           <div style="height:${(config.feedLines || 4) * 9}px;"></div>
         </div>
@@ -899,6 +968,7 @@ interface Props {
   initialYardControlFilter?: "vidro" | "outros";
   onAddItemsToYardStock?: (itemsToAdd: { name: string; quantity: number; weightKg: number; costPaid: number }[]) => void;
   onSyncFinancialEventToPDV?: (event: PdvSyncedFinancialEvent) => void;
+  onCancelSyncedFinancialEventFromPDV?: (eventId: string, reason?: string) => void;
   showNotification?: (msg: string, type: "success" | "error" | "info" | "warning") => void;
 }
 
@@ -912,6 +982,7 @@ export function GlassBarcodeScannerCart({
   initialYardControlFilter,
   onAddItemsToYardStock,
   onSyncFinancialEventToPDV,
+  onCancelSyncedFinancialEventFromPDV,
   showNotification
 }: Props) {
   const [internalSellPricePerTon, setInternalSellPricePerTon] = useState<number>(() => {
@@ -1098,6 +1169,33 @@ export function GlassBarcodeScannerCart({
   const [cardPayCollabId, setCardPayCollabId] = useState<string>("");
   const [cardPayMethod, setCardPayMethod] = useState<"pago_dinheiro" | "pago_pix" | "caderninho">("pago_dinheiro");
   const [cardPayAddToStock, setCardPayAddToStock] = useState<boolean>(true);
+
+  // Opção de nome no recibo (cadastrado | sem_nome | nome_avulso) + ajustes (acréscimo / desconto) + Cesta Multi-Materiais do Dia
+  const [scrapCollabMode, setScrapCollabMode] = useState<"cadastrado" | "sem_nome" | "nome_avulso">("cadastrado");
+  const [scrapCustomCollabName, setScrapCustomCollabName] = useState<string>("");
+  const [scrapBasket, setScrapBasket] = useState<
+    {
+      id: string;
+      materialId: string;
+      materialName: string;
+      emoji: string;
+      weightKg: number;
+      units: number;
+      pricePerKg: number;
+      addToStock: boolean;
+    }[]
+  >([]);
+  const [scrapBasketWeightDrafts, setScrapBasketWeightDrafts] = useState<Record<string, string>>({});
+  const [scrapBasketPriceDrafts, setScrapBasketPriceDrafts] = useState<Record<string, string>>({});
+  const [scrapBasketBonusInput, setScrapBasketBonusInput] = useState<string>("");
+  const [scrapBasketBonusReason, setScrapBasketBonusReason] = useState<string>("");
+  const [scrapBasketDiscountInput, setScrapBasketDiscountInput] = useState<string>("");
+  const [scrapBasketDiscountReason, setScrapBasketDiscountReason] = useState<string>("");
+  const [scrapBasketQuickMatId, setScrapBasketQuickMatId] = useState<string>("scrap_pet");
+  const [scrapBasketQuickKg, setScrapBasketQuickKg] = useState<string>("");
+  const [scrapBasketQuickPrice, setScrapBasketQuickPrice] = useState<string>("");
+  const scrapBasketPanelRef = useRef<HTMLDivElement | null>(null);
+
   const [scaleQueueReadings, setScaleQueueReadings] = useState<
     { id: string; grossKg: number; tareKg: number; netKg: number; label: string }[]
   >([]);
@@ -1163,8 +1261,25 @@ export function GlassBarcodeScannerCart({
     }
   })());
 
-  // Comprovante térmico gerado ao finalizar compra no portão
+  // Comprovante térmico gerado ao finalizar compra no portão + estados de cancelamento/estorno + MiniPrint 57mm + Pastas
   const [lastPurchaseReceipt, setLastPurchaseReceipt] = useState<CompletedPurchaseTicket | null>(null);
+  const [latestSettledReceipt, setLatestSettledReceipt] = useState<CollaboratorPaymentReceipt | null>(null);
+  const [cancellingTicketId, setCancellingTicketId] = useState<string | null>(null);
+  const [cancelTicketReasonDraft, setCancelTicketReasonDraft] = useState<string>("");
+  const [printerConfigState, setPrinterConfigState] = useState<PrinterConfig>(() => loadPrinterConfig());
+  const [receiptCopiesMode, setReceiptCopiesMode] = useState<1 | 2>(() => {
+    try {
+      const saved = localStorage.getItem("pdv_dw_receipt_copies_mode");
+      if (saved === "2") return 2;
+      if (saved === "1") return 1;
+      return loadPrinterConfig().printTwoCopies ? 2 : 1;
+    } catch {
+      return 1;
+    }
+  });
+  const [selectedFolderKey, setSelectedFolderKey] = useState<string | null>(null);
+  const [folderSearchQuery, setFolderSearchQuery] = useState<string>("");
+  const [isGeneratingFunPrint, setIsGeneratingFunPrint] = useState<boolean>(false);
 
   // Destino da câmera: leitura de compra ("search") ou preenchimento dos 5 campos de código no modal Editar ("primary" ou índice 0..3)
   const [cameraTargetField, setCameraTargetField] = useState<"search" | "primary" | number>("search");
@@ -1487,8 +1602,8 @@ export function GlassBarcodeScannerCart({
     updatedAt: localMutationTsRef.current || Date.now(),
     catalog,
     collaborators,
-    purchaseHistory: purchaseHistory.slice(0, 50),
-    paymentHistory: paymentHistory.slice(0, 50),
+    purchaseHistory: purchaseHistory.slice(0, 150),
+    paymentHistory: paymentHistory.slice(0, 150),
     truckShipments: truckShipments.slice(0, 50),
     yardGoalKg,
     sellPricePerTon: activeSellPricePerTon,
@@ -1810,12 +1925,372 @@ export function GlassBarcodeScannerCart({
     playScannerBeep(980, 0.06);
   };
 
+  const scrapBasketStats = useMemo(() => {
+    const totalWeightKg = scrapBasket.reduce((s, item) => s + Math.max(0, item.weightKg), 0);
+    const totalUnits = scrapBasket.reduce((s, item) => s + Math.max(0, item.units), 0);
+    const subtotal = Number(
+      scrapBasket.reduce((s, item) => s + Math.max(0, item.weightKg) * Math.max(0, item.pricePerKg), 0).toFixed(2)
+    );
+    const bonus = Math.max(0, Number((parseFloat(scrapBasketBonusInput.replace(",", ".")) || 0).toFixed(2)));
+    const discount = Math.max(0, Number((parseFloat(scrapBasketDiscountInput.replace(",", ".")) || 0).toFixed(2)));
+    const rawNet = Number((subtotal + bonus - discount).toFixed(2));
+    const netPayable = Math.max(0, rawNet);
+    const remainingDebt = rawNet < 0 ? Math.abs(rawNet) : 0;
+    return { totalWeightKg, totalUnits, subtotal, bonus, discount, netPayable, remainingDebt };
+  }, [scrapBasket, scrapBasketBonusInput, scrapBasketDiscountInput]);
+
+  useEffect(() => {
+    const mat = otherScrapMaterials.find((m) => m.id === scrapBasketQuickMatId);
+    if (mat) {
+      setScrapBasketQuickPrice(mat.buyPricePerKg > 0 ? String(mat.buyPricePerKg).replace(".", ",") : "");
+    }
+  }, [scrapBasketQuickMatId]);
+
+  const handleAddItemToScrapBasket = ({
+    material,
+    weightKg,
+    units,
+    pricePerKg,
+    addToStock
+  }: {
+    material: OtherScrapMaterial;
+    weightKg: number;
+    units?: number;
+    pricePerKg: number;
+    addToStock: boolean;
+  }) => {
+    const cleanW = Math.max(0, Number(weightKg.toFixed(3)));
+    const cleanP = Math.max(0, Number.isFinite(pricePerKg) ? pricePerKg : 0);
+    const cleanU = Math.max(0, Math.round(units || 0));
+    if (cleanW <= 0 && cleanU <= 0) {
+      if (showNotification) showNotification("Informe o peso (kg) antes de somar no recibo.", "warning");
+      return;
+    }
+
+    if (cleanP > 0 && cleanP !== material.buyPricePerKg) {
+      handleUpdateScrapPricePerKg(material.id, cleanP);
+    }
+
+    setScrapBasket((prev) => [
+      ...prev,
+      {
+        id: `basket_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        materialId: material.id,
+        materialName: material.name,
+        emoji: material.emoji,
+        weightKg: cleanW,
+        units: cleanU,
+        pricePerKg: cleanP,
+        addToStock
+      }
+    ]);
+    playScannerBeep(1040, 0.07);
+    if (showNotification) {
+      showNotification(
+        `${material.emoji} ${material.name} (${cleanW.toFixed(2)} kg • R$ ${(cleanW * cleanP).toFixed(2).replace(".", ",")}) somado no Recibo do Dia! 🧺`,
+        "success"
+      );
+    }
+  };
+
+  const resolveScrapCollaboratorTarget = ({
+    collabChoiceId,
+    collabMode,
+    customName,
+    wantCaderninho
+  }: {
+    collabChoiceId: string;
+    collabMode: "cadastrado" | "sem_nome" | "nome_avulso";
+    customName: string;
+    wantCaderninho: boolean;
+  }): {
+    displayName: string;
+    matchedCollab: CollaboratorAccount | null;
+    isFounder: boolean;
+    createdNewCollab: CollaboratorAccount | null;
+  } => {
+    if (collabMode === "sem_nome") {
+      return {
+        displayName: "Reciclador Avulso (Sem Nome)",
+        matchedCollab: null,
+        isFounder: false,
+        createdNewCollab: null
+      };
+    }
+    if (collabMode === "nome_avulso") {
+      const trimmed = customName.trim();
+      if (!trimmed) {
+        return {
+          displayName: "Reciclador Avulso (Sem Nome)",
+          matchedCollab: null,
+          isFounder: false,
+          createdNewCollab: null
+        };
+      }
+      const existing = collaborators.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+      if (existing) {
+        return {
+          displayName: existing.name,
+          matchedCollab: existing,
+          isFounder: !!existing.isFounder,
+          createdNewCollab: null
+        };
+      }
+      if (wantCaderninho) {
+        const newCollab: CollaboratorAccount = {
+          id: `collab_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+          name: trimmed,
+          notes: "Cadastrado direto na pesagem/recibo",
+          createdAt: new Date().toLocaleDateString("pt-BR"),
+          totalDeliveries: 0,
+          totalBottles: 0,
+          totalWeightKg: 0,
+          totalEarned: 0,
+          totalPaid: 0,
+          balancePending: 0
+        };
+        return {
+          displayName: newCollab.name,
+          matchedCollab: newCollab,
+          isFounder: false,
+          createdNewCollab: newCollab
+        };
+      }
+      return {
+        displayName: trimmed,
+        matchedCollab: null,
+        isFounder: false,
+        createdNewCollab: null
+      };
+    }
+
+    const found = collaborators.find((c) => c.id === collabChoiceId) || collaborators[0];
+    return {
+      displayName: found?.name || "Reciclador Avulso (Sem Nome)",
+      matchedCollab: found || null,
+      isFounder: !!found?.isFounder,
+      createdNewCollab: null
+    };
+  };
+
+  const commitScrapItemsWithAdjustments = ({
+    entries,
+    collabChoiceId,
+    collabMode = scrapCollabMode,
+    customName = scrapCustomCollabName,
+    mode,
+    bonusAmount = 0,
+    bonusReason = "",
+    discountAmount = 0,
+    discountReason = ""
+  }: {
+    entries: {
+      material: OtherScrapMaterial;
+      weightKg: number;
+      units: number;
+      pricePerKg: number;
+      addWeightToStock: boolean;
+    }[];
+    collabChoiceId: string;
+    collabMode?: "cadastrado" | "sem_nome" | "nome_avulso";
+    customName?: string;
+    mode: "pago_dinheiro" | "pago_pix" | "caderninho" | "so_estoque";
+    bonusAmount?: number;
+    bonusReason?: string;
+    discountAmount?: number;
+    discountReason?: string;
+  }) => {
+    const validEntries = entries.filter((e) => e.weightKg > 0 || e.units > 0);
+    if (validEntries.length === 0) return false;
+
+    const totalWeightKg = Number(validEntries.reduce((s, e) => s + Math.max(0, e.weightKg), 0).toFixed(3));
+    const totalUnits = validEntries.reduce((s, e) => s + Math.max(0, Math.round(e.units)), 0);
+    const subtotalAmount = Number(
+      validEntries
+        .reduce((s, e) => s + Math.max(0, e.weightKg) * Math.max(0, e.pricePerKg), 0)
+        .toFixed(2)
+    );
+    const cleanBonus = Math.max(0, Number((bonusAmount || 0).toFixed(2)));
+    const cleanDiscount = Math.max(0, Number((discountAmount || 0).toFixed(2)));
+    const netTotalAmount = Math.max(0, Number((subtotalAmount + cleanBonus - cleanDiscount).toFixed(2)));
+
+    const isCaderninhoRequested = mode === "caderninho";
+    const resolved = resolveScrapCollaboratorTarget({
+      collabChoiceId,
+      collabMode,
+      customName,
+      wantCaderninho: isCaderninhoRequested
+    });
+
+    if (isCaderninhoRequested && !resolved.matchedCollab) {
+      if (showNotification) {
+        showNotification("Para anotar no Caderninho, escolha um colaborador ou digite o nome dele!", "warning");
+      }
+      return false;
+    }
+
+    markLocalYardMutation();
+
+    // 1. Atualiza estoque & preços dos materiais lançados
+    setOtherScrapMaterials((prev) =>
+      prev.map((m) => {
+        const matchingEntries = validEntries.filter((e) => e.material.id === m.id);
+        if (matchingEntries.length === 0) return m;
+        const addKg = matchingEntries.reduce((s, e) => s + (e.addWeightToStock ? Math.max(0, e.weightKg) : 0), 0);
+        const addUn = matchingEntries.reduce((s, e) => s + (e.addWeightToStock ? Math.max(0, Math.round(e.units)) : 0), 0);
+        const lastPrice = matchingEntries[matchingEntries.length - 1].pricePerKg;
+        return {
+          ...m,
+          buyPricePerKg: Math.max(0, Number.isFinite(lastPrice) ? lastPrice : m.buyPricePerKg),
+          stockKg: Number((m.stockKg + addKg).toFixed(3)),
+          stockUnits: (m.stockUnits || 0) + addUn
+        };
+      })
+    );
+
+    const isFounder = resolved.isFounder;
+    const paidNow = !isFounder && (mode === "pago_dinheiro" || mode === "pago_pix");
+    const shouldGenerateReceipt =
+      isFounder || (mode !== "so_estoque" && (netTotalAmount > 0 || subtotalAmount > 0 || cleanDiscount > 0 || cleanBonus > 0));
+
+    // 2. Atualiza Caderninho (se colaborador identificado ou recém-criado)
+    if (shouldGenerateReceipt && resolved.matchedCollab) {
+      const targetCollab = resolved.matchedCollab;
+      if (resolved.createdNewCollab) {
+        setSelectedCollabId(targetCollab.id);
+        setScrapCollabMode("cadastrado");
+        setScrapCustomCollabName("");
+      }
+      setCollaborators((prev) => {
+        const listWithNew = resolved.createdNewCollab ? [...prev, resolved.createdNewCollab] : prev;
+        return listWithNew.map((c) => {
+          if (c.id !== targetCollab.id) return c;
+          const newDeliveries = c.totalDeliveries + 1;
+          const newWeight = Number((c.totalWeightKg + totalWeightKg).toFixed(3));
+          const newEarned = Number((c.totalEarned + netTotalAmount).toFixed(2));
+          if (c.isFounder) {
+            return {
+              ...c,
+              totalDeliveries: newDeliveries,
+              totalBottles: c.totalBottles + totalUnits,
+              totalWeightKg: newWeight,
+              totalEarned: newEarned,
+              totalPaid: newEarned,
+              balancePending: 0
+            };
+          }
+          const addedPaid = paidNow ? netTotalAmount : 0;
+          const newPaid = Number((c.totalPaid + addedPaid).toFixed(2));
+          const newPending = Math.max(0, Number((newEarned - newPaid).toFixed(2)));
+          return {
+            ...c,
+            totalDeliveries: newDeliveries,
+            totalBottles: c.totalBottles + totalUnits,
+            totalWeightKg: newWeight,
+            totalEarned: newEarned,
+            totalPaid: newPaid,
+            balancePending: newPending
+          };
+        });
+      });
+    }
+
+    // 3. Gera Recibo Único (com ou sem nome, 1 ou vários materiais, com acréscimo/desconto)
+    if (shouldGenerateReceipt) {
+      const paymentStatus: CompletedPurchaseTicket["paymentStatus"] = isFounder
+        ? "coleta_propria_dw"
+        : paidNow
+        ? "pago_na_hora"
+        : "pendente_caderninho";
+
+      const ticketId = `ticket_scrap_${Date.now()}`;
+      const pdvEventId = paidNow && netTotalAmount > 0 ? `pdv_fv_scrap_${ticketId}` : undefined;
+
+      const ticket: CompletedPurchaseTicket = {
+        id: ticketId,
+        timestamp: new Date().toLocaleString("pt-BR"),
+        collectorName: resolved.displayName,
+        collaboratorId: resolved.matchedCollab?.id,
+        isFounder,
+        isScrapPurchase: true,
+        syncedPdvEventId: pdvEventId,
+        items: validEntries.map((e) => {
+          const itemCost = Number((Math.max(0, e.weightKg) * Math.max(0, e.pricePerKg)).toFixed(2));
+          return {
+            name: `${e.material.emoji} ${e.material.name} (R$ ${e.pricePerKg.toFixed(2).replace(".", ",")}/kg)`,
+            volumeMl: 0,
+            barcode: "BALANCA",
+            quantity: e.units > 0 ? e.units : 1,
+            unitWeightGrams: Math.round(e.weightKg * 1000),
+            totalWeightKg: Number(e.weightKg.toFixed(3)),
+            costPaid: itemCost,
+            materialId: e.material.id,
+            addedToStock: e.addWeightToStock,
+            stockUnitsAdded: e.addWeightToStock ? Math.max(0, Math.round(e.units)) : 0
+          };
+        }),
+        totalBottles: totalUnits,
+        totalWeightKg,
+        subtotalAmount,
+        bonusAmount: cleanBonus > 0 ? cleanBonus : undefined,
+        bonusReason: bonusReason.trim() || undefined,
+        discountAmount: cleanDiscount > 0 ? cleanDiscount : undefined,
+        discountReason: discountReason.trim() || undefined,
+        totalPaid: isFounder ? 0 : netTotalAmount,
+        expectedPlantRevenue: 0,
+        netProfit: 0,
+        paymentStatus,
+        sellPricePerTonUsed: activeSellPricePerTon
+      };
+
+      setPurchaseHistory((prev) => [ticket, ...prev.slice(0, 149)]);
+      setLastPurchaseReceipt(ticket);
+
+      if (syncToPdvCash && onSyncFinancialEventToPDV && pdvEventId && netTotalAmount > 0) {
+        const itemsSummary = validEntries.map((e) => `${e.material.name} (${e.weightKg.toFixed(2)}kg)`).join(" + ");
+        onSyncFinancialEventToPDV({
+          id: pdvEventId,
+          type: "saida",
+          amount: netTotalAmount,
+          description: `COMPRA RECICLAGEM: ${resolved.displayName.toUpperCase()} — ${itemsSummary}`,
+          paymentMethod: mode === "pago_pix" ? "pix" : "dinheiro",
+          category: "despesa",
+          clientName: resolved.displayName
+        });
+      }
+    }
+
+    playScannerBeep(1180, 0.09);
+
+    if (showNotification) {
+      const countLabel = validEntries.length > 1 ? `${validEntries.length} materiais (${totalWeightKg.toFixed(2)} kg)` : `${validEntries[0].material.emoji} ${validEntries[0].material.name} (${totalWeightKg.toFixed(2)} kg)`;
+      if (shouldGenerateReceipt && !isFounder) {
+        if (paidNow) {
+          showNotification(
+            `Recibo fechado! ${countLabel} • Pago R$ ${netTotalAmount.toFixed(2).replace(".", ",")} (${resolved.displayName})! 💵✅`,
+            "success"
+          );
+        } else {
+          showNotification(
+            `Anotado no Caderninho! ${countLabel} • R$ ${netTotalAmount.toFixed(2).replace(".", ",")} para ${resolved.displayName}! 📓✅`,
+            "info"
+          );
+        }
+      } else {
+        showNotification(`${countLabel} lançado no estoque! ⚖️✅`, "success");
+      }
+    }
+    return true;
+  };
+
   const registerScrapPurchaseForCollaborator = ({
     material,
     weightKg,
     units,
     pricePerKg,
     collabId,
+    collabMode,
+    customName,
     mode,
     addWeightToStock
   }: {
@@ -1824,137 +2299,26 @@ export function GlassBarcodeScannerCart({
     units: number;
     pricePerKg: number;
     collabId: string;
+    collabMode?: "cadastrado" | "sem_nome" | "nome_avulso";
+    customName?: string;
     mode: "pago_dinheiro" | "pago_pix" | "caderninho" | "so_estoque";
     addWeightToStock: boolean;
   }) => {
-    const cleanWeightKg = Math.max(0, Number(weightKg.toFixed(3)));
-    const cleanUnits = Math.max(0, Math.round(units));
-    const cleanPricePerKg = Math.max(0, Number.isFinite(pricePerKg) ? pricePerKg : 0);
-    const totalAmount = Number((cleanWeightKg * cleanPricePerKg).toFixed(2));
-    const collab = collaborators.find((c) => c.id === collabId) || collaborators[0];
-    const isFounder = !!collab?.isFounder;
-
-    markLocalYardMutation();
-    setOtherScrapMaterials((prev) =>
-      prev.map((m) =>
-        m.id === material.id
-          ? {
-              ...m,
-              buyPricePerKg: cleanPricePerKg,
-              stockKg: addWeightToStock ? Number((m.stockKg + cleanWeightKg).toFixed(3)) : m.stockKg,
-              stockUnits: addWeightToStock ? (m.stockUnits || 0) + cleanUnits : (m.stockUnits || 0)
-            }
-          : m
-      )
-    );
-
-    const shouldRecordCollab = collab && (isFounder || (mode !== "so_estoque" && totalAmount > 0));
-    const paidNow = !isFounder && (mode === "pago_dinheiro" || mode === "pago_pix");
-    const isCaderninho = !isFounder && mode === "caderninho";
-
-    if (shouldRecordCollab && collab) {
-      setCollaborators((prev) =>
-        prev.map((c) => {
-          if (c.id !== collab.id) return c;
-          const newDeliveries = c.totalDeliveries + 1;
-          const newWeight = Number((c.totalWeightKg + cleanWeightKg).toFixed(3));
-          const newEarned = Number((c.totalEarned + totalAmount).toFixed(2));
-          if (c.isFounder) {
-            return {
-              ...c,
-              totalDeliveries: newDeliveries,
-              totalBottles: c.totalBottles + cleanUnits,
-              totalWeightKg: newWeight,
-              totalEarned: newEarned,
-              totalPaid: newEarned,
-              balancePending: 0
-            };
-          }
-          const addedPaid = paidNow ? totalAmount : 0;
-          const newPaid = Number((c.totalPaid + addedPaid).toFixed(2));
-          const newPending = Math.max(0, Number((newEarned - newPaid).toFixed(2)));
-          return {
-            ...c,
-            totalDeliveries: newDeliveries,
-            totalBottles: c.totalBottles + cleanUnits,
-            totalWeightKg: newWeight,
-            totalEarned: newEarned,
-            totalPaid: newPaid,
-            balancePending: newPending
-          };
-        })
-      );
-
-      const paymentStatus: CompletedPurchaseTicket["paymentStatus"] = isFounder
-        ? "coleta_propria_dw"
-        : paidNow
-        ? "pago_na_hora"
-        : "pendente_caderninho";
-
-      const ticket: CompletedPurchaseTicket = {
-        id: `ticket_scrap_${Date.now()}`,
-        timestamp: new Date().toLocaleString("pt-BR"),
-        collectorName: collab.name,
-        isFounder,
-        items: [
-          {
-            name: `${material.emoji} ${material.name} (R$ ${cleanPricePerKg.toFixed(2).replace(".", ",")}/kg)`,
-            volumeMl: 0,
-            barcode: "BALANCA",
-            quantity: cleanUnits > 0 ? cleanUnits : 1,
-            unitWeightGrams: Math.round(cleanWeightKg * 1000),
-            totalWeightKg: cleanWeightKg,
-            costPaid: totalAmount
-          }
-        ],
-        totalBottles: cleanUnits,
-        totalWeightKg: cleanWeightKg,
-        totalPaid: isFounder ? 0 : totalAmount,
-        expectedPlantRevenue: 0,
-        netProfit: 0,
-        paymentStatus,
-        sellPricePerTonUsed: activeSellPricePerTon
-      };
-
-      setPurchaseHistory((prev) => [ticket, ...prev.slice(0, 49)]);
-      setLastPurchaseReceipt(ticket);
-
-      if (syncToPdvCash && onSyncFinancialEventToPDV && paidNow && totalAmount > 0) {
-        onSyncFinancialEventToPDV({
-          id: `pdv_fv_scrap_${ticket.id}`,
-          type: "saida",
-          amount: totalAmount,
-          description: `COMPRA RECICLAGEM (${material.name.toUpperCase()}): ${collab.name.toUpperCase()} (${cleanWeightKg.toFixed(2)} kg × R$ ${cleanPricePerKg.toFixed(2)})`,
-          paymentMethod: mode === "pago_pix" ? "pix" : "dinheiro",
-          category: "despesa",
-          clientName: collab.name
-        });
-      }
-    }
-
-    playScannerBeep(1180, 0.09);
-
-    if (showNotification) {
-      const stockTxt = addWeightToStock && cleanWeightKg > 0 ? `+${cleanWeightKg.toFixed(2)} kg no estoque` : `${cleanWeightKg.toFixed(2)} kg`;
-      if (shouldRecordCollab && collab && !isFounder && totalAmount > 0) {
-        if (paidNow) {
-          showNotification(
-            `${material.emoji} ${material.name} (${stockTxt}) • Pago R$ ${totalAmount.toFixed(2).replace(".", ",")} para ${collab.name}! 💵✅`,
-            "success"
-          );
-        } else {
-          showNotification(
-            `${material.emoji} ${material.name} (${stockTxt}) • Anotado R$ ${totalAmount.toFixed(2).replace(".", ",")} no Caderninho de ${collab.name}! 📓✅`,
-            "info"
-          );
+    return commitScrapItemsWithAdjustments({
+      entries: [
+        {
+          material,
+          weightKg,
+          units,
+          pricePerKg,
+          addWeightToStock
         }
-      } else {
-        const parts: string[] = [];
-        if (cleanWeightKg > 0) parts.push(`+${cleanWeightKg.toFixed(2)} kg`);
-        if (cleanUnits > 0) parts.push(`+${cleanUnits} un`);
-        showNotification(`${material.emoji} ${material.name}: ${parts.join(" e ")} lançado no estoque! ⚖️✅`, "success");
-      }
-    }
+      ],
+      collabChoiceId: collabId,
+      collabMode,
+      customName,
+      mode
+    });
   };
 
   const handleCommitDigitalScaleToStock = () => {
@@ -2143,6 +2507,126 @@ export function GlassBarcodeScannerCart({
       founderSelfSaved
     };
   }, [collaborators]);
+
+  // Pastas organizadas automaticamente por Colaborador da Reciclagem (Compras + Pagamentos + Saldo)
+  const collaboratorFolders = useMemo(() => {
+    interface FolderEntry {
+      key: string;
+      name: string;
+      collaborator?: CollaboratorAccount;
+      isFounder: boolean;
+      tickets: CompletedPurchaseTicket[];
+      payments: CollaboratorPaymentReceipt[];
+      totalBoughtAmount: number;
+      totalWeightKg: number;
+      totalPaidDirectAmount: number;
+      totalPaidSettlementAmount: number;
+      totalPendingDebtAmount: number;
+      activeCount: number;
+      cancelledCount: number;
+    }
+
+    const folderMap = new Map<string, FolderEntry>();
+    const normalizeNameKey = (raw: string) =>
+      String(raw || "Sem Nome / Balcão")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+
+    collaborators.forEach((c) => {
+      const key = `collab:${c.id}`;
+      folderMap.set(key, {
+        key,
+        name: c.name,
+        collaborator: c,
+        isFounder: Boolean(c.isFounder),
+        tickets: [],
+        payments: [],
+        totalBoughtAmount: 0,
+        totalWeightKg: 0,
+        totalPaidDirectAmount: 0,
+        totalPaidSettlementAmount: 0,
+        totalPendingDebtAmount: 0,
+        activeCount: 0,
+        cancelledCount: 0
+      });
+    });
+
+    const resolveFolderForNameAndId = (collabId?: string, rawName?: string): FolderEntry => {
+      if (collabId) {
+        const direct = folderMap.get(`collab:${collabId}`);
+        if (direct) return direct;
+      }
+      const norm = normalizeNameKey(rawName || "Sem Nome / Balcão");
+      for (const entry of folderMap.values()) {
+        if (normalizeNameKey(entry.name) === norm) {
+          return entry;
+        }
+      }
+      const customKey = `name:${norm}`;
+      let existing = folderMap.get(customKey);
+      if (!existing) {
+        existing = {
+          key: customKey,
+          name: rawName?.trim() || "Sem Nome / Balcão",
+          isFounder: false,
+          tickets: [],
+          payments: [],
+          totalBoughtAmount: 0,
+          totalWeightKg: 0,
+          totalPaidDirectAmount: 0,
+          totalPaidSettlementAmount: 0,
+          totalPendingDebtAmount: 0,
+          activeCount: 0,
+          cancelledCount: 0
+        };
+        folderMap.set(customKey, existing);
+      }
+      return existing;
+    };
+
+    purchaseHistory.forEach((tk) => {
+      const folder = resolveFolderForNameAndId(tk.collaboratorId, tk.collectorName);
+      folder.tickets.push(tk);
+      if (tk.isCancelled) {
+        folder.cancelledCount += 1;
+      } else {
+        folder.activeCount += 1;
+        folder.totalWeightKg += tk.totalWeightKg || 0;
+        if (!tk.isFounder) {
+          folder.totalBoughtAmount += tk.totalPaid || 0;
+          if (tk.paymentStatus === "pago_na_hora") {
+            folder.totalPaidDirectAmount += tk.totalPaid || 0;
+          }
+        }
+      }
+    });
+
+    paymentHistory.forEach((pay) => {
+      const folder = resolveFolderForNameAndId(pay.collaboratorId, pay.collaboratorName);
+      folder.payments.push(pay);
+      folder.activeCount += 1;
+      folder.totalPaidSettlementAmount += pay.amountPaid || 0;
+    });
+
+    // Sincroniza saldo oficial do Caderninho quando o colaborador está cadastrado
+    folderMap.forEach((entry) => {
+      if (entry.collaborator && !entry.isFounder) {
+        entry.totalBoughtAmount = Math.max(entry.totalBoughtAmount, entry.collaborator.totalEarned || 0);
+        entry.totalWeightKg = Math.max(entry.totalWeightKg, entry.collaborator.totalWeightKg || 0);
+        entry.totalPendingDebtAmount = entry.collaborator.balancePending || 0;
+      } else if (!entry.isFounder) {
+        entry.totalPendingDebtAmount = 0;
+      }
+    });
+
+    return Array.from(folderMap.values()).sort((a, b) => {
+      const aScore = (a.totalPendingDebtAmount > 0 ? 100000 : 0) + a.activeCount * 100 + a.tickets.length + a.payments.length;
+      const bScore = (b.totalPendingDebtAmount > 0 ? 100000 : 0) + b.activeCount * 100 + b.tickets.length + b.payments.length;
+      if (bScore !== aScore) return bScore - aScore;
+      return a.name.localeCompare(b.name, "pt-BR");
+    });
+  }, [collaborators, purchaseHistory, paymentHistory]);
 
   // Totais do Carrinho Atual
   const cartTotals = useMemo(() => {
@@ -2800,11 +3284,18 @@ export function GlassBarcodeScannerCart({
     );
 
     // 3. Salvar tíquete no histórico
+    const glassTicketId = `ticket_${Date.now()}`;
+    const glassPdvEventId = !isFounder && settlementMode === "pago_na_hora" && cartTotals.totalBuyCost > 0
+      ? `pdv_fv_buy_${glassTicketId}`
+      : undefined;
+
     const ticket: CompletedPurchaseTicket = {
-      id: `ticket_${Date.now()}`,
+      id: glassTicketId,
       timestamp: new Date().toLocaleString("pt-BR"),
       collectorName: activeCollab.name,
+      collaboratorId: activeCollab.id,
       isFounder,
+      syncedPdvEventId: glassPdvEventId,
       items: cart.map((c) => ({
         name: c.name,
         volumeMl: c.volumeMl,
@@ -2823,14 +3314,14 @@ export function GlassBarcodeScannerCart({
       sellPricePerTonUsed: activeSellPricePerTon
     };
 
-    setPurchaseHistory((prev) => [ticket, ...prev.slice(0, 49)]);
+    setPurchaseHistory((prev) => [ticket, ...prev.slice(0, 149)]);
     setLastPurchaseReceipt(ticket);
     setShowCheckoutModal(false);
 
     // 3.5 Integra pagamento feito na hora no portão com Caixa & Relatórios do PDV
-    if (syncToPdvCash && onSyncFinancialEventToPDV && !isFounder && settlementMode === "pago_na_hora" && ticket.totalPaid > 0) {
+    if (syncToPdvCash && onSyncFinancialEventToPDV && glassPdvEventId && ticket.totalPaid > 0) {
       onSyncFinancialEventToPDV({
-        id: `pdv_fv_buy_${ticket.id}`,
+        id: glassPdvEventId,
         type: "saida",
         amount: ticket.totalPaid,
         description: `COMPRA VIDROS PORTÃO: ${activeCollab.name.toUpperCase()} (${ticket.totalBottles} un / ${ticket.totalWeightKg.toFixed(1)} kg)`,
@@ -2912,7 +3403,8 @@ export function GlassBarcodeScannerCart({
       remainingBalance: remaining
     };
 
-    setPaymentHistory((prev) => [receipt, ...prev.slice(0, 49)]);
+    setPaymentHistory((prev) => [receipt, ...prev.slice(0, 149)]);
+    setLatestSettledReceipt(receipt);
     setPayingCollab(null);
 
     if (syncToPdvCash && onSyncFinancialEventToPDV && amount > 0) {
@@ -3110,62 +3602,624 @@ export function GlassBarcodeScannerCart({
     window.open(url, "_blank");
   };
 
-  // Imprimir Notinha / Cupom Térmico de Compra no Portão (58mm / 80mm / A4)
-  const handlePrintGlassTicket = (ticket: CompletedPurchaseTicket) => {
-    const config = loadPrinterConfig();
-    const projectedKg =
-      lastPurchaseReceipt?.id === ticket.id
-        ? yardTotals.totalWeightKg
-        : yardTotals.totalWeightKg;
-    const html = buildGlassPurchaseThermalHtml(
-      ticket,
-      config,
-      projectedKg,
-      yardTotals.minTonTargetKg
+  const handleSetReceiptCopiesMode = (copies: 1 | 2) => {
+    setReceiptCopiesMode(copies);
+    try {
+      localStorage.setItem("pdv_dw_receipt_copies_mode", String(copies));
+    } catch {}
+    const nextCfg: PrinterConfig = {
+      ...loadPrinterConfig(),
+      ...printerConfigState,
+      printTwoCopies: copies === 2
+    };
+    setPrinterConfigState(nextCfg);
+    savePrinterConfig(nextCfg);
+  };
+
+  const handleActivateMiniPrintPocket = () => {
+    const nextCfg = buildMiniPrintPocketConfig(loadPrinterConfig(), receiptCopiesMode === 2);
+    setPrinterConfigState(nextCfg);
+    savePrinterConfig(nextCfg);
+    if (showNotification) {
+      showNotification(
+        `MiniPrint PocketTM (57×30mm / Fun Print) ativada para ${receiptCopiesMode === 2 ? "2 Vias (D.W + Reciclador)" : "1 Via"}! 🐱🖨️`,
+        "success"
+      );
+    }
+  };
+
+  const getTicketCollabSnapshot = (ticket: CompletedPurchaseTicket) => {
+    const matched = collaborators.find(
+      (c) =>
+        (ticket.collaboratorId && c.id === ticket.collaboratorId) ||
+        c.name.trim().toLowerCase() === ticket.collectorName.trim().toLowerCase()
     );
+    if (!matched || matched.isFounder) return undefined;
+    return {
+      totalEarned: matched.totalEarned,
+      totalPaid: matched.totalPaid,
+      balancePending: matched.balancePending,
+      totalWeightKg: matched.totalWeightKg,
+      totalDeliveries: matched.totalDeliveries
+    };
+  };
+
+  const buildTicketReceiptPayload = (
+    ticket: CompletedPurchaseTicket,
+    copies: 1 | 2
+  ): ThermalCanvasReceiptPayload => {
+    const cfg = loadPrinterConfig();
+    const statusLabel =
+      ticket.paymentStatus === "coleta_propria_dw"
+        ? "COLETA PRÓPRIA D.W (100% EMPRESA)"
+        : ticket.paymentStatus === "pago_na_hora"
+        ? "PAGO NA HORA (PORTÃO / CAIXA)"
+        : "LANÇADO NO CADERNINHO (A ACERTAR)";
+
+    const lines = ticket.items.map((it) => ({
+      left: `${it.name.toUpperCase()}${it.volumeMl > 0 ? ` (${it.volumeMl}ml)` : ""}`,
+      right: `R$ ${it.costPaid.toFixed(2).replace(".", ",")}`,
+      detail:
+        it.volumeMl > 0
+          ? `${it.quantity} un x ${it.unitWeightGrams}g = ${it.totalWeightKg.toFixed(2)} kg`
+          : `Peso Líquido: ${it.totalWeightKg.toFixed(2)} kg`,
+      bold: true
+    }));
+
+    const summaryLines: ThermalCanvasReceiptPayload["summaryLines"] = [];
+    if (!ticket.isScrapPurchase && ticket.totalBottles > 0) {
+      summaryLines.push({ label: "QTD GARRAFAS:", value: `${ticket.totalBottles} un`, bold: true });
+    }
+    summaryLines.push({
+      label: ticket.isScrapPurchase ? "PESO COMPRADO:" : "PESO SOMADO:",
+      value: `+${ticket.totalWeightKg.toFixed(2)} kg`,
+      bold: true
+    });
+    if (
+      typeof ticket.subtotalAmount === "number" &&
+      ((ticket.bonusAmount || 0) > 0 || (ticket.discountAmount || 0) > 0)
+    ) {
+      summaryLines.push({
+        label: "SUBTOTAL MATERIAIS:",
+        value: `R$ ${ticket.subtotalAmount.toFixed(2).replace(".", ",")}`
+      });
+    }
+    if ((ticket.bonusAmount || 0) > 0) {
+      summaryLines.push({
+        label: `(+) ACRÉSCIMO${ticket.bonusReason ? ` (${ticket.bonusReason})` : ""}:`,
+        value: `+R$ ${(ticket.bonusAmount || 0).toFixed(2).replace(".", ",")}`,
+        bold: true
+      });
+    }
+    if ((ticket.discountAmount || 0) > 0) {
+      summaryLines.push({
+        label: `(-) DESCONTO/VALE${ticket.discountReason ? ` (${ticket.discountReason})` : ""}:`,
+        value: `-R$ ${(ticket.discountAmount || 0).toFixed(2).replace(".", ",")}`,
+        bold: true
+      });
+    }
+    if (ticket.isFounder) {
+      summaryLines.push({
+        label: "ECONOMIA D.W:",
+        value: `R$ ${ticket.items.reduce((s, it) => s + it.costPaid, 0).toFixed(2).replace(".", ",")}`,
+        bold: true
+      });
+    }
+    summaryLines.push({
+      label: ticket.isFounder ? "TOTAL A PAGAR:" : "TOTAL LÍQUIDO:",
+      value: `R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2).replace(".", ",")}`,
+      big: true,
+      bold: true,
+      strike: Boolean(ticket.isCancelled)
+    });
+
+    return {
+      title: ticket.isScrapPurchase
+        ? "RECIBO DE COMPRA - RECICLAGEM"
+        : "COMPROVANTE DE COMPRA - VIDROS",
+      storeName: cfg.storeName || "D.W VIDROS & RECICLAGEM",
+      storeCnpj: cfg.storeCnpjCpf || "67.965.725/0001-95",
+      dateStr: ticket.timestamp,
+      ticketId: ticket.id,
+      collaboratorName: ticket.collectorName,
+      statusLabel,
+      extraMeta: ticket.isScrapPurchase
+        ? ["MODALIDADE: FERRO VELHO & RECICLAGEM"]
+        : [
+            `COTAÇÃO VICTOR: R$ ${ticket.sellPricePerTonUsed || 150}/t (R$ ${((ticket.sellPricePerTonUsed || 150) / 1000)
+              .toFixed(2)
+              .replace(".", ",")}/kg)`
+          ],
+      isCancelled: ticket.isCancelled,
+      cancelReason: ticket.cancelReason,
+      cancelledAt: ticket.cancelledAt,
+      lines,
+      summaryLines,
+      caderninhoBox: getTicketCollabSnapshot(ticket),
+      footerNote: "Pasta do colaborador atualizada! Confira os cálculos.",
+      copies
+    };
+  };
+
+  // Imprimir Notinha / Cupom Térmico de Compra no Portão (MiniPrint 57mm / 58mm / 80mm / A4 - 1 ou 2 vias)
+  const handlePrintGlassTicket = (ticket: CompletedPurchaseTicket, copiesOverride?: 1 | 2) => {
+    const config = { ...loadPrinterConfig(), ...printerConfigState };
+    const copies: 1 | 2 = copiesOverride || receiptCopiesMode || (config.printTwoCopies ? 2 : 1);
+    const payload = buildTicketReceiptPayload(ticket, copies);
+    const html = buildThermalDocumentHtmlFromPayload(payload, config);
     executeThermalPrint(
       html,
       () => {
         if (showNotification) {
-          showNotification("Notinha de compra enviada para impressão! 🖨️🧾", "success");
+          showNotification(
+            `Notinha enviada para impressão em ${copies === 2 ? "2 Vias (D.W + Reciclador)" : "1 Via"}! 🖨️🧾`,
+            "success"
+          );
         }
       },
       () => {
         if (showNotification) {
-          showNotification("Não foi possível abrir a janela de impressão. Verifique permissões.", "warning");
+          showNotification("Não foi possível abrir a janela de impressão. Use o botão Fun Print (PNG 57mm).", "warning");
         }
       }
     );
   };
 
+  const handleShareTicketFunPrint = async (ticket: CompletedPurchaseTicket, copiesOverride?: 1 | 2) => {
+    const copies: 1 | 2 = copiesOverride || receiptCopiesMode || 1;
+    setIsGeneratingFunPrint(true);
+    try {
+      const payload = buildTicketReceiptPayload(ticket, copies);
+      const blob = await generateMiniPrint57mmPngBlob(payload);
+      const safeCollab = ticket.collectorName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 18);
+      const result = await shareOrDownloadReceiptPng(
+        blob,
+        `recibo_${safeCollab}_${copies}vias_57mm.png`,
+        `Recibo 57mm - ${ticket.collectorName}`
+      );
+      if (showNotification) {
+        showNotification(
+          result === "shared"
+            ? `Imagem 57mm (${copies} ${copies === 1 ? "Via" : "Vias"}) pronta! Selecione o app Fun Print para imprimir na MiniPrint PocketTM. 🐱🖨️`
+            : `Imagem 57mm salva (${copies} ${copies === 1 ? "Via" : "Vias"})! Abra no app Fun Print -> Imprimir Imagem. 🐱📥`,
+          "success"
+        );
+      }
+    } catch (err: any) {
+      if (showNotification) {
+        showNotification(err?.message || "Erro ao gerar imagem 57mm para Fun Print.", "error");
+      }
+    } finally {
+      setIsGeneratingFunPrint(false);
+    }
+  };
+
+  const buildPaymentReceiptPayload = (
+    receipt: CollaboratorPaymentReceipt,
+    copies: 1 | 2
+  ): ThermalCanvasReceiptPayload => {
+    const cfg = loadPrinterConfig();
+    const matched = collaborators.find((c) => c.id === receipt.collaboratorId);
+    return {
+      title: "RECIBO DE PAGAMENTO / ACERTO",
+      subtitle: "CADERNINHO DA RECICLAGEM",
+      storeName: cfg.storeName || "D.W VIDROS & RECICLAGEM",
+      storeCnpj: cfg.storeCnpjCpf || "67.965.725/0001-95",
+      dateStr: receipt.timestamp,
+      ticketId: receipt.id,
+      collaboratorName: receipt.collaboratorName,
+      statusLabel: `PAGO (${receipt.methodLabel.toUpperCase()})`,
+      extraMeta: receipt.notes ? [`OBS: ${receipt.notes}`] : undefined,
+      lines: [
+        {
+          left: `ACERTO RECEBIDO (${receipt.methodLabel})`,
+          right: `R$ ${receipt.amountPaid.toFixed(2).replace(".", ",")}`,
+          detail: `Saldo Anterior no Caderninho: R$ ${receipt.previousBalance.toFixed(2).replace(".", ",")}`,
+          bold: true
+        }
+      ],
+      summaryLines: [
+        {
+          label: "SALDO ANTERIOR:",
+          value: `R$ ${receipt.previousBalance.toFixed(2).replace(".", ",")}`
+        },
+        {
+          label: "VALOR PAGO AGORA:",
+          value: `R$ ${receipt.amountPaid.toFixed(2).replace(".", ",")}`,
+          big: true,
+          bold: true
+        },
+        {
+          label: "RESTANTE A ACERTAR:",
+          value: `R$ ${receipt.remainingBalance.toFixed(2).replace(".", ",")}`,
+          bold: true
+        }
+      ],
+      caderninhoBox: matched
+        ? {
+            totalEarned: matched.totalEarned,
+            totalPaid: matched.totalPaid,
+            balancePending: matched.balancePending,
+            totalWeightKg: matched.totalWeightKg,
+            totalDeliveries: matched.totalDeliveries
+          }
+        : undefined,
+      footerNote: "Recibo de pagamento conferido (Empresa + Reciclador).",
+      copies
+    };
+  };
+
+  const handlePrintPaymentReceipt = (receipt: CollaboratorPaymentReceipt, copiesOverride?: 1 | 2) => {
+    const config = { ...loadPrinterConfig(), ...printerConfigState };
+    const copies: 1 | 2 = copiesOverride || receiptCopiesMode || (config.printTwoCopies ? 2 : 1);
+    const payload = buildPaymentReceiptPayload(receipt, copies);
+    const html = buildThermalDocumentHtmlFromPayload(payload, config);
+    executeThermalPrint(
+      html,
+      () => {
+        if (showNotification) {
+          showNotification(`Recibo de acerto enviado em ${copies === 2 ? "2 Vias" : "1 Via"}! 🖨️🧾`, "success");
+        }
+      },
+      () => {
+        if (showNotification) {
+          showNotification("Use o botão Fun Print (PNG 57mm) para enviar direto à impressora.", "warning");
+        }
+      }
+    );
+  };
+
+  const handleSharePaymentFunPrint = async (receipt: CollaboratorPaymentReceipt, copiesOverride?: 1 | 2) => {
+    const copies: 1 | 2 = copiesOverride || receiptCopiesMode || 1;
+    setIsGeneratingFunPrint(true);
+    try {
+      const payload = buildPaymentReceiptPayload(receipt, copies);
+      const blob = await generateMiniPrint57mmPngBlob(payload);
+      const safeCollab = receipt.collaboratorName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 18);
+      const res = await shareOrDownloadReceiptPng(
+        blob,
+        `acerto_${safeCollab}_${copies}vias_57mm.png`,
+        `Recibo Pagamento - ${receipt.collaboratorName}`
+      );
+      if (showNotification) {
+        showNotification(
+          res === "shared"
+            ? `Recibo de acerto 57mm (${copies} ${copies === 1 ? "Via" : "Vias"}) pronto para o app Fun Print! 🐱🖨️`
+            : `Recibo de acerto 57mm salvo (${copies} ${copies === 1 ? "Via" : "Vias"}) para abrir no Fun Print! 🐱📥`,
+          "success"
+        );
+      }
+    } catch (err: any) {
+      if (showNotification) showNotification(err?.message || "Erro ao gerar imagem 57mm.", "error");
+    } finally {
+      setIsGeneratingFunPrint(false);
+    }
+  };
+
+  const buildFolderSummaryPayload = (
+    folder: (typeof collaboratorFolders)[number],
+    copies: 1 | 2
+  ): ThermalCanvasReceiptPayload => {
+    const cfg = loadPrinterConfig();
+    const activeTickets = folder.tickets.filter((t) => !t.isCancelled);
+    const lines: ThermalCanvasReceiptPayload["lines"] = [
+      ...activeTickets.slice(0, 18).map((tk) => ({
+        left: `${tk.timestamp.split(",")[0] || tk.timestamp} • ${tk.items.map((i) => i.name).join(" + ")}`,
+        right: tk.isFounder ? "D.W" : `R$ ${tk.totalPaid.toFixed(2).replace(".", ",")}`,
+        detail: `${tk.totalWeightKg.toFixed(2)} kg • ${
+          tk.paymentStatus === "pago_na_hora" ? "Pago na hora" : tk.paymentStatus === "coleta_propria_dw" ? "Própria" : "Caderninho"
+        }`,
+        bold: true
+      })),
+      ...folder.payments.slice(0, 10).map((pay) => ({
+        left: `ACERTO (${pay.timestamp.split(",")[0] || pay.timestamp})`,
+        right: `-R$ ${pay.amountPaid.toFixed(2).replace(".", ",")}`,
+        detail: `Pago via ${pay.methodLabel}`,
+        bold: true
+      }))
+    ];
+    if (lines.length === 0) {
+      lines.push({ left: "Sem lançamentos registrados nesta pasta ainda", right: "R$ 0,00" });
+    }
+    const totalPaid = folder.collaborator ? folder.collaborator.totalPaid : folder.totalPaidDirectAmount;
+    const pending = folder.collaborator ? folder.collaborator.balancePending : 0;
+    return {
+      title: "EXTRATO DA PASTA DO COLABORADOR",
+      subtitle: "CONFERÊNCIA DE CADERNINHO & RECIBOS",
+      storeName: cfg.storeName || "D.W VIDROS & RECICLAGEM",
+      storeCnpj: cfg.storeCnpjCpf || "67.965.725/0001-95",
+      dateStr: new Date().toLocaleString("pt-BR"),
+      ticketId: folder.key,
+      collaboratorName: folder.name,
+      statusLabel: pending > 0 ? `DEVENDO R$ ${pending.toFixed(2).replace(".", ",")}` : "CONTAS EM DIA",
+      extraMeta: [
+        `COMPRAS ATIVAS: ${activeTickets.length} | ACERTOS: ${folder.payments.length}`,
+        `PESO TOTAL TRAZIDO: ${folder.totalWeightKg.toFixed(2)} kg`
+      ],
+      lines,
+      summaryLines: [
+        { label: "TOTAL JÁ COMPRADO:", value: `R$ ${folder.totalBoughtAmount.toFixed(2).replace(".", ",")}`, bold: true },
+        { label: "TOTAL JÁ PAGO:", value: `R$ ${totalPaid.toFixed(2).replace(".", ",")}`, bold: true },
+        { label: "SALDO A ACERTAR:", value: `R$ ${pending.toFixed(2).replace(".", ",")}`, big: true, bold: true }
+      ],
+      caderninhoBox: folder.collaborator && !folder.isFounder
+        ? {
+            totalEarned: folder.collaborator.totalEarned,
+            totalPaid: folder.collaborator.totalPaid,
+            balancePending: folder.collaborator.balancePending,
+            totalWeightKg: folder.collaborator.totalWeightKg,
+            totalDeliveries: folder.collaborator.totalDeliveries
+          }
+        : undefined,
+      footerNote: "Grampear este extrato junto aos recibinhos da pasta!",
+      copies
+    };
+  };
+
+  const handlePrintFolderSummary = (folder: (typeof collaboratorFolders)[number], copiesOverride?: 1 | 2) => {
+    const config = { ...loadPrinterConfig(), ...printerConfigState };
+    const copies: 1 | 2 = copiesOverride || receiptCopiesMode || (config.printTwoCopies ? 2 : 1);
+    const payload = buildFolderSummaryPayload(folder, copies);
+    const html = buildThermalDocumentHtmlFromPayload(payload, config);
+    executeThermalPrint(
+      html,
+      () => {
+        if (showNotification) {
+          showNotification(`Extrato da pasta "${folder.name}" enviado em ${copies === 2 ? "2 Vias" : "1 Via"}! 🖨️📁`, "success");
+        }
+      },
+      () => {
+        if (showNotification) {
+          showNotification("Use o botão Fun Print (PNG 57mm) para imprimir no celular.", "warning");
+        }
+      }
+    );
+  };
+
+  const handleShareFolderFunPrint = async (folder: (typeof collaboratorFolders)[number], copiesOverride?: 1 | 2) => {
+    const copies: 1 | 2 = copiesOverride || receiptCopiesMode || 1;
+    setIsGeneratingFunPrint(true);
+    try {
+      const payload = buildFolderSummaryPayload(folder, copies);
+      const blob = await generateMiniPrint57mmPngBlob(payload);
+      const safeName = folder.name.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 18);
+      const res = await shareOrDownloadReceiptPng(
+        blob,
+        `pasta_${safeName}_${copies}vias_57mm.png`,
+        `Extrato Pasta - ${folder.name}`
+      );
+      if (showNotification) {
+        showNotification(
+          res === "shared"
+            ? `Extrato da pasta 57mm (${copies} ${copies === 1 ? "Via" : "Vias"}) enviado ao compartilhamento para o Fun Print! 🐱🖨️`
+            : `Extrato da pasta 57mm salvo! Abra no app Fun Print para imprimir. 🐱📥`,
+          "success"
+        );
+      }
+    } catch (err: any) {
+      if (showNotification) showNotification(err?.message || "Erro ao gerar extrato 57mm.", "error");
+    } finally {
+      setIsGeneratingFunPrint(false);
+    }
+  };
+
+  const handleShareFolderWhatsApp = (folder: (typeof collaboratorFolders)[number]) => {
+    const activeTickets = folder.tickets.filter((t) => !t.isCancelled);
+    const totalPaid = folder.collaborator ? folder.collaborator.totalPaid : folder.totalPaidDirectAmount;
+    const pending = folder.collaborator ? folder.collaborator.balancePending : 0;
+    let msg = `📁 *PASTA DE RECIBOS — D.W VIDROS & RECICLAGEM*\n`;
+    msg += `👤 *Colaborador:* ${folder.name}\n`;
+    msg += `⚖️ *Peso Total Trazido:* ${folder.totalWeightKg.toFixed(2)} kg\n`;
+    msg += `🛒 *Compras Registradas:* ${activeTickets.length}\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    activeTickets.slice(0, 12).forEach((tk) => {
+      msg += `• ${tk.timestamp.split(",")[0]} — ${tk.items.map((i) => `${i.name} (${i.totalWeightKg.toFixed(2)}kg)`).join(", ")} = R$ ${tk.totalPaid.toFixed(2)}\n`;
+    });
+    if (folder.payments.length > 0) {
+      msg += `\n🤝 *ACERTOS / PAGAMENTOS FEITOS:*\n`;
+      folder.payments.slice(0, 8).forEach((p) => {
+        msg += `• ${p.timestamp.split(",")[0]} — R$ ${p.amountPaid.toFixed(2)} (${p.methodLabel})\n`;
+      });
+    }
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `💰 *Total Já Comprado:* R$ ${folder.totalBoughtAmount.toFixed(2)}\n`;
+    msg += `✅ *Total Já Pago:* R$ ${totalPaid.toFixed(2)}\n`;
+    msg += `📓 *SALDO A ACERTAR:* *R$ ${pending.toFixed(2)}*\n`;
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, "_blank");
+  };
+
+  // Cancelar / Estornar compra de reciclagem após lançamento (Ferro Velho + Estoque + Caderninho + PDV)
+  const handleCancelPurchaseTicket = (ticket: CompletedPurchaseTicket, reason?: string, skipPdvCallback?: boolean) => {
+    if (!ticket || ticket.isCancelled) return;
+    const cleanReason = reason?.trim() || "Cancelamento / imprevisto";
+    const cancelledAt = new Date().toLocaleString("pt-BR");
+
+    markLocalYardMutation();
+
+    // 1. Estornar estoque (Ferro Velho materiais ou Vidros do Pátio)
+    if (ticket.isScrapPurchase) {
+      setOtherScrapMaterials((prev) =>
+        prev.map((m) => {
+          const matchedItems = ticket.items.filter((it) => {
+            if (it.addedToStock === false) return false;
+            if (it.materialId) return it.materialId === m.id;
+            return it.name.toLowerCase().includes(m.name.toLowerCase());
+          });
+          if (matchedItems.length === 0) return m;
+          const deductKg = matchedItems.reduce((s, it) => s + Math.max(0, it.totalWeightKg || 0), 0);
+          const deductUn = matchedItems.reduce((s, it) => s + Math.max(0, it.stockUnitsAdded || 0), 0);
+          return {
+            ...m,
+            stockKg: Math.max(0, Number((m.stockKg - deductKg).toFixed(3))),
+            stockUnits: Math.max(0, (m.stockUnits || 0) - deductUn)
+          };
+        })
+      );
+    } else {
+      setCatalog((prev) =>
+        prev.map((b) => {
+          const matchedItems = ticket.items.filter(
+            (it) =>
+              (it.barcode && it.barcode !== "BALANCA" && (b.barcode === it.barcode || b.additionalBarcodes?.includes(it.barcode))) ||
+              (b.name === it.name && b.volumeMl === it.volumeMl)
+          );
+          if (matchedItems.length === 0) return b;
+          const deductUnits = matchedItems.reduce((s, it) => s + Math.max(0, it.quantity || 0), 0);
+          return {
+            ...b,
+            stockUnits: Math.max(0, b.stockUnits - deductUnits)
+          };
+        })
+      );
+    }
+
+    // 2. Estornar saldo/histórico no Caderninho do Colaborador
+    setCollaborators((prev) =>
+      prev.map((c) => {
+        const matches =
+          (ticket.collaboratorId && c.id === ticket.collaboratorId) ||
+          (!ticket.collaboratorId && c.name.toLowerCase() === ticket.collectorName.toLowerCase());
+        if (!matches) return c;
+
+        const founderEquiv = ticket.items.reduce((s, it) => s + (it.costPaid || 0), 0);
+        const revertEarnedAmt = c.isFounder ? founderEquiv : ticket.totalPaid;
+        const newDeliveries = Math.max(0, c.totalDeliveries - 1);
+        const newBottles = Math.max(0, c.totalBottles - (ticket.totalBottles || 0));
+        const newWeight = Math.max(0, Number((c.totalWeightKg - (ticket.totalWeightKg || 0)).toFixed(3)));
+        const newEarned = Math.max(0, Number((c.totalEarned - revertEarnedAmt).toFixed(2)));
+
+        if (c.isFounder) {
+          return {
+            ...c,
+            totalDeliveries: newDeliveries,
+            totalBottles: newBottles,
+            totalWeightKg: newWeight,
+            totalEarned: newEarned,
+            totalPaid: newEarned,
+            balancePending: 0
+          };
+        }
+
+        const revertPaidAmt = ticket.paymentStatus === "pago_na_hora" ? ticket.totalPaid : 0;
+        const newPaid = Math.max(0, Number((c.totalPaid - revertPaidAmt).toFixed(2)));
+        const newPending = Math.max(0, Number((newEarned - newPaid).toFixed(2)));
+        return {
+          ...c,
+          totalDeliveries: newDeliveries,
+          totalBottles: newBottles,
+          totalWeightKg: newWeight,
+          totalEarned: newEarned,
+          totalPaid: newPaid,
+          balancePending: newPending
+        };
+      })
+    );
+
+    // 3. Marcar o recibo como CANCELADO / ESTORNADO no histórico
+    setPurchaseHistory((prev) =>
+      prev.map((t) =>
+        t.id === ticket.id
+          ? { ...t, isCancelled: true, cancelledAt, cancelReason: cleanReason }
+          : t
+      )
+    );
+    if (lastPurchaseReceipt?.id === ticket.id) {
+      setLastPurchaseReceipt((prev) =>
+        prev ? { ...prev, isCancelled: true, cancelledAt, cancelReason: cleanReason } : null
+      );
+    }
+
+    // 4. Estornar o lançamento correspondente no Caixa / Relatórios do PDV
+    const targetPdvEventId =
+      ticket.syncedPdvEventId ||
+      (ticket.isScrapPurchase ? `pdv_fv_scrap_${ticket.id}` : `pdv_fv_buy_${ticket.id}`);
+    if (!skipPdvCallback && onCancelSyncedFinancialEventFromPDV) {
+      onCancelSyncedFinancialEventFromPDV(targetPdvEventId, cleanReason);
+    }
+
+    setCancellingTicketId(null);
+    setCancelTicketReasonDraft("");
+    playScannerBeep(520, 0.12);
+
+    if (showNotification) {
+      showNotification(
+        `Compra cancelada e estornada! Estoque (-${ticket.totalWeightKg.toFixed(2)} kg), Caderninho e Caixa do PDV revertidos. 🚫✅`,
+        "info"
+      );
+    }
+  };
+
+  // Se o lançamento for cancelado direto no Caixa do PDV, espelha o estorno aqui também
+  const purchaseHistoryRef = useRef<CompletedPurchaseTicket[]>(purchaseHistory);
+  purchaseHistoryRef.current = purchaseHistory;
+  useEffect(() => {
+    const onPdvVoidEvent = (ev: Event) => {
+      const customEv = ev as CustomEvent<{ eventId?: string; reason?: string }>;
+      const eventId = customEv?.detail?.eventId;
+      if (!eventId) return;
+      const found = purchaseHistoryRef.current.find(
+        (t) =>
+          !t.isCancelled &&
+          (t.syncedPdvEventId === eventId ||
+            `pdv_fv_scrap_${t.id}` === eventId ||
+            `pdv_fv_buy_${t.id}` === eventId)
+      );
+      if (found) {
+        handleCancelPurchaseTicket(found, customEv?.detail?.reason || "Estornado pelo Caixa do PDV", true);
+      }
+    };
+    window.addEventListener("dw_fv_cancel_ticket_from_pdv", onPdvVoidEvent as EventListener);
+    return () => window.removeEventListener("dw_fv_cancel_ticket_from_pdv", onPdvVoidEvent as EventListener);
+  }, []);
+
   // Enviar Notinha de Compra no WhatsApp
   const handleShareGlassTicketWhatsApp = (ticket: CompletedPurchaseTicket) => {
-    const statusLabel =
-      ticket.paymentStatus === "coleta_propria_dw"
-        ? "👑 Coleta Própria D.W (100% Empresa)"
-        : ticket.paymentStatus === "pago_na_hora"
-        ? "💵 Pago na Hora no Portão"
-        : "📓 Lançado no Caderninho do Colaborador";
+    const statusLabel = ticket.isCancelled
+      ? "🚫 COMPRA CANCELADA / ESTORNADA"
+      : ticket.paymentStatus === "coleta_propria_dw"
+      ? "👑 Coleta Própria D.W (100% Empresa)"
+      : ticket.paymentStatus === "pago_na_hora"
+      ? "💵 Pago na Hora no Portão"
+      : "📓 Lançado no Caderninho do Colaborador";
 
     let msg = `🧾 *D.W VIDROS & RECICLAGEM*\n`;
     msg += `_CNPJ: 67.965.725/0001-95 • Compra no Portão_\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    if (ticket.isCancelled) {
+      msg += `🚫 *COMPRA CANCELADA / ESTORNADA*\n`;
+      if (ticket.cancelledAt) msg += `🕒 *Cancelado em:* ${ticket.cancelledAt}\n`;
+      if (ticket.cancelReason) msg += `📝 *Motivo:* ${ticket.cancelReason}\n`;
+      msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    }
     msg += `👤 *Parceiro:* ${ticket.collectorName}\n`;
     msg += `📅 *Data:* ${ticket.timestamp}\n`;
     msg += `📌 *Status:* ${statusLabel}\n`;
-    msg += `📊 *Cotação Victor:* R$ ${ticket.sellPricePerTonUsed || activeSellPricePerTon}/t (R$ ${(((ticket.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2)}/kg)\n`;
+    if (!ticket.isScrapPurchase) {
+      msg += `📊 *Cotação Victor:* R$ ${ticket.sellPricePerTonUsed || activeSellPricePerTon}/t (R$ ${(((ticket.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2)}/kg)\n`;
+    }
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     ticket.items.forEach((it) => {
       msg += `• *${it.quantity}×* ${it.name} (${it.totalWeightKg.toFixed(2)} kg) — R$ ${it.costPaid.toFixed(2)}\n`;
     });
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `⚖️ *Peso Somado ao Pátio:* +${ticket.totalWeightKg.toFixed(2)} kg (${ticket.totalBottles} un)\n`;
+    msg += `⚖️ *Peso Total:* +${ticket.totalWeightKg.toFixed(2)} kg${!ticket.isScrapPurchase ? ` (${ticket.totalBottles} un)` : ""}\n`;
+    if (((ticket.bonusAmount || 0) > 0 || (ticket.discountAmount || 0) > 0) && typeof ticket.subtotalAmount === "number") {
+      msg += `🧮 *Subtotal Materiais:* R$ ${ticket.subtotalAmount.toFixed(2)}\n`;
+    }
+    if ((ticket.bonusAmount || 0) > 0) {
+      msg += `➕ *Acréscimo${ticket.bonusReason ? ` (${ticket.bonusReason})` : ""}:* +R$ ${(ticket.bonusAmount || 0).toFixed(2)}\n`;
+    }
+    if ((ticket.discountAmount || 0) > 0) {
+      msg += `➖ *Desconto/Dívida${ticket.discountReason ? ` (${ticket.discountReason})` : ""}:* -R$ ${(ticket.discountAmount || 0).toFixed(2)}\n`;
+    }
     if (ticket.isFounder) {
       const equiv = ticket.items.reduce((s, it) => s + it.costPaid, 0);
       msg += `👑 *Economia Própria D.W:* R$ ${equiv.toFixed(2)}\n`;
     }
-    msg += `💰 *${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA)" : "TOTAL COMPRA"}:* R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2)}\n`;
-    msg += `🚛 *Pátio Atual:* ${yardTotals.totalWeightKg.toFixed(1)} kg / ${yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg\n`;
+    msg += `💰 *${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA)" : "TOTAL LÍQUIDO"}:* R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2)}\n`;
+    if (!ticket.isScrapPurchase) {
+      msg += `🚛 *Pátio Atual:* ${yardTotals.totalWeightKg.toFixed(1)} kg / ${yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg\n`;
+    }
 
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
     const opened = window.open(url, "_blank");
@@ -3447,7 +4501,7 @@ export function GlassBarcodeScannerCart({
           { id: "carrinho", label: "🛒 Bipar & Comprar no Portão", badge: cart.length > 0 ? `${cart.length}` : null },
           { id: "caderninho", label: "📖 Caderninho dos Colaboradores", badge: caderninhoTotals.totalPendingAll > 0 ? `R$ ${caderninhoTotals.totalPendingAll.toFixed(0)}` : null },
           { id: "estoque", label: "📦 Estoque & Balança Digital", badge: `${yardTotals.totalUnits}` },
-          { id: "cargas", label: "🚚 Histórico & Cargas", badge: truckShipments.length > 0 ? `${truckShipments.length}` : null },
+          { id: "cargas", label: "📁 Pastas, Recibos & Cargas", badge: purchaseHistory.filter((t) => !t.isCancelled).length > 0 ? `${purchaseHistory.filter((t) => !t.isCancelled).length}` : null },
           { id: "guia_plasticos", label: "📘 Guia Plásticos & Mercado", badge: "PET / Duro / PS" }
         ].map((tab) => (
           <button
@@ -4432,9 +5486,72 @@ export function GlassBarcodeScannerCart({
               </div>
             </div>
 
+            {/* RECIBO DO ACERTO RECÉM-PAGO (IMPRIMIR 1x/2x OU FUN PRINT) */}
+            {latestSettledReceipt && (
+              <div className="p-4 bg-emerald-950/40 border-2 border-emerald-500/50 rounded-2xl space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-emerald-300 block">
+                      ✅ Acerto Registrado — Imprima para Grampear ou Entregar!
+                    </span>
+                    <div className="text-sm font-black text-white mt-0.5">
+                      🤝 {latestSettledReceipt.collaboratorName} — Pago R$ {latestSettledReceipt.amountPaid.toFixed(2)} ({latestSettledReceipt.methodLabel})
+                    </div>
+                    <span className="text-[11px] text-slate-300 block">
+                      Resta no Caderninho: R$ {latestSettledReceipt.remainingBalance.toFixed(2)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLatestSettledReceipt(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handlePrintPaymentReceipt(latestSettledReceipt, 1)}
+                    className="min-h-[42px] px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-white font-black text-xs rounded-xl border border-white/15 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Imprimir 1 Via</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePrintPaymentReceipt(latestSettledReceipt, 2)}
+                    className="min-h-[42px] px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Scissors className="w-3.5 h-3.5" />
+                    <span>Imprimir 2 Vias (D.W + Reciclador)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSharePaymentFunPrint(latestSettledReceipt, receiptCopiesMode)}
+                    disabled={isGeneratingFunPrint}
+                    className="min-h-[42px] px-3 py-1.5 bg-pink-500 hover:bg-pink-400 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span>🐱 Fun Print 57mm ({receiptCopiesMode}×)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleShareReceiptWhatsApp(latestSettledReceipt)}
+                    className="min-h-[42px] px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 font-black text-xs rounded-xl border border-emerald-500/40 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* LISTA DE FICHAS DOS COLABORADORES */}
             <div className="space-y-3 pt-2">
-              {collaborators.map((collab) => (
+              {collaborators.map((collab) => {
+                const matchedFolder = collaboratorFolders.find((f) => f.collaborator?.id === collab.id);
+                const folderReceiptsCount = matchedFolder ? matchedFolder.tickets.filter((t) => !t.isCancelled).length + matchedFolder.payments.length : 0;
+                return (
                 <div
                   key={collab.id}
                   className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 ${
@@ -4467,21 +5584,34 @@ export function GlassBarcodeScannerCart({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between md:justify-end gap-4 pt-3 md:pt-0 border-t md:border-t-0 border-white/5">
+                  <div className="flex items-center justify-between md:justify-end gap-3 flex-wrap pt-3 md:pt-0 border-t md:border-t-0 border-white/5">
                     {collab.isFounder ? (
-                      <div className="text-right">
-                        <span className="text-[10px] uppercase font-bold text-amber-400 block">
-                          Economia Própria Gerada:
-                        </span>
-                        <div className="text-lg font-mono font-black text-amber-300">
-                          R$ {collab.totalEarned.toFixed(2)}
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <div className="text-right">
+                          <span className="text-[10px] uppercase font-bold text-amber-400 block">
+                            Economia Própria Gerada:
+                          </span>
+                          <div className="text-lg font-mono font-black text-amber-300">
+                            R$ {collab.totalEarned.toFixed(2)}
+                          </div>
+                          <span className="text-[10px] text-emerald-400 block font-bold">100% de margem no caminhão</span>
                         </div>
-                        <span className="text-[10px] text-emerald-400 block font-bold">100% de margem no caminhão</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (matchedFolder) setSelectedFolderKey(matchedFolder.key);
+                            setActiveTab("cargas");
+                          }}
+                          className="min-h-[44px] px-3 py-2 bg-slate-900 hover:bg-slate-800 text-amber-300 font-black text-xs rounded-xl border border-amber-500/35 flex items-center gap-1.5 cursor-pointer touch-manipulation"
+                        >
+                          <FolderOpen className="w-4 h-4" />
+                          <span>Pasta ({folderReceiptsCount})</span>
+                        </button>
                       </div>
                     ) : (
                       <>
                         <div className="text-left md:text-right">
-                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Faturado:</span>
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Comprado:</span>
                           <span className="text-xs font-mono font-bold text-slate-300">
                             R$ {collab.totalEarned.toFixed(2)}
                           </span>
@@ -4490,7 +5620,7 @@ export function GlassBarcodeScannerCart({
                           </span>
                         </div>
 
-                        <div className="text-right min-w-[120px]">
+                        <div className="text-right min-w-[110px]">
                           <span className="text-[10px] uppercase font-bold text-rose-400 block">Saldo a Pagar:</span>
                           <strong
                             className={`text-lg font-mono font-black block ${
@@ -4500,6 +5630,18 @@ export function GlassBarcodeScannerCart({
                             R$ {collab.balancePending.toFixed(2)}
                           </strong>
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (matchedFolder) setSelectedFolderKey(matchedFolder.key);
+                            setActiveTab("cargas");
+                          }}
+                          className="min-h-[44px] px-3 py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 font-black text-xs rounded-xl border border-cyan-500/35 flex items-center gap-1.5 cursor-pointer touch-manipulation"
+                        >
+                          <FolderOpen className="w-4 h-4" />
+                          <span>Pasta ({folderReceiptsCount})</span>
+                        </button>
 
                         <button
                           type="button"
@@ -4516,7 +5658,8 @@ export function GlassBarcodeScannerCart({
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -4575,14 +5718,26 @@ export function GlassBarcodeScannerCart({
                   <p className="text-xs text-slate-300 mt-1">
                     PET, Plástico Duro, Alto Impacto (PS), Latinhas, Alumínio, Ferro, Cobre, Eletrônicos (Celulares, Notebooks, PC), TVs, Eletrodomésticos, Papéis/CDs/DVDs/Livros e Papelão — tudo pronto para pesar sem preços fixos ainda.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("guia_plasticos")}
-                    className="mt-2.5 min-h-[40px] px-3.5 py-1.5 bg-sky-500/15 hover:bg-sky-500 hover:text-slate-950 text-sky-300 font-black text-xs rounded-xl border border-sky-500/35 inline-flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
-                  >
-                    <BookOpen className="w-3.5 h-3.5" />
-                    <span>📘 Dúvida: O que é PET, Plástico Duro, Alto Impacto, Uva, Ovo, Doce, Ketchup? Abrir Guia</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2 mt-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("guia_plasticos")}
+                      className="min-h-[40px] px-3.5 py-1.5 bg-sky-500/15 hover:bg-sky-500 hover:text-slate-950 text-sky-300 font-black text-xs rounded-xl border border-sky-500/35 inline-flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span>📘 Guia PET / Plástico Duro / Alto Impacto</span>
+                    </button>
+                    {purchaseHistory.some((t) => !t.isCancelled) && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("cargas")}
+                        className="min-h-[40px] px-3.5 py-1.5 bg-rose-500/15 hover:bg-rose-500 hover:text-white text-rose-200 font-black text-xs rounded-xl border border-rose-500/35 inline-flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>🚫 Ver / Cancelar Compras Lançadas ({purchaseHistory.filter((t) => !t.isCancelled).length})</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="px-4 py-2.5 bg-slate-950 rounded-2xl border border-cyan-500/30 text-right shrink-0">
                   <span className="text-[10px] uppercase font-bold text-cyan-400 block">Acumulado Outros Materiais:</span>
@@ -5018,42 +6173,131 @@ export function GlassBarcodeScannerCart({
                   </div>
                 )}
 
-                {/* Seletor de Colaborador da Reciclagem + Forma de Pagamento direto na Balança */}
+                {/* Seletor de Colaborador (Com Nome, Sem Nome ou Digitar na Hora) + Forma de Pagamento */}
                 <div className="p-3 bg-slate-900/90 border border-emerald-500/30 rounded-xl space-y-2.5">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex-1 space-y-1">
-                      <label className="text-[10.5px] font-black uppercase text-emerald-300 block">
-                        👤 Quem está entregando / Receber pagamento:
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={activeCollab?.id || selectedCollabId}
-                          onChange={(e) => setSelectedCollabId(e.target.value)}
-                          className="flex-1 min-h-[44px] bg-slate-950 border border-emerald-500/35 rounded-xl px-3 text-white font-bold text-xs sm:text-sm outline-none"
-                        >
-                          {collaborators.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.isFounder ? "👑 " : "👤 "}
-                              {c.name}
-                              {!c.isFounder && c.balancePending > 0 ? ` (Devo R$ ${c.balancePending.toFixed(2)})` : ""}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => setShowAddCollabModal(true)}
-                          className="min-h-[44px] px-3 bg-emerald-600/20 hover:bg-emerald-600 hover:text-slate-950 text-emerald-300 font-black text-xs rounded-xl border border-emerald-500/40 flex items-center gap-1 cursor-pointer touch-manipulation select-none shrink-0"
-                        >
-                          <UserPlus className="w-3.5 h-3.5" />
-                          <span>+ Novo</span>
-                        </button>
+                    <div className="flex-1 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <label className="text-[10.5px] font-black uppercase text-emerald-300">
+                          👤 Nome no Recibo / Receber Pagamento:
+                        </label>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setScrapCollabMode("cadastrado")}
+                            className={`min-h-[30px] px-2 rounded-lg text-[10px] font-black border cursor-pointer touch-manipulation ${
+                              scrapCollabMode === "cadastrado"
+                                ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                                : "bg-slate-950 text-slate-300 border-white/10"
+                            }`}
+                          >
+                            👤 Cadastrado
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setScrapCollabMode("sem_nome");
+                              if (scaleSettlementMode === "caderninho") setScaleSettlementMode("pago_dinheiro");
+                            }}
+                            className={`min-h-[30px] px-2 rounded-lg text-[10px] font-black border cursor-pointer touch-manipulation ${
+                              scrapCollabMode === "sem_nome"
+                                ? "bg-cyan-500 text-slate-950 border-cyan-400"
+                                : "bg-slate-950 text-slate-300 border-white/10"
+                            }`}
+                          >
+                            🪪 Sem Nome
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setScrapCollabMode("nome_avulso")}
+                            className={`min-h-[30px] px-2 rounded-lg text-[10px] font-black border cursor-pointer touch-manipulation ${
+                              scrapCollabMode === "nome_avulso"
+                                ? "bg-amber-400 text-slate-950 border-amber-300"
+                                : "bg-slate-950 text-slate-300 border-white/10"
+                            }`}
+                          >
+                            ✍️ Digitar Nome
+                          </button>
+                        </div>
                       </div>
+
+                      {scrapCollabMode === "cadastrado" && (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={activeCollab?.id || selectedCollabId}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === "__sem_nome__") {
+                                setScrapCollabMode("sem_nome");
+                                if (scaleSettlementMode === "caderninho") setScaleSettlementMode("pago_dinheiro");
+                              } else if (v === "__digitar_nome__") {
+                                setScrapCollabMode("nome_avulso");
+                              } else {
+                                setSelectedCollabId(v);
+                              }
+                            }}
+                            className="flex-1 min-h-[44px] bg-slate-950 border border-emerald-500/35 rounded-xl px-3 text-white font-bold text-xs sm:text-sm outline-none"
+                          >
+                            <option value="__sem_nome__">🪪 Sem Nome no Recibo (Avulso / Direto)</option>
+                            <option value="__digitar_nome__">✍️ Digitar Outro Nome na Hora...</option>
+                            {collaborators.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.isFounder ? "👑 " : "👤 "}
+                                {c.name}
+                                {!c.isFounder && c.balancePending > 0 ? ` (Devo R$ ${c.balancePending.toFixed(2)})` : ""}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => setShowAddCollabModal(true)}
+                            className="min-h-[44px] px-3 bg-emerald-600/20 hover:bg-emerald-600 hover:text-slate-950 text-emerald-300 font-black text-xs rounded-xl border border-emerald-500/40 flex items-center gap-1 cursor-pointer touch-manipulation select-none shrink-0"
+                          >
+                            <UserPlus className="w-3.5 h-3.5" />
+                            <span>+ Novo</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {scrapCollabMode === "sem_nome" && (
+                        <div className="p-2.5 bg-slate-950 border border-cyan-500/35 rounded-xl flex items-center justify-between gap-2 text-xs">
+                          <span className="text-cyan-200 font-bold">
+                            🪪 Recibo sairá como <strong className="text-white">Reciclador Avulso (Sem Nome)</strong> — Pagamento Direto.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setScrapCollabMode("cadastrado")}
+                            className="text-[10.5px] font-black text-emerald-300 underline shrink-0 cursor-pointer"
+                          >
+                            Trocar
+                          </button>
+                        </div>
+                      )}
+
+                      {scrapCollabMode === "nome_avulso" && (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={scrapCustomCollabName}
+                            onChange={(e) => setScrapCustomCollabName(e.target.value)}
+                            placeholder="Digite o nome no recibo (ou deixe vazio p/ Sem Nome)"
+                            className="flex-1 min-h-[44px] bg-slate-950 border border-amber-400/50 rounded-xl px-3 text-white font-bold text-xs sm:text-sm outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setScrapCollabMode("cadastrado")}
+                            className="min-h-[44px] px-3 bg-slate-950 border border-white/15 text-slate-300 font-bold text-xs rounded-xl cursor-pointer shrink-0"
+                          >
+                            Lista
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {scaleCombinedWeightKg > 0 && scaleEffectivePricePerKg > 0 && (
                       <div className="px-3.5 py-2 bg-slate-950 border border-amber-500/35 rounded-xl text-right shrink-0">
                         <span className="text-[10px] font-bold uppercase text-amber-300 block">
-                          {activeCollab?.isFounder ? "Economia D.W:" : "Total a Pagar:"}
+                          {scrapCollabMode === "cadastrado" && activeCollab?.isFounder ? "Economia D.W:" : "Total Só Este Item:"}
                         </span>
                         <strong className="text-lg font-mono font-black text-amber-300">
                           R$ {scaleTotalPayable.toFixed(2).replace(".", ",")}
@@ -5062,66 +6306,438 @@ export function GlassBarcodeScannerCart({
                     )}
                   </div>
 
-                  {!activeCollab?.isFounder && (
+                  {!(scrapCollabMode === "cadastrado" && activeCollab?.isFounder) && (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                       {(
                         [
-                          { id: "pago_dinheiro", label: "💵 Pago Dinheiro" },
-                          { id: "pago_pix", label: "📱 Pago Pix" },
+                          { id: "pago_dinheiro", label: "💵 Direto Dinheiro" },
+                          { id: "pago_pix", label: "📱 Direto Pix" },
                           { id: "caderninho", label: "📓 Caderninho" },
                           { id: "so_estoque", label: "📦 Só Estoque" }
                         ] as const
-                      ).map((opt) => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => setScaleSettlementMode(opt.id)}
-                          className={`min-h-[40px] px-2.5 py-1.5 rounded-xl text-[11px] font-black border transition-all cursor-pointer touch-manipulation select-none active:scale-95 ${
-                            scaleSettlementMode === opt.id
-                              ? opt.id === "caderninho"
-                                ? "bg-amber-500 text-slate-950 border-amber-400"
-                                : opt.id === "so_estoque"
-                                ? "bg-cyan-500 text-slate-950 border-cyan-400"
-                                : "bg-emerald-500 text-slate-950 border-emerald-400"
-                              : "bg-slate-950 text-slate-300 border-white/10 hover:text-white"
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
+                      ).map((opt) => {
+                        const disabledCaderninho = opt.id === "caderninho" && scrapCollabMode === "sem_nome";
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            disabled={disabledCaderninho}
+                            onClick={() => setScaleSettlementMode(opt.id)}
+                            className={`min-h-[40px] px-2.5 py-1.5 rounded-xl text-[11px] font-black border transition-all touch-manipulation select-none active:scale-95 ${
+                              disabledCaderninho
+                                ? "bg-slate-950/50 text-slate-600 border-white/5 cursor-not-allowed"
+                                : scaleSettlementMode === opt.id
+                                ? opt.id === "caderninho"
+                                  ? "bg-amber-500 text-slate-950 border-amber-400 cursor-pointer"
+                                  : opt.id === "so_estoque"
+                                  ? "bg-cyan-500 text-slate-950 border-cyan-400 cursor-pointer"
+                                  : "bg-emerald-500 text-slate-950 border-emerald-400 cursor-pointer"
+                                : "bg-slate-950 text-slate-300 border-white/10 hover:text-white cursor-pointer"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+                {/* Botões da Balança: (1) Mesma sacola, (2) Somar na Lista de Vários Materiais do Dia, (3) Fechar só este item */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
                   <button
                     type="button"
                     onClick={handleAddReadingToScaleQueue}
-                    className="min-h-[48px] px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-cyan-200 font-black text-xs uppercase rounded-xl border border-cyan-500/40 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95"
+                    className="min-h-[48px] px-3 py-2.5 bg-slate-900 hover:bg-slate-800 text-cyan-200 font-black text-xs uppercase rounded-xl border border-cyan-500/40 flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
                   >
-                    <Plus className="w-4 h-4 text-cyan-400" />
-                    <span>Somar Pesada na Lista (+ Sacola / Caixa)</span>
+                    <Plus className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span>+ Sacola Mesmo Material</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!selectedScaleMaterial) return;
+                      if (scaleCombinedWeightKg <= 0) {
+                        if (showNotification) showNotification("Digite o peso da balança antes de somar na lista do recibo.", "warning");
+                        return;
+                      }
+                      handleAddItemToScrapBasket({
+                        material: selectedScaleMaterial,
+                        weightKg: scaleCombinedWeightKg,
+                        units: Math.max(0, parseInt(scaleUnitsInput || "0", 10) || 0),
+                        pricePerKg: scaleEffectivePricePerKg,
+                        addToStock: true
+                      });
+                      setScaleGrossInput("");
+                      setScaleUnitsInput("");
+                      setScaleQueueReadings([]);
+                    }}
+                    className="min-h-[48px] px-3 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase rounded-xl shadow-md shadow-amber-400/20 flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                  >
+                    <ShoppingCart className="w-4 h-4 shrink-0" />
+                    <span>🧺 + Somar no Recibo (PET + Lata...)</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleCommitDigitalScaleToStock}
-                    className="min-h-[50px] px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs sm:text-sm uppercase rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95"
+                    className="min-h-[50px] px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs uppercase rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
                   >
-                    <Check className="w-4 h-4" />
+                    <Check className="w-4 h-4 shrink-0" />
                     <span>
-                      {!activeCollab?.isFounder && scaleTotalPayable > 0 && scaleSettlementMode !== "so_estoque"
+                      {!(scrapCollabMode === "cadastrado" && activeCollab?.isFounder) && scaleTotalPayable > 0 && scaleSettlementMode !== "so_estoque"
                         ? scaleSettlementMode === "caderninho"
-                          ? `Lançar ${scaleCombinedWeightKg.toFixed(2)} kg + Anotar R$ ${scaleTotalPayable.toFixed(2).replace(".", ",")}`
-                          : `Lançar ${scaleCombinedWeightKg.toFixed(2)} kg + Pagar R$ ${scaleTotalPayable.toFixed(2).replace(".", ",")}`
-                        : `Lançar no Estoque (${scaleCombinedWeightKg.toFixed(2)} kg${
-                            selectedScaleMaterial?.trackUnits && (parseInt(scaleUnitsInput || "0", 10) || 0) > 0
-                              ? ` + ${parseInt(scaleUnitsInput || "0", 10)} un`
-                              : ""
-                          })`}
+                          ? `Anotar Só Este (R$ ${scaleTotalPayable.toFixed(2).replace(".", ",")})`
+                          : `Pagar Só Este (R$ ${scaleTotalPayable.toFixed(2).replace(".", ",")})`
+                        : `Lançar Só Este (${scaleCombinedWeightKg.toFixed(2)} kg)`}
                     </span>
                   </button>
                 </div>
+              </div>
+
+              {/* ========================================================= */}
+              {/* RECIBO ÚNICO MULTI-MATERIAIS DO DIA (SOMAR PET + PLÁSTICO + LATINHA + DESCONTO/ACRÉSCIMO) */}
+              {/* ========================================================= */}
+              <div
+                ref={scrapBasketPanelRef}
+                className={`p-4 sm:p-5 rounded-2xl border-2 space-y-4 transition-all ${
+                  scrapBasket.length > 0
+                    ? "bg-gradient-to-br from-emerald-950/50 via-slate-950 to-amber-950/30 border-amber-400/60 shadow-xl"
+                    : "bg-slate-950/80 border-white/10"
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider block">
+                      🧾 Somar Todas as Reciclagens do Dia em 1 Recibo Só
+                    </span>
+                    <h4 className="text-base font-black text-white flex items-center gap-2 mt-0.5">
+                      <span>🧺 Recibo Único Multi-Materiais ({scrapBasket.length} {scrapBasket.length === 1 ? "item" : "itens"})</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Junte PET + Plástico Duro + Latinha + Ferro tudo na mesma soma, aplique Acréscimo (+) ou Desconto/Dívida (−) e pague com 1 recibo só!
+                    </p>
+                  </div>
+
+                  {scrapBasket.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setScrapBasket([])}
+                      className="min-h-[38px] px-3 bg-rose-950/60 hover:bg-rose-900 text-rose-200 font-bold text-xs rounded-xl border border-rose-500/30 cursor-pointer self-start sm:self-center shrink-0"
+                    >
+                      Limpar Lista
+                    </button>
+                  )}
+                </div>
+
+                {/* Adicionar material direto aqui dentro do Recibo Único */}
+                <div className="p-3 bg-slate-900/90 border border-white/10 rounded-xl space-y-2">
+                  <span className="text-[10.5px] font-black uppercase text-cyan-300 block">
+                    + Adicionar Material na Soma do Recibo:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                    <select
+                      value={scrapBasketQuickMatId}
+                      onChange={(e) => setScrapBasketQuickMatId(e.target.value)}
+                      className="sm:col-span-5 min-h-[44px] bg-slate-950 border border-white/15 rounded-xl px-2.5 text-white font-bold text-xs outline-none"
+                    >
+                      {otherScrapMaterials.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.emoji} {m.name} {m.buyPricePerKg > 0 ? `(R$ ${m.buyPricePerKg.toFixed(2).replace(".", ",")}/kg)` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={scrapBasketQuickKg}
+                      onChange={(e) => setScrapBasketQuickKg(e.target.value)}
+                      placeholder="Peso kg (ex: 4.80)"
+                      className="sm:col-span-3 min-h-[44px] bg-slate-950 border border-cyan-500/40 rounded-xl px-2 text-center text-white font-mono font-black text-sm outline-none"
+                    />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={scrapBasketQuickPrice}
+                      onChange={(e) => setScrapBasketQuickPrice(e.target.value)}
+                      placeholder="R$/kg (ex: 3,00)"
+                      className="sm:col-span-2 min-h-[44px] bg-slate-950 border border-amber-500/40 rounded-xl px-2 text-center text-amber-200 font-mono font-black text-sm outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const m = otherScrapMaterials.find((x) => x.id === scrapBasketQuickMatId);
+                        if (!m) return;
+                        const w = Math.max(0, parseFloat(scrapBasketQuickKg.replace(",", ".")) || 0);
+                        const p = Math.max(0, parseFloat(scrapBasketQuickPrice.replace(",", ".")) || 0);
+                        if (w <= 0) {
+                          if (showNotification) showNotification("Digite o peso (kg) para adicionar na lista.", "warning");
+                          return;
+                        }
+                        handleAddItemToScrapBasket({
+                          material: m,
+                          weightKg: w,
+                          units: 0,
+                          pricePerKg: p,
+                          addToStock: true
+                        });
+                        setScrapBasketQuickKg("");
+                      }}
+                      className="sm:col-span-2 min-h-[44px] px-3 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none active:scale-95"
+                    >
+                      + Somar
+                    </button>
+                  </div>
+                </div>
+
+                {/* Lista de materiais somados com edição inline de Peso e Preço */}
+                {scrapBasket.length > 0 && (
+                  <div className="space-y-2.5">
+                    <div className="space-y-2">
+                      {scrapBasket.map((item, idx) => {
+                        const rowTotal = Number((Math.max(0, item.weightKg) * Math.max(0, item.pricePerKg)).toFixed(2));
+                        return (
+                          <div
+                            key={item.id}
+                            className="p-3 bg-slate-900 border border-amber-500/25 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xl">{item.emoji}</span>
+                              <div className="min-w-0">
+                                <div className="text-xs font-black text-white truncate">
+                                  {idx + 1}. {item.materialName}
+                                </div>
+                                <div className="text-[10.5px] text-slate-400 font-mono">
+                                  {item.weightKg.toFixed(2)} kg × R$ {item.pricePerKg.toFixed(2).replace(".", ",")} ={" "}
+                                  <strong className="text-emerald-300">R$ {rowTotal.toFixed(2).replace(".", ",")}</strong>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-400 font-bold">kg:</span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={
+                                    scrapBasketWeightDrafts[item.id] !== undefined
+                                      ? scrapBasketWeightDrafts[item.id]
+                                      : String(item.weightKg)
+                                  }
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    setScrapBasketWeightDrafts((prev) => ({ ...prev, [item.id]: raw }));
+                                    const parsed = parseFloat(raw.replace(",", "."));
+                                    if (Number.isFinite(parsed) && parsed >= 0) {
+                                      setScrapBasket((prev) =>
+                                        prev.map((x) => (x.id === item.id ? { ...x, weightKg: parsed } : x))
+                                      );
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    setScrapBasketWeightDrafts((prev) => {
+                                      const next = { ...prev };
+                                      delete next[item.id];
+                                      return next;
+                                    });
+                                  }}
+                                  className="w-20 min-h-[38px] bg-slate-950 border border-cyan-500/40 rounded-lg px-1.5 text-center text-white font-mono font-black text-xs outline-none"
+                                />
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-400 font-bold">R$/kg:</span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={
+                                    scrapBasketPriceDrafts[item.id] !== undefined
+                                      ? scrapBasketPriceDrafts[item.id]
+                                      : String(item.pricePerKg)
+                                  }
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    setScrapBasketPriceDrafts((prev) => ({ ...prev, [item.id]: raw }));
+                                    const parsed = parseFloat(raw.replace(",", "."));
+                                    if (Number.isFinite(parsed) && parsed >= 0) {
+                                      setScrapBasket((prev) =>
+                                        prev.map((x) => (x.id === item.id ? { ...x, pricePerKg: parsed } : x))
+                                      );
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    setScrapBasketPriceDrafts((prev) => {
+                                      const next = { ...prev };
+                                      delete next[item.id];
+                                      return next;
+                                    });
+                                  }}
+                                  className="w-20 min-h-[38px] bg-slate-950 border border-amber-500/40 rounded-lg px-1.5 text-center text-amber-200 font-mono font-black text-xs outline-none"
+                                />
+                              </div>
+
+                              <span className="px-2 py-1 bg-emerald-500/15 border border-emerald-500/30 rounded-lg text-emerald-300 font-mono font-black text-xs">
+                                R$ {rowTotal.toFixed(2).replace(".", ",")}
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={() => setScrapBasket((prev) => prev.filter((x) => x.id !== item.id))}
+                                className="min-h-[38px] min-w-[38px] flex items-center justify-center bg-slate-950 hover:bg-rose-950 text-rose-300 rounded-lg border border-rose-500/25 cursor-pointer"
+                                title="Remover item"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Descontos (Dívida / Vale) e Acréscimos (+ Bônus / Extra) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                      <div className="p-2.5 bg-slate-900 border border-emerald-500/30 rounded-xl space-y-1.5">
+                        <label className="text-[10.5px] font-black uppercase text-emerald-300 block">
+                          ➕ Acréscimo / Crédito (+ R$):
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={scrapBasketBonusInput}
+                            onChange={(e) => setScrapBasketBonusInput(e.target.value)}
+                            placeholder="0,00"
+                            className="w-24 min-h-[40px] bg-slate-950 border border-emerald-500/40 rounded-lg px-2 text-center text-emerald-300 font-mono font-black text-sm outline-none"
+                          />
+                          <input
+                            type="text"
+                            value={scrapBasketBonusReason}
+                            onChange={(e) => setScrapBasketBonusReason(e.target.value)}
+                            placeholder="Motivo (ex: Bônus / Extra)"
+                            className="flex-1 min-h-[40px] bg-slate-950 border border-white/10 rounded-lg px-2.5 text-xs text-white outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 bg-slate-900 border border-rose-500/30 rounded-xl space-y-1.5">
+                        <label className="text-[10.5px] font-black uppercase text-rose-300 block">
+                          ➖ Desconto / Dívida do Reciclador (− R$):
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={scrapBasketDiscountInput}
+                            onChange={(e) => setScrapBasketDiscountInput(e.target.value)}
+                            placeholder="0,00"
+                            className="w-24 min-h-[40px] bg-slate-950 border border-rose-500/40 rounded-lg px-2 text-center text-rose-300 font-mono font-black text-sm outline-none"
+                          />
+                          <input
+                            type="text"
+                            value={scrapBasketDiscountReason}
+                            onChange={(e) => setScrapBasketDiscountReason(e.target.value)}
+                            placeholder="Motivo (ex: Estava devendo / Vale)"
+                            className="flex-1 min-h-[40px] bg-slate-950 border border-white/10 rounded-lg px-2.5 text-xs text-white outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Resumo Matemático Completo + Fechar Recibo Único */}
+                    <div className="p-3.5 bg-slate-900 border border-amber-400/40 rounded-xl space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300">
+                        <span>
+                          Peso Total: <strong className="text-cyan-300 font-mono">{scrapBasketStats.totalWeightKg.toFixed(2)} kg</strong>
+                        </span>
+                        <span>
+                          Subtotal Materiais: <strong className="text-white font-mono">R$ {scrapBasketStats.subtotal.toFixed(2).replace(".", ",")}</strong>
+                        </span>
+                        {scrapBasketStats.bonus > 0 && (
+                          <span className="text-emerald-300 font-mono font-bold">
+                            + Acréscimo: R$ {scrapBasketStats.bonus.toFixed(2).replace(".", ",")}
+                          </span>
+                        )}
+                        {scrapBasketStats.discount > 0 && (
+                          <span className="text-rose-300 font-mono font-bold">
+                            − Desconto: R$ {scrapBasketStats.discount.toFixed(2).replace(".", ",")}
+                          </span>
+                        )}
+                      </div>
+
+                      {scrapBasketStats.remainingDebt > 0 && (
+                        <div className="text-[11px] font-bold text-rose-300 bg-rose-950/40 border border-rose-500/30 rounded-lg px-2.5 py-1.5">
+                          ⚠️ O desconto foi maior que o valor das reciclagens: fica R$ 0,00 a pagar agora e ainda restaria R$ {scrapBasketStats.remainingDebt.toFixed(2).replace(".", ",")} de dívida.
+                        </div>
+                      )}
+
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1 border-t border-white/10">
+                        <div>
+                          <span className="text-[10.5px] font-black uppercase text-amber-300 block">
+                            Total Líquido do Recibo Único ({scrapCollabMode === "sem_nome" ? "Sem Nome" : scrapCollabMode === "nome_avulso" ? scrapCustomCollabName.trim() || "Avulso" : activeCollab?.name}):
+                          </span>
+                          <strong className="text-2xl font-mono font-black text-emerald-400">
+                            R$ {scrapBasketStats.netPayable.toFixed(2).replace(".", ",")}
+                          </strong>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const entries = scrapBasket
+                              .map((b) => {
+                                const m = otherScrapMaterials.find((x) => x.id === b.materialId);
+                                if (!m) return null;
+                                return {
+                                  material: m,
+                                  weightKg: b.weightKg,
+                                  units: b.units,
+                                  pricePerKg: b.pricePerKg,
+                                  addWeightToStock: b.addToStock
+                                };
+                              })
+                              .filter(Boolean) as {
+                              material: OtherScrapMaterial;
+                              weightKg: number;
+                              units: number;
+                              pricePerKg: number;
+                              addWeightToStock: boolean;
+                            }[];
+
+                            const ok = commitScrapItemsWithAdjustments({
+                              entries,
+                              collabChoiceId: activeCollab?.id || selectedCollabId,
+                              collabMode: scrapCollabMode,
+                              customName: scrapCustomCollabName,
+                              mode: scaleSettlementMode,
+                              bonusAmount: scrapBasketStats.bonus,
+                              bonusReason: scrapBasketBonusReason,
+                              discountAmount: scrapBasketStats.discount,
+                              discountReason: scrapBasketDiscountReason
+                            });
+
+                            if (ok) {
+                              setScrapBasket([]);
+                              setScrapBasketBonusInput("");
+                              setScrapBasketBonusReason("");
+                              setScrapBasketDiscountInput("");
+                              setScrapBasketDiscountReason("");
+                            }
+                          }}
+                          className="min-h-[50px] px-5 py-2.5 bg-gradient-to-r from-amber-400 to-emerald-400 hover:from-amber-300 hover:to-emerald-300 text-slate-950 font-black text-xs sm:text-sm uppercase rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95"
+                        >
+                          <CheckCircle2 className="w-5 h-5" />
+                          <span>
+                            {!(scrapCollabMode === "cadastrado" && activeCollab?.isFounder) && scaleSettlementMode === "caderninho"
+                              ? `Fechar Recibo + Caderninho (R$ ${scrapBasketStats.netPayable.toFixed(2).replace(".", ",")})`
+                              : `Fechar Recibo Único (R$ ${scrapBasketStats.netPayable.toFixed(2).replace(".", ",")})`}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* BARRA DE FILTROS POR GRUPO + BUSCA + NOVO MATERIAL */}
@@ -5521,22 +7137,93 @@ export function GlassBarcodeScannerCart({
                             </div>
                           </div>
 
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-black uppercase text-slate-300 block">
-                              Colaborador da Reciclagem:
-                            </label>
-                            <select
-                              value={cardPayCollabId || activeCollab?.id || selectedCollabId}
-                              onChange={(e) => setCardPayCollabId(e.target.value)}
-                              className="w-full min-h-[42px] bg-slate-950 border border-white/15 rounded-xl px-2.5 text-white font-bold text-xs outline-none"
-                            >
-                              {collaborators.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.isFounder ? "👑 " : "👤 "}
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-1 flex-wrap">
+                              <label className="text-[10px] font-black uppercase text-slate-300">
+                                Nome no Recibo:
+                              </label>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setScrapCollabMode("cadastrado")}
+                                  className={`px-2 py-0.5 rounded text-[9.5px] font-black border cursor-pointer ${
+                                    scrapCollabMode === "cadastrado"
+                                      ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                                      : "bg-slate-950 text-slate-300 border-white/10"
+                                  }`}
+                                >
+                                  Lista
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setScrapCollabMode("sem_nome");
+                                    if (cardPayMethod === "caderninho") setCardPayMethod("pago_dinheiro");
+                                  }}
+                                  className={`px-2 py-0.5 rounded text-[9.5px] font-black border cursor-pointer ${
+                                    scrapCollabMode === "sem_nome"
+                                      ? "bg-cyan-500 text-slate-950 border-cyan-400"
+                                      : "bg-slate-950 text-slate-300 border-white/10"
+                                  }`}
+                                >
+                                  Sem Nome
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setScrapCollabMode("nome_avulso")}
+                                  className={`px-2 py-0.5 rounded text-[9.5px] font-black border cursor-pointer ${
+                                    scrapCollabMode === "nome_avulso"
+                                      ? "bg-amber-400 text-slate-950 border-amber-300"
+                                      : "bg-slate-950 text-slate-300 border-white/10"
+                                  }`}
+                                >
+                                  Digitar
+                                </button>
+                              </div>
+                            </div>
+
+                            {scrapCollabMode === "cadastrado" && (
+                              <select
+                                value={cardPayCollabId || activeCollab?.id || selectedCollabId}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v === "__sem_nome__") {
+                                    setScrapCollabMode("sem_nome");
+                                    if (cardPayMethod === "caderninho") setCardPayMethod("pago_dinheiro");
+                                  } else if (v === "__digitar_nome__") {
+                                    setScrapCollabMode("nome_avulso");
+                                  } else {
+                                    setCardPayCollabId(v);
+                                  }
+                                }}
+                                className="w-full min-h-[42px] bg-slate-950 border border-white/15 rounded-xl px-2.5 text-white font-bold text-xs outline-none"
+                              >
+                                <option value="__sem_nome__">🪪 Sem Nome no Recibo (Avulso / Direto)</option>
+                                <option value="__digitar_nome__">✍️ Digitar Outro Nome na Hora...</option>
+                                {collaborators.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.isFounder ? "👑 " : "👤 "}
+                                    {c.name}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+
+                            {scrapCollabMode === "sem_nome" && (
+                              <div className="px-2.5 py-2 bg-slate-950 border border-cyan-500/30 rounded-xl text-[10.5px] text-cyan-200 font-bold">
+                                🪪 Recibo sem nome (Avulso / Direto)
+                              </div>
+                            )}
+
+                            {scrapCollabMode === "nome_avulso" && (
+                              <input
+                                type="text"
+                                value={scrapCustomCollabName}
+                                onChange={(e) => setScrapCustomCollabName(e.target.value)}
+                                placeholder="Digite o nome para o recibo..."
+                                className="w-full min-h-[42px] bg-slate-950 border border-amber-400/50 rounded-xl px-2.5 text-white font-bold text-xs outline-none"
+                              />
+                            )}
                           </div>
 
                           <div className="grid grid-cols-3 gap-1.5">
@@ -5546,22 +7233,28 @@ export function GlassBarcodeScannerCart({
                                 { id: "pago_pix", label: "📱 Pix" },
                                 { id: "caderninho", label: "📓 Caderninho" }
                               ] as const
-                            ).map((mOpt) => (
-                              <button
-                                key={mOpt.id}
-                                type="button"
-                                onClick={() => setCardPayMethod(mOpt.id)}
-                                className={`min-h-[38px] px-2 rounded-xl text-[10.5px] font-black border cursor-pointer touch-manipulation ${
-                                  cardPayMethod === mOpt.id
-                                    ? mOpt.id === "caderninho"
-                                      ? "bg-amber-500 text-slate-950 border-amber-400"
-                                      : "bg-emerald-500 text-slate-950 border-emerald-400"
-                                    : "bg-slate-950 text-slate-300 border-white/10"
-                                }`}
-                              >
-                                {mOpt.label}
-                              </button>
-                            ))}
+                            ).map((mOpt) => {
+                              const dis = mOpt.id === "caderninho" && scrapCollabMode === "sem_nome";
+                              return (
+                                <button
+                                  key={mOpt.id}
+                                  type="button"
+                                  disabled={dis}
+                                  onClick={() => setCardPayMethod(mOpt.id)}
+                                  className={`min-h-[38px] px-2 rounded-xl text-[10.5px] font-black border touch-manipulation ${
+                                    dis
+                                      ? "bg-slate-950/50 text-slate-600 border-white/5 cursor-not-allowed"
+                                      : cardPayMethod === mOpt.id
+                                      ? mOpt.id === "caderninho"
+                                        ? "bg-amber-500 text-slate-950 border-amber-400 cursor-pointer"
+                                        : "bg-emerald-500 text-slate-950 border-emerald-400 cursor-pointer"
+                                      : "bg-slate-950 text-slate-300 border-white/10 cursor-pointer"
+                                  }`}
+                                >
+                                  {mOpt.label}
+                                </button>
+                              );
+                            })}
                           </div>
 
                           <label className="flex items-center gap-2 text-[11px] text-slate-300 font-bold cursor-pointer">
@@ -5578,38 +7271,71 @@ export function GlassBarcodeScannerCart({
                             const w = Math.max(0, parseFloat(cardPayKgDraft.replace(",", ".")) || 0);
                             const p = Math.max(0, parseFloat(cardPayPriceDraft.replace(",", ".")) || 0);
                             const total = Number((w * p).toFixed(2));
-                            const targetCollab = collaborators.find((c) => c.id === (cardPayCollabId || activeCollab?.id || selectedCollabId));
+                            const targetCollab =
+                              scrapCollabMode === "cadastrado"
+                                ? collaborators.find((c) => c.id === (cardPayCollabId || activeCollab?.id || selectedCollabId))
+                                : null;
+                            const targetDisplayName =
+                              scrapCollabMode === "sem_nome"
+                                ? "Sem Nome"
+                                : scrapCollabMode === "nome_avulso"
+                                ? scrapCustomCollabName.trim() || "Avulso"
+                                : targetCollab?.name || "Colaborador";
                             return (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (w <= 0) {
-                                    if (showNotification) showNotification("Digite o peso (kg) para calcular e pagar.", "warning");
-                                    return;
-                                  }
-                                  if (!targetCollab?.isFounder && p <= 0) {
-                                    if (showNotification) showNotification("Digite o preço (R$/kg) para calcular o valor do colaborador.", "warning");
-                                    return;
-                                  }
-                                  registerScrapPurchaseForCollaborator({
-                                    material: mat,
-                                    weightKg: w,
-                                    units: 0,
-                                    pricePerKg: p,
-                                    collabId: targetCollab?.id || selectedCollabId,
-                                    mode: cardPayMethod,
-                                    addWeightToStock: cardPayAddToStock
-                                  });
-                                  setCardPayMatId(null);
-                                }}
-                                className="w-full min-h-[44px] px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none active:scale-95"
-                              >
-                                {targetCollab?.isFounder
-                                  ? `✓ Registrar ${w.toFixed(2)} kg (Coleta Própria D.W)`
-                                  : cardPayMethod === "caderninho"
-                                  ? `✓ Anotar R$ ${total.toFixed(2).replace(".", ",")} no Caderninho`
-                                  : `✓ Pagar R$ ${total.toFixed(2).replace(".", ",")} (${targetCollab?.name || "Colaborador"})`}
-                              </button>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (w <= 0) {
+                                      if (showNotification) showNotification("Digite o peso (kg) antes de somar no recibo.", "warning");
+                                      return;
+                                    }
+                                    handleAddItemToScrapBasket({
+                                      material: mat,
+                                      weightKg: w,
+                                      units: 0,
+                                      pricePerKg: p,
+                                      addToStock: cardPayAddToStock
+                                    });
+                                    setCardPayMatId(null);
+                                  }}
+                                  className="min-h-[44px] px-3 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none active:scale-95"
+                                >
+                                  🧺 + Somar no Recibo
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (w <= 0) {
+                                      if (showNotification) showNotification("Digite o peso (kg) para calcular e pagar.", "warning");
+                                      return;
+                                    }
+                                    if (!targetCollab?.isFounder && p <= 0) {
+                                      if (showNotification) showNotification("Digite o preço (R$/kg) para calcular o valor.", "warning");
+                                      return;
+                                    }
+                                    registerScrapPurchaseForCollaborator({
+                                      material: mat,
+                                      weightKg: w,
+                                      units: 0,
+                                      pricePerKg: p,
+                                      collabId: targetCollab?.id || selectedCollabId,
+                                      collabMode: scrapCollabMode,
+                                      customName: scrapCustomCollabName,
+                                      mode: cardPayMethod,
+                                      addWeightToStock: cardPayAddToStock
+                                    });
+                                    setCardPayMatId(null);
+                                  }}
+                                  className="min-h-[44px] px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none active:scale-95"
+                                >
+                                  {targetCollab?.isFounder
+                                    ? `✓ Registrar ${w.toFixed(2)} kg (D.W)`
+                                    : cardPayMethod === "caderninho"
+                                    ? `✓ Caderninho (R$ ${total.toFixed(2).replace(".", ",")})`
+                                    : `✓ Pagar R$ ${total.toFixed(2).replace(".", ",")} (${targetDisplayName})`}
+                                </button>
+                              </div>
                             );
                           })()}
                         </div>
@@ -5659,6 +7385,28 @@ export function GlassBarcodeScannerCart({
                           <Coins className="w-3.5 h-3.5" />
                           <span>Pagar Colaborador</span>
                         </button>
+
+                        {mat.stockKg > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAddItemToScrapBasket({
+                                material: mat,
+                                weightKg: mat.stockKg,
+                                units: mat.stockUnits || 0,
+                                pricePerKg: mat.buyPricePerKg || 0,
+                                addToStock: false
+                              });
+                              setTimeout(() => {
+                                scrapBasketPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                              }, 60);
+                            }}
+                            className="min-h-[42px] px-3 bg-amber-400/15 hover:bg-amber-400 hover:text-slate-950 text-amber-300 font-black text-xs rounded-xl border border-amber-400/40 flex items-center gap-1 cursor-pointer touch-manipulation select-none active:scale-95"
+                          >
+                            <ShoppingCart className="w-3.5 h-3.5" />
+                            <span>+ Somar no Recibo</span>
+                          </button>
+                        )}
 
                         {(mat.stockKg > 0 || (mat.stockUnits || 0) > 0) && (
                           <button
@@ -5956,10 +7704,450 @@ export function GlassBarcodeScannerCart({
       )}
 
       {/* ========================================================= */}
-      {/* ABA 4: HISTÓRICO DE CARGAS DO VICTOR & TÍQUETES/NOTINHAS  */}
+      {/* ABA 4: PASTAS POR COLABORADOR, MINIPRINT 57MM & CARGAS    */}
       {/* ========================================================= */}
       {activeTab === "cargas" && (
         <div className="space-y-5">
+          {/* BARRA DA IMPRESSORA MINIPRINT POCKETTM (57x30MM / FUN PRINT) & CONTROLE DE VIAS */}
+          <div className="bg-gradient-to-br from-pink-950/35 via-slate-900 to-slate-900 border-2 border-pink-500/40 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <span className="text-[10px] font-black uppercase text-pink-300 tracking-wider block">
+                  🐱 Configurador MiniPrint PocketTM (App Fun Print — Bobina 57×30mm)
+                </span>
+                <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                  <Printer className="w-5 h-5 text-pink-400" />
+                  Impressão 1× ou 2× Vias (Controle Caderninho D.W + Via do Reciclador)
+                </h3>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Escolha <strong>1 Via</strong> (só seu controle para grampear) ou <strong>2 Vias</strong> (1ª Via D.W + linha de corte ✂️ + 2ª Via Reciclador). Use <strong>Fun Print 57mm</strong> para gerar a imagem nítida do rolinho 57×30mm!
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSetReceiptCopiesMode(1)}
+                  className={`min-h-[44px] px-3.5 py-2 rounded-xl font-black text-xs border transition-all cursor-pointer touch-manipulation ${
+                    receiptCopiesMode === 1
+                      ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow"
+                      : "bg-slate-950 text-slate-300 border-white/15 hover:border-white/30"
+                  }`}
+                >
+                  📄 1 Via (Só Meu Controle)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetReceiptCopiesMode(2)}
+                  className={`min-h-[44px] px-3.5 py-2 rounded-xl font-black text-xs border transition-all cursor-pointer touch-manipulation ${
+                    receiptCopiesMode === 2
+                      ? "bg-amber-400 text-slate-950 border-amber-300 shadow"
+                      : "bg-slate-950 text-slate-300 border-white/15 hover:border-white/30"
+                  }`}
+                >
+                  📄📄 2 Vias (1ª Grampear + 2ª Reciclador)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleActivateMiniPrintPocket}
+                  className={`min-h-[44px] px-3.5 py-2 rounded-xl font-black text-xs border transition-all cursor-pointer touch-manipulation ${
+                    printerConfigState.miniPrintPocketMode
+                      ? "bg-pink-400 text-slate-950 border-pink-300 shadow"
+                      : "bg-pink-950/50 text-pink-200 border-pink-500/40 hover:bg-pink-500 hover:text-slate-950"
+                  }`}
+                >
+                  {printerConfigState.miniPrintPocketMode ? "✓ MiniPrint 57×30mm Ativa" : "🐱 Ativar MiniPrint 57×30mm"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* PASTAS PARA SALVAR RECIBOS POR COLABORADOR */}
+          <div className="bg-slate-900 border border-cyan-500/35 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase text-cyan-300 tracking-wider block">
+                  Arquivo Organizado do Caderninho — Grampear &amp; Conferir
+                </span>
+                <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                  <Folder className="w-5 h-5 text-cyan-400" />
+                  Pastas de Recibos por Colaborador ({collaboratorFolders.length} pastas)
+                </h3>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Cada compra ou acerto é salvo automaticamente na pasta do reciclador com total comprado, pago e quanto falta acertar.
+                </p>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={folderSearchQuery}
+                  onChange={(e) => setFolderSearchQuery(e.target.value)}
+                  placeholder="Buscar pasta/colaborador..."
+                  className="w-full min-h-[42px] bg-slate-950 border border-white/15 rounded-xl pl-9 pr-3 text-xs text-white outline-none focus:border-cyan-400"
+                />
+              </div>
+            </div>
+
+            {(() => {
+              const q = folderSearchQuery.trim().toLowerCase();
+              const visibleFolders = q
+                ? collaboratorFolders.filter((f) => f.name.toLowerCase().includes(q))
+                : collaboratorFolders;
+              const openFolder = selectedFolderKey
+                ? collaboratorFolders.find((f) => f.key === selectedFolderKey) || null
+                : null;
+
+              if (openFolder) {
+                const folderPaidTotal = openFolder.collaborator
+                  ? openFolder.collaborator.totalPaid
+                  : openFolder.totalPaidDirectAmount;
+                const folderPending = openFolder.collaborator
+                  ? openFolder.collaborator.balancePending
+                  : 0;
+                const activeFolderTickets = openFolder.tickets.filter((t) => !t.isCancelled);
+
+                return (
+                  <div className="space-y-4">
+                    {/* Cabeçalho da Pasta Aberta */}
+                    <div className="p-4 bg-slate-950 border-2 border-cyan-500/45 rounded-2xl space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedFolderKey(null)}
+                            className="min-h-[42px] px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-200 font-black text-xs rounded-xl border border-white/15 cursor-pointer"
+                          >
+                            ← Todas as Pastas
+                          </button>
+                          <div>
+                            <div className="text-base font-black text-white flex items-center gap-2">
+                              <FolderOpen className="w-5 h-5 text-cyan-400" />
+                              <span>Pasta: {openFolder.name}</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400 block">
+                              {activeFolderTickets.length} compra(s) • {openFolder.payments.length} acerto(s) •{" "}
+                              {openFolder.cancelledCount > 0 ? `${openFolder.cancelledCount} cancelada(s) • ` : ""}
+                              {openFolder.totalWeightKg.toFixed(2)} kg trazidos
+                            </span>
+                          </div>
+                        </div>
+
+                        {openFolder.collaborator && !openFolder.isFounder && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPayingCollab(openFolder.collaborator!);
+                              setPayAmount(folderPending > 0 ? folderPending : 10);
+                            }}
+                            className="min-h-[44px] px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Coins className="w-4 h-4" />
+                            <span>
+                              {folderPending > 0
+                                ? `Acertar Saldo (R$ ${folderPending.toFixed(2)})`
+                                : "Registrar Pagamento"}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Resumo Financeiro da Pasta */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                        <div className="p-3 bg-slate-900 rounded-xl border border-white/10">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Quanto Já Comprei Dele:</span>
+                          <strong className="text-lg font-mono font-black text-white">
+                            R$ {openFolder.totalBoughtAmount.toFixed(2)}
+                          </strong>
+                        </div>
+                        <div className="p-3 bg-slate-900 rounded-xl border border-emerald-500/25">
+                          <span className="text-[10px] uppercase font-bold text-emerald-400 block">Total Já Pago / Acertado:</span>
+                          <strong className="text-lg font-mono font-black text-emerald-300">
+                            R$ {folderPaidTotal.toFixed(2)}
+                          </strong>
+                        </div>
+                        <div className="p-3 bg-slate-900 rounded-xl border border-rose-500/35">
+                          <span className="text-[10px] uppercase font-bold text-rose-400 block">Quanto Devo no Caderninho:</span>
+                          <strong className="text-lg font-mono font-black text-rose-300">
+                            R$ {folderPending.toFixed(2)}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {/* Ações de Extrato Consolidado da Pasta (Para Grampear) */}
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handlePrintFolderSummary(openFolder, 1)}
+                          className="min-h-[42px] px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs rounded-xl border border-cyan-500/40 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Printer className="w-4 h-4 text-cyan-400" />
+                          <span>Imprimir Extrato da Pasta (1 Via)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePrintFolderSummary(openFolder, 2)}
+                          className="min-h-[42px] px-3 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Scissors className="w-4 h-4" />
+                          <span>Extrato 2 Vias (D.W + Reciclador)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleShareFolderFunPrint(openFolder, receiptCopiesMode)}
+                          disabled={isGeneratingFunPrint}
+                          className="min-h-[42px] px-3 py-2 bg-pink-500 hover:bg-pink-400 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <span>🐱 Fun Print 57mm ({receiptCopiesMode}×)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleShareFolderWhatsApp(openFolder)}
+                          className="min-h-[42px] px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Share2 className="w-4 h-4" />
+                          <span>Resumo WhatsApp</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Lista de Recibos de Pagamento / Acertos dentro desta Pasta */}
+                    {openFolder.payments.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-black uppercase text-amber-300 tracking-wider">
+                          🤝 Recibos de Pagamento / Acerto ({openFolder.payments.length})
+                        </h4>
+                        {openFolder.payments.map((rec) => (
+                          <div
+                            key={rec.id}
+                            className="p-3.5 bg-slate-950 rounded-2xl border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
+                          >
+                            <div>
+                              <div className="font-black text-white text-sm">
+                                💸 Acerto Pago: <span className="text-emerald-400 font-mono">R$ {rec.amountPaid.toFixed(2)}</span>{" "}
+                                <span className="text-[10px] text-slate-400 font-normal">({rec.timestamp})</span>
+                              </div>
+                              <div className="text-slate-300 mt-0.5">
+                                Forma: <strong className="text-amber-300">{rec.methodLabel}</strong> • Restou: R$ {rec.remainingBalance.toFixed(2)}
+                                {rec.notes ? ` • Obs: ${rec.notes}` : ""}
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handlePrintPaymentReceipt(rec, 1)}
+                                className="min-h-[40px] px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-[11px] rounded-xl border border-white/15 cursor-pointer"
+                              >
+                                🖨️ 1 Via
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePrintPaymentReceipt(rec, 2)}
+                                className="min-h-[40px] px-2.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
+                              >
+                                ✂️ 2 Vias
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSharePaymentFunPrint(rec, receiptCopiesMode)}
+                                disabled={isGeneratingFunPrint}
+                                className="min-h-[40px] px-2.5 py-1.5 bg-pink-500 hover:bg-pink-400 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
+                              >
+                                🐱 Fun Print
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleShareReceiptWhatsApp(rec)}
+                                className="min-h-[40px] px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
+                              >
+                                WhatsApp
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Lista de Compras / Notinhas dentro desta Pasta */}
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-black uppercase text-emerald-300 tracking-wider">
+                        🧾 Notinhas de Compra Salvas na Pasta ({openFolder.tickets.length})
+                      </h4>
+                      {openFolder.tickets.length === 0 ? (
+                        <div className="p-4 bg-slate-950 rounded-2xl border border-white/10 text-xs text-slate-400 text-center">
+                          Nenhuma notinha de compra salva nesta pasta ainda.
+                        </div>
+                      ) : (
+                        openFolder.tickets.map((ticket) => {
+                          const isConfirmingCancel = cancellingTicketId === ticket.id;
+                          return (
+                            <div
+                              key={ticket.id}
+                              className={`p-3.5 bg-slate-950 rounded-2xl border space-y-2 text-xs ${
+                                ticket.isCancelled ? "border-rose-500/40 opacity-85" : "border-emerald-500/25"
+                              }`}
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                <div className="space-y-0.5">
+                                  <div className="font-black text-white text-sm flex items-center gap-2 flex-wrap">
+                                    <span className={ticket.isCancelled ? "line-through text-slate-400" : ""}>
+                                      {ticket.isFounder ? "D.W Própria" : `R$ ${ticket.totalPaid.toFixed(2)}`} • {ticket.totalWeightKg.toFixed(2)} kg
+                                    </span>
+                                    {ticket.isCancelled && (
+                                      <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded text-[10px] font-black uppercase">
+                                        🚫 Cancelada / Estornada
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] text-slate-400 font-normal">{ticket.timestamp}</span>
+                                  </div>
+                                  <div className="text-slate-300">
+                                    {ticket.items.map((it) => `${it.quantity}× ${it.name} (${it.totalWeightKg.toFixed(2)}kg)`).join(", ")}
+                                  </div>
+                                  <div className="text-[10.5px] font-bold text-amber-300">
+                                    {ticket.isCancelled
+                                      ? `Estornado em ${ticket.cancelledAt || "—"}${ticket.cancelReason ? ` • ${ticket.cancelReason}` : ""}`
+                                      : ticket.paymentStatus === "coleta_propria_dw"
+                                      ? "👑 Coleta Própria D.W"
+                                      : ticket.paymentStatus === "pago_na_hora"
+                                      ? "💵 Pago na Hora no Portão"
+                                      : "📓 Lançado no Caderninho (Acertar depois)"}
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-wrap gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePrintGlassTicket(ticket, 1)}
+                                    className="min-h-[40px] px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-[11px] rounded-xl border border-white/15 cursor-pointer"
+                                  >
+                                    🖨️ 1 Via
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePrintGlassTicket(ticket, 2)}
+                                    className="min-h-[40px] px-2.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
+                                  >
+                                    ✂️ 2 Vias
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleShareTicketFunPrint(ticket, receiptCopiesMode)}
+                                    disabled={isGeneratingFunPrint}
+                                    className="min-h-[40px] px-2.5 py-1.5 bg-pink-500 hover:bg-pink-400 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
+                                  >
+                                    🐱 Fun Print
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleShareGlassTicketWhatsApp(ticket)}
+                                    className="min-h-[40px] px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
+                                  >
+                                    WhatsApp
+                                  </button>
+                                  {!ticket.isCancelled && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCancellingTicketId(isConfirmingCancel ? null : ticket.id);
+                                        setCancelTicketReasonDraft("");
+                                      }}
+                                      className="min-h-[40px] px-2.5 py-1.5 bg-rose-950/70 hover:bg-rose-600 text-rose-200 hover:text-white font-black text-[11px] rounded-xl border border-rose-500/40 cursor-pointer"
+                                    >
+                                      🚫 Cancelar
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {isConfirmingCancel && !ticket.isCancelled && (
+                                <div className="p-3 bg-rose-950/35 border border-rose-500/40 rounded-xl space-y-2">
+                                  <div className="text-[11px] font-black text-rose-200">
+                                    ⚠️ Estornar esta compra? Reverte Estoque, Caderninho e PDV.
+                                  </div>
+                                  <div className="flex flex-col sm:flex-row gap-2">
+                                    <input
+                                      type="text"
+                                      value={cancelTicketReasonDraft}
+                                      onChange={(e) => setCancelTicketReasonDraft(e.target.value)}
+                                      placeholder="Motivo opcional"
+                                      className="flex-1 min-h-[40px] bg-slate-900 border border-rose-500/35 rounded-xl px-3 text-xs text-white outline-none"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCancelPurchaseTicket(ticket, cancelTicketReasonDraft)}
+                                      className="min-h-[40px] px-3.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl cursor-pointer"
+                                    >
+                                      ✓ Confirmar
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {visibleFolders.map((folder) => {
+                    const folderPaid = folder.collaborator ? folder.collaborator.totalPaid : folder.totalPaidDirectAmount;
+                    const folderPending = folder.collaborator ? folder.collaborator.balancePending : 0;
+                    const totalDocs = folder.tickets.length + folder.payments.length;
+                    return (
+                      <button
+                        key={folder.key}
+                        type="button"
+                        onClick={() => setSelectedFolderKey(folder.key)}
+                        className={`text-left p-4 rounded-2xl border-2 transition-all cursor-pointer touch-manipulation active:scale-[0.99] space-y-2.5 ${
+                          folderPending > 0
+                            ? "bg-slate-950 border-rose-500/45 hover:border-rose-400"
+                            : folder.isFounder
+                            ? "bg-amber-950/15 border-amber-500/35 hover:border-amber-400"
+                            : "bg-slate-950 border-cyan-500/25 hover:border-cyan-400"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Folder className={`w-6 h-6 shrink-0 ${folder.isFounder ? "text-amber-400" : folderPending > 0 ? "text-rose-400" : "text-cyan-400"}`} />
+                            <div className="min-w-0">
+                              <strong className="text-sm font-black text-white truncate block">{folder.name}</strong>
+                              <span className="text-[10.5px] text-slate-400 block">
+                                {totalDocs} {totalDocs === 1 ? "recibo salvo" : "recibos salvos"} • {folder.totalWeightKg.toFixed(1)} kg
+                              </span>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 mt-1" />
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-white/10 text-[10.5px]">
+                          <div>
+                            <span className="text-slate-400 block">Comprei</span>
+                            <strong className="font-mono text-white">R$ {folder.totalBoughtAmount.toFixed(2)}</strong>
+                          </div>
+                          <div>
+                            <span className="text-emerald-400 block">Pago</span>
+                            <strong className="font-mono text-emerald-300">R$ {folderPaid.toFixed(2)}</strong>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-rose-400 block">Devo</span>
+                            <strong className={`font-mono ${folderPending > 0 ? "text-rose-300" : "text-emerald-400"}`}>
+                              R$ {folderPending.toFixed(2)}
+                            </strong>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+
           {/* HISTÓRICO DE NOTINHAS / TÍQUETES DE COMPRA NO PORTÃO */}
           <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
             <div className="border-b border-white/10 pb-3">
@@ -5968,59 +8156,155 @@ export function GlassBarcodeScannerCart({
               </span>
               <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
                 <Printer className="w-5 h-5 text-emerald-400" />
-                Histórico de Notinhas de Compra no Portão
+                Histórico Geral de Notinhas ({purchaseHistory.length})
               </h3>
             </div>
 
             {purchaseHistory.length === 0 ? (
               <div className="py-6 text-center text-slate-400 text-xs">
-                Nenhuma compra de vidro finalizada ainda. Ao finalizar um carrinho na aba "Bipar & Comprar", a notinha térmica aparecerá aqui!
+                Nenhuma compra finalizada ainda. Ao finalizar na aba "Bipar & Comprar" ou na Balança Digital, o recibo aparecerá aqui e na Pasta do Colaborador!
               </div>
             ) : (
               <div className="space-y-2.5">
-                {purchaseHistory.map((ticket) => (
-                  <div
-                    key={ticket.id}
-                    className="p-4 bg-slate-950 rounded-2xl border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                  >
-                    <div className="space-y-1">
-                      <div className="font-black text-white text-sm flex items-center gap-2 flex-wrap">
-                        <span>🧾 {ticket.collectorName}</span>
-                        <span className="text-[10px] text-slate-400 font-normal">{ticket.timestamp}</span>
-                      </div>
-                      <div className="text-slate-300">
-                        <strong className="text-emerald-400 font-mono">{ticket.totalBottles} un</strong> ({ticket.totalWeightKg.toFixed(2)} kg) •{" "}
-                        {ticket.items.map((it) => `${it.quantity}× ${it.name}`).join(", ")}
-                      </div>
-                      <div className="text-[10.5px] font-bold text-amber-300">
-                        {ticket.paymentStatus === "coleta_propria_dw"
-                          ? "👑 Coleta Própria D.W"
-                          : ticket.paymentStatus === "pago_na_hora"
-                          ? `💵 Pago na Hora: R$ ${ticket.totalPaid.toFixed(2)}`
-                          : `📓 Lançado no Caderninho: R$ ${ticket.totalPaid.toFixed(2)}`}
-                      </div>
-                    </div>
+                {purchaseHistory.map((ticket) => {
+                  const isConfirmingCancel = cancellingTicketId === ticket.id;
+                  return (
+                    <div
+                      key={ticket.id}
+                      className={`p-4 bg-slate-950 rounded-2xl border space-y-2.5 text-xs ${
+                        ticket.isCancelled ? "border-rose-500/40 opacity-85" : "border-emerald-500/20"
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="font-black text-white text-sm flex items-center gap-2 flex-wrap">
+                            <span className={ticket.isCancelled ? "line-through text-slate-400" : ""}>
+                              🧾 {ticket.collectorName}
+                            </span>
+                            {ticket.isCancelled && (
+                              <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-md text-[10px] font-black uppercase">
+                                🚫 Cancelada / Estornada
+                              </span>
+                            )}
+                            <span className="text-[10px] text-slate-400 font-normal">{ticket.timestamp}</span>
+                          </div>
+                          <div className="text-slate-300">
+                            {!ticket.isScrapPurchase && (
+                              <strong className="text-emerald-400 font-mono">{ticket.totalBottles} un </strong>
+                            )}
+                            ({ticket.totalWeightKg.toFixed(2)} kg) •{" "}
+                            {ticket.items.map((it) => `${it.quantity}× ${it.name}`).join(", ")}
+                          </div>
+                          <div className="text-[10.5px] font-bold text-amber-300">
+                            {ticket.isCancelled ? (
+                              <span className="text-rose-300">
+                                Estornado em {ticket.cancelledAt || "—"}
+                                {ticket.cancelReason ? ` • Motivo: ${ticket.cancelReason}` : ""} (Estoque, Caderninho & PDV revertidos)
+                              </span>
+                            ) : ticket.paymentStatus === "coleta_propria_dw" ? (
+                              "👑 Coleta Própria D.W"
+                            ) : ticket.paymentStatus === "pago_na_hora" ? (
+                              `💵 Pago na Hora: R$ ${ticket.totalPaid.toFixed(2)}`
+                            ) : (
+                              `📓 Lançado no Caderninho: R$ ${ticket.totalPaid.toFixed(2)}`
+                            )}
+                          </div>
+                        </div>
 
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => handlePrintGlassTicket(ticket)}
-                        className="min-h-[44px] px-3.5 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-black text-xs rounded-xl border border-emerald-500/40 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
-                      >
-                        <Printer className="w-4 h-4 text-emerald-400" />
-                        <span>Imprimir Cupom</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleShareGlassTicketWhatsApp(ticket)}
-                        className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
-                      >
-                        <Share2 className="w-4 h-4" />
-                        <span>WhatsApp</span>
-                      </button>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handlePrintGlassTicket(ticket, 1)}
+                            className="min-h-[42px] px-3 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-black text-xs rounded-xl border border-emerald-500/40 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                          >
+                            <Printer className="w-4 h-4 text-emerald-400" />
+                            <span>1 Via</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePrintGlassTicket(ticket, 2)}
+                            className="min-h-[42px] px-3 py-2 bg-amber-400 hover:bg-amber-300 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                          >
+                            <Scissors className="w-4 h-4" />
+                            <span>2 Vias</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleShareTicketFunPrint(ticket, receiptCopiesMode)}
+                            disabled={isGeneratingFunPrint}
+                            className="min-h-[42px] px-3 py-2 bg-pink-500 hover:bg-pink-400 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                          >
+                            <span>🐱 Fun Print</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleShareGlassTicketWhatsApp(ticket)}
+                            className="min-h-[42px] px-3 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                          >
+                            <Share2 className="w-4 h-4" />
+                            <span>WhatsApp</span>
+                          </button>
+                          {!ticket.isCancelled ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancellingTicketId(isConfirmingCancel ? null : ticket.id);
+                                setCancelTicketReasonDraft("");
+                              }}
+                              className="min-h-[42px] px-3 py-2 bg-rose-950/70 hover:bg-rose-600 text-rose-200 hover:text-white font-black text-xs rounded-xl border border-rose-500/40 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                              <span>Cancelar Compra</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                markLocalYardMutation();
+                                setPurchaseHistory((prev) => prev.filter((t) => t.id !== ticket.id));
+                              }}
+                              className="min-h-[42px] px-3 bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 font-bold text-xs rounded-xl border border-white/10 flex items-center gap-1 cursor-pointer"
+                              title="Remover registro cancelado da lista"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {isConfirmingCancel && !ticket.isCancelled && (
+                        <div className="p-3 bg-rose-950/35 border border-rose-500/40 rounded-xl space-y-2">
+                          <div className="text-[11px] font-black text-rose-200">
+                            ⚠️ Estornar esta compra? Vai retirar {ticket.totalWeightKg.toFixed(2)} kg do estoque, reverter o Caderninho e cancelar a saída de R$ {ticket.totalPaid.toFixed(2)} no PDV.
+                          </div>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="text"
+                              value={cancelTicketReasonDraft}
+                              onChange={(e) => setCancelTicketReasonDraft(e.target.value)}
+                              placeholder="Motivo opcional (ex: Desistência, erro de peso, troca de material)"
+                              className="flex-1 min-h-[42px] bg-slate-900 border border-rose-500/35 rounded-xl px-3 text-xs text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleCancelPurchaseTicket(ticket, cancelTicketReasonDraft)}
+                              className="min-h-[42px] px-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none"
+                            >
+                              ✓ Confirmar Cancelamento
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCancellingTicketId(null)}
+                              className="min-h-[42px] px-3 bg-slate-800 text-slate-200 font-bold text-xs rounded-xl cursor-pointer"
+                            >
+                              Voltar
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -6086,7 +8370,7 @@ export function GlassBarcodeScannerCart({
 
             {paymentHistory.length === 0 ? (
               <div className="py-6 text-center text-slate-400 text-xs">
-                Nenhum pagamento registrado ainda. Quando fizer o acerto de um colaborador, o recibo aparecerá aqui com opção de mandar direto no WhatsApp!
+                Nenhum pagamento registrado ainda. Quando fizer o acerto de um colaborador, o recibo aparecerá aqui e na Pasta dele!
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -6106,8 +8390,8 @@ export function GlassBarcodeScannerCart({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 justify-between sm:justify-end">
-                      <div className="text-right">
+                    <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end">
+                      <div className="text-right mr-1">
                         <div className="text-emerald-400 font-mono font-black text-sm">
                           Pago: R$ {rec.amountPaid.toFixed(2)}
                         </div>
@@ -6118,8 +8402,30 @@ export function GlassBarcodeScannerCart({
 
                       <button
                         type="button"
+                        onClick={() => handlePrintPaymentReceipt(rec, 1)}
+                        className="min-h-[38px] px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-[11px] rounded-xl border border-white/15 cursor-pointer"
+                      >
+                        🖨️ 1 Via
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePrintPaymentReceipt(rec, 2)}
+                        className="min-h-[38px] px-2.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
+                      >
+                        ✂️ 2 Vias
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSharePaymentFunPrint(rec, receiptCopiesMode)}
+                        disabled={isGeneratingFunPrint}
+                        className="min-h-[38px] px-2.5 py-1.5 bg-pink-500 hover:bg-pink-400 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
+                      >
+                        🐱 Fun Print
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleShareReceiptWhatsApp(rec)}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded-xl transition-all flex items-center gap-1 cursor-pointer touch-manipulation"
+                        className="min-h-[38px] px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded-xl transition-all flex items-center gap-1 cursor-pointer touch-manipulation"
                       >
                         <Share2 className="w-3.5 h-3.5" />
                         <span>WhatsApp</span>
@@ -7617,11 +9923,18 @@ export function GlassBarcodeScannerCart({
                     ? "Pago Agora no Portão"
                     : "Lançado no Caderninho do Colaborador"}
                 </div>
-                <div>
-                  <strong>COTAÇÃO VICTOR:</strong>{" "}
-                  R$ {lastPurchaseReceipt.sellPricePerTonUsed || activeSellPricePerTon}/t (R${" "}
-                  {(((lastPurchaseReceipt.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2).replace(".", ",")}/kg)
-                </div>
+                {!lastPurchaseReceipt.isScrapPurchase ? (
+                  <div>
+                    <strong>COTAÇÃO VICTOR:</strong>{" "}
+                    R$ {lastPurchaseReceipt.sellPricePerTonUsed || activeSellPricePerTon}/t (R${" "}
+                    {(((lastPurchaseReceipt.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2).replace(".", ",")}/kg)
+                  </div>
+                ) : (
+                  <div>
+                    <strong>MODALIDADE:</strong> Ferro Velho &amp; Reciclagem ({lastPurchaseReceipt.items.length}{" "}
+                    {lastPurchaseReceipt.items.length === 1 ? "material" : "materiais"})
+                  </div>
+                )}
               </div>
               <div className="space-y-1 border-b border-dashed border-slate-400 pb-2">
                 {lastPurchaseReceipt.items.map((it, idx) => (
@@ -7635,9 +9948,32 @@ export function GlassBarcodeScannerCart({
               </div>
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between font-black">
-                  <span>PESO SOMADO NO PÁTIO:</span>
+                  <span>{lastPurchaseReceipt.isScrapPurchase ? "PESO TOTAL:" : "PESO SOMADO NO PÁTIO:"}</span>
                   <span className="text-emerald-700">+{lastPurchaseReceipt.totalWeightKg.toFixed(2)} kg</span>
                 </div>
+                {((lastPurchaseReceipt.bonusAmount || 0) > 0 || (lastPurchaseReceipt.discountAmount || 0) > 0) &&
+                  typeof lastPurchaseReceipt.subtotalAmount === "number" && (
+                    <div className="flex justify-between text-[11px] font-bold text-slate-700">
+                      <span>SUBTOTAL MATERIAIS:</span>
+                      <span>R$ {lastPurchaseReceipt.subtotalAmount.toFixed(2)}</span>
+                    </div>
+                  )}
+                {(lastPurchaseReceipt.bonusAmount || 0) > 0 && (
+                  <div className="flex justify-between text-[11px] font-bold text-emerald-700">
+                    <span>
+                      + ACRÉSCIMO{lastPurchaseReceipt.bonusReason ? ` (${lastPurchaseReceipt.bonusReason})` : ""}:
+                    </span>
+                    <span>+R$ {(lastPurchaseReceipt.bonusAmount || 0).toFixed(2)}</span>
+                  </div>
+                )}
+                {(lastPurchaseReceipt.discountAmount || 0) > 0 && (
+                  <div className="flex justify-between text-[11px] font-bold text-rose-700">
+                    <span>
+                      - DESCONTO{lastPurchaseReceipt.discountReason ? ` (${lastPurchaseReceipt.discountReason})` : ""}:
+                    </span>
+                    <span>-R$ {(lastPurchaseReceipt.discountAmount || 0).toFixed(2)}</span>
+                  </div>
+                )}
                 {lastPurchaseReceipt.isFounder && (
                   <div className="flex justify-between text-[11px] font-bold text-slate-700">
                     <span>ECONOMIA D.W (VALOR EQUIV.):</span>
@@ -7645,35 +9981,169 @@ export function GlassBarcodeScannerCart({
                   </div>
                 )}
                 <div className="flex justify-between font-black text-sm border-t border-slate-300 pt-1">
-                  <span>{lastPurchaseReceipt.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL COMPRA:"}</span>
+                  <span>{lastPurchaseReceipt.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL LÍQUIDO:"}</span>
                   <span>
                     R$ {lastPurchaseReceipt.isFounder ? "0,00" : lastPurchaseReceipt.totalPaid.toFixed(2)}
                   </span>
                 </div>
-                <div className="text-center text-[10px] text-slate-600 pt-1">
-                  Pátio Atual: {yardTotals.totalWeightKg.toFixed(1)} kg / {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg
-                </div>
+                {!lastPurchaseReceipt.isScrapPurchase && (
+                  <div className="text-center text-[10px] text-slate-600 pt-1">
+                    Pátio Atual: {yardTotals.totalWeightKg.toFixed(1)} kg / {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {lastPurchaseReceipt.isCancelled && (
+              <div className="p-3 bg-rose-950/60 border border-rose-500/50 rounded-2xl text-xs font-black text-rose-200 text-center">
+                🚫 COMPRA CANCELADA / ESTORNADA
+                {lastPurchaseReceipt.cancelReason ? ` (${lastPurchaseReceipt.cancelReason})` : ""} — Estoque, Caderninho &amp; PDV revertidos!
+              </div>
+            )}
+
+            {/* Pasta automática + Resumo Caderninho + Seletor 1 ou 2 Vias (MiniPrint 57mm) */}
+            <div className="p-3 bg-slate-950 border border-cyan-500/30 rounded-2xl space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[11px] font-black text-cyan-300 flex items-center gap-1.5">
+                  <Folder className="w-4 h-4" />
+                  Salvo na Pasta: {lastPurchaseReceipt.collectorName}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const matched = collaboratorFolders.find(
+                      (f) =>
+                        (lastPurchaseReceipt.collaboratorId && f.collaborator?.id === lastPurchaseReceipt.collaboratorId) ||
+                        f.name.trim().toLowerCase() === lastPurchaseReceipt.collectorName.trim().toLowerCase()
+                    );
+                    if (matched) setSelectedFolderKey(matched.key);
+                    setLastPurchaseReceipt(null);
+                    setActiveTab("cargas");
+                  }}
+                  className="text-[11px] font-black text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+                >
+                  Abrir Pasta 📁
+                </button>
+              </div>
+
+              {(() => {
+                const snap = getTicketCollabSnapshot(lastPurchaseReceipt);
+                if (!snap) return null;
+                return (
+                  <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-white/10 text-[10.5px]">
+                    <div>
+                      <span className="text-slate-400 block">Comprei (Total)</span>
+                      <strong className="font-mono text-white">R$ {snap.totalEarned.toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-emerald-400 block">Já Pago</span>
+                      <strong className="font-mono text-emerald-300">R$ {snap.totalPaid.toFixed(2)}</strong>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-rose-400 block">Devo Caderninho</span>
+                      <strong className="font-mono text-rose-300">R$ {snap.balancePending.toFixed(2)}</strong>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="grid grid-cols-2 gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleSetReceiptCopiesMode(1)}
+                  className={`min-h-[38px] px-2.5 py-1.5 rounded-xl font-black text-[11px] border cursor-pointer ${
+                    receiptCopiesMode === 1
+                      ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                      : "bg-slate-900 text-slate-300 border-white/15"
+                  }`}
+                >
+                  📄 1 Via (Só D.W)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetReceiptCopiesMode(2)}
+                  className={`min-h-[38px] px-2.5 py-1.5 rounded-xl font-black text-[11px] border cursor-pointer ${
+                    receiptCopiesMode === 2
+                      ? "bg-amber-400 text-slate-950 border-amber-300"
+                      : "bg-slate-900 text-slate-300 border-white/15"
+                  }`}
+                >
+                  ✂️ 2 Vias (D.W + Reciclador)
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => handlePrintGlassTicket(lastPurchaseReceipt)}
-                className="min-h-[48px] px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none"
+                onClick={() => handlePrintGlassTicket(lastPurchaseReceipt, receiptCopiesMode)}
+                className="min-h-[48px] px-3 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none"
               >
-                <Printer className="w-4 h-4" />
-                <span>Imprimir Bobina 58/80mm</span>
+                <Printer className="w-4 h-4 shrink-0" />
+                <span>Imprimir ({receiptCopiesMode} {receiptCopiesMode === 1 ? "Via" : "Vias"})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleShareTicketFunPrint(lastPurchaseReceipt, receiptCopiesMode)}
+                disabled={isGeneratingFunPrint}
+                className="min-h-[48px] px-3 py-2.5 bg-pink-500 hover:bg-pink-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none"
+              >
+                <span>🐱 Fun Print 57mm</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleShareGlassTicketWhatsApp(lastPurchaseReceipt)}
-                className="min-h-[48px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 active:scale-95 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none"
+                className="min-h-[48px] px-3 py-2.5 bg-slate-950 hover:bg-slate-800 active:scale-95 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none"
               >
-                <Share2 className="w-4 h-4" />
-                <span>Enviar WhatsApp 💬</span>
+                <Share2 className="w-4 h-4 shrink-0" />
+                <span>WhatsApp 💬</span>
               </button>
             </div>
+
+            {!lastPurchaseReceipt.isCancelled && (
+              cancellingTicketId === lastPurchaseReceipt.id ? (
+                <div className="p-3 bg-rose-950/45 border border-rose-500/40 rounded-2xl space-y-2">
+                  <span className="text-[11px] font-black text-rose-200 block">
+                    Confirmar cancelamento desta compra (reverte Estoque, Caderninho &amp; Caixa do PDV)?
+                  </span>
+                  <input
+                    type="text"
+                    value={cancelTicketReasonDraft}
+                    onChange={(e) => setCancelTicketReasonDraft(e.target.value)}
+                    placeholder="Motivo opcional (ex: Imprevisto / erro de pesagem)"
+                    className="w-full min-h-[40px] bg-slate-950 border border-rose-500/35 rounded-xl px-3 text-xs text-white outline-none"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCancelPurchaseTicket(lastPurchaseReceipt, cancelTicketReasonDraft)}
+                      className="min-h-[42px] bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase rounded-xl cursor-pointer"
+                    >
+                      ✓ Sim, Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCancellingTicketId(null)}
+                      className="min-h-[42px] bg-slate-800 text-slate-200 font-bold text-xs rounded-xl cursor-pointer"
+                    >
+                      Voltar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCancellingTicketId(lastPurchaseReceipt.id);
+                    setCancelTicketReasonDraft("");
+                  }}
+                  className="w-full min-h-[44px] py-2 bg-rose-950/50 hover:bg-rose-600 text-rose-200 hover:text-white font-black text-xs uppercase rounded-xl border border-rose-500/35 flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>🚫 Cancelar / Estornar esta Compra (Imprevisto)</span>
+                </button>
+              )
+            )}
 
             <button
               type="button"
