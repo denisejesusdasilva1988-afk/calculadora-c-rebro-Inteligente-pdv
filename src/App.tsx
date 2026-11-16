@@ -934,7 +934,7 @@ const saveUserProfileToFirestore = async (currentUser: any) => {
 };
 
 export default function App() {
-  const runningVersion = "v_online_2.3";
+  const runningVersion = "v_online_2.4";
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [downloadZipStatus, setDownloadZipStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [downloadZipError, setDownloadZipError] = useState<string | null>(null);

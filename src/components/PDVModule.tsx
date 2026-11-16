@@ -158,6 +158,7 @@ import {
   markFirestoreQuotaPaused,
   getFirestoreUpgradeUrl
 } from "../utils/firestoreQuotaManager";
+import { reverseFerroVelhoEventInStorage } from "../utils/ferroVelhoReversal";
 
 // Self-contained lightweight debounce function
 function debounce<T extends (...args: any[]) => void>(func: T, wait: number) {
@@ -1558,10 +1559,13 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     void yardSummaryVersion;
     try {
       const catRaw = localStorage.getItem("pdv_dw_glass_catalog_v10");
-      const cat: Array<{ stockUnits?: number; unitWeightKg?: number }> = catRaw ? JSON.parse(catRaw) : [];
+      const cat: Array<{ stockUnits?: number; unitWeightKg?: number; unitWeightGrams?: number }> = catRaw ? JSON.parse(catRaw) : [];
       const glassUnits = Array.isArray(cat) ? cat.reduce((s, b) => s + (Number(b.stockUnits) || 0), 0) : 0;
       const glassKg = Array.isArray(cat)
-        ? cat.reduce((s, b) => s + (Number(b.stockUnits) || 0) * (Number(b.unitWeightKg) || 0), 0)
+        ? cat.reduce((s, b) => {
+            const unitKg = Number(b.unitWeightKg) || (Number(b.unitWeightGrams) || 0) / 1000;
+            return s + (Number(b.stockUnits) || 0) * unitKg;
+          }, 0)
         : 0;
 
       const goalKg = Math.max(500, Number(localStorage.getItem("pdv_dw_yard_goal_kg")) || 3000);
@@ -1598,14 +1602,11 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         : 0;
 
       const scrapSalesRaw = localStorage.getItem("pdv_dw_scrap_sales_v1");
-      const scrapSales: Array<{ revenueReceived?: number; profitAmount?: number }> = scrapSalesRaw ? JSON.parse(scrapSalesRaw) : [];
-      const scrapRealizedRevenue = Array.isArray(scrapSales)
-        ? scrapSales.reduce((s, sr) => s + (Number(sr.revenueReceived) || 0), 0)
-        : 0;
-      const scrapRealizedProfit = Array.isArray(scrapSales)
-        ? scrapSales.reduce((s, sr) => s + (Number(sr.profitAmount) || 0), 0)
-        : 0;
-      const scrapSalesCount = Array.isArray(scrapSales) ? scrapSales.length : 0;
+      const scrapSalesAll: Array<{ revenueReceived?: number; profitAmount?: number; isCancelled?: boolean }> = scrapSalesRaw ? JSON.parse(scrapSalesRaw) : [];
+      const scrapSales = Array.isArray(scrapSalesAll) ? scrapSalesAll.filter((sr) => !sr.isCancelled) : [];
+      const scrapRealizedRevenue = scrapSales.reduce((s, sr) => s + (Number(sr.revenueReceived) || 0), 0);
+      const scrapRealizedProfit = scrapSales.reduce((s, sr) => s + (Number(sr.profitAmount) || 0), 0);
+      const scrapSalesCount = scrapSales.length;
 
       const collabRaw = localStorage.getItem("pdv_dw_collaborators_accounts_v3");
       const collabs: Array<{ balancePending?: number }> = collabRaw ? JSON.parse(collabRaw) : [];
@@ -6563,6 +6564,14 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, updatedStock);
           pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, updatedStock);
 
+          if (txToCancel.id.startsWith("pdv_fv_")) {
+            const fvDetail = { eventId: txToCancel.id, reason: "Cancelada pelo cupom do PDV", handled: false };
+            window.dispatchEvent(new CustomEvent("dw_fv_cancel_ticket_from_pdv", { detail: fvDetail }));
+            if (!fvDetail.handled) {
+              reverseFerroVelhoEventInStorage(txToCancel.id, fvDetail.reason);
+            }
+          }
+
           setReceiptToShow(null);
           handleClearCart();
           setSaleTransactionStep(1);
@@ -6853,16 +6862,16 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche);
           pushToCloud(nextTxs, initialCash, customProducts);
           if (id.startsWith("pdv_fv_")) {
-            window.dispatchEvent(
-              new CustomEvent("dw_fv_cancel_ticket_from_pdv", {
-                detail: { eventId: id, reason: "Estornado pelo Caixa do PDV" }
-              })
-            );
+            const fvDetail = { eventId: id, reason: "Estornado pelo Caixa do PDV", handled: false };
+            window.dispatchEvent(new CustomEvent("dw_fv_cancel_ticket_from_pdv", { detail: fvDetail }));
+            if (!fvDetail.handled) {
+              reverseFerroVelhoEventInStorage(id, fvDetail.reason);
+            }
           }
           logRiskAction("Estornar Venda", `Estorno/cancelamento do lançamento '${desc}' (ID: ${id})`, { transactionId: id, description: desc });
           showNotification(
             id.startsWith("pdv_fv_")
-              ? "Compra estornada no PDV e estornada automaticamente no Ferro Velho! 🚫♻️"
+              ? "Lançamento estornado no PDV e revertido automaticamente no Pátio/Ferro Velho! 🚫♻️"
               : "Registro cancelado com sucesso! Log mantido na auditoria do sistema. 🛡️",
             "info"
           );
@@ -6964,6 +6973,14 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     setTransactions(nextTxs);
     saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, updatedStock);
     pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, updatedStock);
+
+    if (!isExchange && activeReturnTransaction.id.startsWith("pdv_fv_")) {
+      const fvDetail = { eventId: activeReturnTransaction.id, reason: "Devolução efetuada no PDV", handled: false };
+      window.dispatchEvent(new CustomEvent("dw_fv_cancel_ticket_from_pdv", { detail: fvDetail }));
+      if (!fvDetail.handled) {
+        reverseFerroVelhoEventInStorage(activeReturnTransaction.id, fvDetail.reason);
+      }
+    }
 
     if (isExchange) {
       showNotification(`🔁 Troca confirmada! Estoque de [${returnedItems.map(i=>i.name).join(", ")}] devolvido (+1) e novo produto lançado com baixa (-1). Caixa ajustado!`, "success");
@@ -19387,7 +19404,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                         <div className="space-y-2 max-h-[250px] overflow-y-auto no-scrollbar">
                           {transactions
-                            .filter(t => t.type === "entrada")
+                            .filter(t => t.type === "entrada" && !t.isDeleted)
                             .filter(t => {
                               if (!returnSearchQuery.trim()) return true;
                               const query = returnSearchQuery.toLowerCase();
