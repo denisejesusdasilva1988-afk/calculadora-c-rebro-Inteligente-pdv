@@ -1576,11 +1576,36 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         stockKg?: number;
         stockUnits?: number;
         buyPricePerKg?: number;
+        sellPricePerKg?: number;
         categoryGroup?: string;
       }> = scrapRaw ? JSON.parse(scrapRaw) : [];
 
       const otherTotalKg = Array.isArray(scrapList) ? scrapList.reduce((s, m) => s + (Number(m.stockKg) || 0), 0) : 0;
       const otherTotalUnits = Array.isArray(scrapList) ? scrapList.reduce((s, m) => s + (Number(m.stockUnits) || 0), 0) : 0;
+      const scrapInvestedStock = Array.isArray(scrapList)
+        ? scrapList.reduce((s, m) => s + (Number(m.stockKg) || 0) * Math.max(0, Number(m.buyPricePerKg) || 0), 0)
+        : 0;
+      const scrapExpectedResaleStock = Array.isArray(scrapList)
+        ? scrapList.reduce((s, m) => s + (Number(m.stockKg) || 0) * Math.max(0, Number(m.sellPricePerKg) || 0), 0)
+        : 0;
+      const scrapEstimatedProfitStock = Array.isArray(scrapList)
+        ? scrapList.reduce((s, m) => {
+            const sellP = Math.max(0, Number(m.sellPricePerKg) || 0);
+            if (sellP <= 0) return s;
+            const buyP = Math.max(0, Number(m.buyPricePerKg) || 0);
+            return s + (Number(m.stockKg) || 0) * (sellP - buyP);
+          }, 0)
+        : 0;
+
+      const scrapSalesRaw = localStorage.getItem("pdv_dw_scrap_sales_v1");
+      const scrapSales: Array<{ revenueReceived?: number; profitAmount?: number }> = scrapSalesRaw ? JSON.parse(scrapSalesRaw) : [];
+      const scrapRealizedRevenue = Array.isArray(scrapSales)
+        ? scrapSales.reduce((s, sr) => s + (Number(sr.revenueReceived) || 0), 0)
+        : 0;
+      const scrapRealizedProfit = Array.isArray(scrapSales)
+        ? scrapSales.reduce((s, sr) => s + (Number(sr.profitAmount) || 0), 0)
+        : 0;
+      const scrapSalesCount = Array.isArray(scrapSales) ? scrapSales.length : 0;
 
       const collabRaw = localStorage.getItem("pdv_dw_collaborators_accounts_v3");
       const collabs: Array<{ balancePending?: number }> = collabRaw ? JSON.parse(collabRaw) : [];
@@ -1607,6 +1632,12 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         scrapList: Array.isArray(scrapList) ? scrapList : [],
         otherTotalKg,
         otherTotalUnits,
+        scrapInvestedStock,
+        scrapExpectedResaleStock,
+        scrapEstimatedProfitStock,
+        scrapRealizedRevenue,
+        scrapRealizedProfit,
+        scrapSalesCount,
         pendingCaderninhoTotal,
         pendingCaderninhoCount,
         totalDispatchedTons,
@@ -1623,6 +1654,12 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         scrapList: [],
         otherTotalKg: 0,
         otherTotalUnits: 0,
+        scrapInvestedStock: 0,
+        scrapExpectedResaleStock: 0,
+        scrapEstimatedProfitStock: 0,
+        scrapRealizedRevenue: 0,
+        scrapRealizedProfit: 0,
+        scrapSalesCount: 0,
         pendingCaderninhoTotal: 0,
         pendingCaderninhoCount: 0,
         totalDispatchedTons: 0,
@@ -11245,19 +11282,31 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
           </div>
         </div>
 
-        {/* INTEGRATED FERRO VELHO & BALANÇA BI PANEL */}
-        <div className="bg-gradient-to-br from-emerald-950/35 via-slate-900 to-teal-950/35 border border-emerald-500/25 rounded-2xl p-4 sm:p-5 space-y-3">
+        {/* INTEGRATED SEPARATED YARDS BI PANEL: PÁTIO DE VIDROS VS CENTRO DE RECICLAGEM */}
+        <div className="bg-gradient-to-br from-emerald-950/35 via-slate-900 to-cyan-950/35 border border-emerald-500/25 rounded-2xl p-4 sm:p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <span className="text-[9px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
                 <Recycle className="w-3.5 h-3.5 text-emerald-400" />
-                Integração Ferro Velho, Balança Digital & Pátio
+                Setores Separados — Vidros × Centro de Reciclagem (Ferro Velho)
               </span>
               <h4 className="text-xs sm:text-sm font-black text-white mt-0.5">
-                Indicadores do Pátio & Reciclagem em Tempo Real
+                Contabilidade Independente: Pátio de Vidros vs Reciclagem (Pago × Revenda × Lucro)
               </h4>
             </div>
             <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setFerroVelhoInitialTab("carrinho");
+                  setFerroVelhoInitialFilter("vidro");
+                  setOpMode("ferro_velho");
+                  if (onSubTabChange) onSubTabChange("ferro_velho");
+                }}
+                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-500/35 text-emerald-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer transition-all"
+              >
+                <span>🍾 Abrir Pátio de Vidros</span>
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -11266,22 +11315,10 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   setOpMode("ferro_velho");
                   if (onSubTabChange) onSubTabChange("ferro_velho_outros");
                 }}
-                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-500/35 text-emerald-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer transition-all"
+                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/35 border border-cyan-500/35 text-cyan-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer transition-all"
               >
                 <Scale className="w-3.5 h-3.5" />
-                <span>Abrir Balança & Materiais</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFerroVelhoInitialTab("guia_plasticos");
-                  setOpMode("ferro_velho");
-                  if (onSubTabChange) onSubTabChange("ferro_velho_guia");
-                }}
-                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/35 text-amber-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer transition-all"
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>Guia PET / Duro / Alto Impacto</span>
+                <span>♻️ Centro de Reciclagem & Lucros</span>
               </button>
               <button
                 type="button"
@@ -11297,46 +11334,84 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
             </div>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="bg-slate-950/70 border border-white/10 rounded-xl p-3">
-              <span className="text-[9px] font-black uppercase text-slate-400 block">Vidros no Pátio (Victor)</span>
-              <span className="text-base font-black text-emerald-400 font-mono block mt-0.5">
-                {ferroVelhoLiveSummary.glassKg.toFixed(1)} kg
-              </span>
-              <span className="text-[9.5px] text-slate-400 block">
-                Meta: {ferroVelhoLiveSummary.goalKg} kg • Est. {formatCurrency(ferroVelhoLiveSummary.estimatedGlassPlantValue)}
-              </span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* SETOR 1: PÁTIO DE VIDROS */}
+            <div className="bg-slate-950/75 border border-emerald-500/30 rounded-2xl p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase text-emerald-300 tracking-wider">
+                  🍾 Setor 1: Pátio de Vidros (Victor)
+                </span>
+                <span className="text-[10px] font-mono text-slate-400">
+                  Meta: {ferroVelhoLiveSummary.goalKg} kg
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <span className="text-[9px] text-slate-400 block">Acumulado Vidro</span>
+                  <strong className="text-sm font-black text-emerald-400 font-mono">
+                    {ferroVelhoLiveSummary.glassKg.toFixed(1)} kg
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-400 block">Bruto Estimado</span>
+                  <strong className="text-sm font-black text-amber-300 font-mono">
+                    {formatCurrency(ferroVelhoLiveSummary.estimatedGlassPlantValue)}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-400 block">Cargas Despachadas</span>
+                  <strong className="text-sm font-black text-white font-mono">
+                    {ferroVelhoLiveSummary.totalDispatchedTons.toFixed(2)} t
+                  </strong>
+                </div>
+              </div>
             </div>
 
-            <div className="bg-slate-950/70 border border-white/10 rounded-xl p-3">
-              <span className="text-[9px] font-black uppercase text-slate-400 block">12 Categorias (Balança)</span>
-              <span className="text-base font-black text-cyan-300 font-mono block mt-0.5">
-                {ferroVelhoLiveSummary.otherTotalKg.toFixed(1)} kg
-              </span>
-              <span className="text-[9.5px] text-slate-400 block">
-                {ferroVelhoLiveSummary.otherTotalUnits} un • Plásticos, Metais, Eletrônicos
-              </span>
+            {/* SETOR 2: CENTRO DE RECICLAGEM / FERRO VELHO */}
+            <div className="bg-slate-950/75 border border-cyan-500/30 rounded-2xl p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase text-cyan-300 tracking-wider">
+                  ♻️ Setor 2: Centro de Reciclagem (Ferro Velho)
+                </span>
+                <span className="text-[10px] font-mono text-slate-400">
+                  {ferroVelhoLiveSummary.otherTotalKg.toFixed(1)} kg em estoque
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <span className="text-[9px] text-amber-300 block">Paguei (Estoque)</span>
+                  <strong className="text-sm font-black text-white font-mono">
+                    {formatCurrency(ferroVelhoLiveSummary.scrapInvestedStock)}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[9px] text-cyan-300 block">Vão Pagar (Revenda)</span>
+                  <strong className="text-sm font-black text-cyan-200 font-mono">
+                    {formatCurrency(ferroVelhoLiveSummary.scrapExpectedResaleStock)}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[9px] text-emerald-300 block">Lucro Prev. / Real</span>
+                  <strong className={`text-sm font-black font-mono ${ferroVelhoLiveSummary.scrapEstimatedProfitStock >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                    +{formatCurrency(ferroVelhoLiveSummary.scrapEstimatedProfitStock)}
+                  </strong>
+                  {ferroVelhoLiveSummary.scrapSalesCount > 0 && (
+                    <span className="text-[9px] text-purple-300 block">
+                      Vendas: +{formatCurrency(ferroVelhoLiveSummary.scrapRealizedProfit)}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
+          </div>
 
-            <div className="bg-slate-950/70 border border-white/10 rounded-xl p-3">
-              <span className="text-[9px] font-black uppercase text-slate-400 block">Cargas Fechadas</span>
-              <span className="text-base font-black text-amber-300 font-mono block mt-0.5">
-                {ferroVelhoLiveSummary.totalDispatchedTons.toFixed(2)} t
-              </span>
-              <span className="text-[9.5px] text-slate-400 block">
-                {ferroVelhoLiveSummary.shipmentsCount} cargas • {formatCurrency(ferroVelhoLiveSummary.totalDispatchedRevenue)}
-              </span>
-            </div>
-
-            <div className="bg-slate-950/70 border border-white/10 rounded-xl p-3">
-              <span className="text-[9px] font-black uppercase text-slate-400 block">Caderninho (A Pagar)</span>
-              <span className="text-base font-black text-rose-300 font-mono block mt-0.5">
-                {formatCurrency(ferroVelhoLiveSummary.pendingCaderninhoTotal)}
-              </span>
-              <span className="text-[9.5px] text-slate-400 block">
-                {ferroVelhoLiveSummary.pendingCaderninhoCount} colaborador(es) com saldo
-              </span>
-            </div>
+          <div className="flex items-center justify-between text-[11px] bg-slate-950/60 border border-white/10 rounded-xl px-3 py-2">
+            <span className="text-slate-300">
+              📖 Caderninho dos Colaboradores (A Pagar no Geral):
+            </span>
+            <strong className="font-mono font-black text-rose-300">
+              {formatCurrency(ferroVelhoLiveSummary.pendingCaderninhoTotal)} ({ferroVelhoLiveSummary.pendingCaderninhoCount} colaborador(es))
+            </strong>
           </div>
         </div>
 
@@ -11645,19 +11720,31 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
         </div>
 
-        {/* INTEGRATED FERRO VELHO & BALANÇA INVENTORY OVERVIEW */}
+        {/* INTEGRATED SEPARATED YARDS INVENTORY OVERVIEW */}
         <div className="bg-gradient-to-br from-emerald-950/35 via-slate-900 to-cyan-950/35 border border-emerald-500/25 rounded-2xl p-4 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <span className="text-[9px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
                 <Recycle className="w-3.5 h-3.5 text-emerald-400" />
-                Estoque Integrado do Ferro Velho & Balança Digital
+                Estoques Separados: 🍾 Pátio de Vidros vs ♻️ Centro de Reciclagem
               </span>
               <h4 className="text-xs font-black text-white mt-0.5">
-                Pátio de Vidros ({ferroVelhoLiveSummary.glassKg.toFixed(1)} kg / {ferroVelhoLiveSummary.goalKg} kg) + {ferroVelhoLiveSummary.scrapList.length} Categorias de Reciclagem ({ferroVelhoLiveSummary.otherTotalKg.toFixed(1)} kg)
+                Vidros ({ferroVelhoLiveSummary.glassKg.toFixed(1)} kg / {ferroVelhoLiveSummary.goalKg} kg) • Centro de Reciclagem ({ferroVelhoLiveSummary.otherTotalKg.toFixed(1)} kg • Lucro Previsto {formatCurrency(ferroVelhoLiveSummary.scrapEstimatedProfitStock)})
               </h4>
             </div>
             <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setFerroVelhoInitialTab("carrinho");
+                  setFerroVelhoInitialFilter("vidro");
+                  setOpMode("ferro_velho");
+                  if (onSubTabChange) onSubTabChange("ferro_velho");
+                }}
+                className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/40 border border-emerald-500/40 text-emerald-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>🍾 Pátio de Vidros</span>
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -11666,10 +11753,10 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   setOpMode("ferro_velho");
                   if (onSubTabChange) onSubTabChange("ferro_velho_outros");
                 }}
-                className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600/25 hover:bg-emerald-600/40 border border-emerald-500/40 text-emerald-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer"
+                className="min-h-[38px] px-3 py-1.5 rounded-xl bg-cyan-600/25 hover:bg-cyan-600/40 border border-cyan-500/40 text-cyan-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer"
               >
                 <Scale className="w-3.5 h-3.5" />
-                <span>Pesar na Balança</span>
+                <span>♻️ Centro de Reciclagem</span>
               </button>
               <button
                 type="button"
@@ -11683,23 +11770,16 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 <BookOpen className="w-3.5 h-3.5" />
                 <span>Guia PET / Duro / PS</span>
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFerroVelhoInitialTab("cargas");
-                  setOpMode("ferro_velho");
-                  if (onSubTabChange) onSubTabChange("ferro_velho_cargas");
-                }}
-                className="min-h-[38px] px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/35 text-rose-200 text-[10px] font-black uppercase flex items-center gap-1.5 cursor-pointer"
-              >
-                <span>🚫 Cancelar / Ver Compras</span>
-              </button>
             </div>
           </div>
 
           {ferroVelhoLiveSummary.scrapList.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-              {ferroVelhoLiveSummary.scrapList.map((mat) => (
+              {ferroVelhoLiveSummary.scrapList.map((mat) => {
+                const buyP = Math.max(0, Number(mat.buyPricePerKg) || 0);
+                const sellP = Math.max(0, Number(mat.sellPricePerKg) || 0);
+                const diff = sellP > 0 ? sellP - buyP : 0;
+                return (
                 <div
                   key={mat.id}
                   className="bg-slate-950/75 border border-white/10 rounded-xl px-2.5 py-2 flex items-center justify-between gap-2"
@@ -11709,13 +11789,18 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       {mat.emoji || "♻️"} {mat.name}
                     </span>
                     <span className="text-[9px] text-slate-400 block">
-                      {(Number(mat.buyPricePerKg) || 0) > 0
-                        ? `R$ ${Number(mat.buyPricePerKg).toFixed(2)}/kg`
+                      {buyP > 0
+                        ? `Pago R$ ${buyP.toFixed(2)}${sellP > 0 ? ` → Rev R$ ${sellP.toFixed(2)}` : ""}`
                         : "Sem preço ainda"}
                     </span>
+                    {buyP > 0 && sellP > 0 && (
+                      <span className={`text-[9px] font-mono font-black block ${diff >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        Lucro: {diff >= 0 ? "+" : ""}R$ {diff.toFixed(2)}/kg
+                      </span>
+                    )}
                   </div>
                   <div className="text-right shrink-0 font-mono">
-                    <span className="text-[11px] font-black text-emerald-300 block">
+                    <span className="text-[11px] font-black text-cyan-300 block">
                       {(Number(mat.stockKg) || 0).toFixed(1)} kg
                     </span>
                     {(Number(mat.stockUnits) || 0) > 0 && (
@@ -11723,7 +11808,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -19863,18 +19949,39 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
             type="button"
             id="tab-mode-ferro-velho"
             onClick={() => {
+              setFerroVelhoInitialFilter("vidro");
+              setFerroVelhoInitialTab("carrinho");
               setOpMode("ferro_velho");
               if (onSubTabChange) onSubTabChange("ferro_velho");
             }}
-            className={`flex-1 min-w-[160px] min-h-[44px] py-2.5 px-3 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
-              opMode === "ferro_velho"
+            className={`flex-1 min-w-[140px] min-h-[44px] py-2.5 px-3 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
+              opMode === "ferro_velho" && ferroVelhoInitialFilter !== "outros" && ferroVelhoInitialTab !== "guia_plasticos"
                 ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border border-emerald-300 shadow-lg shadow-emerald-500/25"
                 : "bg-emerald-950/35 text-emerald-300 hover:text-white hover:bg-emerald-900/40 border border-emerald-500/25"
             }`}
-            title="Modo Compra no Portão (PDV Invertido), Controle do Pátio de 3.000 kg e Caderninho dos Colaboradores"
+            title="Setor 1: Pátio de Vidros (Garrafas, Bipar Códigos e Caminhão do Victor 3.000 kg)"
           >
             <Recycle className="w-4 h-4 text-emerald-300 shrink-0" />
-            <span>Compra Ferro Velho & Pátio ♻️</span>
+            <span>🍾 Pátio de Vidros</span>
+          </button>
+          <button
+            type="button"
+            id="tab-mode-centro-reciclagem"
+            onClick={() => {
+              setFerroVelhoInitialFilter("outros");
+              setFerroVelhoInitialTab("estoque");
+              setOpMode("ferro_velho");
+              if (onSubTabChange) onSubTabChange("ferro_velho_outros");
+            }}
+            className={`flex-1 min-w-[155px] min-h-[44px] py-2.5 px-3 text-[10.5px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
+              opMode === "ferro_velho" && (ferroVelhoInitialFilter === "outros" || ferroVelhoInitialTab === "guia_plasticos")
+                ? "bg-gradient-to-r from-cyan-600 to-sky-600 text-white border border-cyan-300 shadow-lg shadow-cyan-500/25"
+                : "bg-cyan-950/35 text-cyan-300 hover:text-white hover:bg-cyan-900/40 border border-cyan-500/25"
+            }`}
+            title="Setor 2: Centro de Reciclagem / Ferro Velho (PET, Latinhas, Plásticos, Balança, Revenda e Lucros)"
+          >
+            <Scale className="w-4 h-4 text-cyan-300 shrink-0" />
+            <span>♻️ Reciclagem / Ferro Velho</span>
           </button>
           <button
             type="button"
@@ -20408,7 +20515,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
           </div>
         ) : opMode === "ferro_velho" ? (
           <div className="lg:col-span-12 w-full text-left space-y-4">
-            <div className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-teal-950/90 border border-emerald-500/35 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+            <div className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-cyan-950/90 border border-emerald-500/35 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 shrink-0">
                   <Recycle className="w-6 h-6" />
@@ -20416,14 +20523,16 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      Modo Compra no Portão (PDV Invertido)
+                      Setores Separados (Vidros × Centro de Reciclagem)
                     </span>
                     <span className="text-[10px] font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                      Separado das Vendas & Fiado da Loja
+                      Pago × Revenda × Lucros
                     </span>
                   </div>
                   <h2 className="text-sm sm:text-base font-black text-white mt-0.5">
-                    Ferro Velho & Pátio de Reciclagem — Compra de Vidros, Balança e Notinha
+                    {ferroVelhoInitialFilter === "outros"
+                      ? "♻️ Centro de Reciclagem (Ferro Velho) — Compras, Balança, Revenda e Lucros"
+                      : "🍾 Pátio de Vidros — Compra de Garrafas, Balança e Caminhão do Victor"}
                   </h2>
                 </div>
               </div>
@@ -20431,12 +20540,30 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 <button
                   type="button"
                   onClick={() => {
-                    setFerroVelhoInitialTab("guia_plasticos");
+                    setFerroVelhoInitialFilter("vidro");
+                    setFerroVelhoInitialTab("carrinho");
                   }}
-                  className="min-h-[44px] px-3.5 py-2 bg-amber-500/20 hover:bg-amber-500/35 active:scale-95 text-amber-200 font-black text-xs uppercase rounded-xl border border-amber-500/40 transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                  className={`min-h-[44px] px-3.5 py-2 active:scale-95 font-black text-xs uppercase rounded-xl border transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none ${
+                    ferroVelhoInitialFilter !== "outros"
+                      ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                      : "bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-200 border-emerald-500/40"
+                  }`}
                 >
-                  <BookOpen className="w-4 h-4 text-amber-300" />
-                  <span>Guia Plásticos & Mercado</span>
+                  <span>🍾 Pátio de Vidros</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFerroVelhoInitialFilter("outros");
+                    setFerroVelhoInitialTab("estoque");
+                  }}
+                  className={`min-h-[44px] px-3.5 py-2 active:scale-95 font-black text-xs uppercase rounded-xl border transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none ${
+                    ferroVelhoInitialFilter === "outros"
+                      ? "bg-cyan-500 text-slate-950 border-cyan-400"
+                      : "bg-cyan-500/15 hover:bg-cyan-500/30 text-cyan-200 border-cyan-500/40"
+                  }`}
+                >
+                  <span>♻️ Centro de Reciclagem</span>
                 </button>
                 <button
                   type="button"

@@ -47,8 +47,8 @@ import {
   BookOpen,
   Folder,
   FolderOpen,
-  Download,
-  Scissors
+  Scissors,
+  TrendingUp
 } from "lucide-react";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
@@ -99,9 +99,27 @@ export interface OtherScrapMaterial {
   stockKg: number;
   stockUnits?: number;
   trackUnits?: boolean;
-  buyPricePerKg: number; // 0 = Sem preço definido ainda
+  buyPricePerKg: number; // 0 = Sem preço de compra definido ainda
+  sellPricePerKg?: number; // 0 = Sem preço de revenda definido ainda
   notes?: string;
   isCustom?: boolean;
+}
+
+export interface ScrapSaleRecord {
+  id: string;
+  timestamp: string;
+  materialId: string;
+  materialName: string;
+  emoji: string;
+  weightKg: number;
+  units: number;
+  buyPricePerKgAtSale: number;
+  estimatedBuyCost: number;
+  sellPricePerKgActual: number;
+  revenueReceived: number;
+  profitAmount: number;
+  buyerName: string;
+  paymentMethod: "dinheiro" | "pix" | "cartao_debito" | "cartao_credito";
 }
 
 export interface GlassCartItem {
@@ -754,6 +772,7 @@ function mergeScrapMaterialsWithDefaults(
       stockUnits,
       trackUnits: existing.trackUnits ?? def.trackUnits,
       buyPricePerKg,
+      sellPricePerKg: Math.max(0, Number(existing.sellPricePerKg) || 0),
       notes: resolvedNotes
     };
   });
@@ -770,6 +789,7 @@ function mergeScrapMaterialsWithDefaults(
       stockUnits: Math.max(0, Math.round(Number(item.stockUnits) || 0)),
       trackUnits: Boolean(item.trackUnits),
       buyPricePerKg: Math.max(0, Number(item.buyPricePerKg) || 0),
+      sellPricePerKg: Math.max(0, Number(item.sellPricePerKg) || 0),
       notes: typeof item.notes === "string" ? item.notes : "",
       isCustom: true
     }));
@@ -1097,10 +1117,27 @@ export function GlassBarcodeScannerCart({
     return INITIAL_OTHER_SCRAP_MATERIALS;
   });
 
+  // Setor separado: "vidros" (Pátio de Vidros 3.000 kg / Victor) vs "reciclagem" (Centro de Reciclagem / Ferro Velho)
+  const [activeSector, setActiveSector] = useState<"vidros" | "reciclagem">(
+    initialYardControlFilter === "outros" || initialActiveTab === "guia_plasticos" ? "reciclagem" : "vidros"
+  );
+
   // Painel ativo no controle de materiais do Pátio ("vidro" vs "outros")
   const [yardControlFilter, setYardControlFilter] = useState<"vidro" | "outros">(
-    initialYardControlFilter || "vidro"
+    initialYardControlFilter || (initialActiveTab === "guia_plasticos" ? "outros" : "vidro")
   );
+
+  // Histórico de vendas/baixas realizadas do Centro de Reciclagem (Ferro Velho) para cálculo real de lucros
+  const [scrapSalesHistory, setScrapSalesHistory] = useState<ScrapSaleRecord[]>(() => {
+    try {
+      const stored = localStorage.getItem("pdv_dw_scrap_sales_v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
 
   // Integração automática com Caixa, Relatórios & BI do PDV
   const [syncToPdvCash, setSyncToPdvCash] = useState<boolean>(() => {
@@ -1161,6 +1198,7 @@ export function GlassBarcodeScannerCart({
   }, [scaleSubtractTare]);
   const [scaleUnitsInput, setScaleUnitsInput] = useState<string>("");
   const [scalePricePerKgInput, setScalePricePerKgInput] = useState<string>("");
+  const [scaleSellPricePerKgInput, setScaleSellPricePerKgInput] = useState<string>("");
   const [scaleSettlementMode, setScaleSettlementMode] = useState<"pago_dinheiro" | "pago_pix" | "caderninho" | "so_estoque">("pago_dinheiro");
   const [scrapWeightDrafts, setScrapWeightDrafts] = useState<Record<string, string>>({});
   const [cardPayMatId, setCardPayMatId] = useState<string | null>(null);
@@ -1205,9 +1243,11 @@ export function GlassBarcodeScannerCart({
   const serialReaderCancelRef = useRef<boolean>(false);
   const digitalScalePanelRef = useRef<HTMLDivElement | null>(null);
 
-  // Estados de criação de novo material, edição opcional de preço (quando quiser) e confirmações inline
+  // Estados de criação de novo material, edição opcional de preço compra/revenda e confirmações inline
   const [editingScrapPriceId, setEditingScrapPriceId] = useState<string | null>(null);
   const [editingScrapPriceDraft, setEditingScrapPriceDraft] = useState<string>("");
+  const [editingScrapSellPriceDraft, setEditingScrapSellPriceDraft] = useState<string>("");
+  const [showProfitAccountingPanel, setShowProfitAccountingPanel] = useState<boolean>(true);
   const [showAddCustomScrapForm, setShowAddCustomScrapForm] = useState<boolean>(false);
   const [newScrapName, setNewScrapName] = useState<string>("");
   const [newScrapEmoji, setNewScrapEmoji] = useState<string>("♻️");
@@ -1326,6 +1366,7 @@ export function GlassBarcodeScannerCart({
       setPurchaseHistory([]);
       setPaymentHistory([]);
       setTruckShipments([]);
+      setScrapSalesHistory([]);
       setOtherScrapMaterials((prev) => prev.map((m) => ({ ...m, stockKg: 0, stockUnits: 0 })));
       setLastPurchaseReceipt(null);
       setShowCheckoutModal(false);
@@ -1427,12 +1468,19 @@ export function GlassBarcodeScannerCart({
   useEffect(() => {
     if (initialActiveTab) {
       setActiveTab(initialActiveTab);
+      if (initialActiveTab === "guia_plasticos") {
+        setActiveSector("reciclagem");
+        setYardControlFilter("outros");
+      } else if (initialActiveTab === "carrinho") {
+        setActiveSector("vidros");
+      }
     }
   }, [initialActiveTab]);
 
   useEffect(() => {
     if (initialYardControlFilter) {
       setYardControlFilter(initialYardControlFilter);
+      setActiveSector(initialYardControlFilter === "outros" ? "reciclagem" : "vidros");
     }
   }, [initialYardControlFilter]);
 
@@ -1589,12 +1637,18 @@ export function GlassBarcodeScannerCart({
     } catch {}
   }, [otherScrapMaterials]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_dw_scrap_sales_v1", JSON.stringify(scrapSalesHistory));
+    } catch {}
+  }, [scrapSalesHistory]);
+
   // Notifica os demais painéis do PDV (Estoque, Relatórios & BI) sempre que o Pátio/Ferro Velho mudar
   useEffect(() => {
     try {
       window.dispatchEvent(new CustomEvent("dw_glass_yard_updated"));
     } catch {}
-  }, [catalog, otherScrapMaterials, collaborators, truckShipments, yardGoalKg, activeSellPricePerTon]);
+  }, [catalog, otherScrapMaterials, scrapSalesHistory, collaborators, truckShipments, yardGoalKg, activeSellPricePerTon]);
 
   // Helper para enviar snapshot do Pátio & Códigos para Firestore userData/{uid}
   const latestCloudPayloadRef = useRef<any>(null);
@@ -1605,6 +1659,7 @@ export function GlassBarcodeScannerCart({
     purchaseHistory: purchaseHistory.slice(0, 150),
     paymentHistory: paymentHistory.slice(0, 150),
     truckShipments: truckShipments.slice(0, 50),
+    scrapSalesHistory: scrapSalesHistory.slice(0, 150),
     yardGoalKg,
     sellPricePerTon: activeSellPricePerTon,
     otherScrapMaterials
@@ -1699,6 +1754,9 @@ export function GlassBarcodeScannerCart({
                   if (Array.isArray(cloudYard.truckShipments)) {
                     setTruckShipments(cloudYard.truckShipments);
                   }
+                  if (Array.isArray(cloudYard.scrapSalesHistory)) {
+                    setScrapSalesHistory(cloudYard.scrapSalesHistory);
+                  }
                   if (typeof cloudYard.yardGoalKg === "number" && cloudYard.yardGoalKg >= 100) {
                     setYardGoalKg(cloudYard.yardGoalKg);
                   }
@@ -1763,6 +1821,7 @@ export function GlassBarcodeScannerCart({
     yardGoalKg,
     activeSellPricePerTon,
     otherScrapMaterials,
+    scrapSalesHistory,
     activeAuthUid
   ]);
 
@@ -1774,13 +1833,98 @@ export function GlassBarcodeScannerCart({
     return otherScrapMaterials.reduce((acc, m) => acc + (Number(m.stockUnits) || 0), 0);
   }, [otherScrapMaterials]);
 
+  // Contabilidade completa por material no Centro de Reciclagem: Quanto Paguei × Quanto Vão Me Pagar × Meu Lucro
+  const recyclingProfitAccounting = useMemo(() => {
+    const activeScrapPurchases = purchaseHistory.filter((t) => !t.isCancelled && t.isScrapPurchase);
+    const byMaterial = otherScrapMaterials.map((mat) => {
+      const stockKg = Math.max(0, Number(mat.stockKg) || 0);
+      const buyPricePerKg = Math.max(0, Number(mat.buyPricePerKg) || 0);
+      const sellPricePerKg = Math.max(0, Number(mat.sellPricePerKg) || 0);
+      const hasBothPrices = buyPricePerKg > 0 && sellPricePerKg > 0;
+      const profitPerKg = sellPricePerKg > 0 ? sellPricePerKg - buyPricePerKg : 0;
+      const marginPct = hasBothPrices ? ((sellPricePerKg - buyPricePerKg) / buyPricePerKg) * 100 : 0;
+
+      const stockInvestedAmount = Number((stockKg * buyPricePerKg).toFixed(2));
+      const stockResaleValue = sellPricePerKg > 0 ? Number((stockKg * sellPricePerKg).toFixed(2)) : 0;
+      const stockExpectedProfit = sellPricePerKg > 0 ? Number((stockKg * (sellPricePerKg - buyPricePerKg)).toFixed(2)) : 0;
+
+      let realizedBoughtKg = 0;
+      let realizedPaidTotal = 0;
+      activeScrapPurchases.forEach((ticket) => {
+        ticket.items.forEach((it) => {
+          const matchesId = it.materialId === mat.id;
+          const matchesName = !it.materialId && it.name.toLowerCase().includes(mat.name.toLowerCase());
+          if (matchesId || matchesName) {
+            realizedBoughtKg += Math.max(0, Number(it.totalWeightKg) || 0);
+            realizedPaidTotal += Math.max(0, Number(it.costPaid) || 0);
+          }
+        });
+      });
+
+      const matSales = scrapSalesHistory.filter((s) => s.materialId === mat.id);
+      const realizedSoldKg = matSales.reduce((acc, s) => acc + Math.max(0, Number(s.weightKg) || 0), 0);
+      const realizedRevenueTotal = matSales.reduce((acc, s) => acc + Math.max(0, Number(s.revenueReceived) || 0), 0);
+      const realizedSaleCostTotal = matSales.reduce((acc, s) => acc + Math.max(0, Number(s.estimatedBuyCost) || 0), 0);
+      const realizedProfitTotal = matSales.reduce((acc, s) => acc + (Number(s.profitAmount) || 0), 0);
+
+      return {
+        material: mat,
+        stockKg,
+        buyPricePerKg,
+        sellPricePerKg,
+        hasBothPrices,
+        profitPerKg,
+        marginPct,
+        stockInvestedAmount,
+        stockResaleValue,
+        stockExpectedProfit,
+        realizedBoughtKg: Number(realizedBoughtKg.toFixed(2)),
+        realizedPaidTotal: Number(realizedPaidTotal.toFixed(2)),
+        realizedSoldKg: Number(realizedSoldKg.toFixed(2)),
+        realizedRevenueTotal: Number(realizedRevenueTotal.toFixed(2)),
+        realizedSaleCostTotal: Number(realizedSaleCostTotal.toFixed(2)),
+        realizedProfitTotal: Number(realizedProfitTotal.toFixed(2))
+      };
+    });
+
+    const totals = byMaterial.reduce(
+      (acc, row) => ({
+        stockKg: acc.stockKg + row.stockKg,
+        stockInvestedAmount: acc.stockInvestedAmount + row.stockInvestedAmount,
+        stockResaleValue: acc.stockResaleValue + row.stockResaleValue,
+        stockExpectedProfit: acc.stockExpectedProfit + row.stockExpectedProfit,
+        realizedBoughtKg: acc.realizedBoughtKg + row.realizedBoughtKg,
+        realizedPaidTotal: acc.realizedPaidTotal + row.realizedPaidTotal,
+        realizedSoldKg: acc.realizedSoldKg + row.realizedSoldKg,
+        realizedRevenueTotal: acc.realizedRevenueTotal + row.realizedRevenueTotal,
+        realizedProfitTotal: acc.realizedProfitTotal + row.realizedProfitTotal
+      }),
+      {
+        stockKg: 0,
+        stockInvestedAmount: 0,
+        stockResaleValue: 0,
+        stockExpectedProfit: 0,
+        realizedBoughtKg: 0,
+        realizedPaidTotal: 0,
+        realizedSoldKg: 0,
+        realizedRevenueTotal: 0,
+        realizedProfitTotal: 0
+      }
+    );
+
+    const byMaterialMap = new Map(byMaterial.map((r) => [r.material.id, r]));
+    return { byMaterial, byMaterialMap, totals };
+  }, [otherScrapMaterials, purchaseHistory, scrapSalesHistory]);
+
   const selectedScaleMaterial = useMemo(() => {
     return otherScrapMaterials.find((m) => m.id === scaleSelectedMaterialId) || otherScrapMaterials[0];
   }, [otherScrapMaterials, scaleSelectedMaterialId]);
 
   useEffect(() => {
     const p = selectedScaleMaterial?.buyPricePerKg || 0;
+    const sp = selectedScaleMaterial?.sellPricePerKg || 0;
     setScalePricePerKgInput(p > 0 ? String(p).replace(".", ",") : "");
+    setScaleSellPricePerKgInput(sp > 0 ? String(sp).replace(".", ",") : "");
   }, [selectedScaleMaterial?.id]);
 
   const handleUpdateScrapPricePerKg = (materialId: string, newPrice: number) => {
@@ -1791,6 +1935,21 @@ export function GlassBarcodeScannerCart({
     );
     if (selectedScaleMaterial?.id === materialId) {
       setScalePricePerKgInput(cleanPrice > 0 ? String(cleanPrice).replace(".", ",") : "");
+    }
+  };
+
+  const handleUpdateScrapPrices = (materialId: string, newBuyPrice: number, newSellPrice: number) => {
+    const cleanBuy = Math.max(0, Number.isFinite(newBuyPrice) ? newBuyPrice : 0);
+    const cleanSell = Math.max(0, Number.isFinite(newSellPrice) ? newSellPrice : 0);
+    markLocalYardMutation();
+    setOtherScrapMaterials((prev) =>
+      prev.map((m) =>
+        m.id === materialId ? { ...m, buyPricePerKg: cleanBuy, sellPricePerKg: cleanSell } : m
+      )
+    );
+    if (selectedScaleMaterial?.id === materialId) {
+      setScalePricePerKgInput(cleanBuy > 0 ? String(cleanBuy).replace(".", ",") : "");
+      setScaleSellPricePerKgInput(cleanSell > 0 ? String(cleanSell).replace(".", ",") : "");
     }
   };
 
@@ -2350,6 +2509,7 @@ export function GlassBarcodeScannerCart({
 
   const handleSelectMaterialForScale = (materialId: string) => {
     setScaleSelectedMaterialId(materialId);
+    setActiveSector("reciclagem");
     setYardControlFilter("outros");
     setActiveTab("estoque");
     setTimeout(() => {
@@ -2368,6 +2528,11 @@ export function GlassBarcodeScannerCart({
       return;
     }
 
+    const buyPerKg = Math.max(0, Number(sellingScrapMaterial.buyPricePerKg) || 0);
+    const estimatedCost = Number((kgToDeduct * buyPerKg).toFixed(2));
+    const sellPerKgActual = kgToDeduct > 0 && saleAmount > 0 ? Number((saleAmount / kgToDeduct).toFixed(2)) : Number(sellingScrapMaterial.sellPricePerKg || 0);
+    const profitAmount = saleAmount > 0 ? Number((saleAmount - estimatedCost).toFixed(2)) : 0;
+
     markLocalYardMutation();
     setOtherScrapMaterials((prev) =>
       prev.map((m) =>
@@ -2381,15 +2546,36 @@ export function GlassBarcodeScannerCart({
       )
     );
 
+    const buyerLabel = scrapSaleBuyerDraft.trim() || "Comprador Reciclagem";
+    if (saleAmount > 0 || kgToDeduct > 0) {
+      const saleRecord: ScrapSaleRecord = {
+        id: `scrap_sale_${Date.now()}`,
+        timestamp: new Date().toLocaleString("pt-BR"),
+        materialId: sellingScrapMaterial.id,
+        materialName: sellingScrapMaterial.name,
+        emoji: sellingScrapMaterial.emoji,
+        weightKg: Number(kgToDeduct.toFixed(3)),
+        units: unitsToDeduct,
+        buyPricePerKgAtSale: buyPerKg,
+        estimatedBuyCost: estimatedCost,
+        sellPricePerKgActual: sellPerKgActual,
+        revenueReceived: Number(saleAmount.toFixed(2)),
+        profitAmount,
+        buyerName: buyerLabel,
+        paymentMethod: scrapSaleMethod
+      };
+      setScrapSalesHistory((prev) => [saleRecord, ...prev.slice(0, 149)]);
+    }
+
     if (syncToPdvCash && onSyncFinancialEventToPDV && saleAmount > 0) {
       onSyncFinancialEventToPDV({
         id: `pdv_fv_sale_${Date.now()}`,
         type: "entrada",
         amount: saleAmount,
-        description: `VENDA FERRO VELHO: ${sellingScrapMaterial.name.toUpperCase()} (${kgToDeduct.toFixed(1)} kg${unitsToDeduct > 0 ? ` / ${unitsToDeduct} un` : ""})`,
+        description: `VENDA RECICLAGEM: ${sellingScrapMaterial.name.toUpperCase()} (${kgToDeduct.toFixed(1)} kg${unitsToDeduct > 0 ? ` / ${unitsToDeduct} un` : ""})`,
         paymentMethod: scrapSaleMethod,
         category: "venda",
-        clientName: scrapSaleBuyerDraft.trim() || "Comprador Reciclagem",
+        clientName: buyerLabel,
         items: [
           {
             name: `${sellingScrapMaterial.emoji} ${sellingScrapMaterial.name} (${kgToDeduct.toFixed(1)} kg)`,
@@ -2410,8 +2596,12 @@ export function GlassBarcodeScannerCart({
     playScannerBeep(2100, 0.12);
 
     if (showNotification) {
+      const profitText =
+        saleAmount > 0 && buyPerKg > 0
+          ? ` • Lucro: ${profitAmount >= 0 ? "+" : ""}R$ ${profitAmount.toFixed(2).replace(".", ",")}`
+          : "";
       showNotification(
-        `Baixa realizada em ${soldName} (-${kgToDeduct.toFixed(1)} kg)${saleAmount > 0 && syncToPdvCash && onSyncFinancialEventToPDV ? ` e R$ ${saleAmount.toFixed(2)} lançado no Caixa/BI do PDV!` : "!"} 🚚✅`,
+        `Venda/Baixa em ${soldName} (-${kgToDeduct.toFixed(1)} kg)${saleAmount > 0 ? ` • Recebido R$ ${saleAmount.toFixed(2).replace(".", ",")}` : ""}${profitText} 🚚✅`,
         "success"
       );
     }
@@ -2432,6 +2622,7 @@ export function GlassBarcodeScannerCart({
       stockUnits: 0,
       trackUnits: newScrapTrackUnits,
       buyPricePerKg: 0,
+      sellPricePerKg: 0,
       notes: newScrapNotes.trim() || "Sem preço definido ainda",
       isCustom: true
     };
@@ -3516,10 +3707,11 @@ export function GlassBarcodeScannerCart({
     }));
     setCollaborators(zeroedCollaborators);
 
-    // 4. Zera históricos de compras de teste, acertos de teste, despachos e outros materiais
+    // 4. Zera históricos de compras de teste, acertos de teste, despachos, vendas sucata e outros materiais
     setPurchaseHistory([]);
     setPaymentHistory([]);
     setTruckShipments([]);
+    setScrapSalesHistory([]);
     const zeroedOtherScrap = otherScrapMaterials.map((m) => ({ ...m, stockKg: 0, stockUnits: 0 }));
     setOtherScrapMaterials(zeroedOtherScrap);
 
@@ -3533,6 +3725,7 @@ export function GlassBarcodeScannerCart({
       localStorage.removeItem("pdv_dw_purchase_tickets_v3");
       localStorage.removeItem("pdv_dw_collaborator_payments_v3");
       localStorage.removeItem("pdv_dw_truck_shipments_v3");
+      localStorage.removeItem("pdv_dw_scrap_sales_v1");
       window.dispatchEvent(new CustomEvent("dw_glass_zero_yard_from_child"));
       window.dispatchEvent(new CustomEvent("dw_glass_zero_yard"));
       window.dispatchEvent(new CustomEvent("dw_glass_catalog_updated", { detail: zeroedCatalog }));
@@ -4304,34 +4497,63 @@ export function GlassBarcodeScannerCart({
 
             <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
               <Scale className="w-6 h-6 text-emerald-400" />
-              Gestão Real do Pátio, Balança & Caderninho de Colaboradores
+              {activeSector === "vidros"
+                ? "🍾 Pátio de Vidros — Garrafas, Balança & Caminhão do Victor"
+                : "♻️ Centro de Reciclagem (Ferro Velho) — Compras, Revenda & Lucros"}
             </h2>
 
             <p className="text-xs sm:text-sm text-slate-300 max-w-3xl leading-relaxed">
-              Pesagem exata em gramas por unidade, cálculo rigoroso de toneladas para o <strong>Caminhão do Victor</strong>, controle de compras mistas e livro-caixa para acertar cada colaborador com o <strong>Bolsa Família</strong> ou na pesagem da carga!
+              {activeSector === "vidros" ? (
+                <>
+                  Setor exclusivo de <strong>Vidros (Caminhão do Victor • Meta {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg)</strong>. Bipe garrafas misturadas, confira gramas e controle o pátio sem misturar com o Ferro Velho!
+                </>
+              ) : (
+                <>
+                  Setor exclusivo de <strong>Centro de Reciclagem / Ferro Velho</strong> (PET, Latinhas, Plásticos, Metais, Eletrônicos e Papelão), com <strong>contabilidade completa de quanto você pagou × quanto vão te pagar × seu lucro em cada material!</strong>
+                </>
+              )}
             </p>
           </div>
 
-          {/* BOTÕES DE GESTÃO DO PÁTIO */}
+          {/* BOTÕES DE GESTÃO DO SETOR ATIVO */}
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowStrategicGuideModal(true)}
-              className="min-h-[48px] px-3.5 py-2.5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 hover:text-white font-black text-xs uppercase rounded-xl border border-amber-500/40 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md"
-              title="Ver análise completa de margens dos 8 itens e veredito do Victor"
-            >
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>Análise dos 8 Itens & Veredito 📋</span>
-            </button>
+            {activeSector === "vidros" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowStrategicGuideModal(true)}
+                  className="min-h-[48px] px-3.5 py-2.5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 hover:text-white font-black text-xs uppercase rounded-xl border border-amber-500/40 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md"
+                  title="Ver análise completa de margens dos 8 itens e veredito do Victor"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>Análise dos 8 Itens & Veredito 📋</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setShowTruckDispatchModal(true)}
-              className="min-h-[48px] px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/30 touch-manipulation"
-            >
-              <Truck className="w-4 h-4" />
-              <span>Despachar Carga ao Victor 🚚</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTruckDispatchModal(true)}
+                  className="min-h-[48px] px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/30 touch-manipulation"
+                >
+                  <Truck className="w-4 h-4" />
+                  <span>Despachar Carga ao Victor 🚚</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setYardControlFilter("outros");
+                  setActiveTab("estoque");
+                  setTimeout(() => {
+                    digitalScalePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }, 60);
+                }}
+                className="min-h-[48px] px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/25 touch-manipulation"
+              >
+                <Scale className="w-4 h-4" />
+                <span>Pesar na Balança & Lucros ⚖️</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -4345,14 +4567,98 @@ export function GlassBarcodeScannerCart({
           </div>
         </div>
 
-        {/* 🚛 PAINEL DE CONTROLE DO PÁTIO DE RECICLAGEM (META CONFIGURÁVEL & ESTOQUE SEPARADO) */}
-        <div className="mt-5 pt-4 border-t border-white/10 space-y-3">
-          {/* Card Central com Destaque Máximo */}
+        {/* ========================================================= */}
+        {/* SELETOR PRINCIPAL: PÁTIO DE VIDROS VS CENTRO DE RECICLAGEM */}
+        {/* ========================================================= */}
+        <div className="mt-4 pt-4 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSector("vidros");
+              setYardControlFilter("vidro");
+              if (activeTab === "guia_plasticos" || (activeTab === "estoque" && yardControlFilter === "outros")) {
+                setActiveTab("carrinho");
+              }
+            }}
+            className={`min-h-[58px] px-4 py-3 rounded-2xl border-2 text-left transition-all flex items-center justify-between gap-3 cursor-pointer touch-manipulation select-none active:scale-[0.99] ${
+              activeSector === "vidros"
+                ? "bg-gradient-to-r from-emerald-500/25 to-teal-500/20 border-emerald-400 shadow-lg shadow-emerald-500/20"
+                : "bg-slate-950/80 border-white/10 hover:border-emerald-500/40"
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-2xl p-2 rounded-xl bg-slate-900 border border-emerald-500/30 shrink-0">🍾</span>
+              <div className="min-w-0">
+                <span className={`text-[10px] font-black uppercase tracking-wider block ${activeSector === "vidros" ? "text-emerald-300" : "text-slate-400"}`}>
+                  Setor 1 • Caminhão do Victor
+                </span>
+                <strong className="text-sm sm:text-base font-black text-white block truncate">
+                  Pátio de Vidros
+                </strong>
+                <span className="text-[11px] text-slate-300 block">
+                  {yardTotals.totalUnits.toLocaleString("pt-BR")} garrafas • Meta {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg
+                </span>
+              </div>
+            </div>
+            <div className="text-right shrink-0 font-mono">
+              <strong className="text-base sm:text-lg font-black text-emerald-300 block">
+                {yardTotals.totalWeightKg.toFixed(1)} kg
+              </strong>
+              <span className="text-[10px] text-amber-300 font-bold block">
+                R$ {yardTotals.grossRevenueTon.toFixed(2).replace(".", ",")}
+              </span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSector("reciclagem");
+              setYardControlFilter("outros");
+              if (activeTab === "carrinho") {
+                setActiveTab("estoque");
+              }
+            }}
+            className={`min-h-[58px] px-4 py-3 rounded-2xl border-2 text-left transition-all flex items-center justify-between gap-3 cursor-pointer touch-manipulation select-none active:scale-[0.99] ${
+              activeSector === "reciclagem"
+                ? "bg-gradient-to-r from-cyan-500/25 to-sky-500/20 border-cyan-400 shadow-lg shadow-cyan-500/20"
+                : "bg-slate-950/80 border-white/10 hover:border-cyan-500/40"
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-2xl p-2 rounded-xl bg-slate-900 border border-cyan-500/30 shrink-0">♻️</span>
+              <div className="min-w-0">
+                <span className={`text-[10px] font-black uppercase tracking-wider block ${activeSector === "reciclagem" ? "text-cyan-300" : "text-slate-400"}`}>
+                  Setor 2 • Ferro Velho Separado
+                </span>
+                <strong className="text-sm sm:text-base font-black text-white block truncate">
+                  Centro de Reciclagem
+                </strong>
+                <span className="text-[11px] text-slate-300 block">
+                  PET, Latinhas, Plásticos, Metais & Lucros
+                </span>
+              </div>
+            </div>
+            <div className="text-right shrink-0 font-mono">
+              <strong className="text-base sm:text-lg font-black text-cyan-300 block">
+                {otherMaterialsTotalKg.toFixed(1)} kg
+              </strong>
+              <span className="text-[10px] text-emerald-300 font-bold block">
+                Lucro Est: {recyclingProfitAccounting.totals.stockExpectedProfit >= 0 ? "+" : ""}R$ {recyclingProfitAccounting.totals.stockExpectedProfit.toFixed(2).replace(".", ",")}
+              </span>
+            </div>
+          </button>
+        </div>
+
+        {/* PAINEL EXCLUSIVO DO SETOR ATIVO */}
+        {activeSector === "vidros" ? (
+        <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+          {/* Card Central com Destaque Máximo — SOMENTE VIDROS */}
           <div className="p-4 bg-gradient-to-r from-slate-950 via-emerald-950/50 to-slate-950 rounded-2xl border-2 border-emerald-500/50 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="space-y-1.5 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                  ESTOQUE ACUMULADO NO PÁTIO (KG) • APENAS VIDROS
+                  🍾 PÁTIO DE VIDROS (KG) • CAMINHÃO DO VICTOR
                 </span>
                 <button
                   type="button"
@@ -4433,7 +4739,7 @@ export function GlassBarcodeScannerCart({
               </p>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 text-xs min-w-[270px]">
+            <div className="grid grid-cols-2 gap-2 text-xs min-w-[230px]">
               <div className="p-2.5 bg-slate-900/90 rounded-xl border border-emerald-500/25 space-y-0.5">
                 <span className="text-[9px] uppercase font-bold text-emerald-400 block">Vidros no Pátio:</span>
                 <strong className="text-base sm:text-lg font-mono text-white font-black">
@@ -4448,24 +4754,6 @@ export function GlassBarcodeScannerCart({
                 </strong>
                 <span className="text-[9px] text-slate-400 block">A R$ {activeSellPricePerTon}/t</span>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setYardControlFilter("outros");
-                  setActiveTab("estoque");
-                }}
-                className="p-2.5 bg-slate-900/90 hover:bg-slate-800 rounded-xl border border-cyan-500/30 space-y-0.5 text-left cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
-                title="Abrir Ferro Velho: PET, Latinhas, Plásticos, Ferro, Cobre, Eletrônicos, TVs, Papelão & Balança Digital"
-              >
-                <span className="text-[9px] uppercase font-bold text-cyan-300 block">Outros Materiais & Balança:</span>
-                <strong className="text-base sm:text-lg font-mono text-cyan-200 font-black">
-                  {otherMaterialsTotalKg.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} <span className="text-[10px] font-normal">kg</span>
-                  {otherMaterialsTotalUnits > 0 ? (
-                    <span className="text-[11px] font-bold text-amber-300 ml-1">+{otherMaterialsTotalUnits} un</span>
-                  ) : null}
-                </strong>
-                <span className="text-[9px] text-cyan-400 block font-bold">PET, Ferro, TVs, Papelão ⚖️➔</span>
-              </button>
             </div>
           </div>
 
@@ -4493,24 +4781,127 @@ export function GlassBarcodeScannerCart({
             </div>
           </div>
         </div>
+        ) : (
+        <div className="mt-4 pt-4 border-t border-white/10">
+          {/* Card Exclusivo do Centro de Reciclagem / Ferro Velho */}
+          <div className="p-4 bg-gradient-to-r from-slate-950 via-cyan-950/45 to-slate-950 rounded-2xl border-2 border-cyan-500/50 shadow-xl space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 inline-block">
+                  ♻️ CENTRO DE RECICLAGEM (FERRO VELHO) • CONTABILIDADE DE LUCROS
+                </span>
+                <p className="text-xs text-slate-300 mt-1.5">
+                  Aqui fica separado do Pátio de Vidros: controle quanto você <strong>pagou</strong> em cada reciclagem, quanto <strong>vão te pagar na revenda</strong> e qual foi o <strong>seu lucro</strong>!
+                </p>
+              </div>
+              <div className="text-right shrink-0">
+                <span className="text-[10px] uppercase font-bold text-cyan-300 block">Peso no Ferro Velho:</span>
+                <strong className="text-xl sm:text-2xl font-mono font-black text-white">
+                  {recyclingProfitAccounting.totals.stockKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} kg
+                </strong>
+                {otherMaterialsTotalUnits > 0 && (
+                  <span className="text-[11px] font-bold text-amber-300 block">
+                    + {otherMaterialsTotalUnits} aparelhos / un
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+              <div className="p-3 bg-slate-900/90 rounded-xl border border-amber-500/30 space-y-0.5">
+                <span className="text-[9.5px] uppercase font-black text-amber-300 block">💸 Quanto Paguei (Estoque):</span>
+                <strong className="text-base sm:text-lg font-mono font-black text-white">
+                  R$ {recyclingProfitAccounting.totals.stockInvestedAmount.toFixed(2).replace(".", ",")}
+                </strong>
+                <span className="text-[10px] text-slate-400 block">
+                  Compras já lançadas: R$ {recyclingProfitAccounting.totals.realizedPaidTotal.toFixed(2).replace(".", ",")}
+                </span>
+              </div>
+
+              <div className="p-3 bg-slate-900/90 rounded-xl border border-cyan-500/30 space-y-0.5">
+                <span className="text-[9.5px] uppercase font-black text-cyan-300 block">🏦 Vão Me Pagar (Revenda):</span>
+                <strong className="text-base sm:text-lg font-mono font-black text-cyan-200">
+                  R$ {recyclingProfitAccounting.totals.stockResaleValue.toFixed(2).replace(".", ",")}
+                </strong>
+                <span className="text-[10px] text-slate-400 block">
+                  Com base nos preços de revenda
+                </span>
+              </div>
+
+              <div className="p-3 bg-slate-900/90 rounded-xl border border-emerald-500/35 space-y-0.5">
+                <span className="text-[9.5px] uppercase font-black text-emerald-300 block">📈 Meu Lucro Previsto (Estoque):</span>
+                <strong
+                  className={`text-base sm:text-lg font-mono font-black ${
+                    recyclingProfitAccounting.totals.stockExpectedProfit >= 0 ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  {recyclingProfitAccounting.totals.stockExpectedProfit >= 0 ? "+" : ""}R${" "}
+                  {recyclingProfitAccounting.totals.stockExpectedProfit.toFixed(2).replace(".", ",")}
+                </strong>
+                <span className="text-[10px] text-slate-400 block">
+                  {recyclingProfitAccounting.totals.stockInvestedAmount > 0 && recyclingProfitAccounting.totals.stockResaleValue > 0
+                    ? `Margem: ${(((recyclingProfitAccounting.totals.stockResaleValue - recyclingProfitAccounting.totals.stockInvestedAmount) / recyclingProfitAccounting.totals.stockInvestedAmount) * 100).toFixed(1)}%`
+                    : "Defina preço pago e revenda"}
+                </span>
+              </div>
+
+              <div className="p-3 bg-slate-900/90 rounded-xl border border-purple-500/30 space-y-0.5">
+                <span className="text-[9.5px] uppercase font-black text-purple-300 block">✅ Lucro Realizado (Vendas):</span>
+                <strong
+                  className={`text-base sm:text-lg font-mono font-black ${
+                    recyclingProfitAccounting.totals.realizedProfitTotal >= 0 ? "text-purple-200" : "text-rose-400"
+                  }`}
+                >
+                  {recyclingProfitAccounting.totals.realizedProfitTotal >= 0 ? "+" : ""}R${" "}
+                  {recyclingProfitAccounting.totals.realizedProfitTotal.toFixed(2).replace(".", ",")}
+                </strong>
+                <span className="text-[10px] text-slate-400 block">
+                  Vendido: {recyclingProfitAccounting.totals.realizedSoldKg.toFixed(1)} kg (R$ {recyclingProfitAccounting.totals.realizedRevenueTotal.toFixed(2).replace(".", ",")})
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        )}
       </div>
 
       {/* ABAS DO SISTEMA D.W VIDROS & FERRO VELHO */}
       <div className="flex items-center gap-1.5 p-1.5 bg-slate-900 border border-white/10 rounded-2xl overflow-x-auto">
-        {[
-          { id: "carrinho", label: "🛒 Bipar & Comprar no Portão", badge: cart.length > 0 ? `${cart.length}` : null },
-          { id: "caderninho", label: "📖 Caderninho dos Colaboradores", badge: caderninhoTotals.totalPendingAll > 0 ? `R$ ${caderninhoTotals.totalPendingAll.toFixed(0)}` : null },
-          { id: "estoque", label: "📦 Estoque & Balança Digital", badge: `${yardTotals.totalUnits}` },
-          { id: "cargas", label: "📁 Pastas, Recibos & Cargas", badge: purchaseHistory.filter((t) => !t.isCancelled).length > 0 ? `${purchaseHistory.filter((t) => !t.isCancelled).length}` : null },
-          { id: "guia_plasticos", label: "📘 Guia Plásticos & Mercado", badge: "PET / Duro / PS" }
-        ].map((tab) => (
+        {(activeSector === "vidros"
+          ? [
+              { id: "carrinho", label: "🛒 Bipar & Comprar Vidros", badge: cart.length > 0 ? `${cart.length}` : null },
+              { id: "estoque", label: "🍾 Estoque de Vidros (Pátio)", badge: `${yardTotals.totalUnits}` },
+              { id: "caderninho", label: "📖 Caderninho dos Colaboradores", badge: caderninhoTotals.totalPendingAll > 0 ? `R$ ${caderninhoTotals.totalPendingAll.toFixed(0)}` : null },
+              { id: "cargas", label: "📁 Pastas, Recibos & Cargas Victor", badge: purchaseHistory.filter((t) => !t.isCancelled).length > 0 ? `${purchaseHistory.filter((t) => !t.isCancelled).length}` : null }
+            ]
+          : [
+              { id: "estoque", label: "⚖️ Balança, Compras & Lucros (Ferro Velho)", badge: `${otherMaterialsTotalKg.toFixed(0)} kg` },
+              { id: "caderninho", label: "📖 Caderninho dos Colaboradores", badge: caderninhoTotals.totalPendingAll > 0 ? `R$ ${caderninhoTotals.totalPendingAll.toFixed(0)}` : null },
+              { id: "cargas", label: "📁 Pastas & Recibos Salvos", badge: purchaseHistory.filter((t) => !t.isCancelled).length > 0 ? `${purchaseHistory.filter((t) => !t.isCancelled).length}` : null },
+              { id: "guia_plasticos", label: "📘 Guia Plásticos (PET / Duro / PS)", badge: "Tabela" }
+            ]
+        ).map((tab) => (
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => {
+              const targetTab = tab.id as "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos";
+              setActiveTab(targetTab);
+              if (targetTab === "estoque") {
+                setYardControlFilter(activeSector === "reciclagem" ? "outros" : "vidro");
+              } else if (targetTab === "carrinho") {
+                setActiveSector("vidros");
+                setYardControlFilter("vidro");
+              } else if (targetTab === "guia_plasticos") {
+                setActiveSector("reciclagem");
+                setYardControlFilter("outros");
+              }
+            }}
             className={`min-h-[48px] px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-black whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer touch-manipulation ${
               activeTab === tab.id
-                ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30 scale-[1.02]"
+                ? activeSector === "reciclagem"
+                  ? "bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/30 scale-[1.02]"
+                  : "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30 scale-[1.02]"
                 : "bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800"
             }`}
           >
@@ -5670,11 +6061,14 @@ export function GlassBarcodeScannerCart({
       {/* ========================================================= */}
       {activeTab === "estoque" && (
         <div className="space-y-5">
-          {/* SELETOR DE SEPARAÇÃO ESTRITA: VIDROS VS OUTROS MATERIAIS */}
+          {/* SELETOR DE SEPARAÇÃO ESTRITA: PÁTIO DE VIDROS VS CENTRO DE RECICLAGEM */}
           <div className="flex items-center gap-2 p-1.5 bg-slate-900 border border-white/10 rounded-2xl">
             <button
               type="button"
-              onClick={() => setYardControlFilter("vidro")}
+              onClick={() => {
+                setActiveSector("vidros");
+                setYardControlFilter("vidro");
+              }}
               className={`flex-1 min-h-[48px] px-4 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95 ${
                 yardControlFilter === "vidro"
                   ? "bg-emerald-500 text-slate-950 shadow-md"
@@ -5682,11 +6076,14 @@ export function GlassBarcodeScannerCart({
               }`}
             >
               <Wine className="w-4 h-4" />
-              <span>🍾 Vidros do Pátio ({yardTotals.totalWeightKg.toFixed(1)} kg)</span>
+              <span>🍾 Pátio de Vidros ({yardTotals.totalWeightKg.toFixed(1)} kg)</span>
             </button>
             <button
               type="button"
-              onClick={() => setYardControlFilter("outros")}
+              onClick={() => {
+                setActiveSector("reciclagem");
+                setYardControlFilter("outros");
+              }}
               className={`flex-1 min-h-[48px] px-4 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95 ${
                 yardControlFilter === "outros"
                   ? "bg-cyan-500 text-slate-950 shadow-md"
@@ -5694,31 +6091,43 @@ export function GlassBarcodeScannerCart({
               }`}
             >
               <Package className="w-4 h-4" />
-              <span>🔩 Outros Materiais Separados ({otherMaterialsTotalKg.toFixed(1)} kg)</span>
+              <span>♻️ Centro de Reciclagem ({otherMaterialsTotalKg.toFixed(1)} kg)</span>
             </button>
           </div>
 
           {yardControlFilter === "outros" ? (
             <div className="bg-slate-900 border border-cyan-500/30 rounded-3xl p-4 sm:p-6 shadow-xl space-y-5">
-              {/* CABEÇALHO DO FERRO VELHO EXPANDIDO (SEM PREÇOS INICIAIS) */}
+              {/* CABEÇALHO DO CENTRO DE RECICLAGEM (FERRO VELHO) */}
               <div className="border-b border-white/10 pb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[10px] font-black uppercase text-cyan-400 tracking-wider">
-                      Ferro Velho Isolado • Não Mistura com os 3.000 kg de Vidro
+                      Centro de Reciclagem Isolado • Não Mistura com o Pátio de Vidros
                     </span>
-                    <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                      Configuração Inicial • Sem Preços Definidos
+                    <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                      Pago × Revenda × Lucro em Cada Material
                     </span>
                   </div>
                   <h3 className="text-lg sm:text-xl font-black text-white flex items-center gap-2 mt-1">
                     <Package className="w-5 h-5 text-cyan-400" />
-                    Ferro Velho Geral & Balança Digital ({otherScrapMaterials.length} Categorias)
+                    Centro de Reciclagem / Ferro Velho & Contabilidade ({otherScrapMaterials.length} Categorias)
                   </h3>
                   <p className="text-xs text-slate-300 mt-1">
-                    PET, Plástico Duro, Alto Impacto (PS), Latinhas, Alumínio, Ferro, Cobre, Eletrônicos (Celulares, Notebooks, PC), TVs, Eletrodomésticos, Papéis/CDs/DVDs/Livros e Papelão — tudo pronto para pesar sem preços fixos ainda.
+                    Defina em cada material quanto você <strong>paga ao reciclador</strong> (ex: PET R$ 3,00/kg, Latinha R$ 9,00/kg) e por quanto você vai <strong>revender</strong> para ver na hora o lucro de cada reciclagem.
                   </p>
                   <div className="flex flex-wrap items-center gap-2 mt-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowProfitAccountingPanel((v) => !v)}
+                      className={`min-h-[40px] px-3.5 py-1.5 font-black text-xs rounded-xl border inline-flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 transition-all ${
+                        showProfitAccountingPanel
+                          ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                          : "bg-emerald-500/15 text-emerald-300 border-emerald-500/35"
+                      }`}
+                    >
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      <span>{showProfitAccountingPanel ? "📊 Ocultar Contabilidade & Lucros" : "📊 Ver Contabilidade & Lucros"}</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => setActiveTab("guia_plasticos")}
@@ -5734,13 +6143,13 @@ export function GlassBarcodeScannerCart({
                         className="min-h-[40px] px-3.5 py-1.5 bg-rose-500/15 hover:bg-rose-500 hover:text-white text-rose-200 font-black text-xs rounded-xl border border-rose-500/35 inline-flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        <span>🚫 Ver / Cancelar Compras Lançadas ({purchaseHistory.filter((t) => !t.isCancelled).length})</span>
+                        <span>🚫 Ver / Cancelar Compras ({purchaseHistory.filter((t) => !t.isCancelled).length})</span>
                       </button>
                     )}
                   </div>
                 </div>
                 <div className="px-4 py-2.5 bg-slate-950 rounded-2xl border border-cyan-500/30 text-right shrink-0">
-                  <span className="text-[10px] uppercase font-bold text-cyan-400 block">Acumulado Outros Materiais:</span>
+                  <span className="text-[10px] uppercase font-bold text-cyan-400 block">Acumulado Reciclagem:</span>
                   <strong className="text-xl font-mono font-black text-white">
                     {otherMaterialsTotalKg.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg
                   </strong>
@@ -5751,6 +6160,159 @@ export function GlassBarcodeScannerCart({
                   )}
                 </div>
               </div>
+
+              {/* ========================================================= */}
+              {/* PAINEL DE CONTABILIDADE & LUCROS EM CADA RECICLAGEM       */}
+              {/* ========================================================= */}
+              {showProfitAccountingPanel && (
+                <div className="p-4 sm:p-5 bg-gradient-to-br from-slate-950 via-emerald-950/20 to-slate-950 border-2 border-emerald-500/40 rounded-2xl shadow-lg space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-emerald-300 tracking-wider block">
+                        📊 Contabilidade Real do Centro de Reciclagem (Ferro Velho)
+                      </span>
+                      <h4 className="text-base sm:text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                        <TrendingUp className="w-5 h-5 text-emerald-400" />
+                        Quanto Eu Paguei × Quanto Vão Me Pagar × Meu Lucro em Cada Material
+                      </h4>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const activeRows = recyclingProfitAccounting.byMaterial.filter(
+                      (r) =>
+                        r.stockKg > 0 ||
+                        r.buyPricePerKg > 0 ||
+                        r.sellPricePerKg > 0 ||
+                        r.realizedBoughtKg > 0 ||
+                        r.realizedSoldKg > 0
+                    );
+
+                    if (activeRows.length === 0) {
+                      return (
+                        <div className="p-4 bg-slate-900/90 border border-white/10 rounded-xl text-xs text-slate-300">
+                          Ainda não há preços ou compras lançadas no Centro de Reciclagem. Clique em{" "}
+                          <strong className="text-amber-300">Editar Compra / Revenda</strong> em qualquer material abaixo (ex: PET Pago R$ 3,00/kg • Revendo R$ 4,50/kg ou Latinhas Pago R$ 9,00/kg) para calcular seus lucros automaticamente!
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                          {activeRows.map((row) => (
+                            <div
+                              key={row.material.id}
+                              className="p-3 bg-slate-900/95 border border-white/10 rounded-xl space-y-2 text-xs"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-xl shrink-0">{row.material.emoji}</span>
+                                  <strong className="text-white font-black truncate">{row.material.name}</strong>
+                                </div>
+                                {row.hasBothPrices && (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-md font-mono font-black text-[10.5px] shrink-0 border ${
+                                      row.profitPerKg >= 0
+                                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/35"
+                                        : "bg-rose-500/15 text-rose-300 border-rose-500/35"
+                                    }`}
+                                  >
+                                    {row.profitPerKg >= 0 ? "+" : ""}R$ {row.profitPerKg.toFixed(2).replace(".", ",")}/kg ({row.marginPct >= 0 ? "+" : ""}
+                                    {row.marginPct.toFixed(0)}%)
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-1.5 text-[11px] font-mono">
+                                <div className="p-2 bg-slate-950 rounded-lg border border-amber-500/20">
+                                  <span className="text-[9.5px] font-sans uppercase text-amber-300 block">Eu Pago/kg</span>
+                                  <strong className="text-white font-black">
+                                    {row.buyPricePerKg > 0 ? `R$ ${row.buyPricePerKg.toFixed(2).replace(".", ",")}` : "—"}
+                                  </strong>
+                                </div>
+                                <div className="p-2 bg-slate-950 rounded-lg border border-cyan-500/20">
+                                  <span className="text-[9.5px] font-sans uppercase text-cyan-300 block">Revendo/kg</span>
+                                  <strong className="text-cyan-200 font-black">
+                                    {row.sellPricePerKg > 0 ? `R$ ${row.sellPricePerKg.toFixed(2).replace(".", ",")}` : "—"}
+                                  </strong>
+                                </div>
+                                <div className="p-2 bg-slate-950 rounded-lg border border-emerald-500/25">
+                                  <span className="text-[9.5px] font-sans uppercase text-emerald-300 block">Estoque</span>
+                                  <strong className="text-emerald-300 font-black">{row.stockKg.toFixed(1)} kg</strong>
+                                </div>
+                              </div>
+
+                              <div className="p-2 bg-slate-950/90 rounded-lg border border-white/10 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                                <span>
+                                  Paguei: <strong className="text-amber-300 font-mono">R$ {row.stockInvestedAmount.toFixed(2).replace(".", ",")}</strong>
+                                </span>
+                                <span>
+                                  Vão pagar: <strong className="text-cyan-300 font-mono">R$ {row.stockResaleValue.toFixed(2).replace(".", ",")}</strong>
+                                </span>
+                                <span>
+                                  Meu Lucro:{" "}
+                                  <strong className={`font-mono font-black ${row.stockExpectedProfit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                    {row.stockExpectedProfit >= 0 ? "+" : ""}R$ {row.stockExpectedProfit.toFixed(2).replace(".", ",")}
+                                  </strong>
+                                </span>
+                              </div>
+
+                              {(row.realizedPaidTotal > 0 || row.realizedSoldKg > 0) && (
+                                <div className="text-[10.5px] text-slate-300 flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                                  <span>
+                                    Compras hist: {row.realizedBoughtKg.toFixed(1)} kg (R$ {row.realizedPaidTotal.toFixed(2).replace(".", ",")})
+                                  </span>
+                                  {row.realizedSoldKg > 0 && (
+                                    <span className="text-purple-200 font-bold">
+                                      Vendido: {row.realizedSoldKg.toFixed(1)} kg • Lucro Real:{" "}
+                                      <strong className={row.realizedProfitTotal >= 0 ? "text-emerald-300" : "text-rose-300"}>
+                                        {row.realizedProfitTotal >= 0 ? "+" : ""}R$ {row.realizedProfitTotal.toFixed(2).replace(".", ",")}
+                                      </strong>
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        {scrapSalesHistory.length > 0 && (
+                          <details className="pt-2 border-t border-white/10">
+                            <summary className="cursor-pointer text-xs font-black text-purple-300 hover:text-purple-200 select-none">
+                              📜 Ver Vendas / Revendas Realizadas ({scrapSalesHistory.length}) • Total Recebido: R${" "}
+                              {recyclingProfitAccounting.totals.realizedRevenueTotal.toFixed(2).replace(".", ",")} • Lucro: +R${" "}
+                              {recyclingProfitAccounting.totals.realizedProfitTotal.toFixed(2).replace(".", ",")}
+                            </summary>
+                            <div className="mt-2 space-y-1.5 max-h-52 overflow-y-auto">
+                              {scrapSalesHistory.slice(0, 15).map((sale) => (
+                                <div
+                                  key={sale.id}
+                                  className="p-2.5 bg-slate-950 rounded-xl border border-purple-500/25 flex flex-wrap items-center justify-between gap-2 text-[11px]"
+                                >
+                                  <div>
+                                    <strong className="text-white">
+                                      {sale.emoji} {sale.materialName} ({sale.weightKg.toFixed(1)} kg)
+                                    </strong>
+                                    <span className="text-slate-400 ml-2">{sale.timestamp} • {sale.buyerName}</span>
+                                  </div>
+                                  <div className="flex items-center gap-3 font-mono">
+                                    <span className="text-amber-300">Custo: R$ {sale.estimatedBuyCost.toFixed(2).replace(".", ",")}</span>
+                                    <span className="text-cyan-300">Recebido: R$ {sale.revenueReceived.toFixed(2).replace(".", ",")}</span>
+                                    <strong className={sale.profitAmount >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                                      Lucro: {sale.profitAmount >= 0 ? "+" : ""}R$ {sale.profitAmount.toFixed(2).replace(".", ",")}
+                                    </strong>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
 
               {/* ========================================================= */}
               {/* BALANÇA DIGITAL DO FERRO VELHO INTEGRADA AO APP            */}
@@ -5889,6 +6451,67 @@ export function GlassBarcodeScannerCart({
                               setScalePricePerKgInput("");
                               if (selectedScaleMaterial) {
                                 handleUpdateScrapPricePerKg(selectedScaleMaterial.id, 0);
+                              }
+                            }}
+                            className="min-h-[44px] px-2.5 bg-slate-950 hover:bg-slate-800 border border-white/10 rounded-xl text-[10px] font-bold text-slate-300 cursor-pointer"
+                          >
+                            Zerar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Preço de Revenda por kg direto na Balança Digital */}
+                    <div className="p-2.5 bg-slate-900/90 border border-cyan-500/35 rounded-xl space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-[11px] font-black uppercase text-cyan-300">
+                          📈 Preço de Revenda (R$/kg):
+                        </label>
+                        {(() => {
+                          const sellParsed = parseFloat(scaleSellPricePerKgInput.replace(",", ".")) || 0;
+                          const diff = sellParsed > 0 && scaleEffectivePricePerKg > 0 ? sellParsed - scaleEffectivePricePerKg : 0;
+                          if (sellParsed > 0 && scaleEffectivePricePerKg > 0) {
+                            return (
+                              <span className={`text-[10.5px] font-mono font-black ${diff >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                                Lucro: {diff >= 0 ? "+" : ""}R$ {diff.toFixed(2).replace(".", ",")}/kg
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="text-[10px] font-bold text-slate-400">
+                              Por quanto vou revender
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-slate-400">R$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={scaleSellPricePerKgInput}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setScaleSellPricePerKgInput(raw);
+                            if (selectedScaleMaterial) {
+                              const parsed = parseFloat(raw.replace(",", "."));
+                              const cleanSell = raw.trim() === "" ? 0 : Number.isFinite(parsed) && parsed >= 0 ? parsed : selectedScaleMaterial.sellPricePerKg || 0;
+                              markLocalYardMutation();
+                              setOtherScrapMaterials((prev) =>
+                                prev.map((m) => (m.id === selectedScaleMaterial.id ? { ...m, sellPricePerKg: cleanSell } : m))
+                              );
+                            }
+                          }}
+                          placeholder="Ex: 4,50 (opcional)"
+                          className="flex-1 min-h-[44px] bg-slate-950 border border-cyan-500/40 rounded-xl px-3 text-center text-cyan-200 font-mono font-black text-base outline-none focus:border-cyan-400"
+                        />
+                        {scaleSellPricePerKgInput !== "" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setScaleSellPricePerKgInput("");
+                              if (selectedScaleMaterial) {
+                                handleUpdateScrapPrices(selectedScaleMaterial.id, selectedScaleMaterial.buyPricePerKg, 0);
                               }
                             }}
                             className="min-h-[44px] px-2.5 bg-slate-950 hover:bg-slate-800 border border-white/10 rounded-xl text-[10px] font-bold text-slate-300 cursor-pointer"
@@ -6922,6 +7545,10 @@ export function GlassBarcodeScannerCart({
                   const groupInfo = SCRAP_GROUP_META[mat.categoryGroup || "outros"];
                   const isEditingThisPrice = editingScrapPriceId === mat.id;
                   const isSelectedOnScale = selectedScaleMaterial?.id === mat.id;
+                  const acct = recyclingProfitAccounting.byMaterialMap.get(mat.id);
+                  const sellPrice = Math.max(0, Number(mat.sellPricePerKg) || 0);
+                  const profitPerKg = sellPrice > 0 ? sellPrice - mat.buyPricePerKg : 0;
+                  const marginPct = mat.buyPricePerKg > 0 && sellPrice > 0 ? (profitPerKg / mat.buyPricePerKg) * 100 : 0;
 
                   return (
                     <div
@@ -6939,12 +7566,33 @@ export function GlassBarcodeScannerCart({
                                 {groupInfo.badge}
                               </span>
                               {mat.buyPricePerKg > 0 ? (
-                                <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                                  R$ {mat.buyPricePerKg.toFixed(2).replace(".", ",")}/kg
+                                <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                  Pago: R$ {mat.buyPricePerKg.toFixed(2).replace(".", ",")}/kg
                                 </span>
                               ) : (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                                  Sem preço ainda
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-white/10">
+                                  Sem preço pago
+                                </span>
+                              )}
+                              {sellPrice > 0 ? (
+                                <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                                  Revendo: R$ {sellPrice.toFixed(2).replace(".", ",")}/kg
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-900 text-slate-400 border border-white/10">
+                                  Sem revenda
+                                </span>
+                              )}
+                              {mat.buyPricePerKg > 0 && sellPrice > 0 && (
+                                <span
+                                  className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-md border ${
+                                    profitPerKg >= 0
+                                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                                      : "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                                  }`}
+                                >
+                                  Lucro: {profitPerKg >= 0 ? "+" : ""}R$ {profitPerKg.toFixed(2).replace(".", ",")}/kg ({marginPct >= 0 ? "+" : ""}
+                                  {marginPct.toFixed(0)}%)
                                 </span>
                               )}
                             </div>
@@ -6967,36 +7615,71 @@ export function GlassBarcodeScannerCart({
                         </div>
                       </div>
 
-                      {/* Edição opcional de preço R$/kg (só abre se quiser definir preço depois) */}
+                      {/* Edição dupla de preço: Quanto Eu Pago (R$/kg) e Por Quanto Vou Revender (R$/kg) */}
                       {isEditingThisPrice && (
-                        <div className="p-2.5 bg-slate-900 border border-amber-500/35 rounded-xl flex items-center gap-2 flex-wrap">
-                          <span className="text-[11px] font-bold text-amber-300">Preço R$/kg:</span>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={editingScrapPriceDraft}
-                            onChange={(e) => setEditingScrapPriceDraft(e.target.value)}
-                            placeholder="0.00"
-                            className="w-24 min-h-[40px] bg-slate-950 border border-amber-400/50 rounded-lg px-2 text-center text-white font-mono font-black text-sm outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const parsed = Math.max(0, parseFloat(editingScrapPriceDraft.replace(",", ".")) || 0);
-                              handleUpdateScrapPricePerKg(mat.id, parsed);
-                              setEditingScrapPriceId(null);
-                            }}
-                            className="min-h-[40px] px-3 bg-emerald-500 text-slate-950 font-black text-xs rounded-lg cursor-pointer"
-                          >
-                            Salvar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingScrapPriceId(null)}
-                            className="min-h-[40px] px-2.5 bg-slate-800 text-slate-300 font-bold text-xs rounded-lg cursor-pointer"
-                          >
-                            Cancelar
-                          </button>
+                        <div className="p-3 bg-slate-900 border border-amber-500/35 rounded-xl space-y-2.5">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-black uppercase text-amber-300 block">
+                                💸 Quanto Eu Pago (R$/kg):
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={editingScrapPriceDraft}
+                                onChange={(e) => setEditingScrapPriceDraft(e.target.value)}
+                                placeholder="Ex: 3,00"
+                                className="w-full min-h-[42px] bg-slate-950 border border-amber-400/50 rounded-lg px-2 text-center text-white font-mono font-black text-sm outline-none"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-black uppercase text-cyan-300 block">
+                                📈 Por Quanto Revendo (R$/kg):
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={editingScrapSellPriceDraft}
+                                onChange={(e) => setEditingScrapSellPriceDraft(e.target.value)}
+                                placeholder="Ex: 4,50"
+                                className="w-full min-h-[42px] bg-slate-950 border border-cyan-400/50 rounded-lg px-2 text-center text-cyan-200 font-mono font-black text-sm outline-none"
+                              />
+                            </div>
+                          </div>
+                          {(() => {
+                            const pBuy = Math.max(0, parseFloat(editingScrapPriceDraft.replace(",", ".")) || 0);
+                            const pSell = Math.max(0, parseFloat(editingScrapSellPriceDraft.replace(",", ".")) || 0);
+                            if (pBuy > 0 && pSell > 0) {
+                              const diff = pSell - pBuy;
+                              return (
+                                <div className={`text-[11px] font-mono font-black ${diff >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                                  Lucro por kg: {diff >= 0 ? "+" : ""}R$ {diff.toFixed(2).replace(".", ",")}/kg ({((diff / pBuy) * 100).toFixed(0)}%)
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const parsedBuy = Math.max(0, parseFloat(editingScrapPriceDraft.replace(",", ".")) || 0);
+                                const parsedSell = Math.max(0, parseFloat(editingScrapSellPriceDraft.replace(",", ".")) || 0);
+                                handleUpdateScrapPrices(mat.id, parsedBuy, parsedSell);
+                                setEditingScrapPriceId(null);
+                              }}
+                              className="min-h-[40px] px-4 bg-emerald-500 text-slate-950 font-black text-xs rounded-lg cursor-pointer"
+                            >
+                              Salvar Preços ✓
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingScrapPriceId(null)}
+                              className="min-h-[40px] px-3 bg-slate-800 text-slate-300 font-bold text-xs rounded-lg cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
                         </div>
                       )}
 
@@ -7080,13 +7763,47 @@ export function GlassBarcodeScannerCart({
                           )}
                         </div>
 
-                        {mat.stockKg > 0 && mat.buyPricePerKg > 0 && (
-                          <div className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs">
-                            <span className="text-emerald-200 font-bold">
-                              💰 {mat.stockKg.toFixed(2)} kg × R$ {mat.buyPricePerKg.toFixed(2).replace(".", ",")}
+                        {mat.stockKg > 0 && (mat.buyPricePerKg > 0 || sellPrice > 0) && (
+                          <div className="p-2.5 bg-slate-900/90 border border-emerald-500/30 rounded-xl space-y-1 text-xs">
+                            {mat.buyPricePerKg > 0 && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-amber-200 font-bold">
+                                  💸 Paguei ({mat.stockKg.toFixed(2)} kg × R$ {mat.buyPricePerKg.toFixed(2).replace(".", ",")}):
+                                </span>
+                                <strong className="text-amber-300 font-mono font-black">
+                                  R$ {(mat.stockKg * mat.buyPricePerKg).toFixed(2).replace(".", ",")}
+                                </strong>
+                              </div>
+                            )}
+                            {sellPrice > 0 && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-cyan-200 font-bold">
+                                  🏦 Vão me pagar ({mat.stockKg.toFixed(2)} kg × R$ {sellPrice.toFixed(2).replace(".", ",")}):
+                                </span>
+                                <strong className="text-cyan-300 font-mono font-black">
+                                  R$ {(mat.stockKg * sellPrice).toFixed(2).replace(".", ",")}
+                                </strong>
+                              </div>
+                            )}
+                            {mat.buyPricePerKg > 0 && sellPrice > 0 && (
+                              <div className="flex items-center justify-between pt-1 border-t border-white/10">
+                                <span className="text-emerald-200 font-black uppercase text-[10.5px]">
+                                  📈 Meu Lucro neste Material:
+                                </span>
+                                <strong className={`font-mono font-black ${profitPerKg >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                  {profitPerKg >= 0 ? "+" : ""}R$ {(mat.stockKg * profitPerKg).toFixed(2).replace(".", ",")}
+                                </strong>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {acct && acct.realizedSoldKg > 0 && (
+                          <div className="px-2.5 py-1.5 bg-purple-500/10 border border-purple-500/25 rounded-xl flex items-center justify-between text-[11px]">
+                            <span className="text-purple-200 font-bold">
+                              ✅ Já vendido: {acct.realizedSoldKg.toFixed(1)} kg (R$ {acct.realizedRevenueTotal.toFixed(2).replace(".", ",")})
                             </span>
-                            <strong className="text-emerald-300 font-mono font-black">
-                              R$ {(mat.stockKg * mat.buyPricePerKg).toFixed(2).replace(".", ",")}
+                            <strong className={`font-mono font-black ${acct.realizedProfitTotal >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                              Lucro: {acct.realizedProfitTotal >= 0 ? "+" : ""}R$ {acct.realizedProfitTotal.toFixed(2).replace(".", ",")}
                             </strong>
                           </div>
                         )}
@@ -7356,11 +8073,12 @@ export function GlassBarcodeScannerCart({
                           onClick={() => {
                             setEditingScrapPriceId(isEditingThisPrice ? null : mat.id);
                             setEditingScrapPriceDraft(mat.buyPricePerKg > 0 ? String(mat.buyPricePerKg) : "");
+                            setEditingScrapSellPriceDraft((mat.sellPricePerKg || 0) > 0 ? String(mat.sellPricePerKg) : "");
                           }}
                           className="min-h-[42px] px-3 bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs rounded-xl border border-white/10 flex items-center gap-1 cursor-pointer touch-manipulation select-none active:scale-95"
                         >
                           <DollarSign className="w-3.5 h-3.5 text-amber-400" />
-                          <span>{mat.buyPricePerKg > 0 ? "Editar R$/kg" : "Definir Preço depois"}</span>
+                          <span>{mat.buyPricePerKg > 0 || sellPrice > 0 ? "Editar Pago / Revenda" : "Definir Pago & Revenda"}</span>
                         </button>
 
                         <button
@@ -7415,7 +8133,8 @@ export function GlassBarcodeScannerCart({
                               setSellingScrapMaterial(mat);
                               setScrapSaleKgDraft(mat.stockKg > 0 ? String(mat.stockKg) : "");
                               setScrapSaleUnitsDraft((mat.stockUnits || 0) > 0 ? String(mat.stockUnits) : "");
-                              setScrapSaleTotalValueDraft("");
+                              const estSale = mat.stockKg > 0 && sellPrice > 0 ? (mat.stockKg * sellPrice).toFixed(2) : "";
+                              setScrapSaleTotalValueDraft(estSale);
                               setScrapSaleBuyerDraft("");
                             }}
                             className="min-h-[42px] px-3 bg-emerald-500/15 hover:bg-emerald-500 hover:text-slate-950 text-emerald-300 font-black text-xs rounded-xl border border-emerald-500/35 flex items-center gap-1 cursor-pointer touch-manipulation select-none active:scale-95"
@@ -8501,7 +9220,7 @@ export function GlassBarcodeScannerCart({
 
             <div className="space-y-1">
               <label className="text-[11px] font-black uppercase text-emerald-300 block">
-                Valor recebido pela venda R$ (opcional — entra no Caixa & BI do PDV)
+                Valor recebido pela venda R$ (entra no Caixa & Lucros do PDV)
               </label>
               <input
                 type="text"
@@ -8512,6 +9231,35 @@ export function GlassBarcodeScannerCart({
                 className="w-full min-h-[46px] bg-slate-950 border border-emerald-500/40 rounded-xl px-3 text-white font-mono font-black text-base outline-none"
               />
             </div>
+
+            {(() => {
+              const kgSale = Math.max(0, parseFloat(scrapSaleKgDraft.replace(",", ".")) || 0);
+              const valSale = Math.max(0, parseFloat(scrapSaleTotalValueDraft.replace(",", ".")) || 0);
+              const buyPrice = Math.max(0, Number(sellingScrapMaterial.buyPricePerKg) || 0);
+              const estCost = Number((kgSale * buyPrice).toFixed(2));
+              const profit = Number((valSale - estCost).toFixed(2));
+              if (kgSale <= 0 && valSale <= 0) return null;
+              return (
+                <div className="p-3 bg-slate-950 border border-white/10 rounded-xl space-y-1 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Quanto paguei (aprox.):</span>
+                    <strong className="font-mono text-amber-300">R$ {estCost.toFixed(2).replace(".", ",")}</strong>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Valor que vou receber:</span>
+                    <strong className="font-mono text-cyan-300">R$ {valSale.toFixed(2).replace(".", ",")}</strong>
+                  </div>
+                  {valSale > 0 && (
+                    <div className="flex items-center justify-between pt-1 border-t border-white/10">
+                      <span className="font-black text-emerald-300">Meu Lucro nesta Venda:</span>
+                      <strong className={`font-mono font-black ${profit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {profit >= 0 ? "+" : ""}R$ {profit.toFixed(2).replace(".", ",")}
+                      </strong>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="grid grid-cols-2 gap-2">
               <input
