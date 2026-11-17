@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Pencil, CheckCircle2, ChevronRight, Trash2, Calendar, Folder, FolderPlus, Download, Save, X, Plus, Sparkles, FileSpreadsheet } from "lucide-react";
+import React, { useState, useEffect, useMemo } from 'react';
+import { Pencil, CheckCircle2, ChevronRight, Trash2, Calendar, Folder, FolderPlus, Download, Save, X, Plus, Sparkles, FileSpreadsheet, Cloud, Smartphone, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { SavedList } from "../types";
 
 export interface SavedExcelSheet {
   id: string;
@@ -21,6 +22,57 @@ const DEFAULT_EXCEL_FOLDERS = [
   "Orçamentos Excel",
   "Geral",
 ];
+
+function getListTimestampMs(dataField: any): number {
+  if (!dataField) return 0;
+  if (typeof dataField?.toMillis === "function") return dataField.toMillis();
+  if (typeof dataField?.seconds === "number") return dataField.seconds * 1000;
+  const parsed = new Date(dataField).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatSavedListDate(dataField: any): string {
+  const ms = getListTimestampMs(dataField);
+  if (!ms) return new Date().toLocaleDateString("pt-BR");
+  return new Date(ms).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getSavedListTitle(list: SavedList): string {
+  const firstTextLine = (list.texto_digitado || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .find(Boolean);
+  if (firstTextLine) return firstTextLine;
+
+  if (Array.isArray(list.excelRows)) {
+    const filled = list.excelRows.filter((r: any) => r?.name && String(r.name).trim() !== "");
+    if (filled.length > 0) {
+      const firstName = String(filled[0].name).trim();
+      return filled.length > 1 ? `${firstName} (+${filled.length - 1})` : firstName;
+    }
+  }
+
+  if (list.superListData && typeof list.superListData === "object") {
+    const checkedEntries = Object.entries(list.superListData).filter(
+      ([, v]: [string, any]) => v && v.checked
+    );
+    if (checkedEntries.length > 0) {
+      const [firstName, firstVal] = checkedEntries[0] as [string, any];
+      const displayName = (firstVal?.customName || firstName || "").trim();
+      if (displayName) {
+        return checkedEntries.length > 1 ? `${displayName} (+${checkedEntries.length - 1})` : displayName;
+      }
+    }
+  }
+
+  return `Lista ${list.pasta ? `(${list.pasta})` : "Salva"}`;
+}
 
 interface PlannerProps {
   inputText: string;
@@ -43,6 +95,14 @@ interface PlannerProps {
   setSavedExcelSheets?: React.Dispatch<React.SetStateAction<SavedExcelSheet[]>>;
   excelFoldersList?: string[];
   setExcelFoldersList?: React.Dispatch<React.SetStateAction<string[]>>;
+  savedLists?: SavedList[];
+  localListIds?: string[];
+  isOnline?: boolean;
+  onLoadSavedList?: (list: SavedList) => void;
+  onDeleteSavedList?: (id: string) => void;
+  onMoveSavedListFolder?: (id: string, newFolder: string) => void;
+  onAfterSaveSheet?: (updatedSheets: SavedExcelSheet[], updatedFolders: string[]) => void;
+  onSyncPendingNow?: () => void;
   showNotification?: (msg: string, type?: "success" | "error" | "info" | "warning") => void;
 }
 
@@ -66,6 +126,14 @@ export const PlannerModule = React.memo(({
   setSavedExcelSheets: propSetSavedExcelSheets,
   excelFoldersList: propExcelFoldersList,
   setExcelFoldersList: propSetExcelFoldersList,
+  savedLists = [],
+  localListIds = [],
+  isOnline = true,
+  onLoadSavedList,
+  onDeleteSavedList,
+  onMoveSavedListFolder,
+  onAfterSaveSheet,
+  onSyncPendingNow,
   showNotification
 }: PlannerProps) => {
   // --- Dedicated Saved Folders Exclusively for Calculadora Nota Excel (Cloud + LocalStorage synced via props) ---
@@ -144,13 +212,23 @@ export const PlannerModule = React.memo(({
     const typedNewFolder = isCreatingFolder ? newCustomFolderInput.trim() : "";
     const targetFolder = (typedNewFolder || saveFolder || "Geral").trim();
 
+    const updatedFolders = excelFoldersList.includes(targetFolder)
+      ? excelFoldersList
+      : Array.from(new Set([...excelFoldersList, targetFolder]));
     if (!excelFoldersList.includes(targetFolder)) {
-      setExcelFoldersList(prev => Array.from(new Set([...prev, targetFolder])));
+      setExcelFoldersList(updatedFolders);
     }
 
-    const title = saveTitle.trim() || `Planilha Excel #${savedExcelSheets.length + 1}`;
+    const filledRowTitle = excelRows.find((r) => r?.name && String(r.name).trim() !== "")?.name;
+    const firstTypedLine = inputText.split("\n").map((l) => l.trim()).find(Boolean);
+    const defaultTitle =
+      firstTypedLine ||
+      (filledRowTitle ? `${String(filledRowTitle).trim()} (${excelRows.filter((r) => r?.name?.trim()).length} itens)` : "") ||
+      `Planilha Excel #${savedExcelSheets.length + 1}`;
+    const title = saveTitle.trim() || defaultTitle;
+
     const newSheet: SavedExcelSheet = {
-      id: `excel_sheet_${Date.now()}`,
+      id: `excel_sheet_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       title,
       folder: targetFolder,
       date: new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }),
@@ -161,13 +239,24 @@ export const PlannerModule = React.memo(({
       createdAt: Date.now()
     };
 
-    setSavedExcelSheets(prev => [newSheet, ...prev]);
+    const updatedSheets = [newSheet, ...savedExcelSheets];
+    setSavedExcelSheets(updatedSheets);
+    try {
+      localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(updatedSheets));
+      localStorage.setItem("notepad_excel_folders_list", JSON.stringify(updatedFolders));
+    } catch {}
+    onAfterSaveSheet?.(updatedSheets, updatedFolders);
+
     setSaveFolder(targetFolder);
     setNewCustomFolderInput("");
     setIsCreatingFolder(false);
     setIsSaveModalOpen(false);
     setSaveTitle("");
-    notify(`Planilha "${title}" salva com sucesso na pasta "${targetFolder}"! 💾📊`, "success");
+    if (isOnline === false) {
+      notify(`Planilha "${title}" salva na pasta "${targetFolder}" no celular! 📱 Quando a internet voltar, ela vai para a Nuvem.`, "success");
+    } else {
+      notify(`Planilha "${title}" salva com sucesso na pasta "${targetFolder}"! 💾☁️`, "success");
+    }
   };
 
   const handleCreateFolderFromModal = () => {
@@ -297,18 +386,46 @@ export const PlannerModule = React.memo(({
     notify("Planilha exportada para Excel (.CSV)! 📊", "success");
   };
 
-  // Combine default/custom folders with any folder found on saved sheets
-  const mergedExcelFolders = React.useMemo(() => {
+  // Combine default/custom folders with any folder found on saved sheets OR saved lists
+  const mergedExcelFolders = useMemo(() => {
     const set = new Set<string>([...excelFoldersList]);
     savedExcelSheets.forEach(s => s.folder && set.add(s.folder));
+    savedLists.forEach(l => l.pasta && set.add(l.pasta));
     return Array.from(set).filter(Boolean);
-  }, [excelFoldersList, savedExcelSheets]);
+  }, [excelFoldersList, savedExcelSheets, savedLists]);
 
-  // Filtered sheets based on folder tab
-  const filteredSheets = savedExcelSheets.filter(s => {
-    if (selectedFolderTab === "all") return true;
-    return s.folder === selectedFolderTab;
-  });
+  const localListIdSet = useMemo(() => new Set(localListIds), [localListIds]);
+
+  type UnifiedFolderEntry =
+    | { kind: "sheet"; id: string; folder: string; sortTime: number; sheet: SavedExcelSheet }
+    | { kind: "list"; id: string; folder: string; sortTime: number; list: SavedList };
+
+  const unifiedSavedEntries = useMemo<UnifiedFolderEntry[]>(() => {
+    const entries: UnifiedFolderEntry[] = [
+      ...savedExcelSheets.map((sheet) => ({
+        kind: "sheet" as const,
+        id: `sheet:${sheet.id}`,
+        folder: sheet.folder || "Geral",
+        sortTime: Number(sheet.createdAt) || 0,
+        sheet,
+      })),
+      ...savedLists.map((list) => ({
+        kind: "list" as const,
+        id: `list:${list.id}`,
+        folder: list.pasta || "Geral",
+        sortTime: getListTimestampMs(list.data),
+        list,
+      })),
+    ];
+    return entries.sort((a, b) => b.sortTime - a.sortTime);
+  }, [savedExcelSheets, savedLists]);
+
+  // Filtered entries based on folder tab
+  const filteredUnifiedEntries = useMemo(() => {
+    if (selectedFolderTab === "all") return unifiedSavedEntries;
+    return unifiedSavedEntries.filter((entry) => entry.folder === selectedFolderTab);
+  }, [unifiedSavedEntries, selectedFolderTab]);
+
   return (
     <motion.div
       key="excel"
@@ -330,11 +447,11 @@ export const PlannerModule = React.memo(({
                   Calculadora Nota & Excel 📊
                 </span>
                 <span className="text-[9px] bg-indigo-500/20 text-indigo-300 font-bold px-2 py-0.5 rounded-full border border-indigo-500/30">
-                  {savedExcelSheets.length} planilhas salvas
+                  {unifiedSavedEntries.length} {unifiedSavedEntries.length === 1 ? "pasta/item salvo" : "pastas/itens salvos"}
                 </span>
               </div>
               <p className="text-[9.5px] text-slate-400 font-medium">
-                Pastas salvas dedicadas exclusivamente para a Calculadora Nota Excel
+                Suas planilhas e listas salvas no celular e na nuvem ficam reunidas aqui
               </p>
             </div>
           </div>
@@ -355,7 +472,7 @@ export const PlannerModule = React.memo(({
               className="flex-1 sm:flex-none px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
             >
               <Folder className="w-3.5 h-3.5" />
-              <span>Pastas Salvas ({savedExcelSheets.length}) 📂</span>
+              <span>Pastas Salvas ({unifiedSavedEntries.length}) 📂</span>
             </button>
 
             <button
@@ -764,6 +881,32 @@ export const PlannerModule = React.memo(({
               </div>
             )}
 
+            {/* Offline / Pending Sync Status Banner */}
+            {(!isOnline || localListIds.length > 0) && (
+              <div className={`px-3 py-2 rounded-2xl border text-[10.5px] font-bold flex flex-wrap items-center justify-between gap-2 shrink-0 ${
+                !isOnline
+                  ? "bg-amber-500/10 border-amber-500/30 text-amber-200"
+                  : "bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
+              }`}>
+                <span className="flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5 shrink-0" />
+                  {!isOnline
+                    ? "Sem internet agora — suas pastas ficam salvas no celular e sobem para a Nuvem quando conectar."
+                    : `${localListIds.length} item(ns) salvo(s) no celular aguardando envio para a Nuvem.`}
+                </span>
+                {isOnline && localListIds.length > 0 && onSyncPendingNow && (
+                  <button
+                    type="button"
+                    onClick={onSyncPendingNow}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[9.5px] font-black uppercase flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Sincronizar Agora ☁️</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Folder Filter Tabs */}
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 shrink-0">
               <button
@@ -775,10 +918,10 @@ export const PlannerModule = React.memo(({
                     : "bg-slate-950 text-slate-400 hover:text-white border border-white/5"
                 }`}
               >
-                Todas ({savedExcelSheets.length})
+                Todas ({unifiedSavedEntries.length})
               </button>
               {mergedExcelFolders.map(folderName => {
-                const count = savedExcelSheets.filter(s => s.folder === folderName).length;
+                const count = unifiedSavedEntries.filter(e => e.folder === folderName).length;
                 return (
                   <button
                     key={folderName}
@@ -797,141 +940,307 @@ export const PlannerModule = React.memo(({
               })}
             </div>
 
-            {/* Sheets List */}
+            {/* Unified Sheets & Saved Lists */}
             <div className="space-y-2.5 overflow-y-auto flex-1 pr-1">
-              {filteredSheets.length === 0 ? (
+              {filteredUnifiedEntries.length === 0 ? (
                 <div className="py-12 text-center text-slate-400 space-y-3 border-2 border-dashed border-white/10 rounded-2xl">
                   <FileSpreadsheet className="w-10 h-10 mx-auto text-slate-600" />
-                  <p className="text-xs font-bold uppercase">Nenhuma planilha salva {selectedFolderTab === "all" ? "ainda" : `em "${selectedFolderTab}"`}</p>
+                  <p className="text-xs font-bold uppercase">Nenhum item salvo {selectedFolderTab === "all" ? "ainda" : `em "${selectedFolderTab}"`}</p>
                   <p className="text-[10px] text-slate-500">
-                    Clique em &quot;Salvar em Pasta 💾&quot; na barra superior da calculadora para guardar suas contas!
+                    Clique em &quot;Salvar em Pasta 💾&quot; para guardar suas contas e planilhas!
                   </p>
                 </div>
               ) : (
-                filteredSheets.map((sheet) => (
-                  <div
-                    key={sheet.id}
-                    className="p-3.5 bg-slate-950 border border-white/10 hover:border-indigo-500/40 rounded-2xl flex flex-col gap-3 transition-all"
-                  >
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-black text-white uppercase tracking-tight">
-                            {sheet.title}
-                          </span>
-                          <span className="text-[9px] bg-indigo-500/20 text-indigo-300 font-bold px-2 py-0.5 rounded-full">
-                            📁 {sheet.folder}
-                          </span>
+                filteredUnifiedEntries.map((entry) => {
+                  if (entry.kind === "sheet") {
+                    const sheet = entry.sheet;
+                    return (
+                      <div
+                        key={entry.id}
+                        className="p-3.5 bg-slate-950 border border-white/10 hover:border-indigo-500/40 rounded-2xl flex flex-col gap-3 transition-all"
+                      >
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-black text-white uppercase tracking-tight">
+                                {sheet.title}
+                              </span>
+                              <span className="text-[9px] bg-indigo-500/20 text-indigo-300 font-bold px-2 py-0.5 rounded-full">
+                                📁 {sheet.folder}
+                              </span>
+                              <span className="text-[8.5px] bg-emerald-500/15 text-emerald-300 font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                                {isOnline ? <Cloud className="w-2.5 h-2.5" /> : <Smartphone className="w-2.5 h-2.5" />}
+                                {isOnline ? "Planilha (Celular + Nuvem)" : "Planilha (Salva no Celular)"}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-[10px] text-slate-400 font-medium flex-wrap">
+                              <span>🗓️ {sheet.date}</span>
+                              <span>📦 {sheet.rows?.filter(r => r.name).length || 0} itens</span>
+                              <span className="text-emerald-400 font-bold font-mono">Total: {formatCurrency(sheet.total || 0)}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end flex-wrap">
+                            {confirmLoadSheetId === sheet.id ? (
+                              <div className="flex items-center gap-1 bg-emerald-950/80 border border-emerald-500/40 px-2 py-1 rounded-xl">
+                                <span className="text-[9px] font-bold text-emerald-200 mr-1">Substituir atual?</span>
+                                <button
+                                  type="button"
+                                  onClick={() => executeLoadSheet(sheet)}
+                                  className="px-2 py-1 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase cursor-pointer"
+                                >
+                                  Sim
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmLoadSheetId(null)}
+                                  className="px-2 py-1 bg-slate-800 text-slate-300 rounded-lg text-[9px] font-bold uppercase cursor-pointer"
+                                >
+                                  Não
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleLoadSheet(sheet)}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                                title="Carregar esta planilha de volta na calculadora"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Carregar ⚡</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => setMovingSheetId(movingSheetId === entry.id ? null : entry.id)}
+                              className="p-2 bg-indigo-950/70 hover:bg-indigo-800 text-indigo-300 rounded-xl transition-all cursor-pointer"
+                              title="Mover para outra pasta"
+                            >
+                              <Folder className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleExportCSV(sheet)}
+                              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-all cursor-pointer"
+                              title="Baixar em formato Excel (.CSV)"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+
+                            {confirmDeleteSheetId === entry.id ? (
+                              <div className="flex items-center gap-1 bg-rose-950 border border-rose-500/40 px-2 py-1 rounded-xl">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSheet(sheet.id, sheet.title)}
+                                  className="px-2 py-1 bg-rose-600 text-white rounded-lg text-[9px] font-black uppercase cursor-pointer"
+                                >
+                                  Excluir
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteSheetId(null)}
+                                  className="px-2 py-1 bg-slate-800 text-slate-300 rounded-lg text-[9px] font-bold uppercase cursor-pointer"
+                                >
+                                  Não
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteSheetId(entry.id)}
+                                className="p-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 rounded-xl transition-all cursor-pointer"
+                                title="Excluir planilha"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 text-[10px] text-slate-400 font-medium flex-wrap">
-                          <span>🗓️ {sheet.date}</span>
-                          <span>📦 {sheet.rows?.filter(r => r.name).length || 0} itens</span>
-                          <span className="text-emerald-400 font-bold font-mono">Total: {formatCurrency(sheet.total || 0)}</span>
+
+                        {movingSheetId === entry.id && (
+                          <div className="flex items-center gap-2 bg-slate-900 p-2 rounded-xl border border-indigo-500/30">
+                            <span className="text-[10px] font-bold text-indigo-300 uppercase shrink-0">Mover para:</span>
+                            <select
+                              value={sheet.folder}
+                              onChange={(e) => handleMoveSheetFolder(sheet.id, e.target.value)}
+                              className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none"
+                            >
+                              {mergedExcelFolders.map(f => (
+                                <option key={f} value={f}>{f}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setMovingSheetId(null)}
+                              className="text-slate-400 hover:text-white p-1 cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  const list = entry.list;
+                  const listTitle = getSavedListTitle(list);
+                  const isLocalOnly = localListIdSet.has(list.id);
+                  const filledRows = Array.isArray(list.excelRows)
+                    ? list.excelRows.filter((r: any) => r?.name && String(r.name).trim() !== "")
+                    : [];
+
+                  return (
+                    <div
+                      key={entry.id}
+                      className={`p-3.5 bg-slate-950 border rounded-2xl flex flex-col gap-3 transition-all ${
+                        isLocalOnly ? "border-amber-500/30 hover:border-amber-400/60" : "border-white/10 hover:border-emerald-500/40"
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-black text-white uppercase tracking-tight">
+                              {listTitle}
+                            </span>
+                            <span className="text-[9px] bg-indigo-500/20 text-indigo-300 font-bold px-2 py-0.5 rounded-full">
+                              📁 {list.pasta || "Geral"}
+                            </span>
+                            {isLocalOnly ? (
+                              <span className="text-[8.5px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                                <Smartphone className="w-2.5 h-2.5" /> Local (Aguardando Nuvem)
+                              </span>
+                            ) : (
+                              <span className="text-[8.5px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                                <Cloud className="w-2.5 h-2.5" /> Nuvem
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] text-slate-400 font-medium flex-wrap">
+                            <span>🗓️ {formatSavedListDate(list.data)}</span>
+                            {filledRows.length > 0 && <span>📦 {filledRows.length} itens</span>}
+                            <span className="text-emerald-400 font-bold font-mono">
+                              Gasto: {formatCurrency(Number(list.total_gasto) || 0)}
+                            </span>
+                            <span className="text-cyan-300 font-bold font-mono">
+                              Sobra: {formatCurrency(Number(list.saldo_restante) || 0)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end flex-wrap">
+                          {onLoadSavedList && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onLoadSavedList(list);
+                                setIsExcelFoldersOpen(false);
+                                notify(`Lista "${listTitle}" carregada na calculadora! ⚡`, "success");
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Carregar ⚡</span>
+                            </button>
+                          )}
+
+                          {onMoveSavedListFolder && (
+                            <button
+                              type="button"
+                              onClick={() => setMovingSheetId(movingSheetId === entry.id ? null : entry.id)}
+                              className="p-2 bg-indigo-950/70 hover:bg-indigo-800 text-indigo-300 rounded-xl transition-all cursor-pointer"
+                              title="Mover para outra pasta"
+                            >
+                              <Folder className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {filledRows.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleExportCSV({
+                                  id: list.id,
+                                  title: listTitle,
+                                  folder: list.pasta || "Geral",
+                                  date: formatSavedListDate(list.data),
+                                  rows: filledRows,
+                                  budget: list.saldo_total || "",
+                                  inputText: list.texto_digitado || "",
+                                  total: Number(list.total_gasto) || 0,
+                                  createdAt: getListTimestampMs(list.data),
+                                })
+                              }
+                              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-all cursor-pointer"
+                              title="Baixar em formato Excel (.CSV)"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {onDeleteSavedList && (
+                            confirmDeleteSheetId === entry.id ? (
+                              <div className="flex items-center gap-1 bg-rose-950 border border-rose-500/40 px-2 py-1 rounded-xl">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onDeleteSavedList(list.id);
+                                    setConfirmDeleteSheetId(null);
+                                  }}
+                                  className="px-2 py-1 bg-rose-600 text-white rounded-lg text-[9px] font-black uppercase cursor-pointer"
+                                >
+                                  Excluir
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteSheetId(null)}
+                                  className="px-2 py-1 bg-slate-800 text-slate-300 rounded-lg text-[9px] font-bold uppercase cursor-pointer"
+                                >
+                                  Não
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteSheetId(entry.id)}
+                                className="p-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 rounded-xl transition-all cursor-pointer"
+                                title="Mover lista para lixeira"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end flex-wrap">
-                        {confirmLoadSheetId === sheet.id ? (
-                          <div className="flex items-center gap-1 bg-emerald-950/80 border border-emerald-500/40 px-2 py-1 rounded-xl">
-                            <span className="text-[9px] font-bold text-emerald-200 mr-1">Substituir atual?</span>
-                            <button
-                              type="button"
-                              onClick={() => executeLoadSheet(sheet)}
-                              className="px-2 py-1 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase cursor-pointer"
-                            >
-                              Sim
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmLoadSheetId(null)}
-                              className="px-2 py-1 bg-slate-800 text-slate-300 rounded-lg text-[9px] font-bold uppercase cursor-pointer"
-                            >
-                              Não
-                            </button>
-                          </div>
-                        ) : (
+                      {movingSheetId === entry.id && onMoveSavedListFolder && (
+                        <div className="flex items-center gap-2 bg-slate-900 p-2 rounded-xl border border-indigo-500/30">
+                          <span className="text-[10px] font-bold text-indigo-300 uppercase shrink-0">Mover para:</span>
+                          <select
+                            value={list.pasta || "Geral"}
+                            onChange={(e) => {
+                              onMoveSavedListFolder(list.id, e.target.value);
+                              setMovingSheetId(null);
+                            }}
+                            className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none"
+                          >
+                            {mergedExcelFolders.map(f => (
+                              <option key={f} value={f}>{f}</option>
+                            ))}
+                          </select>
                           <button
                             type="button"
-                            onClick={() => handleLoadSheet(sheet)}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-sm cursor-pointer"
-                            title="Carregar esta planilha de volta na calculadora"
+                            onClick={() => setMovingSheetId(null)}
+                            className="text-slate-400 hover:text-white p-1 cursor-pointer"
                           >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Carregar ⚡</span>
+                            <X className="w-3.5 h-3.5" />
                           </button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => setMovingSheetId(movingSheetId === sheet.id ? null : sheet.id)}
-                          className="p-2 bg-indigo-950/70 hover:bg-indigo-800 text-indigo-300 rounded-xl transition-all cursor-pointer"
-                          title="Mover para outra pasta"
-                        >
-                          <Folder className="w-3.5 h-3.5" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleExportCSV(sheet)}
-                          className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-all cursor-pointer"
-                          title="Baixar em formato Excel (.CSV)"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </button>
-
-                        {confirmDeleteSheetId === sheet.id ? (
-                          <div className="flex items-center gap-1 bg-rose-950 border border-rose-500/40 px-2 py-1 rounded-xl">
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteSheet(sheet.id, sheet.title)}
-                              className="px-2 py-1 bg-rose-600 text-white rounded-lg text-[9px] font-black uppercase cursor-pointer"
-                            >
-                              Excluir
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteSheetId(null)}
-                              className="px-2 py-1 bg-slate-800 text-slate-300 rounded-lg text-[9px] font-bold uppercase cursor-pointer"
-                            >
-                              Não
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteSheetId(sheet.id)}
-                            className="p-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 rounded-xl transition-all cursor-pointer"
-                            title="Excluir planilha"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
-
-                    {movingSheetId === sheet.id && (
-                      <div className="flex items-center gap-2 bg-slate-900 p-2 rounded-xl border border-indigo-500/30">
-                        <span className="text-[10px] font-bold text-indigo-300 uppercase shrink-0">Mover para:</span>
-                        <select
-                          value={sheet.folder}
-                          onChange={(e) => handleMoveSheetFolder(sheet.id, e.target.value)}
-                          className="flex-1 bg-slate-950 border border-white/10 rounded-lg px-2 py-1 text-xs text-white outline-none"
-                        >
-                          {mergedExcelFolders.map(f => (
-                            <option key={f} value={f}>{f}</option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => setMovingSheetId(null)}
-                          className="text-slate-400 hover:text-white p-1 cursor-pointer"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 

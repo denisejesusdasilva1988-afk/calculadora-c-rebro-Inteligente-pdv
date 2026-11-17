@@ -934,7 +934,7 @@ const saveUserProfileToFirestore = async (currentUser: any) => {
 };
 
 export default function App() {
-  const runningVersion = "v_online_2.4";
+  const runningVersion = "v_online_2.5";
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [downloadZipStatus, setDownloadZipStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [downloadZipError, setDownloadZipError] = useState<string | null>(null);
@@ -3899,6 +3899,7 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.setItem("explicit_logout", "true");
+    try { localStorage.removeItem("last_authenticated_uid"); } catch {}
     setUser(null);
     signOut(auth);
     showNotification("Até logo!", "info");
@@ -6075,10 +6076,34 @@ export default function App() {
 
     try {
       const saved = localStorage.getItem(`notepad_local_history${suffix}`);
-      setLocalHistory(saved ? JSON.parse(saved) : []);
+      const guestSaved = userId && userId !== "guest_visitor"
+        ? (localStorage.getItem("notepad_local_history_user_guest") || localStorage.getItem("notepad_local_history_guest"))
+        : null;
+      const unscopedSaved = localStorage.getItem("notepad_local_history");
+      const map = new Map<string, SavedList>();
+      [unscopedSaved, guestSaved, saved].forEach((raw) => {
+        if (!raw) return;
+        try {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) {
+            arr.forEach((item: SavedList) => item?.id && map.set(item.id, item));
+          }
+        } catch {}
+      });
+      setLocalHistory(Array.from(map.values()));
     } catch {
       setLocalHistory([]);
     }
+
+    try {
+      const cachedCloud = localStorage.getItem(`notepad_cloud_history_cache${suffix}`);
+      if (cachedCloud) {
+        const parsedCloud = JSON.parse(cachedCloud);
+        if (Array.isArray(parsedCloud) && parsedCloud.length > 0) {
+          setHistory((prev) => (prev.length > 0 ? prev : parsedCloud));
+        }
+      }
+    } catch {}
 
     try {
       const savedCatalog = getScopedItem("custom_catalog_products", userId);
@@ -6114,9 +6139,24 @@ export default function App() {
     }
 
     try {
-      const savedSheets = localStorage.getItem(`notepad_excel_saved_sheets${suffix}`) || localStorage.getItem("notepad_excel_saved_sheets");
-      const parsedSheets = savedSheets ? JSON.parse(savedSheets) : [];
-      setSavedExcelSheets(Array.isArray(parsedSheets) ? parsedSheets : []);
+      const savedSheets = localStorage.getItem(`notepad_excel_saved_sheets${suffix}`);
+      const guestSheets = userId && userId !== "guest_visitor"
+        ? (localStorage.getItem("notepad_excel_saved_sheets_user_guest") || localStorage.getItem("notepad_excel_saved_sheets_guest"))
+        : null;
+      const unscopedSheets = localStorage.getItem("notepad_excel_saved_sheets");
+      const sheetMap = new Map<string, SavedExcelSheet>();
+      [unscopedSheets, guestSheets, savedSheets].forEach((raw) => {
+        if (!raw) return;
+        try {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) {
+            arr.forEach((s: SavedExcelSheet) => s?.id && sheetMap.set(s.id, s));
+          }
+        } catch {}
+      });
+      setSavedExcelSheets(
+        Array.from(sheetMap.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      );
     } catch {
       setSavedExcelSheets([]);
     }
@@ -6136,18 +6176,24 @@ export default function App() {
 
   // Handle Auth State
   useEffect(() => {
-    // Safety timer to prevent white screen or infinite loading
+    // Safety timer to prevent white screen or infinite loading (especially offline)
     const timer = setTimeout(() => {
       setIsCloudLoaded((prev) => {
         if (!prev) {
           if (!user) {
-            const guestUser = {
-              uid: "guest_visitor",
-              email: "visitante@cerebrointeligente.com",
-              displayName: "Visitante Convidado"
-            } as any;
-            setUser(guestUser);
-            try { loadFromLocalStorage("guest_visitor"); } catch {}
+            const explicitLogout = localStorage.getItem("explicit_logout") === "true";
+            const lastAuthUid = !explicitLogout ? localStorage.getItem("last_authenticated_uid") : null;
+            if (lastAuthUid) {
+              try { loadFromLocalStorage(lastAuthUid); } catch {}
+            } else {
+              const guestUser = {
+                uid: "guest_visitor",
+                email: "visitante@cerebrointeligente.com",
+                displayName: "Visitante Convidado"
+              } as any;
+              setUser(guestUser);
+              try { loadFromLocalStorage("guest_visitor"); } catch {}
+            }
           }
           return true;
         }
@@ -6171,15 +6217,20 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       try {
         if (currentUser) {
-          try { localStorage.removeItem("explicit_logout"); } catch {}
+          try {
+            localStorage.removeItem("explicit_logout");
+            localStorage.setItem("last_authenticated_uid", currentUser.uid);
+          } catch {}
           // Clear legacy unscoped data from prior user to eliminate cross-contamination
           clearLegacyUnscopedData();
           setUser(currentUser);
+          // Load local user data immediately so offline/slow connections show saved folders right away
+          try { loadFromLocalStorage(currentUser.uid); } catch {}
           try { saveUserProfileToFirestore(currentUser); } catch {}
           try {
             await Promise.race([
               syncFromCloud(currentUser.uid),
-              new Promise((resolve) => setTimeout(resolve, 2000))
+              new Promise((resolve) => setTimeout(resolve, 2500))
             ]);
           } catch (err) {
             console.warn("Aviso na sincronização da nuvem:", err);
@@ -6473,7 +6524,17 @@ export default function App() {
           if (Array.isArray(data.excelSavedSheets)) {
             setSavedExcelSheets((prev) => {
               const map = new Map<string, SavedExcelSheet>();
+              // Read localStorage sheets too so offline-saved sheets are never lost
+              let localStoredSheets: SavedExcelSheet[] = [];
+              try {
+                const rawLocal = localStorage.getItem(`notepad_excel_saved_sheets${suffix}`) || localStorage.getItem("notepad_excel_saved_sheets");
+                if (rawLocal) {
+                  const parsed = JSON.parse(rawLocal);
+                  if (Array.isArray(parsed)) localStoredSheets = parsed;
+                }
+              } catch {}
               data.excelSavedSheets.forEach((s: SavedExcelSheet) => s?.id && map.set(s.id, s));
+              localStoredSheets.forEach((s) => s?.id && map.set(s.id, s));
               prev.forEach((s) => s?.id && map.set(s.id, s));
               const merged = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
               localStorage.setItem(`notepad_excel_saved_sheets${suffix}`, JSON.stringify(merged));
@@ -7067,21 +7128,27 @@ export default function App() {
     if (!isCloudLoaded) return;
     const suffix = user ? `_user_${user.uid}` : `_guest`;
     localStorage.setItem(`notepad_created_folders${suffix}`, JSON.stringify(createdFolders));
-    localStorage.setItem("notepad_created_folders", JSON.stringify(createdFolders));
+    if (user && user.uid !== "guest_visitor") {
+      localStorage.setItem("notepad_created_folders", JSON.stringify(createdFolders));
+    }
   }, [createdFolders, user, isCloudLoaded]);
 
   useEffect(() => {
     if (!isCloudLoaded) return;
     const suffix = user ? `_user_${user.uid}` : `_guest`;
     localStorage.setItem(`notepad_excel_saved_sheets${suffix}`, JSON.stringify(savedExcelSheets));
-    localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(savedExcelSheets));
+    if ((user && user.uid !== "guest_visitor") || savedExcelSheets.length > 0) {
+      localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(savedExcelSheets));
+    }
   }, [savedExcelSheets, user, isCloudLoaded]);
 
   useEffect(() => {
     if (!isCloudLoaded) return;
     const suffix = user ? `_user_${user.uid}` : `_guest`;
     localStorage.setItem(`notepad_excel_folders_list${suffix}`, JSON.stringify(excelFoldersList));
-    localStorage.setItem("notepad_excel_folders_list", JSON.stringify(excelFoldersList));
+    if (user && user.uid !== "guest_visitor") {
+      localStorage.setItem("notepad_excel_folders_list", JSON.stringify(excelFoldersList));
+    }
   }, [excelFoldersList, user, isCloudLoaded]);
 
   useEffect(() => {
@@ -7112,6 +7179,9 @@ export default function App() {
     if (!isCloudLoaded) return;
     const suffix = user ? `_user_${user.uid}` : `_guest`;
     localStorage.setItem(`notepad_local_history${suffix}`, JSON.stringify(localHistory));
+    if ((user && user.uid !== "guest_visitor") || localHistory.length > 0) {
+      localStorage.setItem("notepad_local_history", JSON.stringify(localHistory));
+    }
   }, [localHistory, user, isCloudLoaded]);
 
   // Save checkedIndices to localStorage
@@ -7191,15 +7261,20 @@ export default function App() {
       localStorage.setItem(`notepad_budget${suffix}`, budget);
       localStorage.setItem(`notepad_saved_notes${suffix}`, JSON.stringify(savedNotes));
       localStorage.setItem(`notepad_created_folders${suffix}`, JSON.stringify(createdFolders));
-      localStorage.setItem("notepad_created_folders", JSON.stringify(createdFolders));
       localStorage.setItem(`notepad_excel_saved_sheets${suffix}`, JSON.stringify(savedExcelSheets));
-      localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(savedExcelSheets));
       localStorage.setItem(`notepad_excel_folders_list${suffix}`, JSON.stringify(excelFoldersList));
-      localStorage.setItem("notepad_excel_folders_list", JSON.stringify(excelFoldersList));
+      if ((user && user.uid !== "guest_visitor") || savedExcelSheets.length > 0) {
+        localStorage.setItem("notepad_created_folders", JSON.stringify(createdFolders));
+        localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(savedExcelSheets));
+        localStorage.setItem("notepad_excel_folders_list", JSON.stringify(excelFoldersList));
+      }
       localStorage.setItem(`notepad_excel_rows${suffix}`, JSON.stringify(excelRows));
       localStorage.setItem(`notepad_super_list_data${suffix}`, JSON.stringify(superListData));
       localStorage.setItem(`notepad_custom_super_items${suffix}`, JSON.stringify(customSuperItems));
       localStorage.setItem(`notepad_local_history${suffix}`, JSON.stringify(localHistory));
+      if ((user && user.uid !== "guest_visitor") || localHistory.length > 0) {
+        localStorage.setItem("notepad_local_history", JSON.stringify(localHistory));
+      }
       localStorage.setItem("notepad_mode", notepadMode);
     } catch (err) {
       console.error("Erro no autosave local imediato:", err);
@@ -7867,14 +7942,16 @@ export default function App() {
   useEffect(() => {
     const isAuthActive = Boolean(auth?.currentUser && user?.uid && auth.currentUser.uid === user.uid);
     if (!user || user.uid === "guest_visitor" || !db || !isAuthActive) {
-      setHistory([]);
+      if (!user || user.uid === "guest_visitor") {
+        setHistory([]);
+      }
       return;
     }
     const q = query(
       collection(db, "listas"),
       where("userId", "==", user.uid),
       orderBy("data", "desc"),
-      limit(10),
+      limit(100),
     );
     const unsub = onSnapshot(
       q,
@@ -7884,6 +7961,9 @@ export default function App() {
           ...doc.data(),
         })) as SavedList[];
         setHistory(docs);
+        try {
+          localStorage.setItem(`notepad_cloud_history_cache_user_${user.uid}`, JSON.stringify(docs));
+        } catch {}
       },
       (error) => {
         handleFirestoreError(error, OperationType.LIST, "listas");
@@ -7907,156 +7987,243 @@ export default function App() {
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
-    const savedLocal = localStorage.getItem("notepad_local_history");
-    if (savedLocal) {
-      try {
-        setLocalHistory(JSON.parse(savedLocal));
-      } catch (e) {
-        console.error("Error loading local history:", e);
-      }
-    }
-
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("notepad_local_history", JSON.stringify(localHistory));
-  }, [localHistory]);
-
-  useEffect(() => {
-    if (isOnline && user && user.uid !== "guest_visitor" && localHistory.length > 0) {
-      syncLocalHistory();
-    }
-  }, [isOnline, user]);
+  const isSyncingLocalHistoryRef = useRef(false);
 
   const syncLocalHistory = async () => {
-    if (!user || user.uid === "guest_visitor" || localHistory.length === 0 || !isOnline || getIsFirestoreQuotaPaused()) return;
-
-    const currentUid = auth.currentUser?.uid || user.uid;
-    if (!currentUid || currentUid === "guest_visitor") return;
-
-    showNotification("Salvando suas listas com segurança...", "syncing");
-    const syncedIds: string[] = [];
-
-    for (const list of localHistory) {
-      const path = "listas";
-      try {
-        await addDoc(collection(db, "listas"), {
-          userId: currentUid,
-          saldo_total: list.saldo_total,
-          texto_digitado: list.texto_digitado,
-          total_gasto: list.total_gasto,
-          saldo_restante: list.saldo_restante,
-          pasta: list.pasta || "Geral",
-          excelRows: list.excelRows || null,
-          superListData: list.superListData || null,
-          checkedIndices: list.checkedIndices || null,
-          data: serverTimestamp(),
-        });
-        syncedIds.push(list.id);
-      } catch (e: any) {
-        if (isQuotaExhaustedError(e)) {
-          markFirestoreQuotaPaused();
-          console.warn("[Firestore] Cota diária atingida ao salvar listas. Fila local preservada.");
-          break;
-        }
-        handleFirestoreError(e, OperationType.CREATE, path);
-      }
+    if (
+      isSyncingLocalHistoryRef.current ||
+      !user ||
+      user.uid === "guest_visitor" ||
+      localHistory.length === 0 ||
+      !isOnline ||
+      getIsFirestoreQuotaPaused()
+    ) {
+      return;
     }
 
-    setLocalHistory((prev) => prev.filter((l) => !syncedIds.includes(l.id)));
-    if (syncedIds.length > 0) {
-      showNotification(
-        `${syncedIds.length} listas sincronizadas com sucesso!`,
-        "success",
-      );
-    } else {
-      setNotification(null);
+    const currentUid = auth?.currentUser?.uid || null;
+    if (!currentUid || currentUid !== user.uid) return;
+
+    isSyncingLocalHistoryRef.current = true;
+    showNotification("Enviando pastas salvas para a Nuvem... ☁️", "syncing");
+    const syncedIds: string[] = [];
+
+    try {
+      for (const list of localHistory) {
+        const path = "listas";
+        const targetId = list.id || `list_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        try {
+          await Promise.race([
+            setDoc(
+              doc(db, "listas", targetId),
+              {
+                userId: currentUid,
+                saldo_total: list.saldo_total || "",
+                texto_digitado: list.texto_digitado || "",
+                total_gasto: Number(list.total_gasto) || 0,
+                saldo_restante: Number(list.saldo_restante) || 0,
+                pasta: list.pasta || "Geral",
+                excelRows: list.excelRows || null,
+                superListData: list.superListData || null,
+                checkedIndices: list.checkedIndices || null,
+                data: serverTimestamp(),
+              },
+              { merge: true }
+            ),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("sync_timeout")), 5000)),
+          ]);
+          syncedIds.push(list.id);
+        } catch (e: any) {
+          if (isQuotaExhaustedError(e)) {
+            markFirestoreQuotaPaused();
+            console.warn("[Firestore] Cota diária atingida ao salvar listas. Fila local preservada.");
+            break;
+          }
+          if (e?.message === "sync_timeout" || e?.code === "unavailable") {
+            console.warn("[Firestore] Sem resposta da rede ao enviar lista. Mantendo na fila local.");
+            break;
+          }
+          handleFirestoreError(e, OperationType.CREATE, path);
+        }
+      }
+
+      if (syncedIds.length > 0) {
+        setLocalHistory((prev) => {
+          const remaining = prev.filter((l) => !syncedIds.includes(l.id));
+          try {
+            const suffix = `_user_${currentUid}`;
+            localStorage.setItem(`notepad_local_history${suffix}`, JSON.stringify(remaining));
+            localStorage.setItem("notepad_local_history", JSON.stringify(remaining));
+          } catch {}
+          return remaining;
+        });
+        showNotification(
+          `${syncedIds.length} lista(s) sincronizada(s) na Nuvem com sucesso! ☁️✅`,
+          "success",
+        );
+      } else {
+        setNotification(null);
+      }
+    } finally {
+      isSyncingLocalHistoryRef.current = false;
     }
   };
 
+  useEffect(() => {
+    if (isOnline && user && user.uid !== "guest_visitor" && auth?.currentUser?.uid === user.uid && localHistory.length > 0) {
+      syncLocalHistory();
+    }
+  }, [isOnline, user, localHistory.length]);
+
+  const getSavedListDisplayTitle = (item: SavedList) => {
+    const firstTextLine = (item.texto_digitado || "")
+      .split("\n")
+      .map((l) => l.trim())
+      .find(Boolean);
+    if (firstTextLine) return firstTextLine;
+
+    if (Array.isArray(item.excelRows)) {
+      const filled = item.excelRows.filter((r: any) => r?.name && String(r.name).trim() !== "");
+      if (filled.length > 0) {
+        const firstName = String(filled[0].name).trim();
+        return filled.length > 1 ? `${firstName} (+${filled.length - 1})` : firstName;
+      }
+    }
+
+    if (item.superListData && typeof item.superListData === "object") {
+      const checkedEntries = Object.entries(item.superListData).filter(
+        ([, v]: [string, any]) => v && v.checked
+      );
+      if (checkedEntries.length > 0) {
+        const [firstName, firstVal] = checkedEntries[0] as [string, any];
+        const displayName = (firstVal?.customName || firstName || "").trim();
+        if (displayName) {
+          return checkedEntries.length > 1 ? `${displayName} (+${checkedEntries.length - 1})` : displayName;
+        }
+      }
+    }
+
+    return item.pasta ? `Lista (${item.pasta})` : "Lista Salva";
+  };
+
   const saveCurrentList = async () => {
-    if (totalSpent === 0) {
+    const hasFilledExcelRows = excelRows.some((r) => r?.name && String(r.name).trim() !== "");
+    const hasCheckedSuperItems = Object.values(superListData || {}).some((i: any) => i?.checked);
+    const hasTypedText = inputText.trim().length > 0;
+
+    if (totalSpent === 0 && !hasFilledExcelRows && !hasCheckedSuperItems && !hasTypedText) {
       showNotification("Adicione itens à lista primeiro!", "error");
       return;
     }
 
+    const stableId = `list_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const targetFolder = (currentFolder || "Geral").trim();
     const listData: SavedList = {
-      id: Date.now().toString(),
+      id: stableId,
       saldo_total: budget,
       texto_digitado: inputText,
       total_gasto: totalSpent,
       saldo_restante: balance,
-      pasta: currentFolder || "Geral",
+      pasta: targetFolder,
       excelRows: excelRows,
       superListData: superListData,
       checkedIndices: checkedIndices,
       data: Timestamp.now(),
     };
 
-    if (user && user.uid !== "guest_visitor") {
-      showNotification("Lista de compras arquivada e sincronizada na Nuvem! 🛒☁️", "success");
-    } else {
-      showNotification("Lista de compras arquivada com sucesso no aparelho! 🛒✨", "success");
+    // Ensure folder exists in folders lists
+    if (targetFolder) {
+      setCreatedFolders((prev) => (prev.includes(targetFolder) ? prev : [...prev, targetFolder]));
+      setExcelFoldersList((prev) => (prev.includes(targetFolder) ? prev : [...prev, targetFolder]));
     }
 
-    // 1. Instant local save for responsiveness
-    setLocalHistory((prev) => [listData, ...prev]);
+    // 1. Instant local save for 100% offline reliability
+    setLocalHistory((prev) => {
+      const updated = [listData, ...prev];
+      try {
+        const suffix = user ? `_user_${user.uid}` : `_guest`;
+        localStorage.setItem(`notepad_local_history${suffix}`, JSON.stringify(updated));
+        localStorage.setItem("notepad_local_history", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
     setShowFolderInput(false);
 
-    // 2. Background Sync if possible
+    // 2. Background Cloud Sync (idempotent setDoc with timeout guard)
     const isAuthActive = Boolean(auth?.currentUser && user?.uid && auth.currentUser.uid === user.uid);
     const currentUid = isAuthActive ? auth.currentUser.uid : null;
     if (currentUid) {
       if (isOnline && !getIsFirestoreQuotaPaused()) {
         const path = "listas";
         try {
-          await addDoc(collection(db, "listas"), {
-            userId: currentUid,
-            saldo_total: budget,
-            texto_digitado: inputText,
-            total_gasto: totalSpent,
-            saldo_restante: balance,
-            pasta: currentFolder || "Geral",
-            excelRows: excelRows,
-            superListData: superListData,
-            checkedIndices: checkedIndices,
-            data: serverTimestamp(),
-          });
+          await Promise.race([
+            setDoc(
+              doc(db, "listas", stableId),
+              {
+                userId: currentUid,
+                saldo_total: budget,
+                texto_digitado: inputText,
+                total_gasto: totalSpent,
+                saldo_restante: balance,
+                pasta: targetFolder,
+                excelRows: excelRows,
+                superListData: superListData,
+                checkedIndices: checkedIndices,
+                data: serverTimestamp(),
+              },
+              { merge: true }
+            ),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("save_timeout")), 5000)),
+          ]);
 
-          // Successfully synced, remove from localHistory
-          setLocalHistory((prev) => prev.filter((l) => l.id !== listData.id));
-          showNotification("Sua lista foi salva e guardada com sucesso! ✨", "success");
+          // Successfully synced, remove from pending localHistory queue
+          setLocalHistory((prev) => {
+            const remaining = prev.filter((l) => l.id !== stableId);
+            try {
+              const suffix = `_user_${currentUid}`;
+              localStorage.setItem(`notepad_local_history${suffix}`, JSON.stringify(remaining));
+              localStorage.setItem("notepad_local_history", JSON.stringify(remaining));
+            } catch {}
+            return remaining;
+          });
+          showNotification(`Salvo na pasta "${targetFolder}" e na Nuvem! ☁️✅`, "success");
           await registerSyncTag("sync-listas");
         } catch (e: any) {
           if (isQuotaExhaustedError(e)) {
             markFirestoreQuotaPaused();
-          } else {
+          } else if (e?.message !== "save_timeout" && e?.code !== "unavailable") {
             handleFirestoreError(e, OperationType.CREATE, path);
           }
           await registerSyncTag("sync-listas");
+          showNotification(
+            `Salvo na pasta "${targetFolder}" no celular! 📱 Será enviado à Nuvem quando a conexão estabilizar.`,
+            "success",
+          );
         }
       } else {
         await registerSyncTag("sync-listas");
         showNotification(
-          "Salvo com segurança no seu celular! Suas listas estão arquivadas localmente! 📱✨",
+          `Salvo na pasta "${targetFolder}" no celular! 📱 Será enviado à Nuvem quando tiver internet.`,
           "success",
         );
       }
     } else {
       showNotification(
-        "Salvo com segurança no seu celular! Lista arquivada no aparelho! 📱✨",
-        "info",
+        `Salvo na pasta "${targetFolder}" no celular! 📱✨`,
+        "success",
       );
     }
   };
 
   const loadList = (list: SavedList) => {
-    setBudget(list.saldo_total);
-    setInputText(list.texto_digitado);
+    setBudget(list.saldo_total || "");
+    setInputText(list.texto_digitado || "");
     if (list.excelRows) setExcelRows(list.excelRows);
     if (list.superListData) setSuperListData(list.superListData);
     if (list.checkedIndices) setCheckedIndices(list.checkedIndices);
@@ -8089,18 +8256,15 @@ export default function App() {
       }
       setHistory((prev) => prev.filter((l) => l.id !== id));
     }
-    setLocalHistory((prev) => prev.filter((l) => l.id !== id));
-    try {
-      const currentLocal = JSON.parse(
-        localStorage.getItem("local_history") || "[]",
-      );
-      if (Array.isArray(currentLocal)) {
-        localStorage.setItem(
-          "local_history",
-          JSON.stringify(currentLocal.filter((l: any) => l.id !== id)),
-        );
-      }
-    } catch {}
+    setLocalHistory((prev) => {
+      const updated = prev.filter((l) => l.id !== id);
+      try {
+        const suffix = user ? `_user_${user.uid}` : `_guest`;
+        localStorage.setItem(`notepad_local_history${suffix}`, JSON.stringify(updated));
+        localStorage.setItem("notepad_local_history", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   const deleteMultipleLists = async (
@@ -8129,16 +8293,15 @@ export default function App() {
       }
       setHistory((prev) => prev.filter((l) => !ids.includes(l.id)));
     }
-    setLocalHistory((prev) => prev.filter((l) => !ids.includes(l.id)));
-    try {
-      const currentLocal = JSON.parse(
-        localStorage.getItem("local_history") || "[]",
-      );
-      if (Array.isArray(currentLocal)) {
-        const updatedLocal = currentLocal.filter((l: any) => !ids.includes(l.id));
-        localStorage.setItem("local_history", JSON.stringify(updatedLocal));
-      }
-    } catch {}
+    setLocalHistory((prev) => {
+      const updated = prev.filter((l) => !ids.includes(l.id));
+      try {
+        const suffix = user ? `_user_${user.uid}` : `_guest`;
+        localStorage.setItem(`notepad_local_history${suffix}`, JSON.stringify(updated));
+        localStorage.setItem("notepad_local_history", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   const recoverFromTrash = (list: SavedList) => {
@@ -12068,6 +12231,48 @@ export default function App() {
                       setSavedExcelSheets={setSavedExcelSheets}
                       excelFoldersList={excelFoldersList}
                       setExcelFoldersList={setExcelFoldersList}
+                      savedLists={[
+                        ...localHistory,
+                        ...history.filter((h) => !localHistory.some((l) => l.id === h.id)),
+                      ]}
+                      localListIds={localHistory.map((l) => l.id)}
+                      isOnline={isOnline}
+                      onLoadSavedList={loadList}
+                      onDeleteSavedList={(id) => deleteList(id)}
+                      onMoveSavedListFolder={(id, newFolder) => {
+                        setLocalHistory((prev) =>
+                          prev.map((item) => (item.id === id ? { ...item, pasta: newFolder } : item))
+                        );
+                        setHistory((prev) =>
+                          prev.map((item) => (item.id === id ? { ...item, pasta: newFolder } : item))
+                        );
+                        if (user && user.uid !== "guest_visitor" && isOnline && !getIsFirestoreQuotaPaused()) {
+                          try {
+                            setDoc(doc(db, "listas", id), { pasta: newFolder }, { merge: true }).catch(() => {});
+                          } catch {}
+                        }
+                      }}
+                      onAfterSaveSheet={(updatedSheets, updatedFolders) => {
+                        try {
+                          const suffix = user ? `_user_${user.uid}` : `_guest`;
+                          const now = Date.now();
+                          localStorage.setItem(`notepad_excel_saved_sheets${suffix}`, JSON.stringify(updatedSheets));
+                          localStorage.setItem("notepad_excel_saved_sheets", JSON.stringify(updatedSheets));
+                          localStorage.setItem(`notepad_excel_folders_list${suffix}`, JSON.stringify(updatedFolders));
+                          localStorage.setItem("notepad_excel_folders_list", JSON.stringify(updatedFolders));
+                          localStorage.setItem(`notepad_last_modified_at${suffix}`, now.toString());
+                          setLastModifiedAt(now);
+                        } catch {}
+                        latestStatesRef.current = {
+                          ...latestStatesRef.current,
+                          savedExcelSheets: updatedSheets,
+                          excelFoldersList: updatedFolders,
+                        };
+                        if (user && user.uid !== "guest_visitor" && isOnline) {
+                          syncToCloud();
+                        }
+                      }}
+                      onSyncPendingNow={syncLocalHistory}
                       showNotification={showNotification}
                     />
                   ) : notepadMode === "pricing" ? (
@@ -14005,9 +14210,14 @@ export default function App() {
                         setLocalHistory((prev) =>
                           prev.map((item) => (item.id === id ? { ...item, pasta: newFolder } : item))
                         );
-                        if (user) {
+                        setHistory((prev) =>
+                          prev.map((item) => (item.id === id ? { ...item, pasta: newFolder } : item))
+                        );
+                        if (user && user.uid !== "guest_visitor" && isOnline && !getIsFirestoreQuotaPaused()) {
                           try {
-                            updateDoc(doc(db, "listas", id), { pasta: newFolder });
+                            setDoc(doc(db, "listas", id), { pasta: newFolder }, { merge: true }).catch((e) => {
+                              console.error("Erro ao atualizar pasta:", e);
+                            });
                           } catch (e) {
                             console.error("Erro ao atualizar pasta:", e);
                           }
@@ -14479,7 +14689,7 @@ export default function App() {
                                             e.stopPropagation();
                                             triggerConfirm({
                                               title: "Apagar Lista?",
-                                              message: `Deseja mover a lista "${item.texto_digitado.split("\n")[0] || "Lista sem nome"}" para a lixeira?`,
+                                              message: `Deseja mover a lista "${getSavedListDisplayTitle(item)}" para a lixeira?`,
                                               isDanger: true,
                                               confirmText: "Apagar",
                                               cancelText: "Melhor não",
@@ -14496,8 +14706,7 @@ export default function App() {
                                       </div>
                                     </div>
                                     <p className="text-sm font-bold text-white line-clamp-1">
-                                      {item.texto_digitado.split("\n")[0] ||
-                                        "Lista sem nome"}
+                                      {getSavedListDisplayTitle(item)}
                                     </p>
                                     <p className="text-[10px] font-bold text-green-400">
                                       {formatCurrency(item.saldo_restante)}{" "}

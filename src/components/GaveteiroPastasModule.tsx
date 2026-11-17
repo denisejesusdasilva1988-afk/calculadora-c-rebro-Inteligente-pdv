@@ -1005,7 +1005,13 @@ export function GaveteiroPastasModule({
                 {filteredLists.map((list) => {
                   const isSuper = Boolean(list.superListData || list.texto_digitado?.includes("[X]") || list.texto_digitado?.toLowerCase().includes("mercado"));
                   const isExpanded = expandedItemId === list.id;
-                  const firstLine = list.texto_digitado ? list.texto_digitado.split("\n")[0] : "Cálculo";
+                  const firstExcelRow = Array.isArray(list.excelRows)
+                    ? list.excelRows.find((r: any) => r?.name && String(r.name).trim() !== "")
+                    : null;
+                  const firstLine =
+                    (list.texto_digitado || "").split("\n").map((l) => l.trim()).find(Boolean) ||
+                    (firstExcelRow ? String(firstExcelRow.name).trim() : "") ||
+                    (list.pasta ? `Lista (${list.pasta})` : "Cálculo");
                   const folder = list.pasta || "Geral";
 
                   return (
