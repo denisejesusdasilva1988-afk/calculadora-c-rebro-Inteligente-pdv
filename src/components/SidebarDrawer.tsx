@@ -2,6 +2,8 @@ import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { CompanyProfileModal } from "./CompanyProfileModal";
 import { loadCompanyProfile } from "../utils/companyProfile";
+import { isOfficialAdminEmail } from "../utils/founderAccess";
+import { isFeatureAllowedForTier, SubscriptionTier } from "../utils/subscriptionTiers";
 import {
   Store,
   Tag,
@@ -153,14 +155,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   } catch {}
 
   const isAdmin = useMemo(() => {
-    if (!user?.email) return false;
-    const emailLower = user.email.toLowerCase().trim();
-    const adminEmails = [
-      "denisejesusdasilva1988@gmail.com",
-      "denisejesusdasilva1988@gmail.com.br",
-      "calculadoracerebrointeligente@gmail.com"
-    ];
-    return adminEmails.includes(emailLower) || emailLower.includes("wellington");
+    return isOfficialAdminEmail(user?.email);
   }, [user]);
 
   // Login PIN & Company states
@@ -220,7 +215,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       }
     } catch {}
     return [
-      { id: "prof_denise", nome: "Denise (Responsável)", apelido: "Denise", especialidade: "Atendimento Geral & Gestão", fotoUrl: "", categoria: "salao" },
+      { id: "prof_admin", nome: "Responsável / Proprietário", apelido: "Gestão", especialidade: "Atendimento Geral & Gestão", fotoUrl: "", categoria: "salao" },
       { id: "prof_barbeiro", nome: "Barbeiro", apelido: "Barbeiro", especialidade: "Corte Masculino & Barba", fotoUrl: "", categoria: "barbearia" },
       { id: "prof_salao", nome: "Cabeleireira", apelido: "Salão", especialidade: "Escova, Cortes & Mechas", fotoUrl: "", categoria: "salao" },
       { id: "prof_manicure", nome: "Manicure", apelido: "Manicure", especialidade: "Unhas, Gel & Esmaltação", fotoUrl: "", categoria: "manicure" }
@@ -228,14 +223,13 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   }, [currentUserId]);
 
   const handleProprietarioClick = () => {
-    // 1. License / Paywall check ("Apenas para quem pagar o aplicativo")
-    const emailLower = user?.email?.toLowerCase() || "";
-    const isMasterAdmin = isAdmin || emailLower.includes("denise") || emailLower.includes("wellington");
+    const isMasterAdmin = isAdmin;
+    const activeTier = (currentTier || (pdvLicenseActive ? "pdv_total" : "free")) as SubscriptionTier;
 
-    if (!pdvLicenseActive && !isMasterAdmin) {
-      showNotification("🔒 O Painel do Proprietário e o controle de permissões dos funcionários é exclusivo para assinantes do aplicativo!", "error");
+    if (!isFeatureAllowedForTier("pdv_completo", activeTier, isMasterAdmin)) {
+      showNotification("🔒 O Painel do Proprietário faz parte dos planos pagos (30 dias grátis no lançamento)!", "error");
       if (onOpenPaywall) {
-        onOpenPaywall();
+        onOpenPaywall("Painel do Proprietário & Equipe", "pdv_total");
       }
       return;
     }
@@ -621,44 +615,55 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   const activeNicheMeta = getNicheMeta(selectedNiche);
   const ActiveNicheIcon = activeNicheMeta.icon;
   // Navigation trigger that closes drawer afterwards
-  const handleNavigate = (mode: any, subTab: string | null = null, mainTab: string = "calc", checkoutOnly: boolean = false) => {
-    // 1. Subscription plan access gate (Freemium rules requested by user)
-    const isOwnerOrAdmin = isOwner || (user?.email && user.email.toLowerCase().includes("denise"));
-    const activeTier = currentTier || (pdvLicenseActive ? "pdv_total" : "free");
+  const handleNavigate = (mode: any, subTab: string | null = null, mainTab: string = "calc", checkoutOnly: boolean = false, pricingCalcType?: string) => {
+    // 1. Regras de assinatura + período de teste gratuito de 30 dias
+    const activeTier = (currentTier || (pdvLicenseActive ? "pdv_total" : "free")) as SubscriptionTier;
+    const isMasterBypass = isAdmin || activeTier === "infinite";
 
-    if (!isOwnerOrAdmin) {
-      if (mode === "pdv") {
+    if (!isMasterBypass) {
+      if (mode === "barbearia_salao") {
+        if (!isFeatureAllowedForTier("agenda_profissionais", activeTier, false)) {
+          showNotification("🔒 Seus 30 dias grátis terminaram. A Agenda dos Profissionais faz parte do Plano Ferramentas Pro (R$ 14,90/mês)!", "error");
+          if (onOpenPaywall) onOpenPaywall("Agenda dos Profissionais", "pro_tools");
+          return;
+        }
+      } else if (
+        (mode === "pdv" && (subTab === "ferro_velho" || subTab === "ferro_velho_outros" || subTab === "ferro_velho_guia")) ||
+        (mode === "pricing" && pricingCalcType === "glass_recycling")
+      ) {
+        if (!isFeatureAllowedForTier("ferro_velho", activeTier, false)) {
+          showNotification("🔒 Seus 30 dias grátis terminaram. O módulo Ferro Velho & Pátio faz parte do Plano Gestão (R$ 29,90/mês)!", "error");
+          if (onOpenPaywall) onOpenPaywall("Ferro Velho, Pátio & Reciclagem", "estoque_gestao");
+          return;
+        }
+      } else if (mode === "pdv") {
         if (subTab === "inventory" || subTab === "cadastro_produtos") {
-          // Estoque liberado para R$ 29,90 e R$ 39,90
-          if (activeTier !== "estoque_gestao" && activeTier !== "pdv_total" && !pdvLicenseActive) {
-            showNotification("🔒 O Controle de Estoque Completo está liberado no Plano Gestão (R$ 29,90) ou PDV Total (R$ 39,90)!", "error");
+          if (!isFeatureAllowedForTier("estoque", activeTier, false)) {
+            showNotification("🔒 O Controle de Estoque Completo está liberado após os 30 dias no Plano Gestão (R$ 29,90)!", "error");
             if (onOpenPaywall) onOpenPaywall("Controle de Estoque Completo", "estoque_gestao");
             return;
           }
         } else {
-          // Frente de Caixa PDV & IA - R$ 39,90
-          if (activeTier !== "pdv_total" && !pdvLicenseActive) {
-            showNotification("🔒 A Frente de Caixa (PDV) completa e a IA Gemini são exclusivas do Plano PDV Total (R$ 39,90)!", "error");
+          if (!isFeatureAllowedForTier("pdv_completo", activeTier, false)) {
+            showNotification("🔒 Seus 30 dias grátis terminaram. Assine o Plano PDV Total (R$ 39,90) ou Gestão (R$ 29,90)!", "error");
             if (onOpenPaywall) onOpenPaywall("Frente de Caixa PDV & IA Gemini", "pdv_total");
             return;
           }
         }
       } else if (mode === "pricing" || subTab === "pricing") {
-        // Calculadora de Precificação - R$ 14,90
-        if (activeTier === "free" && !pdvLicenseActive) {
+        if (!isFeatureAllowedForTier("precificacao", activeTier, false)) {
           showNotification("🔒 A Calculadora de Precificação faz parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
           if (onOpenPaywall) onOpenPaywall("Calculadora de Precificação Inteligente", "pro_tools");
           return;
         }
       } else if (mode === "receipts" || mode === "brecho") {
-        // Ferramentas Pro (Talões, Recibos) - R$ 14,90
-        if (activeTier === "free" && !pdvLicenseActive) {
-          showNotification("🔒 Este recurso profissional faz parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
+        if (!isFeatureAllowedForTier("taloes", activeTier, false)) {
+          showNotification("🔒 Talões & Recibos fazem parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
           if (onOpenPaywall) onOpenPaywall("Ferramentas Pro", "pro_tools");
           return;
         }
       }
-      // "super" (Mercado lista), "encartes" (Ofertas folhetos), "notes" (Bloco comum), "agenda", "folders" (Calc normal), "edit" (Calc Nota Excel) are ALWAYS 100% Free!
+      // "super", "encartes", "notes", "agenda", "folders", "edit" (Calculadora Nota & Excel) e "pastas" são SEMPRE 100% Gratuitos!
     }
 
     // Permission checks
@@ -847,7 +852,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                             type="text"
                             value={companyName}
                             onChange={(e) => setCompanyName(e.target.value)}
-                            placeholder="Ex: Mercadinho da Denise"
+                            placeholder="Ex: Minha Empresa LTDA"
                             className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1.5 text-xs text-white outline-none font-bold"
                           />
                         </div>
@@ -879,11 +884,17 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     ) : (
                       <div className="space-y-1 select-text">
                         <h3 className="text-sm font-black text-white leading-tight uppercase tracking-wide">
-                          {storeName || "D.W VIDROS & RECICLAGEM"}
+                          {storeName || "MINHA EMPRESA"}
                         </h3>
-                        <p className="text-[10.5px] font-extrabold text-amber-400 truncate max-w-full font-mono uppercase tracking-wider">
-                          📄 CNPJ: {storeCnpjCpf || "67.965.725/0001-95"}
-                        </p>
+                        {storeCnpjCpf ? (
+                          <p className="text-[10.5px] font-extrabold text-amber-400 truncate max-w-full font-mono uppercase tracking-wider">
+                            📄 CNPJ/CPF: {storeCnpjCpf}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] font-bold text-slate-400 truncate max-w-full">
+                            Toque em Editar para configurar sua empresa
+                          </p>
+                        )}
                         <p className="text-[10.5px] font-bold text-emerald-200/90 truncate max-w-full font-mono mt-0.5">
                           ✉️ {user?.email || "visitante@cerebro.com"}
                         </p>
@@ -1453,7 +1464,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                           Barbearia, Salão & Festas 💈🍰
                         </span>
                       </div>
-                      <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black">COMPLETO</span>
+                      <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black">30D GRÁTIS</span>
                     </button>
 
                     {/* Atalhos Diretos por Categoria Separada */}
@@ -1664,7 +1675,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                       try {
                         localStorage.setItem("pdv_pricing_active_calc_type", "glass_recycling");
                       } catch {}
-                      handleNavigate("pricing");
+                      handleNavigate("pricing", null, "calc", false, "glass_recycling");
                     }}
                     className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer text-left ${
                       notepadMode === "pricing" && (typeof window !== "undefined" && localStorage.getItem("pdv_pricing_active_calc_type") === "glass_recycling")
@@ -1676,7 +1687,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                       <Wine className="w-5 h-5 text-emerald-400 shrink-0" />
                       <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
                         Vidros & Ferro Velho
-                        <span className="text-[8px] bg-teal-500 text-slate-950 font-black px-1.5 py-0.5 rounded">NOVO</span>
+                        <span className="text-[8px] bg-teal-500 text-slate-950 font-black px-1.5 py-0.5 rounded">30D GRÁTIS</span>
                       </span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
@@ -1945,7 +1956,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                         <div>
                           <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5 text-white">
                             Agendas & Profissionais 💈📅
-                            <span className="text-[8px] bg-amber-500 text-slate-950 font-black px-1.5 py-0.5 rounded">EQUIPE</span>
+                            <span className="text-[8px] bg-amber-500 text-slate-950 font-black px-1.5 py-0.5 rounded">30D GRÁTIS</span>
                           </span>
                           <span className="text-[9.5px] text-slate-400 block font-normal">Barbeiros, Salão, Manicure, Estética & Festas</span>
                         </div>
@@ -2530,7 +2541,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     <span>{isCreatingPin ? "Salvar PIN & Entrar 👑" : "Acessar como Proprietário 👑"}</span>
                   </button>
 
-                  {(isAdmin || user?.email?.toLowerCase().includes("denise") || user?.email?.toLowerCase().includes("wellington")) && (
+                  {isAdmin && (
                     <button
                       type="button"
                       onClick={() => {
@@ -2546,7 +2557,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                       className="w-full py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all border border-amber-500/30 flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Shield className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Desbloquear Imediatamente (Denise / Wellington)</span>
+                      <span>Desbloquear Imediatamente (Admin)</span>
                     </button>
                   )}
 

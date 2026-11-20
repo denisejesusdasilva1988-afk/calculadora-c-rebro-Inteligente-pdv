@@ -45,6 +45,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../App";
+import { isOfficialAdminEmail } from "../utils/founderAccess";
 
 interface PersonalDataProfileCardProps {
   user: any;
@@ -83,11 +84,11 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
   });
   const [phoneInput, setPhoneInput] = useState(() => {
     const prof = loadCompanyProfile(user?.uid);
-    return prof.phone || prof.whatsapp || "21966713263";
+    return prof.phone || prof.whatsapp || "";
   });
   const [pixKeyInput, setPixKeyInput] = useState(() => {
     const prof = loadCompanyProfile(user?.uid);
-    return prof.pixKey || "21966713263";
+    return prof.pixKey || "";
   });
   const [companyNameInput, setCompanyNameInput] = useState(() => {
     const prof = loadCompanyProfile(user?.uid);
@@ -130,11 +131,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
   const [unlockNewPinInput, setUnlockNewPinInput] = useState("");
   const [isMaskedData, setIsMaskedData] = useState(false);
 
-  const emailLower = (user?.email || "").toLowerCase().trim();
-  const isDenise =
-    emailLower.includes("denisejesusdasilva1988") ||
-    emailLower.includes("denisejesus1988") ||
-    emailLower.includes("calculadoracerebro");
+  const isAdminAccount = isOfficialAdminEmail(user?.email);
 
   useEffect(() => {
     const loaded = loadCompanyProfile(user?.uid);
@@ -215,15 +212,6 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
     setPhoneInput(formatPhone(e.target.value));
   };
 
-  // Preencher dados oficiais da Denise automaticamente
-  const handleAutoFillDenise = () => {
-    setOwnerNameInput("Denise Jesus da Silva");
-    setPhoneInput("(21) 96671-3263");
-    setPixKeyInput("21966713263");
-    if (!companyNameInput) setCompanyNameInput("Calculadora Cérebro PDV");
-    showNotification("Dados da Denise carregados nos campos! Preencha seu CPF e clique em Salvar. ✍️✨", "info");
-  };
-
   // Salvar dados pessoais
   const handleSavePersonalData = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -238,9 +226,9 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
     try {
       const trimmedCpf = cpfInput.trim();
       const trimmedOwnerName = ownerNameInput.trim();
-      const trimmedName = companyNameInput.trim() || profile.name || "D.W VIDROS & RECICLAGEM";
+      const trimmedName = companyNameInput.trim() || profile.name || "";
       const trimmedPhone = phoneInput.trim();
-      const trimmedPix = pixKeyInput.trim() || "21966713263";
+      const trimmedPix = pixKeyInput.trim();
       const trimmedLogo = logoInput.trim();
       const cleanPin = ownerPinInput.replace(/\D/g, "").slice(0, 6);
 
@@ -270,7 +258,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
         setScopedItem("pdv_owner_cpf", trimmedCpf, user?.uid);
 
         // Mapeia CPF/CNPJ para Email da conta para permitir login por CPF
-        const accountEmail = (user?.email || (isDenise ? "denisejesusdasilva1988@gmail.com" : "")).toLowerCase();
+        const accountEmail = (user?.email || "").toLowerCase();
         if (cleanCpfDigits.length >= 11 && accountEmail) {
           try {
             const rawMap = localStorage.getItem("cpf_email_map");
@@ -283,7 +271,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
             try {
               setDoc(doc(db, "cpf_directory", cleanCpfDigits), {
                 email: accountEmail,
-                userId: user?.uid || "denise_owner",
+                userId: user?.uid || `local_${cleanCpfDigits}`,
                 updatedAt: new Date().toISOString()
               }, { merge: true }).catch(() => {});
             } catch {}
@@ -370,15 +358,12 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
     storeCnpjCpf ||
     localStorage.getItem("pdv_owner_cpf") ||
     localStorage.getItem("pdv_store_cnpj_cpf") ||
-    (isDenise ? "141.288.347-71" : "");
+    "";
 
   const handleAutoFillRecoveryCpf = () => {
     if (savedCpfForFill) {
       setRecoveryCpfInput(formatCPF(savedCpfForFill));
       showNotification("CPF cadastrado preenchido no campo de recuperação! 🪪✨", "info");
-    } else if (isDenise) {
-      setRecoveryCpfInput("141.288.347-71");
-      showNotification("CPF da Denise preenchido com sucesso! 🪪✨", "info");
     }
   };
 
@@ -413,7 +398,6 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
       storeCnpjCpf ||
       localStorage.getItem("pdv_owner_cpf") ||
       localStorage.getItem("pdv_store_cnpj_cpf") ||
-      (isDenise ? "14128834771" : "") ||
       ""
     ).replace(/\D/g, "");
 
@@ -425,7 +409,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
         return;
       }
 
-      if (savedCpfDigits && cleanEnteredCpf !== savedCpfDigits && !(isDenise && cleanEnteredCpf === "14128834771")) {
+      if (savedCpfDigits && cleanEnteredCpf !== savedCpfDigits) {
         showNotification("O CPF digitado não confere com o CPF do titular cadastrado nesta conta! ❌", "error");
         return;
       }
@@ -477,7 +461,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
       // Sincroniza mapeamento de CPF para Email
       if (passwordValidationMode === "cpf" && recoveryCpfInput) {
         const cleanRecoveryCpf = recoveryCpfInput.replace(/\D/g, "");
-        const targetEmail = (currentUser?.email || user?.email || (isDenise ? "denisejesusdasilva1988@gmail.com" : "")).toLowerCase();
+        const targetEmail = (currentUser?.email || user?.email || "").toLowerCase();
         if (cleanRecoveryCpf.length >= 11 && targetEmail) {
           try {
             const rawMap = localStorage.getItem("cpf_email_map");
@@ -491,7 +475,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
             try {
               setDoc(doc(db, "cpf_directory", cleanRecoveryCpf), {
                 email: targetEmail,
-                userId: user?.uid || "denise_owner",
+                userId: user?.uid || `local_${cleanRecoveryCpf}`,
                 updatedAt: new Date().toISOString()
               }, { merge: true }).catch(() => {});
             } catch {}
@@ -610,8 +594,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
       (fallbackPass && entered === fallbackPass) ||
       (userPass && entered === userPass) ||
       (secPin && entered === secPin) ||
-      (isDenise && (entered === "23519199" || entered === "123456" || entered === "1234")) ||
-      entered === "23519199";
+      (isAdminAccount && entered === "123456");
 
     if (isMatch) {
       setIsCardLocked(false);
@@ -640,13 +623,10 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
       storeCnpjCpf ||
       localStorage.getItem("pdv_owner_cpf") ||
       localStorage.getItem("pdv_store_cnpj_cpf") ||
-      (isDenise ? "12660453764" : "") ||
       ""
     ).replace(/\D/g, "");
 
-    const isMatchCpf =
-      cleanEnteredCpf === savedCpfDigits ||
-      (isDenise && (cleanEnteredCpf === "12660453764" || cleanEnteredCpf === "14128834771"));
+    const isMatchCpf = Boolean(savedCpfDigits && cleanEnteredCpf === savedCpfDigits);
 
     if (isMatchCpf) {
       if (unlockNewPinInput) {
@@ -917,16 +897,6 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
             </div>
           </div>
 
-          {isDenise && (
-            <button
-              type="button"
-              onClick={handleAutoFillDenise}
-              className="bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-black uppercase px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>Preencher Dados da Denise</span>
-            </button>
-          )}
         </div>
 
         <form onSubmit={handleSavePersonalData} className="space-y-4">
@@ -941,7 +911,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
                 <span className="text-xs text-purple-300 font-mono font-bold select-all">
                   {isMaskedData && user?.email
                     ? user.email.replace(/(.{2})(.*)(@.*)/, "$1••••$3")
-                    : (user?.email || "denisejesusdasilva1988@gmail.com")}
+                    : (user?.email || "Não conectado")}
                 </span>
               </div>
             </div>
@@ -961,7 +931,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
                 type={isMaskedData ? "password" : "text"}
                 value={ownerNameInput}
                 onChange={(e) => setOwnerNameInput(e.target.value)}
-                placeholder="Ex: Denise Jesus da Silva"
+                placeholder="Ex: Nome do Proprietário"
                 className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-emerald-500 transition-all"
               />
             </div>
@@ -995,7 +965,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
                 type={isMaskedData ? "password" : "text"}
                 value={phoneInput}
                 onChange={handlePhoneChange}
-                placeholder="(21) 96671-3263"
+                placeholder="(00) 00000-0000"
                 className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold font-mono focus:border-emerald-500 transition-all"
               />
             </div>
@@ -1010,7 +980,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
                 type={isMaskedData ? "password" : "text"}
                 value={pixKeyInput}
                 onChange={(e) => setPixKeyInput(e.target.value)}
-                placeholder="Ex: 21966713263 (Celular) ou e-mail"
+                placeholder="Ex: Telefone, CPF, CNPJ ou e-mail"
                 className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-amber-300 outline-none font-bold font-mono focus:border-amber-500 transition-all"
               />
               <span className="text-[9px] text-slate-500 block">
@@ -1099,7 +1069,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
                 type="text"
                 value={companyNameInput}
                 onChange={(e) => setCompanyNameInput(e.target.value)}
-                placeholder="Ex: D.W VIDROS & RECICLAGEM"
+                placeholder="Ex: Minha Empresa LTDA"
                 className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none font-bold focus:border-orange-500 transition-all"
               />
             </div>
@@ -1260,7 +1230,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
                         </span>
                       )}
                     </label>
-                    {(savedCpfForFill || isDenise) && (
+                    {savedCpfForFill && (
                       <button
                         type="button"
                         onClick={handleAutoFillRecoveryCpf}
@@ -1435,7 +1405,7 @@ export const PersonalDataProfileCard: React.FC<PersonalDataProfileCardProps> = (
               </div>
               <p className="text-[10.5px] text-slate-300 leading-relaxed font-medium">
                 Clique no botão abaixo para que o Google Firebase envie um link oficial e seguro de redefinição para:{" "}
-                <strong className="text-white select-all">{user?.email || "denisejesusdasilva1988@gmail.com"}</strong>.
+                <strong className="text-white select-all">{user?.email || "calculadoracerebrointeligente@gmail.com"}</strong>.
               </p>
             </div>
 

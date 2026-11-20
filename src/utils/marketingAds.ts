@@ -10,9 +10,11 @@
  * 
  * Fluxo de Moderação:
  * - Todo anúncio entra com status "pending_review" após o pagamento via PIX / Mercado Pago
- * - O Administrador (denisejesus1988@gmail.com) avalia, aprova ou remove
+ * - O Administrador (calculadoracerebrointeligente@gmail.com) avalia, aprova ou remove
  * - Após aprovação, conta o período (1 a 7 dias) e expira automaticamente
  */
+
+import { isOfficialAdminEmail, OFFICIAL_SUPPORT_EMAIL } from "./founderAccess";
 
 export type MarketingAdType = "single_product" | "leaflet_encarte";
 export type MarketingAdStatus = "pending_payment" | "pending_review" | "approved" | "rejected" | "expired";
@@ -79,31 +81,25 @@ export const MARKETING_PRICING = {
   DAYS_LEAFLET: 7,
 };
 
-// Pix padrão para pagamento da taxa de marketing (da Denise / Dono)
+// Pix oficial para pagamento da taxa de marketing
 export const ADMIN_MARKETING_PIX = {
-  key: "+5521966713263",
-  rawKey: "21966713263",
-  displayKey: "(21) 96671-3263",
-  keyType: "phone",
-  name: "Denise Jesus da Silva - Calculadora Cérebro PDV",
-  city: "Rio de Janeiro",
+  key: OFFICIAL_SUPPORT_EMAIL,
+  rawKey: OFFICIAL_SUPPORT_EMAIL,
+  displayKey: OFFICIAL_SUPPORT_EMAIL,
+  keyType: "email",
+  name: "Calculadora Cérebro PDV",
+  city: "Brasil",
 };
 
-// Lista de emails com permissão para moderar anúncios
+// Lista de emails oficiais com permissão para moderar anúncios
 export const MARKETING_ADMIN_EMAILS = [
-  "denisejesus1988@gmail.com",
-  "denisejesusdasilva1988@gmail.com",
-  "denisejesusdasilva1988@gmail.com.br",
-  "calculadoracerebrointeligente@gmail.com"
+  OFFICIAL_SUPPORT_EMAIL,
 ];
 
 export function isMarketingAdmin(email?: string | null): boolean {
   if (!email) return false;
-  const clean = email.toLowerCase().trim();
   return (
-    MARKETING_ADMIN_EMAILS.includes(clean) ||
-    clean.includes("denise") ||
-    clean.includes("wellington") ||
+    isOfficialAdminEmail(email) ||
     localStorage.getItem("pdv_owner_mode") === "true"
   );
 }

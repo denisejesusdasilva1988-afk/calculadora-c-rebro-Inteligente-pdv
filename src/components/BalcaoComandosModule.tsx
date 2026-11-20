@@ -1521,7 +1521,7 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
               padraoMin: 60
             }
           ].map((seg) => {
-            const currentStoreId = localStorage.getItem("pdv_store_id") || "loja_denise";
+            const currentStoreId = localStorage.getItem("pdv_store_id") || "loja_padrao";
             const portalUrl = `${window.location.origin}${window.location.pathname}?agendar=true&segmento=${seg.id}&loja=${currentStoreId}`;
 
             const handleCopiarLink = (e: React.MouseEvent) => {

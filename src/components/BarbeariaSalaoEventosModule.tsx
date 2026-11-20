@@ -317,7 +317,7 @@ export interface ProfissionalBarbearia {
   especialidade: string; // Ex: Corte Degradê, Podologia Clínica, Limpeza de Pele
   telefone: string;
   chavePix?: string;
-  instagram?: string; // Ex: "@denise.estetica"
+  instagram?: string; // Ex: "@meu.negocio"
   facebook?: string; // Ex: "facebook.com/perfil"
   bio?: string;
   comissaoPct: number; // Ex: 50%
@@ -639,7 +639,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
       localStorage.setItem("pdv_store_id", gen);
       return gen;
     } catch {
-      return "loja_denise";
+      return "loja_padrao";
     }
   }, [userId]);
 
@@ -4710,7 +4710,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                   required
                   value={newAnivNome}
                   onChange={(e) => setNewAnivNome(e.target.value)}
-                  placeholder="Ex: Denise Jesus"
+                  placeholder="Ex: Ana Paula Silva"
                   className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
                 />
               </div>
@@ -4721,7 +4721,7 @@ export const BarbeariaSalaoEventosModule: React.FC<BarbeariaSalaoEventosModulePr
                   type="text"
                   value={newAnivTelefone}
                   onChange={(e) => setNewAnivTelefone(e.target.value)}
-                  placeholder="Ex: (21) 96671-3263"
+                  placeholder="Ex: (11) 99999-0000"
                   className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
                 />
               </div>

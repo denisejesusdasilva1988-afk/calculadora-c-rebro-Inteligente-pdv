@@ -41,10 +41,21 @@ import {
   ShieldAlert,
   Download,
   Save,
-  HardDrive
+  HardDrive,
+  Focus,
+  ZoomIn
 } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { getScopedItem, setScopedItem } from "../utils/userScopedStorage";
+import {
+  CameraTrackStatus,
+  inspectCameraTrackStatus,
+  applyCameraTorch,
+  applyCameraZoom,
+  triggerCameraRefocus,
+  startTransparentBottleContrastLoop,
+  scanBarcodeFromPhotoFile
+} from "../utils/enhancedBarcodeScanner";
 
 export interface CustomProduct {
   id: string;
@@ -1012,7 +1023,15 @@ export function CadastroProdutosModule({
   const [selectedScannerDeviceId, setSelectedScannerDeviceId] = useState<string>("");
   const [scannerRetryKey, setScannerRetryKey] = useState(0);
   const [scannerTorchOn, setScannerTorchOn] = useState(false);
-  const [scannerZoom, setScannerZoom] = useState(1);
+  const [scannerZoom, setScannerZoom] = useState(1.5);
+  const [regTrackStatus, setRegTrackStatus] = useState<CameraTrackStatus | null>(null);
+  const [regTransparentBoost, setRegTransparentBoost] = useState(true);
+  const regTransparentBoostRef = useRef(true);
+  regTransparentBoostRef.current = regTransparentBoost;
+  const [regRefocusFeedback, setRegRefocusFeedback] = useState<string | null>(null);
+  const [isRegScanningPhoto, setIsRegScanningPhoto] = useState(false);
+  const regContrastLoopStopRef = useRef<(() => void) | null>(null);
+  const regPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
 
   // Sound beep & haptic feedback for barcode scanner
@@ -1040,46 +1059,56 @@ export function CadastroProdutosModule({
 
   // Toggle Camera Flashlight (Torch)
   const handleToggleScannerTorch = async () => {
-    try {
-      const container = document.getElementById("reg-barcode-scanner-viewport");
-      const video = container?.querySelector("video") as HTMLVideoElement | null;
-      if (video && video.srcObject) {
-        const stream = video.srcObject as MediaStream;
-        const track = stream.getVideoTracks()[0];
-        if (track) {
-          const next = !scannerTorchOn;
-          await track.applyConstraints({
-            advanced: [{ torch: next } as any]
-          });
-          setScannerTorchOn(next);
-          showNotification(next ? "Lanterna ligada 🔦" : "Lanterna desligada", "info");
-          return;
-        }
-      }
-      showNotification("Lanterna não suportada nesta câmera.", "warning");
-    } catch (e) {
-      showNotification("Lanterna indisponível neste aparelho.", "warning");
+    const next = !scannerTorchOn;
+    const ok = await applyCameraTorch("reg-barcode-scanner-viewport", next);
+    if (ok) {
+      setScannerTorchOn(next);
+      setRegTrackStatus((prev) => (prev ? { ...prev, torchOn: next } : prev));
+      showNotification(next ? "Lanterna ligada 🔦" : "Lanterna desligada", "info");
+    } else {
+      showNotification("Este navegador/câmera não liberou o controle direto da lanterna.", "warning");
     }
   };
 
-  // Toggle Camera Zoom (1x / 2x)
-  const handleToggleScannerZoom = async () => {
+  // Select Camera Zoom (1x / 1.5x / 2x / 2.5x)
+  const handleSelectRegScannerZoom = async (targetZoom: number) => {
+    const applied = await applyCameraZoom("reg-barcode-scanner-viewport", targetZoom);
+    if (applied !== null) {
+      setScannerZoom(applied);
+      setRegTrackStatus((prev) => (prev ? { ...prev, currentZoom: applied } : prev));
+    }
+  };
+
+  const handleTriggerRegRefocus = async () => {
+    setRegRefocusFeedback("🎯 Focando câmera...");
+    await triggerCameraRefocus("reg-barcode-scanner-viewport");
+    setTimeout(() => setRegRefocusFeedback(null), 1100);
+  };
+
+  const handleRegPhotoFallback = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setIsRegScanningPhoto(true);
+    setScannerCameraError(null);
     try {
-      const container = document.getElementById("reg-barcode-scanner-viewport");
-      const video = container?.querySelector("video") as HTMLVideoElement | null;
-      if (video && video.srcObject) {
-        const stream = video.srcObject as MediaStream;
-        const track = stream.getVideoTracks()[0];
-        if (track) {
-          const nextZoom = scannerZoom === 1 ? 2 : 1;
-          await track.applyConstraints({
-            advanced: [{ zoom: nextZoom } as any]
-          });
-          setScannerZoom(nextZoom);
-          showNotification(`Zoom ajustado para ${nextZoom}x 🔍`, "info");
+      const code = await scanBarcodeFromPhotoFile(file, html5QrcodeRef.current, { include2D: true });
+      if (code) {
+        playScannerBeep(2050, 0.09);
+        setProdBarcode(code);
+        if (code.length <= 4 && /^\d+$/.test(code)) {
+          setProdQuickCode(code);
         }
+        showNotification(`Código lido da foto: ${code} 🏷️⚡`, "success");
+        setShowScanner(false);
+      } else {
+        setScannerCameraError("Não foi possível ler as barras na foto. Aproxime mais ou ligue o flash na foto.");
       }
-    } catch (_) {}
+    } catch {
+      setScannerCameraError("Erro ao analisar a foto do código. Tente novamente.");
+    } finally {
+      setIsRegScanningPhoto(false);
+    }
   };
 
   // Global listener for physical USB / Wireless Barcode Scanner Guns in Cadastro
@@ -1182,6 +1211,17 @@ export function CadastroProdutosModule({
 
   // Stop all active MediaStream tracks inside the registration scanner viewport to release hardware lock
   const stopRegScannerMediaTracks = () => {
+    if (regContrastLoopStopRef.current) {
+      try {
+        regContrastLoopStopRef.current();
+      } catch {}
+      regContrastLoopStopRef.current = null;
+    }
+    try {
+      applyCameraTorch("reg-barcode-scanner-viewport", false);
+    } catch {}
+    setScannerTorchOn(false);
+    setRegTrackStatus(null);
     try {
       const container = document.getElementById("reg-barcode-scanner-viewport");
       if (container) {
@@ -1230,9 +1270,26 @@ export function CadastroProdutosModule({
     let isCancelled = false;
     let currentScanner: any = null;
     let startPromise: Promise<any> | null = null;
+    let detectedOnce = false;
+
+    const handleDecodedRegBarcode = (decodedText: string) => {
+      if (isCancelled || detectedOnce) return;
+      const clean = decodedText.trim();
+      if (!clean) return;
+      detectedOnce = true;
+      playScannerBeep(2000, 0.09);
+      setProdBarcode(clean);
+      if (clean.length <= 4 && /^\d+$/.test(clean)) {
+        setProdQuickCode(clean);
+      }
+      showNotification(`Código escaneado: ${clean} 🏷️⚡`, "success");
+      setShowScanner(false);
+    };
 
     if (showScanner) {
       setScannerCameraError(null);
+      setScannerTorchOn(false);
+      setRegRefocusFeedback(null);
       // Clean up any lingering hardware tracks before creating a new instance
       stopRegScannerMediaTracks();
 
@@ -1266,35 +1323,37 @@ export function CadastroProdutosModule({
           html5QrcodeRef.current = scanner;
           currentScanner = scanner;
 
-          const cameraTarget = selectedScannerDeviceId 
-            ? selectedScannerDeviceId 
+          const cameraTarget = selectedScannerDeviceId
+            ? selectedScannerDeviceId
             : { facingMode: "environment" };
 
           startPromise = scanner.start(
             cameraTarget,
             {
-              fps: 30,
+              fps: 24,
               qrbox: (viewWidth, viewHeight) => {
                 // html5-qrcode strictly requires both width and height to be >= 50px
                 const minDimension = 60;
-                const vw = Math.max(minDimension, viewWidth || 280);
+                const vw = Math.max(minDimension, viewWidth || 290);
                 const vh = Math.max(minDimension, viewHeight || 200);
                 const width = Math.max(minDimension, Math.min(Math.floor(vw * 0.92), 380));
-                const height = Math.max(minDimension, Math.min(Math.floor(vh * 0.80), 240));
+                const height = Math.max(minDimension, Math.min(Math.floor(vh * 0.72), 230));
                 return { width, height };
               },
+              videoConstraints: selectedScannerDeviceId
+                ? {
+                    deviceId: { exact: selectedScannerDeviceId },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                  }
+                : {
+                    facingMode: { ideal: "environment" },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                  },
               aspectRatio: 1.333333
             },
-            (decodedText) => {
-              if (isCancelled) return;
-              playScannerBeep(1800, 0.09);
-              setProdBarcode(decodedText);
-              if (decodedText.length <= 4 && /^\d+$/.test(decodedText)) {
-                setProdQuickCode(decodedText);
-              }
-              showNotification(`Código escaneado: ${decodedText} 🏷️⚡`, "success");
-              setShowScanner(false);
-            },
+            (decodedText) => handleDecodedRegBarcode(decodedText),
             () => {}
           );
 
@@ -1304,6 +1363,29 @@ export function CadastroProdutosModule({
                 safeStopHtml5Qrcode(scanner);
                 return;
               }
+              setTimeout(async () => {
+                if (isCancelled) return;
+                const status = inspectCameraTrackStatus("reg-barcode-scanner-viewport", false);
+                if (status.hasZoom) {
+                  const targetZoom = Math.min(status.maxZoom, Math.max(status.minZoom, 1.5));
+                  const applied = await applyCameraZoom("reg-barcode-scanner-viewport", targetZoom);
+                  if (applied !== null) {
+                    status.currentZoom = applied;
+                    setScannerZoom(applied);
+                  }
+                }
+                setRegTrackStatus(status);
+                triggerCameraRefocus("reg-barcode-scanner-viewport");
+
+                regContrastLoopStopRef.current = startTransparentBottleContrastLoop({
+                  viewportId: "reg-barcode-scanner-viewport",
+                  isEnhancedEnabled: () => regTransparentBoostRef.current,
+                  include2D: true,
+                  onDetected: (code) => handleDecodedRegBarcode(code),
+                  intervalMs: 210
+                });
+              }, 350);
+
               // Safely enumerate devices now that camera is actively streaming
               if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
                 navigator.mediaDevices.enumerateDevices().then(devices => {
@@ -1324,7 +1406,7 @@ export function CadastroProdutosModule({
                 } else if (errStr.includes("NotAllowedError") || errStr.includes("Permission denied")) {
                   setScannerCameraError("Acesso à câmera não concedido. No celular, toque no cadeado 🔒 na barra do navegador para autorizar ou toque em 'Liberar Câmera'.");
                 } else {
-                  setScannerCameraError("Não foi possível iniciar a câmera. Verifique as permissões de vídeo.");
+                  setScannerCameraError("Não foi possível iniciar a câmera ao vivo. Use 'Ler por Foto' abaixo ou digite o código.");
                 }
               }
               stopRegScannerMediaTracks();
@@ -1347,6 +1429,8 @@ export function CadastroProdutosModule({
           } else {
             safeStopHtml5Qrcode(scannerToStop);
           }
+        } else {
+          stopRegScannerMediaTracks();
         }
       };
     } else {
@@ -1354,6 +1438,8 @@ export function CadastroProdutosModule({
       html5QrcodeRef.current = null;
       if (scannerToStop) {
         safeStopHtml5Qrcode(scannerToStop);
+      } else {
+        stopRegScannerMediaTracks();
       }
     }
   }, [showScanner, selectedScannerDeviceId, scannerRetryKey]);
@@ -2900,66 +2986,137 @@ export function CadastroProdutosModule({
                   
                   {/* Camera view if active */}
                   {showScanner && !isService && (
-                    <div className="bg-slate-900 border border-sky-500/40 rounded-2xl p-3.5 space-y-3 shadow-2xl">
-                      <div className="flex items-center justify-between">
+                    <div className="bg-slate-900 border border-sky-500/40 rounded-2xl p-3.5 space-y-2.5 shadow-2xl">
+                      <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-black text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <Camera className="w-4 h-4 animate-pulse" />
-                          Aponte para o código de barras
+                          <Camera className="w-4 h-4 animate-pulse shrink-0" />
+                          <span>Aponte para o código de barras</span>
                         </span>
-                        
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={handleToggleScannerTorch}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-1 cursor-pointer ${
-                              scannerTorchOn 
-                                ? "bg-amber-400 text-slate-950 font-black shadow-md shadow-amber-400/20" 
-                                : "bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700"
-                            }`}
-                            title="Ligar ou desligar lanterna"
-                          >
-                            <Flashlight className="w-3.5 h-3.5" />
-                            <span>{scannerTorchOn ? "Lanterna Ligada" : "Lanterna"}</span>
-                          </button>
 
-                          <button
-                            type="button"
-                            onClick={handleToggleScannerZoom}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-0.5 cursor-pointer ${
-                              scannerZoom > 1
-                                ? "bg-sky-400 text-slate-950 font-black"
-                                : "bg-slate-800 text-slate-300 hover:text-white"
-                            }`}
-                            title="Alternar Zoom"
-                          >
-                            <span>🔍 {scannerZoom}x</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setShowScanner(false)}
-                            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/5 cursor-pointer ml-1"
-                            title="Fechar Câmera"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowScanner(false)}
+                          className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-white/5 cursor-pointer"
+                          title="Fechar Câmera"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
-                      
+
+                      {/* Controles Reais de Hardware para Câmeras Simples & Embalagens Transparentes */}
+                      <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+                        <button
+                          type="button"
+                          onClick={handleToggleScannerTorch}
+                          disabled={regTrackStatus ? !regTrackStatus.hasTorch : false}
+                          className={`min-h-[36px] px-2 py-1 rounded-xl font-black uppercase transition-all flex items-center justify-center gap-1 border cursor-pointer touch-manipulation disabled:opacity-40 ${
+                            scannerTorchOn
+                              ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md shadow-amber-400/20"
+                              : "bg-slate-950 text-amber-200 border-amber-500/30 hover:bg-slate-800"
+                          }`}
+                          title="Ligar ou desligar lanterna"
+                        >
+                          <Flashlight className="w-3.5 h-3.5 shrink-0" />
+                          <span>{scannerTorchOn ? "Lanterna ON" : "Lanterna"}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleTriggerRegRefocus}
+                          className="min-h-[36px] px-2 py-1 rounded-xl font-black uppercase flex items-center justify-center gap-1 bg-slate-950 text-cyan-200 border border-cyan-500/35 hover:bg-slate-800 cursor-pointer touch-manipulation active:scale-95"
+                          title="Forçar câmera a refocar agora"
+                        >
+                          <Focus className="w-3.5 h-3.5 shrink-0" />
+                          <span>Refocar</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setRegTransparentBoost((v) => !v)}
+                          className={`min-h-[36px] px-2 py-1 rounded-xl font-black uppercase flex items-center justify-center gap-1 border cursor-pointer touch-manipulation active:scale-95 ${
+                            regTransparentBoost
+                              ? "bg-sky-400 text-slate-950 border-sky-300"
+                              : "bg-slate-950 text-slate-300 border-white/15"
+                          }`}
+                          title="Estica contraste e inverte cores para códigos brancos, transparentes ou brilhantes"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                          <span>{regTransparentBoost ? "Vidro/Clara ON" : "Contraste"}</span>
+                        </button>
+                      </div>
+
+                      {regTrackStatus?.hasZoom && (
+                        <div className="flex items-center justify-between gap-1.5 bg-slate-950 px-2.5 py-1.5 rounded-xl border border-white/10 text-[10px]">
+                          <span className="text-slate-300 font-bold flex items-center gap-1 shrink-0">
+                            <ZoomIn className="w-3.5 h-3.5 text-sky-400" />
+                            <span>Zoom (afaste ~20cm):</span>
+                          </span>
+                          <div className="flex items-center gap-1">
+                            {[1, 1.5, 2, 2.5]
+                              .filter((z) => z >= regTrackStatus.minZoom && z <= regTrackStatus.maxZoom + 0.05)
+                              .map((z) => (
+                                <button
+                                  key={z}
+                                  type="button"
+                                  onClick={() => handleSelectRegScannerZoom(z)}
+                                  className={`min-h-[28px] px-2 rounded-lg font-mono font-black border cursor-pointer touch-manipulation ${
+                                    Math.abs(scannerZoom - z) < 0.2
+                                      ? "bg-sky-400 text-slate-950 border-sky-300"
+                                      : "bg-slate-900 text-slate-300 border-white/10"
+                                  }`}
+                                >
+                                  {z.toFixed(1).replace(".0", "")}x
+                                </button>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Active viewport */}
                       <div
-                        id="reg-barcode-scanner-viewport"
-                        className="w-full min-h-[200px] bg-black rounded-xl overflow-hidden border-2 border-sky-500/30 aspect-video flex items-center justify-center relative shadow-inner"
+                        onClick={handleTriggerRegRefocus}
+                        className="w-full min-h-[200px] bg-black rounded-xl overflow-hidden border-2 border-sky-500/30 aspect-video flex items-center justify-center relative shadow-inner cursor-pointer"
+                        title="Toque na tela para refocar a câmera"
                       >
+                        <div id="reg-barcode-scanner-viewport" className="w-full h-full" />
+
+                        {regRefocusFeedback && (
+                          <div className="absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-slate-950/85 border border-cyan-400 text-cyan-200 text-[11px] font-black pointer-events-none z-30">
+                            {regRefocusFeedback}
+                          </div>
+                        )}
+
                         {/* Four Corner Reticle Targets */}
                         <div className="absolute top-2.5 left-2.5 w-6 h-6 border-t-2 border-l-2 border-sky-400 pointer-events-none z-20" />
                         <div className="absolute top-2.5 right-2.5 w-6 h-6 border-t-2 border-r-2 border-sky-400 pointer-events-none z-20" />
                         <div className="absolute bottom-2.5 left-2.5 w-6 h-6 border-b-2 border-l-2 border-sky-400 pointer-events-none z-20" />
                         <div className="absolute bottom-2.5 right-2.5 w-6 h-6 border-b-2 border-r-2 border-sky-400 pointer-events-none z-20" />
 
-                        {/* Pulsing Red/Blue Laser Line */}
+                        {/* Pulsing Blue Laser Line */}
                         <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 h-[2px] bg-sky-400 shadow-[0_0_12px_#38bdf8] animate-pulse z-20 pointer-events-none" />
                       </div>
+
+                      <p className="text-[10px] text-slate-300 leading-snug bg-slate-950/90 px-2.5 py-1.5 rounded-xl border border-white/10 text-left">
+                        💡 <strong className="text-sky-300">Embalagem transparente/branca ou foco difícil:</strong> afaste ~20cm com <strong>Zoom 1.5x</strong>, coloque fundo escuro atrás do vidro/plástico ou toque na imagem para <strong>Refocar</strong>.
+                      </p>
+
+                      <input
+                        ref={regPhotoInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handleRegPhotoFallback}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => regPhotoInputRef.current?.click()}
+                        disabled={isRegScanningPhoto}
+                        className="w-full min-h-[38px] px-3 py-1.5 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/50 text-cyan-200 font-black text-[11px] rounded-xl flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation active:scale-95 disabled:opacity-50"
+                      >
+                        <Camera className="w-4 h-4 shrink-0" />
+                        <span>{isRegScanningPhoto ? "⏳ Analisando foto em alto contraste..." : "📸 Ler por Foto (Câmera Nítida p/ Foco Difícil)"}</span>
+                      </button>
 
                       {scannerCameraError && (
                         <div className="bg-rose-500/10 border border-rose-500/30 p-2.5 rounded-xl text-center space-y-2">

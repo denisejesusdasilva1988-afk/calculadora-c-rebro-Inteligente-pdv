@@ -111,9 +111,9 @@ export function ClientesFieisModule({
       },
       {
         id: "cli_demo_2",
-        nome: "Denise de Jesus",
+        nome: "Maria Oliveira",
         whatsapp: "11999887766",
-        apelido: "Dona Denise",
+        apelido: "Dona Maria",
         bairro: "Centro",
         limiteFiado: 300,
         observacoes: "Cliente semanal assídua de salgados e encomendas. Super simpática!",
@@ -825,7 +825,7 @@ export function ClientesFieisModule({
                   required
                   value={formNome}
                   onChange={(e) => setFormNome(e.target.value)}
-                  placeholder="Ex: Hélio da Silva, Denise de Jesus, etc."
+                  placeholder="Ex: Hélio da Silva, Maria Oliveira, etc."
                   className="w-full bg-slate-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-purple-500"
                 />
               </div>

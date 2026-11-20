@@ -302,7 +302,7 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
                   saveCompanyProfile({ ...prof, name: val }, userId);
                 } catch {}
               }}
-              placeholder="Ex: D.W VIDROS & RECICLAGEM"
+              placeholder="Ex: Minha Empresa LTDA"
               className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
             />
           </div>
@@ -324,7 +324,7 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
                   saveCompanyProfile({ ...prof, cnpjCpf: val, ownerCpf: val }, userId);
                 } catch {}
               }}
-              placeholder="Ex: 67.965.725/0001-95"
+              placeholder="Ex: 00.000.000/0001-00"
               className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold font-mono"
             />
           </div>

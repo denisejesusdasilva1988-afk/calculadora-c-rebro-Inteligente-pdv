@@ -31,7 +31,9 @@ import {
   QrCode,
   Camera,
   Lock,
-  Volume2
+  Volume2,
+  Download,
+  Share2
 } from "lucide-react";
 import { 
   collection, 
@@ -608,6 +610,82 @@ Responda em português do Brasil com cabeçalhos bonitos e curtos em markdown. N
                   <ArrowRight className="w-4 h-4" />
                 </button>
               )}
+            </div>
+
+            {/* Vídeo Oficial de Apresentação do PWA */}
+            <div className="bg-slate-950 border border-emerald-500/35 rounded-3xl p-4 sm:p-6 shadow-2xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/35">
+                      Vídeo Oficial do App • 30s
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400">
+                      Hospedado no PWA
+                    </span>
+                  </div>
+                  <h4 className="text-base font-black text-white flex items-center gap-2">
+                    <Video className="w-4 h-4 text-emerald-400 shrink-0" />
+                    Apresentação Rápida — Calculadora Cérebro PDV
+                  </h4>
+                  <p className="text-xs text-slate-400">
+                    Demonstração prática de busca de produto, troco automático, margem de lucro e recibo térmico.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <a
+                    href="/assets/aistudio/Calculadora_Cerebro_PDV_PlayStore_30s-2_7070a6f6.mp4"
+                    download="Calculadora_Cerebro_PDV_Apresentacao.mp4"
+                    className="min-h-[40px] px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center gap-1.5 transition-all"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Baixar MP4</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const videoUrl = `${window.location.origin}/assets/aistudio/Calculadora_Cerebro_PDV_PlayStore_30s-2_7070a6f6.mp4`;
+                      try {
+                        if (navigator.share) {
+                          await navigator.share({
+                            title: "Calculadora Cérebro PDV — Apresentação",
+                            text: "Conheça o aplicativo Calculadora Cérebro PDV!",
+                            url: videoUrl
+                          });
+                          return;
+                        }
+                      } catch {}
+                      try {
+                        await navigator.clipboard.writeText(videoUrl);
+                        showNotification("Link do vídeo copiado para compartilhar! 📋🎬", "success");
+                      } catch {
+                        showNotification("Use o botão Baixar MP4 para enviar o vídeo.", "info");
+                      }
+                    }}
+                    className="min-h-[40px] px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/35 flex items-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    <span>Compartilhar</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-black rounded-2xl overflow-hidden border border-white/10 flex justify-center">
+                <video
+                  controls
+                  playsInline
+                  preload="metadata"
+                  poster="/screenshot-1.png"
+                  className="w-full max-w-sm max-h-[440px] bg-black"
+                >
+                  <source
+                    src="/assets/aistudio/Calculadora_Cerebro_PDV_PlayStore_30s-2_7070a6f6.mp4"
+                    type="video/mp4"
+                  />
+                  Seu navegador não suporta reprodução de vídeo MP4.
+                </video>
+              </div>
             </div>
 
             {/* Video selector cards */}
@@ -1260,7 +1338,7 @@ Responda em português do Brasil com cabeçalhos bonitos e curtos em markdown. N
                       value={authorName}
                       onChange={(e) => setAuthorName(e.target.value)}
                       className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
-                      placeholder="Ex: Denise - Brechó da Vila"
+                      placeholder="Ex: Maria - Brechó da Vila"
                     />
                   </div>
 

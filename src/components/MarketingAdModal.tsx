@@ -15,7 +15,7 @@
  *   - Endereço para compras presenciais
  *   - Links de vendas online: Site, WhatsApp, Instagram, Facebook, TikTok, Canais
  * - Pagamento transparente de R$ 20,00 ou R$ 39,90 via PIX / Mercado Pago
- * - Envio para moderação da Administradora (denisejesus1988@gmail.com)
+ * - Envio para moderação da Administração (calculadoracerebrointeligente@gmail.com)
  */
 
 import React, { useState, useMemo } from "react";
@@ -196,7 +196,7 @@ export const MarketingAdModal: React.FC<MarketingAdModalProps> = ({
       const newAdData: MarketingAd = {
         id: "ad_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
         type: adType,
-        status: "pending_review", // Vai para Denise avaliar antes de publicar
+        status: "pending_review", // Vai para avaliação antes de publicar
         title: title.trim(),
         description: description.trim(),
         imageUrl: imageUrl.trim(),
@@ -253,7 +253,7 @@ export const MarketingAdModal: React.FC<MarketingAdModalProps> = ({
     }
   };
 
-  const pixCopyPasteCode = `00020126580014BR.GOV.BCB.PIX0114${ADMIN_MARKETING_PIX.key}520400005303986540${priceToPay.toFixed(2)}5802BR5925DENISE JESUS DA SILVA6014RIO DE JANEIRO62070503***6304`;
+  const pixCopyPasteCode = `00020126580014BR.GOV.BCB.PIX0136${ADMIN_MARKETING_PIX.key}520400005303986540${priceToPay.toFixed(2)}5802BR5925CALCULADORA CEREBRO PDV6006BRASIL62070503***6304`;
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 overflow-y-auto animate-fadeIn">
@@ -726,11 +726,11 @@ export const MarketingAdModal: React.FC<MarketingAdModalProps> = ({
                 </div>
                 <div className="space-y-2 flex-1 w-full text-center sm:text-left">
                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">
-                    Chave PIX Celular da Denise (Administradora):
+                    Chave PIX Oficial da Administração:
                   </span>
                   <div className="bg-slate-950 p-2.5 rounded-xl border border-white/5 font-mono text-sm text-amber-300 font-black break-all select-all flex items-center justify-between">
                     <span>{ADMIN_MARKETING_PIX.displayKey}</span>
-                    <span className="text-[9px] text-slate-400 font-bold uppercase bg-white/5 px-2 py-0.5 rounded">Celular</span>
+                    <span className="text-[9px] text-slate-400 font-bold uppercase bg-white/5 px-2 py-0.5 rounded">E-mail</span>
                   </div>
                   <div className="text-[10px] text-slate-400 font-bold">
                     Beneficiário: {ADMIN_MARKETING_PIX.name}
@@ -741,21 +741,21 @@ export const MarketingAdModal: React.FC<MarketingAdModalProps> = ({
                       navigator.clipboard.writeText(ADMIN_MARKETING_PIX.rawKey);
                       setCopiedPix(true);
                       setTimeout(() => setCopiedPix(false), 2000);
-                      showNotification("Chave PIX (21) 96671-3263 copiada para a área de transferência!", "success");
+                      showNotification("Chave PIX oficial copiada para a área de transferência!", "success");
                     }}
                     className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer w-full sm:w-auto"
                   >
                     {copiedPix ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedPix ? "Chave Copiada!" : "Copiar Chave PIX (Celular)"}</span>
+                    <span>{copiedPix ? "Chave Copiada!" : "Copiar Chave PIX"}</span>
                   </button>
                 </div>
               </div>
 
-              {/* Aviso da Denise sobre moderação */}
+              {/* Aviso de moderação */}
               <div className="bg-amber-950/20 border border-amber-500/30 rounded-2xl p-3.5 flex items-start gap-2.5 text-left">
                 <Clock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                 <p className="text-[10px] text-slate-300 leading-normal">
-                  <strong>Aviso Importante:</strong> Após a confirmação, o anúncio será enviado para a Administradora (<strong>denisejesus1988@gmail.com</strong>) para avaliação antes de ser publicado, garantindo a qualidade e segurança do aplicativo.
+                  <strong>Aviso Importante:</strong> Após a confirmação, o anúncio será enviado para a Administração (<strong>{ADMIN_MARKETING_PIX.rawKey}</strong>) para avaliação antes de ser publicado, garantindo a qualidade e segurança do aplicativo.
                 </p>
               </div>
             </div>
@@ -800,7 +800,7 @@ export const MarketingAdModal: React.FC<MarketingAdModalProps> = ({
                 Anúncio Enviado com Sucesso! 🚀
               </h3>
               <p className="text-xs text-slate-300 max-w-md mx-auto">
-                Seu produto <strong>{createdAd?.title}</strong> foi cadastrado e está na fila de avaliação da Administradora <strong>denisejesus1988@gmail.com</strong>.
+                Seu produto <strong>{createdAd?.title}</strong> foi cadastrado e está na fila de avaliação da Administração <strong>{ADMIN_MARKETING_PIX.rawKey}</strong>.
               </p>
             </div>
 

@@ -30,6 +30,13 @@ import {
 import { motion } from "motion/react";
 import { SmartNumericInput } from "./SmartNumericInput";
 import { GlassBarcodeScannerCart } from "./GlassBarcodeScannerCart";
+import { loadCompanyProfile } from "../../utils/companyProfile";
+import {
+  computeGlassCatalogSummary,
+  GlassYardSummary,
+  formatBrl,
+  roundCurrencyBrl
+} from "../../utils/scrapHardwareHelper";
 
 export interface GlassItemType {
   id: string;
@@ -77,7 +84,7 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
     name: "Garrafas Longneck (330ml / 355ml - Heineken, Corona, Stella)",
     category: "longneck",
     emoji: "🍺",
-    unitWeightKg: 0.182, // 182g na balança digital de cozinha da Denise!
+    unitWeightKg: 0.182, // 182g na balança digital de referência!
     weightDescription: "1 garrafa = 182g (30 un ≈ 5,46 kg | 100 un = 18,20 kg)",
     quantity: 0,
     buyPricePerUnit: 0.50 / 30, // 30 garrafas = R$ 0,50 (1,67¢ por garrafa)
@@ -253,26 +260,52 @@ export function GlassRecyclingCalculator({
     return DEFAULT_GLASS_ITEMS.map((item) => ({ ...item, quantity: 0 }));
   });
 
+  // Resumo unificado ao vivo vindo do Catálogo/Pátio de Vidros (fonte única entre os dois quadros!)
+  const [liveChildYardSummary, setLiveChildYardSummary] = useState<GlassYardSummary | null>(() => {
+    try {
+      const stored = localStorage.getItem("pdv_dw_glass_catalog_v10");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const initialPricePerKg = (Number(localStorage.getItem("pdv_glass_price_ton")) || 150) / 1000;
+          return computeGlassCatalogSummary(parsed, initialPricePerKg);
+        }
+      }
+    } catch {}
+    return null;
+  });
+
   // Ouvinte de evento global para quando o carrinho ou despacho zerar o estoque
   useEffect(() => {
     const handleChildZero = () => {
       setItems((prev) => prev.map((item) => ({ ...item, quantity: 0 })));
+      setLiveChildYardSummary({
+        totalUnits: 0,
+        totalWeightKg: 0,
+        totalWeightTon: 0,
+        grossRevenueTon: 0,
+        estimatedAcquisitionCost: 0,
+        netProfit: 0,
+        profitMarginPct: 0
+      });
     };
     window.addEventListener("dw_glass_zero_yard_from_child", handleChildZero);
     return () => window.removeEventListener("dw_glass_zero_yard_from_child", handleChildZero);
   }, []);
 
-  // Ouvinte para quando o catálogo / balança for calibrado (atualiza pesos no pátio sincronizadamente)
+  // Ouvinte para quando o catálogo / balança for calibrado ou atualizado
   useEffect(() => {
     const handleCatalogUpdate = (e: any) => {
       const updatedCatalog = e.detail;
       if (!Array.isArray(updatedCatalog)) return;
 
+      setLiveChildYardSummary(computeGlassCatalogSummary(updatedCatalog, sellPricePerTon > 0 ? sellPricePerTon / 1000 : 0.15));
+
       setItems((prev) =>
         prev.map((item) => {
           const matched = updatedCatalog.find(
             (c: any) =>
-              c.category === item.category ||
+              c.name.toLowerCase().trim() === item.name.toLowerCase().trim() ||
               c.name.toLowerCase().includes(item.name.toLowerCase()) ||
               item.name.toLowerCase().includes(c.name.toLowerCase())
           );
@@ -289,7 +322,7 @@ export function GlassRecyclingCalculator({
     };
     window.addEventListener("dw_glass_catalog_updated", handleCatalogUpdate);
     return () => window.removeEventListener("dw_glass_catalog_updated", handleCatalogUpdate);
-  }, []);
+  }, [sellPricePerTon]);
 
   // Histórico de compras registradas no portão na sessão de hoje
   const [purchaseHistory, setPurchaseHistory] = useState<GatePurchaseLog[]>(() => {
@@ -396,8 +429,27 @@ export function GlassRecyclingCalculator({
   // Função para Zerar Imediatamente o Pátio Todo (Começar do Zero Real ou após Caminhão do Victor)
   const handleZeroEntireYard = () => {
     setItems((prev) => prev.map((item) => ({ ...item, quantity: 0 })));
+    setLiveChildYardSummary({
+      totalUnits: 0,
+      totalWeightKg: 0,
+      totalWeightTon: 0,
+      grossRevenueTon: 0,
+      estimatedAcquisitionCost: 0,
+      netProfit: 0,
+      profitMarginPct: 0
+    });
     try {
       localStorage.setItem("pdv_glass_items_inventory_v1", JSON.stringify(DEFAULT_GLASS_ITEMS.map((item) => ({ ...item, quantity: 0 }))));
+      const storedCatalog = localStorage.getItem("pdv_dw_glass_catalog_v10");
+      if (storedCatalog) {
+        const parsedCatalog = JSON.parse(storedCatalog);
+        if (Array.isArray(parsedCatalog)) {
+          localStorage.setItem(
+            "pdv_dw_glass_catalog_v10",
+            JSON.stringify(parsedCatalog.map((b: any) => ({ ...b, stockUnits: 0 })))
+          );
+        }
+      }
       // Dispara evento global para o carrinho e catálogo de estoque também zerarem
       window.dispatchEvent(new CustomEvent("dw_glass_zero_yard"));
     } catch {}
@@ -413,15 +465,15 @@ export function GlassRecyclingCalculator({
     setItems((prev) => {
       let updated = [...prev];
       itemsToAdd.forEach((added) => {
-        const addedLower = added.name.toLowerCase();
+        const addedLower = added.name.toLowerCase().trim();
+        const addedBaseName = addedLower.replace(/\s*\(\d+\s*ml\)\s*$/i, "").trim();
         const existingIdx = updated.findIndex((u) => {
-          const uLower = u.name.toLowerCase();
+          const uLower = u.name.toLowerCase().trim();
           return (
-            uLower.includes(addedLower) ||
-            addedLower.includes(uLower) ||
-            (addedLower.includes("longneck") && u.category === "longneck") ||
-            (addedLower.includes("dreher") && uLower.includes("dreher")) ||
-            (addedLower.includes("51") && uLower.includes("51"))
+            uLower === addedLower ||
+            uLower === addedBaseName ||
+            uLower.includes(addedBaseName) ||
+            addedBaseName.includes(uLower)
           );
         });
 
@@ -532,6 +584,38 @@ export function GlassRecyclingCalculator({
       bottlesNeededFor5Ton
     };
   }, [items, sellPricePerTon]);
+
+  // Totais unificados exibidos nos dois quadros do Pátio de Vidros (fonte única = catálogo do Pátio)
+  const unifiedYard = useMemo(() => {
+    const sellPricePerKg = sellPricePerTon > 0 ? sellPricePerTon / 1000 : 0.15;
+    if (liveChildYardSummary) {
+      const grossRevenueTon = roundCurrencyBrl(liveChildYardSummary.totalWeightKg * sellPricePerKg);
+      const netProfit = roundCurrencyBrl(Math.max(0, grossRevenueTon - liveChildYardSummary.estimatedAcquisitionCost));
+      const profitMarginPct = grossRevenueTon > 0 ? (netProfit / grossRevenueTon) * 100 : 0;
+      return {
+        totalWeightKg: liveChildYardSummary.totalWeightKg,
+        totalWeightTon: liveChildYardSummary.totalWeightTon,
+        totalUnits: liveChildYardSummary.totalUnits,
+        grossRevenueTon,
+        profitMarginPct,
+        progressTo3Ton: Math.min((liveChildYardSummary.totalWeightKg / 3000) * 100, 100),
+        progressTo5Ton: Math.min((liveChildYardSummary.totalWeightKg / 5000) * 100, 100),
+        kgNeededFor3Ton: Math.max(0, 3000 - liveChildYardSummary.totalWeightKg),
+        kgNeededFor5Ton: Math.max(0, 5000 - liveChildYardSummary.totalWeightKg)
+      };
+    }
+    return {
+      totalWeightKg: calculations.totalWeightKg,
+      totalWeightTon: calculations.totalWeightTon,
+      totalUnits: calculations.totalGlassUnits,
+      grossRevenueTon: roundCurrencyBrl(calculations.grossRevenueWeight),
+      profitMarginPct: calculations.profitMarginPct,
+      progressTo3Ton: calculations.progressTo3Ton,
+      progressTo5Ton: calculations.progressTo5Ton,
+      kgNeededFor3Ton: calculations.kgNeededFor3Ton,
+      kgNeededFor5Ton: calculations.kgNeededFor5Ton
+    };
+  }, [liveChildYardSummary, calculations, sellPricePerTon]);
 
   // CÁLCULO PRECISO DOS LOTES MÍNIMOS PARA PAGAR A MOEDA ESCOLHIDA (ex: R$ 0,50)
   const lotCalculations = useMemo(() => {
@@ -761,13 +845,24 @@ export function GlassRecyclingCalculator({
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 border border-emerald-500/30">
-                <Crown className="w-3.5 h-3.5 text-amber-400" />
-                D.W VIDROS & RECICLAGEM
-              </span>
-              <span className="text-[10px] bg-amber-500/20 text-amber-300 font-mono font-bold px-2 py-0.5 rounded border border-amber-500/30">
-                CNPJ: 67.965.725/0001-95
-              </span>
+              {(() => {
+                const prof = loadCompanyProfile();
+                const displayCompany = prof.name?.trim() || "PÁTIO DE VIDROS & RECICLAGEM";
+                const displayCnpj = prof.cnpjCpf?.trim() || "";
+                return (
+                  <>
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 border border-emerald-500/30">
+                      <Crown className="w-3.5 h-3.5 text-amber-400" />
+                      {displayCompany}
+                    </span>
+                    {displayCnpj && (
+                      <span className="text-[10px] bg-amber-500/20 text-amber-300 font-mono font-bold px-2 py-0.5 rounded border border-amber-500/30">
+                        CNPJ/CPF: {displayCnpj}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
               <span className="text-[10px] bg-purple-500/20 text-purple-200 font-bold px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
                 <span>♾️</span>
                 <span>Plano Infinito Vitalício</span>
@@ -1002,10 +1097,10 @@ export function GlassRecyclingCalculator({
             <div>
               <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Total no Pátio Agora:</span>
               <span className="text-xl font-black text-white font-mono">
-                {calculations.totalWeightTon.toFixed(2)} <span className="text-xs text-emerald-400 font-bold">Ton</span>
+                {unifiedYard.totalWeightTon.toFixed(2)} <span className="text-xs text-emerald-400 font-bold">Ton</span>
               </span>
               <span className="text-[10px] text-slate-400 block">
-                {calculations.totalWeightKg.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} kg ({calculations.totalGlassUnits} un)
+                {unifiedYard.totalWeightKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg ({unifiedYard.totalUnits.toLocaleString("pt-BR")} un)
               </span>
             </div>
           </div>
@@ -1014,11 +1109,11 @@ export function GlassRecyclingCalculator({
             <div className="text-left sm:text-right">
               <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Valor Bruto no Victor:</span>
               <span className="text-lg font-black text-emerald-400 font-mono">
-                R$ {calculations.grossRevenueWeight.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                R$ {formatBrl(unifiedYard.grossRevenueTon)}
               </span>
               <span className="text-[10px] text-emerald-300 font-bold block">
-                {calculations.totalWeightKg > 0
-                  ? `+${calculations.profitMarginPct.toFixed(0)}% lucro estimado`
+                {unifiedYard.totalWeightKg > 0
+                  ? `+${unifiedYard.profitMarginPct.toFixed(0)}% lucro estimado`
                   : "Pátio limpo (0 garrafas)"}
               </span>
             </div>
@@ -1044,6 +1139,7 @@ export function GlassRecyclingCalculator({
             onSetSellPricePerTon={setSellPricePerTon}
             buyerName={buyerName}
             onAddItemsToYardStock={handleAddItemsFromCartToYardStock}
+            onYardSummaryChange={setLiveChildYardSummary}
             showNotification={showNotification}
           />
         </motion.div>
@@ -1706,9 +1802,9 @@ export function GlassRecyclingCalculator({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Meta 1: < 2,5 Toneladas */}
               <div className={`p-4 rounded-2xl border transition-all ${
-                calculations.totalWeightKg >= 1000 && calculations.totalWeightKg < 3000
+                unifiedYard.totalWeightKg >= 1000 && unifiedYard.totalWeightKg < 3000
                   ? "bg-amber-950/30 border-amber-500/40"
-                  : calculations.totalWeightKg >= 3000
+                  : unifiedYard.totalWeightKg >= 3000
                   ? "bg-slate-950/80 border-white/5 opacity-80"
                   : "bg-slate-950/80 border-white/10"
               }`}>
@@ -1728,20 +1824,20 @@ export function GlassRecyclingCalculator({
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
                   <div
                     className="bg-rose-400 h-full transition-all duration-500"
-                    style={{ width: `${Math.min(100, (calculations.totalWeightKg / 2500) * 100)}%` }}
+                    style={{ width: `${Math.min(100, (unifiedYard.totalWeightKg / 2500) * 100)}%` }}
                   />
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1.5 flex justify-between">
-                  <span>{((calculations.totalWeightKg / 2500) * 100).toFixed(0)}% de 2,5t</span>
+                  <span>{((unifiedYard.totalWeightKg / 2500) * 100).toFixed(0)}% de 2,5t</span>
                   <span className="text-slate-400">Evite despachar nesta faixa</span>
                 </div>
               </div>
 
               {/* Meta 2: Carga Mínima de Coleta do Victor (3 Toneladas) */}
               <div className={`p-4 rounded-2xl border transition-all ${
-                calculations.totalWeightKg >= 3000 && calculations.totalWeightKg < 5000
+                unifiedYard.totalWeightKg >= 3000 && unifiedYard.totalWeightKg < 5000
                   ? "bg-emerald-950/50 border-emerald-400 shadow-xl shadow-emerald-950/50 ring-2 ring-emerald-500/30"
-                  : calculations.totalWeightKg >= 5000
+                  : unifiedYard.totalWeightKg >= 5000
                   ? "bg-slate-950/80 border-white/5 opacity-80"
                   : "bg-slate-950/80 border-amber-500/30"
               }`}>
@@ -1761,13 +1857,13 @@ export function GlassRecyclingCalculator({
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
                   <div
                     className="bg-amber-400 h-full transition-all duration-500"
-                    style={{ width: `${calculations.progressTo3Ton}%` }}
+                    style={{ width: `${unifiedYard.progressTo3Ton}%` }}
                   />
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1.5 flex justify-between">
-                  <span>{calculations.progressTo3Ton.toFixed(0)}% da coleta mínima</span>
-                  {calculations.kgNeededFor3Ton > 0 ? (
-                    <span className="text-amber-400 font-bold">Faltam {calculations.kgNeededFor3Ton.toFixed(0)} kg</span>
+                  <span>{unifiedYard.progressTo3Ton.toFixed(0)}% da coleta mínima</span>
+                  {unifiedYard.kgNeededFor3Ton > 0 ? (
+                    <span className="text-amber-400 font-bold">Faltam {unifiedYard.kgNeededFor3Ton.toFixed(0)} kg</span>
                   ) : (
                     <span className="text-emerald-400 font-bold">Mínimo Atingido! ✔️</span>
                   )}
@@ -1776,7 +1872,7 @@ export function GlassRecyclingCalculator({
 
               {/* Meta 3: Melhor Carga (5 Toneladas - Cotação Máxima) */}
               <div className={`p-4 rounded-2xl border transition-all ${
-                calculations.totalWeightKg >= 5000
+                unifiedYard.totalWeightKg >= 5000
                   ? "bg-emerald-950/60 border-emerald-400 shadow-2xl shadow-emerald-900/60 ring-2 ring-emerald-400"
                   : "bg-slate-950/80 border-cyan-500/30"
               }`}>
@@ -1790,19 +1886,19 @@ export function GlassRecyclingCalculator({
                   Carga Cheia (R$ 150/t a R$ 200/t)
                 </div>
                 <div className="text-xs text-slate-300 mt-1">
-                  Rendimento de <strong className="text-emerald-400">R$ 750 a R$ 1.000 bruto</strong>. Lucro máximo garantido para Denise!
+                  Rendimento de <strong className="text-emerald-400">R$ 750 a R$ 1.000 bruto</strong>. Lucro máximo garantido para sua reciclagem!
                 </div>
 
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
                   <div
                     className="bg-gradient-to-r from-emerald-400 to-cyan-400 h-full transition-all duration-500"
-                    style={{ width: `${calculations.progressTo5Ton}%` }}
+                    style={{ width: `${unifiedYard.progressTo5Ton}%` }}
                   />
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1.5 flex justify-between">
-                  <span>{calculations.progressTo5Ton.toFixed(0)}% concluído</span>
-                  {calculations.kgNeededFor5Ton > 0 ? (
-                    <span className="text-cyan-300 font-bold">Faltam {calculations.kgNeededFor5Ton.toFixed(0)} kg</span>
+                  <span>{unifiedYard.progressTo5Ton.toFixed(0)}% concluído</span>
+                  {unifiedYard.kgNeededFor5Ton > 0 ? (
+                    <span className="text-cyan-300 font-bold">Faltam {unifiedYard.kgNeededFor5Ton.toFixed(0)} kg</span>
                   ) : (
                     <span className="text-emerald-400 font-bold">Pronto para o Victor! 🚛🎉</span>
                   )}
@@ -2043,7 +2139,7 @@ export function GlassRecyclingCalculator({
                     3. Seja o Ponto de Referência do Bairro
                   </span>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Coloque uma placa na frente: "D.W Vidros • Compramos garrafas e vidros para reciclagem". Os colaboradores da região passarão a descarregar direto com você em vez de andar quilômetros até outra cidade.
+                    Coloque uma placa na frente: "Compramos garrafas e vidros para reciclagem". Os colaboradores da região passarão a descarregar direto com você em vez de andar quilômetros até outra cidade.
                   </p>
                 </div>
               </div>

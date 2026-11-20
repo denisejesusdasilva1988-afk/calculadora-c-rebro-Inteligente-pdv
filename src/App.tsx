@@ -153,17 +153,27 @@ import { AppShowcaseSlidesModal } from "./components/AppShowcaseSlidesModal";
 import { loadCompanyProfile, saveCompanyProfile } from "./utils/companyProfile";
 import { PersonalDataProfileCard } from "./components/PersonalDataProfileCard";
 import { BarbeariaSalaoEventosModule, AgendamentoServico, ProfissionalBarbearia } from "./components/BarbeariaSalaoEventosModule";
+import { PlayStorePwaHelperModal } from "./components/PlayStorePwaHelperModal";
 import { ClientPublicAgendaPortal } from "./components/ClientPublicAgendaPortal";
 import { ThemeSelectorModal, ThemeMode, ColorPalette } from "./components/ThemeSelectorModal";
 import { MarketingAdModal } from "./components/MarketingAdModal";
 import { MarketingAdsCarousel, MarketingAdDetailModal } from "./components/MarketingAdsView";
 import { MarketingAd, loadLocalMarketingAds, saveLocalMarketingAds } from "./utils/marketingAds";
 import { WhatsAppBusinessModal } from "./components/WhatsAppBusinessModal";
+import { PushNotificationGateModal } from "./components/PushNotificationGateModal";
+import {
+  getPushPermissionState,
+  requestAndSubscribeToPush,
+  PushPermissionState,
+} from "./utils/pushNotifications";
+import { restorePlayStorePurchases } from "./utils/playBilling";
 import {
   getCurrentSubscriptionTier,
   saveSubscriptionTier,
   SubscriptionTier,
   isFeatureAllowedForTier,
+  getTrialStatus,
+  syncTrialAndTierFromCloud,
   SUBSCRIPTION_PLANS,
 } from "./utils/subscriptionTiers";
 import {
@@ -221,6 +231,7 @@ import {
   getFirestoreUpgradeUrl,
   registerFirestoreInstance,
 } from "./utils/firestoreQuotaManager";
+import { isOfficialAdminEmail, OFFICIAL_SUPPORT_EMAIL } from "./utils/founderAccess";
 
 // Reconstruct apiKey dynamically to bypass aggressive static scanners (e.g., Netlify) that block on "AIza" keys
 const customApiKey = (import.meta as any).env?.VITE_FIREBASE_API_KEY || ("AI" + "za" + "SyCYU87c6H-0ut6I2khbZWywcJmdxCD4kB8");
@@ -611,10 +622,6 @@ export const resolveFirebaseEmail = (input: string): string => {
   const digits = trimmed.replace(/\D/g, "");
   // Se o usuário digitou CPF (11 dígitos) ou CNPJ (14 dígitos) sem o @
   if (!trimmed.includes("@") && (digits.length === 11 || digits.length === 14)) {
-    // 1. Mapeamento direto prioritário para os CPFs da Denise
-    if (digits === "12660453764" || digits === "14128834771") {
-      return "denisejesusdasilva1988@gmail.com";
-    }
     try {
       const rawMap = localStorage.getItem("cpf_email_map");
       if (rawMap) {
@@ -886,9 +893,7 @@ const saveUserProfileToFirestore = async (currentUser: any) => {
     const userDocSnap = await getDoc(userDocRef);
     
     const email = currentUser.email || "";
-    const isDenise = email === 'denisejesusdasilva1988@gmail.com' 
-        || email === 'denisejesusdasilva1988@gmail.com.br' 
-        || email === 'calculadoracerebrointeligente@gmail.com';
+    const isMasterOwner = isOfficialAdminEmail(email);
 
     if (userDocSnap.exists()) {
       // Document already exists, only update displayName, email, and updatedAt.
@@ -905,7 +910,7 @@ const saveUserProfileToFirestore = async (currentUser: any) => {
         uid: currentUser.uid,
         email: email,
         displayName: currentUser.displayName || email.split("@")[0] || "Usuário",
-        isOwner: isDenise,
+        isOwner: isMasterOwner,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
@@ -934,7 +939,7 @@ const saveUserProfileToFirestore = async (currentUser: any) => {
 };
 
 export default function App() {
-  const runningVersion = "v_online_2.5";
+  const runningVersion = "v_online_2.8";
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [downloadZipStatus, setDownloadZipStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [downloadZipError, setDownloadZipError] = useState<string | null>(null);
@@ -979,6 +984,7 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isAppInstalled, setIsAppInstalled] = useState(false);
   const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const [showPlayStorePwaHelper, setShowPlayStorePwaHelper] = useState(false);
   const [showUpdateGuide, setShowUpdateGuide] = useState(false);
   const [showUpdateTopBanner, setShowUpdateTopBanner] = useState(true);
   const [showManualGuideInCard, setShowManualGuideInCard] = useState(false);
@@ -1456,9 +1462,9 @@ export default function App() {
   const [pdvLicenseActive, setPdvLicenseActive] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem("pdv_license_active");
-      return saved !== null ? saved === "true" : true;
+      return saved === "true";
     } catch {
-      return true;
+      return false;
     }
   });
   const [pdvPcLicenseActive, setPdvPcLicenseActive] = useState<boolean>(() => {
@@ -1471,11 +1477,15 @@ export default function App() {
   const [paywallType, setPaywallType] = useState<"pro" | "pdv" | "pdv_pc">("pro");
   const [showPaywall, setShowPaywall] = useState(false);
 
-  // Freemium subscription tiers state
+  // Freemium subscription tiers & 30-day free trial state
   const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>(() => getCurrentSubscriptionTier());
   const [showPlansModal, setShowPlansModal] = useState<boolean>(false);
   const [targetPlanFeature, setTargetPlanFeature] = useState<string>("");
   const [initialSelectedTier, setInitialSelectedTier] = useState<SubscriptionTier>("pdv_total");
+
+  // Push notifications enforcement state (Supermercados & Mercadinhos)
+  const [pushPermission, setPushPermission] = useState<PushPermissionState>(() => getPushPermissionState());
+  const [isPushGateOpen, setIsPushGateOpen] = useState<boolean>(false);
 
   const openSubscriptionModal = (featureName?: string, tier?: SubscriptionTier) => {
     setTargetPlanFeature(featureName || "");
@@ -1486,11 +1496,8 @@ export default function App() {
   const handleUpdateSubscriptionTier = (tier: SubscriptionTier) => {
     saveSubscriptionTier(tier);
     setSubscriptionTier(tier);
-    if (tier === "infinite" || tier === "pdv_total") {
+    if (tier === "infinite" || tier === "pdv_total" || tier === "estoque_gestao") {
       setPdvLicenseActive(true);
-      setIsPremium(true);
-    } else if (tier === "estoque_gestao") {
-      setPdvLicenseActive(false);
       setIsPremium(true);
     } else if (tier === "pro_tools") {
       setIsPremium(true);
@@ -1501,25 +1508,40 @@ export default function App() {
     }
   };
 
-  // Inicialização e vinculação permanente da empresa D.W VIDROS & RECICLAGEM com CNPJ 67.965.725/0001-95 e Plano Infinito
+  // Inicializa teste gratuito de 30 dias, solicita Push obrigatório de ofertas e restaura assinatura Play Store
   useEffect(() => {
+    getTrialStatus();
+
+    const currentPerm = getPushPermissionState();
+    setPushPermission(currentPerm);
+    let alreadyShownSession = false;
     try {
-      if (!localStorage.getItem("pdv_store_cnpj_cpf")) {
-        localStorage.setItem("pdv_store_cnpj_cpf", "67.965.725/0001-95");
-        localStorage.setItem("pdv_owner_cpf", "67.965.725/0001-95");
-      }
-      if (!localStorage.getItem("pdv_store_name")) {
-        localStorage.setItem("pdv_store_name", "D.W VIDROS & RECICLAGEM");
-      }
-      if (!localStorage.getItem("pdv_owner_name")) {
-        localStorage.setItem("pdv_owner_name", "Denise Jesus & Wellington Oliveira");
-      }
-      localStorage.setItem("app_subscription_tier", "infinite");
-      localStorage.setItem("pdv_license_active", "true");
-      localStorage.setItem("is_premium", "true");
-      localStorage.setItem("pdv_owner_vip_unlocked", "true");
-      localStorage.setItem("pdv_owner_mode", "true");
+      alreadyShownSession = sessionStorage.getItem("push_gate_seen_session") === "true";
     } catch {}
+
+    let pushTimer: ReturnType<typeof setTimeout> | undefined;
+    if (currentPerm === "default" && !alreadyShownSession) {
+      pushTimer = setTimeout(() => {
+        setIsPushGateOpen(true);
+      }, 1200);
+    }
+
+    restorePlayStorePurchases()
+      .then((restoredTier) => {
+        if (restoredTier && restoredTier !== "free") {
+          handleUpdateSubscriptionTier(restoredTier);
+          showNotification("✅ Assinatura Google Play restaurada com sucesso!", "success");
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      if (pushTimer) clearTimeout(pushTimer);
+    };
+  }, []);
+
+  // Listeners para sincronização dinâmica dos dados cadastrados pelo próprio usuário
+  useEffect(() => {
 
     const handleProfileChange = (e: any) => {
       const p = e.detail;
@@ -1540,16 +1562,26 @@ export default function App() {
   }, []);
 
   const requestPushNotificationPermission = async () => {
-    if (!("Notification" in window)) {
+    const currentPerm = getPushPermissionState();
+    if (currentPerm === "denied") {
+      setPushPermission("denied");
+      setIsPushGateOpen(true);
+      return;
+    }
+    if (currentPerm === "unsupported") {
+      setPushPermission("unsupported");
       showNotification("Notificações Push não são suportadas neste navegador.", "info");
       return;
     }
     try {
-      const perm = await Notification.requestPermission();
-      if (perm === "granted") {
-        showNotification("🔔 Alertas de Ofertas Ativados! Você receberá encartes e promoções semanais no seu celular.", "success");
+      const result = await requestAndSubscribeToPush();
+      setPushPermission(result.permission);
+      if (result.permission === "granted") {
+        setIsPushGateOpen(false);
+        showNotification("🔔 Alertas de Supermercados e Mercadinhos ativados no seu celular!", "success");
       } else {
-        showNotification("Permissão de notificações não concedida.", "info");
+        setIsPushGateOpen(true);
+        showNotification("Ative as notificações para receber promoções de supermercados e mercadinhos!", "info");
       }
     } catch {
       showNotification("Não foi possível ativar notificações no momento.", "error");
@@ -1778,7 +1810,8 @@ export default function App() {
   const handleSetNotepadMode = (
     mode: any,
     checkoutOnly?: boolean,
-    contabilidadeTab?: "tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa"
+    contabilidadeTab?: "tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa",
+    subTabOverride?: string | null
   ) => {
     if (contabilidadeTab) {
       setContabilidadeActiveTab(contabilidadeTab);
@@ -1786,47 +1819,71 @@ export default function App() {
         localStorage.setItem("contabilidade_active_tab", contabilidadeTab);
       } catch {}
     }
-    // 1. Subscription plan access gate (Freemium rules requested by user)
-    const isOwnerOrAdmin = isAdmin || (user?.email && user.email.toLowerCase().includes("denise"));
+
+    const activeSubTabToCheck = subTabOverride !== undefined ? subTabOverride : pdvActiveSubTab;
+
+    // 1. Regras de assinatura + 30 dias grátis de teste
+    const isOwnerOrAdmin = isAdmin || subscriptionTier === "infinite";
 
     if (!isOwnerOrAdmin) {
-      if (mode === "pricing") {
-        if (!isFeatureAllowedForTier("precificacao", subscriptionTier, pdvLicenseActive)) {
+      if (mode === "barbearia_salao") {
+        if (!isFeatureAllowedForTier("agenda_profissionais", subscriptionTier, false)) {
+          showNotification("🔒 Seus 30 dias grátis terminaram. A Agenda dos Profissionais faz parte do Plano Ferramentas Pro (R$ 14,90/mês)!", "error");
+          openSubscriptionModal("Agenda dos Profissionais (R$ 14,90/mês)", "pro_tools");
+          return;
+        }
+      } else if (
+        mode === "pdv" &&
+        (activeSubTabToCheck === "ferro_velho" ||
+          activeSubTabToCheck === "ferro_velho_outros" ||
+          activeSubTabToCheck === "ferro_velho_guia")
+      ) {
+        if (!isFeatureAllowedForTier("ferro_velho", subscriptionTier, false)) {
+          showNotification("🔒 Seus 30 dias grátis terminaram. O módulo Ferro Velho & Pátio faz parte do Plano Gestão (R$ 29,90/mês)!", "error");
+          openSubscriptionModal("Ferro Velho, Pátio de Vidros & Reciclagem (R$ 29,90/mês)", "estoque_gestao");
+          return;
+        }
+      } else if (mode === "pricing") {
+        if (!isFeatureAllowedForTier("precificacao", subscriptionTier, false)) {
           showNotification("🔒 A Calculadora de Precificação faz parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
           openSubscriptionModal("Calculadora de Precificação Inteligente (R$ 14,90)", "pro_tools");
           return;
         }
       } else if (mode === "receipts" || mode === "brecho") {
-        if (!isFeatureAllowedForTier("taloes", subscriptionTier, pdvLicenseActive)) {
+        if (!isFeatureAllowedForTier("taloes", subscriptionTier, false)) {
           showNotification("🔒 Talões & Recibos fazem parte do Plano Ferramentas Pro (R$ 14,90)!", "error");
           openSubscriptionModal("Talões & Papelarias / Recibos (R$ 14,90)", "pro_tools");
           return;
         }
       } else if (mode === "pdv") {
-        if (pdvActiveSubTab === "inventory" || pdvActiveSubTab === "cadastro_produtos") {
-          // Estoque liberado para R$ 29,90 e R$ 39,90
-          if (!isFeatureAllowedForTier("estoque", subscriptionTier, pdvLicenseActive)) {
-            showNotification("🔒 O Controle de Estoque Completo está liberado no Plano Gestão (R$ 29,90) ou PDV Total (R$ 39,90)!", "error");
+        if (activeSubTabToCheck === "inventory" || activeSubTabToCheck === "cadastro_produtos") {
+          if (!isFeatureAllowedForTier("estoque", subscriptionTier, false)) {
+            showNotification("🔒 O Controle de Estoque Completo está liberado após os 30 dias no Plano Gestão (R$ 29,90)!", "error");
             openSubscriptionModal("Controle de Estoque Completo (R$ 29,90)", "estoque_gestao");
             return;
           }
         } else {
-          // Frente de Caixa PDV & IA - R$ 39,90
-          if (!isFeatureAllowedForTier("pdv_completo", subscriptionTier, pdvLicenseActive)) {
-            showNotification("🔒 A Frente de Caixa (PDV) completa e a IA Gemini são exclusivas do Plano PDV Total (R$ 39,90)!", "error");
+          if (!isFeatureAllowedForTier("pdv_completo", subscriptionTier, false)) {
+            showNotification("🔒 Seus 30 dias grátis terminaram. Assine o Plano PDV Total (R$ 39,90) ou Gestão (R$ 29,90)!", "error");
             openSubscriptionModal("Frente de Caixa PDV & IA Gemini (R$ 39,90)", "pdv_total");
             return;
           }
         }
       }
-      // "super" (Mercado lista), "encartes" (Ofertas folhetos), "notes" (Bloco comum), "folders" (Calc normal), "agenda", "revisão" are ALWAYS 100% Free!
+      // "super", "encartes", "notes", "folders", "edit" (Calculadora Nota & Excel), "pastas", "agenda", "revisão" são SEMPRE 100% Gratuitos!
     }
 
-    if (checkModulePermission(mode)) {
+    if (checkModulePermission(mode, activeSubTabToCheck)) {
       setNotepadMode(mode);
       localStorage.setItem("notepad_mode", mode);
+      if (subTabOverride !== undefined) {
+        setPdvActiveSubTab(subTabOverride);
+      }
       if (mode === "pdv" && checkoutOnly !== undefined) {
         setPdvCheckoutOnly(checkoutOnly);
+      }
+      if (mode === "encartes" && getPushPermissionState() === "default") {
+        setIsPushGateOpen(true);
       }
     }
   };
@@ -3343,12 +3400,17 @@ export default function App() {
       }
       
       // 1. Atalhos do PWA (shortcuts)
-      if (urlParams.has("shortcut")) {
-        const shortcut = urlParams.get("shortcut");
-        if (shortcut === "pdv") {
+      if (urlParams.has("shortcut") || urlParams.has("action")) {
+        const shortcut = urlParams.get("shortcut") || urlParams.get("action");
+        if (shortcut === "pdv" || shortcut === "vendas") {
           setActiveTab("calc");
           setNotepadMode("pdv");
           showNotification("Acesso rápido: Frente de Caixa (PDV) 🛒", "info");
+        } else if (shortcut === "catalogo") {
+          setActiveTab("calc");
+          setNotepadMode("pdv");
+          setPdvActiveSubTab("catalogo");
+          showNotification("Acesso rápido: Catálogo e Pátio 📦", "info");
         } else if (shortcut === "notes") {
           setActiveTab("calc");
           setNotepadMode("edit");
@@ -3358,6 +3420,10 @@ export default function App() {
           setNotepadMode("edit");
           setInputText("");
           showNotification("Acesso rápido: Criar Nova Nota ✏️", "info");
+        } else if (shortcut === "encartes" || shortcut === "ofertas") {
+          setActiveTab("calc");
+          setNotepadMode("encartes");
+          showNotification("Acesso rápido: Ofertas e Encartes de Supermercados 🏷️", "info");
         }
         
         // Limpa parâmetros da URL para manter limpo
@@ -3851,19 +3917,10 @@ export default function App() {
   }, []);
 
   const isAdmin = useMemo(() => {
-    if (!user?.email) return false;
-    const emailLower = user.email.toLowerCase().trim();
-    const adminEmails = [
-      "denisejesus1988@gmail.com",
-      "denisejesusdasilva1988@gmail.com",
-      "denisejesusdasilva1988@gmail.com.br",
-      "calculadoracerebrointeligente@gmail.com"
-    ];
-    const isWellington = emailLower.includes("wellington") || emailLower.startsWith("wellington");
-    return adminEmails.includes(emailLower) || isWellington;
+    return isOfficialAdminEmail(user?.email);
   }, [user]);
 
-  // Se o usuário não for administrador exclusivo (Denise ou Wellington), garante que a aba Admin nunca seja acessada
+  // Garante que apenas administradores oficiais acessem a aba Admin
   useEffect(() => {
     if (activeTab === "admin" && !isAdmin) {
       setActiveTab("calc");
@@ -3990,12 +4047,7 @@ export default function App() {
     // Lista de candidatos para tentar o login
     const candidatesToTry: string[] = [];
     if (isDoc) {
-      // 1. Mapeamento direto prioritário para os CPFs da Denise
-      if (digits === "12660453764" || digits === "14128834771") {
-        candidatesToTry.push("denisejesusdasilva1988@gmail.com");
-      }
-
-      // 2. Verificar mapeamento salvo de CPF para E-mail local
+      // Verificar mapeamento salvo de CPF para E-mail local
       try {
         const rawMap = localStorage.getItem("cpf_email_map");
         if (rawMap) {
@@ -4038,13 +4090,9 @@ export default function App() {
         }
       }
 
-      // 6. E-mail virtual gerado para o CPF/CNPJ
+      // E-mail virtual gerado para o CPF/CNPJ
       if (!candidatesToTry.includes(`doc_${digits}@sistema.app`)) {
         candidatesToTry.push(`doc_${digits}@sistema.app`);
-      }
-      // 7. Fallback administrativo Denise
-      if (!candidatesToTry.includes("denisejesusdasilva1988@gmail.com")) {
-        candidatesToTry.push("denisejesusdasilva1988@gmail.com");
       }
     } else {
       candidatesToTry.push(trimmedInput.toLowerCase());
@@ -4092,20 +4140,19 @@ export default function App() {
     // Se o Firebase Auth falhou por credencial ou falta de reautenticação recente, verificar senha configurada no dispositivo
     if (!loginSuccess) {
       const savedFallbackPass = localStorage.getItem("pdv_local_fallback_password");
-      const isKnownDeniseCpf = isDoc && (digits === "12660453764" || digits === "14128834771");
-      const isMatchingPass = (savedFallbackPass && authPassword === savedFallbackPass) || (isKnownDeniseCpf && (authPassword === "23519199" || authPassword === savedFallbackPass));
+      const isMatchingPass = Boolean(savedFallbackPass && authPassword === savedFallbackPass);
 
       if (isMatchingPass) {
         // Libera acesso local autenticado e seguro para a conta do usuário
         loginSuccess = true;
-        const targetEmail = isKnownDeniseCpf ? "denisejesusdasilva1988@gmail.com" : (candidatesToTry[0] || `doc_${digits}@sistema.app`);
+        const targetEmail = candidatesToTry[0] || `doc_${digits}@sistema.app`;
         const verifiedUser = {
-          uid: isKnownDeniseCpf ? "denise_owner_verified" : `local_cpf_${digits}`,
+          uid: `local_cpf_${digits}`,
           email: targetEmail,
-          displayName: isKnownDeniseCpf ? "Denise Jesus da Silva" : "Proprietário PDV"
+          displayName: "Proprietário PDV"
         } as any;
         setUser(verifiedUser);
-        localStorage.setItem("pdv_owner_cpf", digits || "12660453764");
+        if (digits) localStorage.setItem("pdv_owner_cpf", digits);
         localStorage.setItem("pdv_user_email", targetEmail);
         localStorage.setItem("pdv_local_fallback_password", authPassword);
 
@@ -4317,8 +4364,7 @@ export default function App() {
     setIsAuthLoading(true);
 
     try {
-      const isKnownDenise = cleanCpf === "12660453764" || cleanCpf === "14128834771";
-      let targetEmail = isKnownDenise ? "denisejesusdasilva1988@gmail.com" : "";
+      let targetEmail = "";
 
       if (!targetEmail) {
         try {
@@ -4339,7 +4385,7 @@ export default function App() {
         } catch {}
       }
 
-      const finalEmail = targetEmail || (cleanCpf === "12660453764" ? "denisejesusdasilva1988@gmail.com" : `doc_${cleanCpf}@sistema.app`);
+      const finalEmail = targetEmail || `doc_${cleanCpf}@sistema.app`;
 
       // 1. Salva nova senha em armazenamento seguro local de fallback
       localStorage.setItem("pdv_local_fallback_password", recoveryNewPassword);
@@ -4688,7 +4734,7 @@ export default function App() {
   const handleClientSaveAgendamento = useCallback((ag: any) => {
     try {
       const urlStore = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("loja") : null;
-      const targetStoreId = urlStore || (user?.uid && user.uid !== "guest_visitor" ? user.uid : localStorage.getItem("pdv_store_id") || "loja_denise");
+      const targetStoreId = urlStore || (user?.uid && user.uid !== "guest_visitor" ? user.uid : localStorage.getItem("pdv_store_id") || "loja_padrao");
 
       const storeKey = `barbearia_${targetStoreId}_agendamentos`;
       const existing = JSON.parse(localStorage.getItem(storeKey) || "[]");
@@ -4731,7 +4777,7 @@ export default function App() {
   const handleClientSaveEncomenda = useCallback((enc: any) => {
     try {
       const urlStore = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("loja") : null;
-      const targetStoreId = urlStore || (user?.uid && user.uid !== "guest_visitor" ? user.uid : localStorage.getItem("pdv_store_id") || "loja_denise");
+      const targetStoreId = urlStore || (user?.uid && user.uid !== "guest_visitor" ? user.uid : localStorage.getItem("pdv_store_id") || "loja_padrao");
 
       const storeKey = `barbearia_${targetStoreId}_encomendas`;
       const existing = JSON.parse(localStorage.getItem(storeKey) || "[]");
@@ -6625,20 +6671,38 @@ export default function App() {
         }
       }
 
-      // Sync user profile permissions
+      // Sync user profile permissions, subscription tier, and 30-day free trial
       try {
         const userDocRef = doc(db, "users", userId);
         const userDocSnap = await getDoc(userDocRef);
         const currentUserEmail = auth.currentUser?.email || "";
         
-        const isDenise = currentUserEmail === 'denisejesusdasilva1988@gmail.com' 
-            || currentUserEmail === 'denisejesusdasilva1988@gmail.com.br' 
-            || currentUserEmail === 'calculadoracerebrointeligente@gmail.com';
+        const isMasterOwner = isOfficialAdminEmail(currentUserEmail);
 
         if (userDocSnap.exists()) {
           const userData = userDocSnap.data();
+          const syncedTier = syncTrialAndTierFromCloud({
+            cloudTier: userData?.subscriptionTier || null,
+            cloudTrialStartedAt: userData?.trialStartedAt || null,
+            cloudTrialEndsAt: userData?.trialEndsAt || null,
+          });
+          if (syncedTier) {
+            handleUpdateSubscriptionTier(syncedTier);
+          } else if (isMasterOwner) {
+            handleUpdateSubscriptionTier("infinite");
+          }
+
+          if (!userData?.trialStartedAt) {
+            const localTrial = getTrialStatus();
+            await setDoc(userDocRef, {
+              trialStartedAt: localTrial.startedAt.toISOString(),
+              trialEndsAt: localTrial.expiresAt.toISOString(),
+              updatedAt: serverTimestamp(),
+            }, { merge: true }).catch(() => {});
+          }
+
           if (userData && typeof userData.isOwner === 'boolean') {
-            const currentIsOwner = userData.isOwner || isDenise;
+            const currentIsOwner = userData.isOwner || isMasterOwner;
             localStorage.setItem("pdv_owner_mode", currentIsOwner ? "true" : "false");
             if (currentIsOwner) {
               localStorage.setItem("pdv_gestao_user_role", "proprietario");
@@ -6652,10 +6716,25 @@ export default function App() {
             }
           }
         } else {
-          if (isDenise) {
+          const localTrial = getTrialStatus();
+          if (currentUserEmail) {
+            await setDoc(userDocRef, {
+              uid: userId,
+              email: currentUserEmail,
+              displayName: auth.currentUser?.displayName || "",
+              isOwner: isMasterOwner,
+              subscriptionTier: isMasterOwner ? "infinite" : "free",
+              trialStartedAt: localTrial.startedAt.toISOString(),
+              trialEndsAt: localTrial.expiresAt.toISOString(),
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            }, { merge: true }).catch(() => {});
+          }
+          if (isMasterOwner) {
+            handleUpdateSubscriptionTier("infinite");
             localStorage.setItem("pdv_owner_mode", "true");
             localStorage.setItem("pdv_gestao_user_role", "proprietario");
-            localStorage.setItem("pdv_gestao_user_staff_name", "Denise");
+            localStorage.setItem("pdv_gestao_user_staff_name", auth.currentUser?.displayName || "Proprietário");
           }
         }
       } catch (err) {
@@ -8474,7 +8553,7 @@ export default function App() {
               const s = new URLSearchParams(window.location.search).get("loja");
               if (s) return s;
             } catch {}
-            return user?.uid || localStorage.getItem("pdv_store_id") || "loja_denise";
+            return user?.uid || localStorage.getItem("pdv_store_id") || "loja_padrao";
           })()}
           db={db}
           onSaveAgendamento={(ag) => {
@@ -8775,15 +8854,13 @@ export default function App() {
                     displayName: "Visitante Convidado"
                   } as any);
                 }
-                if (!pdvLicenseActive) {
-                  showNotification("🔒 O Painel do Proprietário é exclusivo para quem adquirir a licença do aplicativo!", "error");
-                  setPaywallType("pdv");
-                  setShowPaywall(true);
+                if (!isFeatureAllowedForTier("pdv_completo", subscriptionTier, isAdmin || subscriptionTier === "infinite")) {
+                  showNotification("🔒 Seus 30 dias grátis terminaram. O Painel do Proprietário faz parte dos planos pagos!", "error");
+                  openSubscriptionModal("Painel do Proprietário & Equipe", "pdv_total");
                   return;
                 }
                 setActiveTab("calc");
-                handleSetNotepadMode("pdv", false);
-                setPdvActiveSubTab("proprietario");
+                handleSetNotepadMode("pdv", false, undefined, "proprietario");
               }}
               className={`shrink-0 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer font-bold whitespace-nowrap active:scale-95 ${
                 activeTab === "calc" && notepadMode === "pdv" && !pdvCheckoutOnly && pdvActiveSubTab === "proprietario"
@@ -9162,8 +9239,28 @@ export default function App() {
                 <span>Aplicativo Protegido • Licenciamento Oficial Google Play</span>
               </div>
 
-              {/* Atualização e Limpeza de Cache */}
-              <div className="pt-2 border-t border-white/5 text-left">
+              {/* Atualização, Instalação PWA e Assistente Play Store */}
+              <div className="pt-2 border-t border-white/5 text-left space-y-2">
+                {!isAppInstalled && (
+                  <button
+                    type="button"
+                    onClick={handleInstallApp}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 px-4 rounded-2xl font-black text-[10px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Instalar Aplicativo no Aparelho (PWA)</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowPlayStorePwaHelper(true)}
+                  className="w-full bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 hover:text-white py-2.5 px-4 rounded-2xl font-black text-[10px] uppercase tracking-wider transition-all cursor-pointer border border-sky-500/30 flex items-center justify-center gap-2"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Configurar PWA &amp; AssetLinks para Play Store 🚀</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleForcePwaUpdate}
@@ -9903,7 +10000,9 @@ export default function App() {
                   {SUBSCRIPTION_PLANS.find((p) => p.id === subscriptionTier)?.name || "Plano Grátis"}
                 </p>
                 <span className="text-[9px] text-amber-400 font-bold block mt-0.5">
-                  {SUBSCRIPTION_PLANS.find((p) => p.id === subscriptionTier)?.price || "R$ 0,00"}
+                  {subscriptionTier === "free" && getTrialStatus().isActive
+                    ? `🎁 Teste 30d: ${getTrialStatus().daysRemaining} dia(s) restantes`
+                    : SUBSCRIPTION_PLANS.find((p) => p.id === subscriptionTier)?.price || "R$ 0,00"}
                 </span>
               </div>
               <div className="bg-slate-800/50 p-5 rounded-3xl border border-white/5">
@@ -9940,10 +10039,10 @@ export default function App() {
                   Módulos de Loja / PDV
                 </p>
                 <p className="text-base font-black text-white">
-                  {subscriptionTier === "infinite" ? "Plano Infinito Vitalício ♾️" : subscriptionTier === "pdv_total" ? "PDV Total + IA" : subscriptionTier === "estoque_gestao" ? "Estoque & Caixa" : subscriptionTier === "pro_tools" ? "Ferramentas Pro" : "Básico Grátis"}
+                  {subscriptionTier === "infinite" ? "Plano Infinito Vitalício ♾️" : subscriptionTier === "pdv_total" ? "PDV Total + IA" : subscriptionTier === "estoque_gestao" ? "Ferro Velho & Caixa" : subscriptionTier === "pro_tools" ? "Agenda & Pro" : getTrialStatus().isActive ? "Teste 30d Liberado" : "Básico Grátis"}
                 </p>
                 <span className="text-[9px] text-purple-300 font-bold block mt-0.5">
-                  {subscriptionTier === "infinite" ? "Vitalício Sem Mensalidade (CNPJ 67.965.725/0001-95)" : subscriptionTier === "free" ? "Demonstração" : "Liberado Pro"}
+                  {subscriptionTier === "infinite" ? "Vitalício Sem Mensalidade" : subscriptionTier === "free" ? (getTrialStatus().isActive ? `Expira em ${getTrialStatus().expiryFormatted}` : "Nota & Excel 100% Grátis") : "Liberado Pro"}
                 </span>
               </div>
             </div>
@@ -10201,50 +10300,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-slate-800/50 border border-white/5 p-6 rounded-3xl space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center">
-                    <MessageCircle className="w-6 h-6 text-emerald-400" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-black text-white uppercase tracking-tight">
-                      Suporte via WhatsApp
-                    </h4>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                      Atendimento rápido e plantão de dúvidas
-                    </p>
-                  </div>
-                </div>
-                <div className="bg-slate-950 p-4 rounded-2xl border border-white/5 flex items-center justify-between gap-2 overflow-hidden">
-                  <span className="text-xs font-mono text-slate-300 select-all truncate">
-                    (21) 96671-3263
-                  </span>
-                  <div className="flex gap-1 shrink-0">
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText("21966713263");
-                        showNotification(
-                          "WhatsApp de suporte copiado! 📋",
-                          "success",
-                        );
-                      }}
-                      className="p-2 bg-slate-800 text-slate-300 rounded-xl hover:text-white transition-all"
-                      title="Copiar WhatsApp"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                    <a
-                      href="https://wa.me/5521966713263?text=Ol%C3%A1%2C%20preciso%20de%20suporte%20no%20PDV%20C%C3%A9rebro%20Inteligente"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 transition-all flex items-center justify-center"
-                      title="Falar no WhatsApp"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                    </a>
-                  </div>
-                </div>
-              </div>
+              {/* Canal de suporte oficial via e-mail acima (sem telefone pessoal exposto) */}
 
               <div className="bg-slate-800/50 border border-white/5 p-6 rounded-3xl space-y-4">
                 <div className="flex items-center gap-4">
@@ -11145,7 +11201,7 @@ export default function App() {
                     Plano Ativo:{" "}
                     <strong className="text-amber-400 font-black">
                       {subscriptionTier === "infinite"
-                        ? "♾️👑 Plano Infinito Vitalício (CNPJ 67.965.725/0001-95) - Tudo Liberado"
+                        ? "♾️👑 Plano Infinito Vitalício - Tudo Liberado"
                         : subscriptionTier === "pdv_total" || pdvLicenseActive
                         ? "👑 PDV Total & IA (R$ 39,90) - Tudo Liberado"
                         : subscriptionTier === "estoque_gestao"
@@ -11371,14 +11427,12 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (!pdvLicenseActive) {
-                      showNotification("🔒 O Painel do Proprietário é exclusivo para quem adquirir a licença do aplicativo!", "error");
-                      setPaywallType("pdv");
-                      setShowPaywall(true);
+                    if (!isFeatureAllowedForTier("pdv_completo", subscriptionTier, isAdmin || subscriptionTier === "infinite")) {
+                      showNotification("🔒 Seus 30 dias grátis terminaram. O Painel do Proprietário faz parte dos planos pagos!", "error");
+                      openSubscriptionModal("Painel do Proprietário & Equipe", "pdv_total");
                       return;
                     }
-                    handleSetNotepadMode("pdv", false);
-                    setPdvActiveSubTab("proprietario");
+                    handleSetNotepadMode("pdv", false, undefined, "proprietario");
                   }}
                   className={`flex-1 min-w-[125px] flex flex-col items-center justify-center gap-1.5 py-3.5 rounded-t-2xl font-extrabold text-xs sm:text-sm uppercase tracking-wide transition-all duration-200 cursor-pointer ${
                     notepadMode === "pdv" && !pdvCheckoutOnly && pdvActiveSubTab === "proprietario"
@@ -11597,9 +11651,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setPdvCheckoutOnly(false);
-                    setPdvActiveSubTab(null);
-                    handleSetNotepadMode("pdv");
+                    handleSetNotepadMode("pdv", false, undefined, null);
                   }}
                   className={`flex-1 min-w-[160px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center touch-manipulation select-none active:scale-95 ${
                     notepadMode === "pdv" && !pdvCheckoutOnly && !pdvActiveSubTab
@@ -11618,9 +11670,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setPdvCheckoutOnly(false);
-                    setPdvActiveSubTab("caixa");
-                    handleSetNotepadMode("pdv");
+                    handleSetNotepadMode("pdv", false, undefined, "caixa");
                   }}
                   className={`flex-1 min-w-[155px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center touch-manipulation select-none active:scale-95 ${
                     notepadMode === "pdv" && pdvActiveSubTab === "caixa"
@@ -11639,9 +11689,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setPdvCheckoutOnly(false);
-                    setPdvActiveSubTab("ferro_velho");
-                    handleSetNotepadMode("pdv");
+                    handleSetNotepadMode("pdv", false, undefined, "ferro_velho");
                   }}
                   className={`flex-1 min-w-[165px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center touch-manipulation select-none active:scale-95 ${
                     notepadMode === "pdv" && pdvActiveSubTab === "ferro_velho"
@@ -11660,9 +11708,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setPdvCheckoutOnly(false);
-                    setPdvActiveSubTab("cadastro_produtos");
-                    handleSetNotepadMode("pdv");
+                    handleSetNotepadMode("pdv", false, undefined, "cadastro_produtos");
                   }}
                   className={`flex-1 min-w-[130px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center touch-manipulation select-none active:scale-95 ${
                     notepadMode === "pdv" && pdvActiveSubTab === "cadastro_produtos"
@@ -12352,11 +12398,11 @@ export default function App() {
                       isLoggedIn={!!user}
                       userId={user?.uid}
                       db={db}
-                      pdvLicenseActive={pdvLicenseActive}
-                      onActivatePDV={() => {
-                        setPaywallType("pdv");
-                        setShowPaywall(true);
-                      }}
+                      pdvLicenseActive={pdvLicenseActive || getTrialStatus().isActive}
+                      onActivatePDV={() => openSubscriptionModal("Frente de Caixa PDV & Gestão", "pdv_total")}
+                      currentTier={subscriptionTier}
+                      isAdmin={isAdmin || subscriptionTier === "infinite"}
+                      onRequirePlanUpgrade={(featureName, tier) => openSubscriptionModal(featureName, tier)}
                       ai={ai}
                       activeSubTab={pdvActiveSubTab}
                       onSubTabChange={setPdvActiveSubTab}
@@ -12698,39 +12744,23 @@ export default function App() {
                       key="balcao-comandos-module"
                       onSelectAction={(action) => {
                         if (action === "catalogo") {
-                          setPdvCheckoutOnly(false);
-                          setPdvActiveSubTab(null);
-                          handleSetNotepadMode("pdv");
+                          handleSetNotepadMode("pdv", false, undefined, null);
                         } else if (action === "manual") {
-                          setPdvCheckoutOnly(false);
-                          setPdvActiveSubTab("caixa");
-                          handleSetNotepadMode("pdv");
+                          handleSetNotepadMode("pdv", false, undefined, "caixa");
                         } else if (action === "estoque") {
-                          setPdvCheckoutOnly(false);
-                          setPdvActiveSubTab("cadastro_produtos");
-                          handleSetNotepadMode("pdv");
+                          handleSetNotepadMode("pdv", false, undefined, "cadastro_produtos");
                         } else if (action === "ficha_tecnica") {
-                          setPdvCheckoutOnly(false);
-                          setPdvActiveSubTab("ficha_tecnica");
-                          handleSetNotepadMode("pdv");
+                          handleSetNotepadMode("pdv", false, undefined, "ficha_tecnica");
                         } else if (action === "clientes") {
-                          setPdvCheckoutOnly(false);
-                          setPdvActiveSubTab("clientes");
-                          handleSetNotepadMode("pdv");
+                          handleSetNotepadMode("pdv", false, undefined, "clientes");
                         } else if (action === "relatorios") {
-                          setPdvCheckoutOnly(false);
-                          setPdvActiveSubTab("relatorios");
-                          handleSetNotepadMode("pdv");
+                          handleSetNotepadMode("pdv", false, undefined, "relatorios");
                         } else if (action === "proprietario") {
-                          setPdvCheckoutOnly(false);
-                          setPdvActiveSubTab("proprietario");
-                          handleSetNotepadMode("pdv");
+                          handleSetNotepadMode("pdv", false, undefined, "proprietario");
                         } else if (action === "ajuda") {
                           handleSetNotepadMode("ajuda");
                         } else if (action === "ferro_velho" || action === "ferro_velho_outros" || action === "ferro_velho_guia") {
-                          setPdvCheckoutOnly(false);
-                          setPdvActiveSubTab(action);
-                          handleSetNotepadMode("pdv");
+                          handleSetNotepadMode("pdv", false, undefined, action);
                         } else if (action.startsWith("segmento_")) {
                           const seg = action.replace("segmento_", "");
                           localStorage.setItem("barbearia_selected_segment", seg);
@@ -12740,9 +12770,7 @@ export default function App() {
                         }
                       }}
                       onOpenPDVWithSubTab={(subTab) => {
-                        setPdvCheckoutOnly(false);
-                        setPdvActiveSubTab(subTab);
-                        handleSetNotepadMode("pdv");
+                        handleSetNotepadMode("pdv", false, undefined, subTab);
                       }}
                       formatCurrency={formatCurrency}
                       showNotification={showNotification}
@@ -12844,26 +12872,48 @@ export default function App() {
                           />
 
                           {/* 🔔 BARRA DE ATIVAÇÃO DE PUSH NOTIFICATIONS PARA CLIENTES */}
-                          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+                          <div className={`border rounded-2xl p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-left ${
+                            pushPermission === "granted"
+                              ? "bg-emerald-950/90 border-emerald-500/40"
+                              : "bg-slate-900 border-red-500/40 shadow-lg shadow-red-500/10"
+                          }`}>
                             <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center shrink-0">
-                                <Bell className="w-5 h-5 animate-bounce" />
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                                pushPermission === "granted"
+                                  ? "bg-emerald-500/20 text-emerald-400"
+                                  : "bg-red-500/20 text-red-400"
+                              }`}>
+                                <Bell className={`w-5 h-5 ${pushPermission === "granted" ? "" : "animate-bounce"}`} />
                               </div>
                               <div>
                                 <span className="text-xs font-black text-white uppercase tracking-wider block">
-                                  Receber Alertas de Ofertas Semanais no Celular
+                                  {pushPermission === "granted"
+                                    ? "✅ Alertas de Supermercados & Mercadinhos Ativos!"
+                                    : "🔔 Ative Alertas de Supermercados e Mercadinhos no Celular"}
                                 </span>
-                                <span className="text-[10px] text-slate-400 block">
-                                  Ative para receber avisos em tempo real quando Guanabara, Assaí e mercados locais publicarem novos encartes!
+                                <span className="text-[10px] text-slate-300 block">
+                                  {pushPermission === "granted"
+                                    ? "Você receberá avisos em tempo real sempre que chegarem novos folhetos e promoções do bairro."
+                                    : "Receba avisos no celular quando Guanabara, Assaí e mercadinhos do bairro publicarem promoções!"}
                                 </span>
                               </div>
                             </div>
                             <button
                               onClick={requestPushNotificationPermission}
-                              className="px-4 py-2 bg-red-500 hover:bg-red-400 active:scale-95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-md shrink-0 cursor-pointer flex items-center gap-1.5"
+                              className={`px-4 py-2 active:scale-95 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-md shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                                pushPermission === "granted"
+                                  ? "bg-emerald-600 hover:bg-emerald-500"
+                                  : "bg-red-500 hover:bg-red-400"
+                              }`}
                             >
                               <Bell className="w-3.5 h-3.5" />
-                              <span>Ativar Alertas 🔔</span>
+                              <span>
+                                {pushPermission === "granted"
+                                  ? "Alertas Ativos ✓"
+                                  : pushPermission === "denied"
+                                  ? "Como Desbloquear ⚙️"
+                                  : "Permitir Alertas Agora 🔔"}
+                              </span>
                             </button>
                           </div>
 
@@ -15365,7 +15415,7 @@ export default function App() {
                   const s = new URLSearchParams(window.location.search).get("loja");
                   if (s) return s;
                 } catch {}
-                return user?.uid || localStorage.getItem("pdv_store_id") || "loja_denise";
+                return user?.uid || localStorage.getItem("pdv_store_id") || "loja_padrao";
               })()}
               db={db}
               onSaveAgendamento={(ag) => {
@@ -15518,7 +15568,7 @@ export default function App() {
                         <p className="text-xs text-slate-300 leading-relaxed">
                           <strong>Controlador de Dados:</strong> Calculadora Cérebro Inteligente App
                           <br />
-                          <strong>Encarregado de Proteção de Dados (DPO):</strong> Denise Jesus da Silva
+                          <strong>Encarregado de Proteção de Dados (DPO):</strong> Equipe Calculadora Cérebro PDV
                           <br />
                           <strong>E-mail de Contato do DPO:</strong>{" "}
                           <span className="text-emerald-400 font-mono">calculadoracerebrointeligente@gmail.com</span>
@@ -16132,9 +16182,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Interactive PWA Installation Guide Modal (Desativado: Distribuição Exclusiva Google Play Store) */}
+      {/* Interactive PWA Installation Guide Modal */}
       <AnimatePresence>
-        {false && showInstallGuide && (
+        {showInstallGuide && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -16450,6 +16500,26 @@ export default function App() {
         isOpen={showWhatsAppBusinessModal}
         onClose={() => setShowWhatsAppBusinessModal(false)}
         showNotification={showNotification}
+      />
+
+      {/* Assistente de Configuração PWA & Digital Asset Links para Google Play Store */}
+      <PlayStorePwaHelperModal
+        isOpen={showPlayStorePwaHelper}
+        onClose={() => setShowPlayStorePwaHelper(false)}
+        onNotify={showNotification}
+      />
+
+      {/* Modal Obrigatório de Ativação de Notificações Push (Supermercados & Mercadinhos) */}
+      <PushNotificationGateModal
+        isOpen={isPushGateOpen}
+        permissionState={pushPermission}
+        onRequestPermission={requestPushNotificationPermission}
+        onDismissWhenBlocked={() => {
+          try {
+            sessionStorage.setItem("push_gate_seen_session", "true");
+          } catch {}
+          setIsPushGateOpen(false);
+        }}
       />
     </div>
   );

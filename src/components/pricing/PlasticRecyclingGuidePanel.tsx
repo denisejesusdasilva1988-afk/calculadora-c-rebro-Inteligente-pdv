@@ -228,7 +228,7 @@ export const PlasticRecyclingGuidePanel: React.FC<PlasticRecyclingGuidePanelProp
       <div className="bg-slate-900 border border-cyan-500/35 rounded-3xl p-5 sm:p-6 shadow-xl space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/35">
-            Guia Prático de Balcão • D.W Reciclagem
+            Guia Prático de Balcão • Pátio &amp; Reciclagem
           </span>
           <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
             PET vs Plástico Duro vs Alto Impacto

@@ -23,6 +23,7 @@ import {
 import { addDoc, collection, serverTimestamp, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
 import { MarketingAdsAdminModeration } from "./MarketingAdsAdminModeration";
 import { MarketingAd, loadLocalMarketingAds, saveLocalMarketingAds } from "../utils/marketingAds";
+import { isOfficialAdminEmail } from "../utils/founderAccess";
 
 interface AdminProps {
   db: any;
@@ -49,9 +50,9 @@ const DEFAULT_APP_CONFIG: AppConfig = {
   maintenanceMode: false,
   maintenanceMessage: "O aplicativo está em manutenção programada para melhorias na Play Store. Voltamos em breve!",
   announcementActive: false,
-  announcementText: "Novidades da nova versão v1.4.2 estão disponíveis! Atualize na Google Play Store.",
-  recommendedVersion: "1.4.2",
-  playStoreUrl: "https://play.google.com/store/apps/details?id=com.cerebrointeligente.pdv"
+  announcementText: "Novidades da versão v2.8 disponíveis! Ative as notificações para receber ofertas de supermercados e mercadinhos.",
+  recommendedVersion: "2.8.0",
+  playStoreUrl: "https://play.google.com/store/apps/details?id=com.calculadora.cerebro.pdv"
 };
 
 export const AdminModule = React.memo(({
@@ -72,11 +73,15 @@ export const AdminModule = React.memo(({
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [registeredUsers, setRegisteredUsers] = useState<any[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [encartesCount, setEncartesCount] = useState<number>(0);
+  const [pushSubscriberCount, setPushSubscriberCount] = useState<number | null>(null);
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
 
   // --- ESTADOS E FUNÇÕES DO DISPARADOR DE NOTIFICAÇÕES PUSH PWA ---
-  const [pushTitle, setPushTitle] = useState("Nova Promoção no Bairro! 🛒🔥");
-  const [pushMessage, setPushMessage] = useState("Venha conferir as ofertas imperdíveis da semana na nossa loja!");
+  const [pushTitle, setPushTitle] = useState("Ofertas de Supermercados & Mercadinhos! 🛒🔥");
+  const [pushMessage, setPushMessage] = useState("Confira os novos encartes e promoções de hoje perto de você na aba Ofertas!");
   const [pushIcon, setPushIcon] = useState("/icon-192.png");
+  const [pushUrl, setPushUrl] = useState("/?shortcut=encartes");
   const [isSendingPush, setIsSendingPush] = useState(false);
   const [pushResult, setPushResult] = useState<{ success: boolean; sentCount?: number; totalCount?: number; error?: string } | null>(null);
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -95,9 +100,39 @@ export const AdminModule = React.memo(({
     }
   };
 
+  const fetchPushStats = async () => {
+    try {
+      const res = await fetch("/api/push/stats", { cache: "no-store" });
+      const contentType = res.headers.get("content-type") || "";
+      if (res.ok && contentType.includes("application/json")) {
+        const data = await res.json();
+        if (typeof data.subscriberCount === "number") {
+          setPushSubscriberCount(data.subscriberCount);
+        }
+      }
+    } catch {
+      // Hospedagem estática sem backend Node
+    }
+  };
+
   useEffect(() => {
     checkSubscription();
+    fetchPushStats();
   }, [activeAdminSubTab]);
+
+  useEffect(() => {
+    if (!db) return;
+    try {
+      const unsubEncartes = onSnapshot(collection(db, "encartes"), (snapshot) => {
+        setEncartesCount(snapshot.size);
+      }, (err) => {
+        console.warn("Aviso ao escutar encartes:", err);
+      });
+      return () => unsubEncartes();
+    } catch {
+      // ignore
+    }
+  }, [db]);
 
   useEffect(() => {
     if (!db) return;
@@ -217,9 +252,15 @@ export const AdminModule = React.memo(({
         body: JSON.stringify({
           title: pushTitle,
           message: pushMessage,
-          icon: pushIcon
+          icon: pushIcon,
+          url: pushUrl || "/?shortcut=encartes"
         })
       });
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("Servidor Push Node não ativo neste domínio (hospedagem estática). Use o servidor Node ou FCM para disparos em massa.");
+      }
 
       const data = await res.json();
       if (res.ok) {
@@ -228,6 +269,7 @@ export const AdminModule = React.memo(({
           sentCount: data.sentCount,
           totalCount: data.totalCount
         });
+        fetchPushStats();
         showNotification("Notificações de promoção disparadas com sucesso! 🟢⚡", "success");
       } else {
         throw new Error(data.error || "Erro desconhecido");
@@ -244,9 +286,9 @@ export const AdminModule = React.memo(({
     }
   };
 
-  // Sync users list from Firestore
+  // Sync users list from Firestore (needed on dashboard and usuarios tabs)
   useEffect(() => {
-    if (!db || activeAdminSubTab !== "usuarios") return;
+    if (!db || (activeAdminSubTab !== "usuarios" && activeAdminSubTab !== "dashboard")) return;
 
     setIsLoadingUsers(true);
     const q = collection(db, "users");
@@ -272,6 +314,7 @@ export const AdminModule = React.memo(({
 
   const handleToggleOwner = async (userDocId: string, currentIsOwner: boolean) => {
     if (!db) return;
+    setUpdatingUserId(userDocId);
     try {
       const userDocRef = doc(db, "users", userDocId);
       await setDoc(userDocRef, {
@@ -286,6 +329,49 @@ export const AdminModule = React.memo(({
       console.error("Erro ao alterar flag isOwner:", err);
       handleFirestoreError(err, OperationType.UPDATE, `users/${userDocId}`);
       showNotification("Erro ao atualizar privilégios do usuário.", "error");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
+  const handleUpdateUserTier = async (userDocId: string, newTier: string) => {
+    if (!db) return;
+    setUpdatingUserId(userDocId);
+    try {
+      const userDocRef = doc(db, "users", userDocId);
+      await setDoc(userDocRef, {
+        subscriptionTier: newTier,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      showNotification(`Plano do usuário atualizado para ${newTier}! ✅`, "success");
+    } catch (err) {
+      console.error("Erro ao alterar plano do usuário:", err);
+      handleFirestoreError(err, OperationType.UPDATE, `users/${userDocId}`);
+      showNotification("Erro ao atualizar plano do usuário.", "error");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
+  const handleGrantTrial30Days = async (userDocId: string) => {
+    if (!db) return;
+    setUpdatingUserId(userDocId);
+    try {
+      const now = new Date();
+      const endsAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const userDocRef = doc(db, "users", userDocId);
+      await setDoc(userDocRef, {
+        trialStartedAt: now.toISOString(),
+        trialEndsAt: endsAt.toISOString(),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      showNotification("Teste gratuito de 30 dias concedido/renovado para este usuário! 🎁", "success");
+    } catch (err) {
+      console.error("Erro ao conceder 30 dias de teste:", err);
+      handleFirestoreError(err, OperationType.UPDATE, `users/${userDocId}`);
+      showNotification("Erro ao renovar teste de 30 dias.", "error");
+    } finally {
+      setUpdatingUserId(null);
     }
   };
 
@@ -354,7 +440,7 @@ export const AdminModule = React.memo(({
             </div>
             <div className="space-y-0.5 text-left">
               <h2 className="text-xl font-black uppercase tracking-wide text-white font-sans flex items-center gap-2">
-                PAINEL ADMINISTRATIVO <span className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/25">EXCLUSIVO DENISE</span>
+                PAINEL ADMINISTRATIVO <span className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/25">MASTER ADMIN</span>
               </h2>
               <p className="text-xs text-slate-400 font-sans">
                 Controle global de métricas da Play Store, anúncios de mural e parâmetros do aplicativo.
@@ -363,7 +449,7 @@ export const AdminModule = React.memo(({
           </div>
 
           {/* Tab Selector */}
-          <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-white/5 shrink-0">
+          <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-white/5 shrink-0">
             <button
               onClick={() => setActiveAdminSubTab("dashboard")}
               className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 ${
@@ -444,90 +530,89 @@ export const AdminModule = React.memo(({
                 </div>
                 <div className="space-y-1">
                   <h3 className="text-sm font-black text-amber-400 uppercase tracking-wider">
-                    ESTATÍSTICAS DA GOOGLE PLAY STORE
+                    CENTRAL PRÉ-LANÇAMENTO GOOGLE PLAY STORE
                   </h3>
                   <p className="text-xs text-slate-300 font-medium leading-relaxed font-sans max-w-xl">
-                    Monitore a saúde do aplicativo, o crescimento de downloads e as avaliações globais na loja. Esse painel reflete o desempenho e engajamento consolidado.
+                    Dados reais em tempo real do Firebase Firestore e do motor Web Push de ofertas. Monitore contas cadastradas, folhetos de supermercados publicados, anúncios pendentes e assinaturas da loja.
                   </p>
                 </div>
               </div>
               <div className="shrink-0 flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-1.5 rounded-2xl self-start md:self-auto">
                 <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse" />
-                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">Play Store: Ativo & Conectado</span>
+                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">Pacote: com.calculadora.cerebro.pdv</span>
               </div>
             </div>
 
-            {/* Performance Grid */}
+            {/* Live Performance Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-slate-950/40 p-5 rounded-2xl border border-white/5 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Downloads Totais</span>
-                  <Download className="w-4 h-4 text-amber-500" />
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Contas Cadastradas (Nuvem)</span>
+                  <Users className="w-4 h-4 text-amber-500" />
                 </div>
-                <p className="text-2xl font-black text-white font-mono">5.480</p>
+                <p className="text-2xl font-black text-white font-mono">{registeredUsers.length}</p>
                 <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold">
                   <TrendingUp className="w-3.5 h-3.5" />
-                  <span>+18.4% este mês</span>
+                  <span>{registeredUsers.filter(u => u.isOwner).length} proprietário(s)</span>
                 </div>
               </div>
 
               <div className="bg-slate-950/40 p-5 rounded-2xl border border-white/5 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Usuários Ativos (Mensal)</span>
-                  <Users className="w-4 h-4 text-emerald-400" />
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Encartes de Supermercados</span>
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
                 </div>
-                <p className="text-2xl font-black text-white font-mono">1.240</p>
-                <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold">
-                  <TrendingUp className="w-3.5 h-3.5" />
-                  <span>+12.1% ativos</span>
-                </div>
+                <p className="text-2xl font-black text-white font-mono">{encartesCount}</p>
+                <span className="text-[10px] text-slate-400 font-medium">Ativos no Mural de Ofertas</span>
               </div>
 
               <div className="bg-slate-950/40 p-5 rounded-2xl border border-white/5 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Avaliação da Loja</span>
-                  <div className="flex items-center gap-0.5">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star key={s} className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
-                    ))}
-                  </div>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Anúncios Patrocinados</span>
+                  <Megaphone className="w-4 h-4 text-red-400" />
                 </div>
-                <p className="text-2xl font-black text-white font-mono">4.8 <span className="text-xs font-semibold text-slate-500">/ 5.0</span></p>
-                <span className="text-[10px] text-slate-400 font-medium">Baseada em 184 reviews</span>
+                <p className="text-2xl font-black text-white font-mono">{marketingAds.length}</p>
+                <span className="text-[10px] text-amber-400 font-bold">
+                  {marketingAds.filter(a => a.status === "pending").length} aguardando moderação
+                </span>
               </div>
 
               <div className="bg-slate-950/40 p-5 rounded-2xl border border-white/5 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Rendimento (Premium)</span>
-                  <DollarSign className="w-4 h-4 text-green-400" />
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Inscritos Web Push</span>
+                  <MessageSquare className="w-4 h-4 text-sky-400" />
                 </div>
-                <p className="text-2xl font-black text-white font-mono">R$ 45,50</p>
-                <span className="text-[10px] text-slate-400 font-medium">Balanço de suporte/anúncios</span>
+                <p className="text-2xl font-black text-white font-mono">
+                  {pushSubscriberCount !== null ? pushSubscriberCount : "—"}
+                </p>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {pushSubscriberCount !== null ? "Aparelhos prontos p/ alerta" : "Via servidor Push Node"}
+                </span>
               </div>
             </div>
 
-            {/* Play Store Info Details and Trends */}
+            {/* Play Store Info Details & Readiness */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-slate-950/30 border border-white/5 p-6 rounded-3xl space-y-4">
                 <h4 className="text-xs font-black uppercase text-white tracking-wider border-b border-white/5 pb-2">
-                  Metas de Distribuição v1.4.2
+                  Configuração de Publicação Google Play v{appConfig.recommendedVersion}
                 </h4>
                 <div className="space-y-3 text-xs">
                   <div className="flex justify-between items-center py-1">
-                    <span className="text-slate-400">Versão de Produção</span>
+                    <span className="text-slate-400">Versão Recomendada</span>
                     <span className="font-mono font-bold text-white bg-slate-900 px-2 py-0.5 rounded border border-white/5">{appConfig.recommendedVersion}</span>
                   </div>
                   <div className="flex justify-between items-center py-1 border-t border-white/5">
-                    <span className="text-slate-400">Instalações em Aparelhos Ativos</span>
-                    <span className="font-mono font-bold text-slate-200">942 aparelhos</span>
+                    <span className="text-slate-400">Teste Gratuito Novos Usuários</span>
+                    <span className="font-mono font-bold text-emerald-400">30 dias grátis</span>
                   </div>
                   <div className="flex justify-between items-center py-1 border-t border-white/5">
-                    <span className="text-slate-400">Taxa de Conversão da Loja</span>
-                    <span className="font-mono font-bold text-emerald-400">32.4%</span>
+                    <span className="text-slate-400">Módulos Gratuitos (Para Sempre)</span>
+                    <span className="font-bold text-emerald-300">Nota & Excel, Mercado, Encartes</span>
                   </div>
                   <div className="flex justify-between items-center py-1 border-t border-white/5">
-                    <span className="text-slate-400">Crash-free Users</span>
-                    <span className="font-mono font-bold text-emerald-400">99.8%</span>
+                    <span className="text-slate-400">SKUs Play Console</span>
+                    <span className="font-mono font-bold text-amber-300 text-[10px]">plano_pro / gestao / pdv_total</span>
                   </div>
                 </div>
               </div>
@@ -545,7 +630,7 @@ export const AdminModule = React.memo(({
                   >
                     <div className="flex items-center gap-2">
                       <Globe className="w-4 h-4 text-emerald-400" />
-                      <span>Ver App na Google Play Store</span>
+                      <span>Abrir Ficha na Google Play Store</span>
                     </div>
                     <ChevronRight className="w-4 h-4 text-slate-500" />
                   </a>
@@ -553,10 +638,10 @@ export const AdminModule = React.memo(({
                   <div className="p-4 bg-amber-500/5 border border-amber-500/10 rounded-xl space-y-1">
                     <div className="flex items-center gap-1.5 text-[10px] font-black text-amber-500 uppercase tracking-widest">
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>Nota do Desenvolvedor</span>
+                      <span>Checklist Final antes de Subir o AAB</span>
                     </div>
                     <p className="text-[10px] text-slate-400 leading-normal font-sans">
-                      O painel administrativo consolida a publicação no Mural de Ofertas visando fornecer um link direto e dinâmico de encartes de supermercados parceiros para seus clientes finais.
+                      Crie as 3 assinaturas recorrentes na Play Console com oferta introdutória de <strong className="text-white">30 dias grátis</strong> e valide o SHA-256 do App Signing em <code className="text-amber-300">/.well-known/assetlinks.json</code>.
                     </p>
                   </div>
                 </div>
@@ -897,9 +982,58 @@ export const AdminModule = React.memo(({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Form of Dispatch */}
               <form onSubmit={handleSendPush} className="bg-slate-950/40 rounded-3xl p-6 border border-white/5 space-y-4">
-                <h4 className="text-xs font-black uppercase text-white tracking-wider border-b border-white/5 pb-2">
-                  ✍️ Redigir Notificação Push
-                </h4>
+                <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                  <h4 className="text-xs font-black uppercase text-white tracking-wider">
+                    ✍️ Disparar Anúncio Push (Supermercados & Mercadinhos)
+                  </h4>
+                  {pushSubscriberCount !== null && (
+                    <span className="text-[10px] font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                      {pushSubscriberCount} inscritos
+                    </span>
+                  )}
+                </div>
+
+                {/* Quick Supermarket / Minimarket Presets */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider block">
+                    Modelos Prontos (1 Clique):
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPushTitle("🔥 Ofertas de Hoje no Guanabara & Assaí!");
+                        setPushMessage("Arroz, carne, café e limpeza em promoção hoje! Abra a aba Ofertas e compare os preços agora.");
+                        setPushUrl("/?shortcut=encartes");
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/30 border border-red-500/30 text-red-200 text-[10px] font-black uppercase cursor-pointer"
+                    >
+                      🛒 Supermercados
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPushTitle("🏪 Promoção Relâmpago no Mercadinho do Bairro!");
+                        setPushMessage("Ofertas fresquinhas do mercadinho perto de você. Toque para abrir o folheto no app!");
+                        setPushUrl("/?shortcut=encartes");
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/30 text-amber-200 text-[10px] font-black uppercase cursor-pointer"
+                    >
+                      🏪 Mercadinhos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPushTitle("🏷️ Novo Encarte da Semana Disponível!");
+                        setPushMessage("Acabou de chegar encarte novo no Calculadora Cérebro PDV. Planeje sua lista e economize!");
+                        setPushUrl("/?shortcut=encartes");
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-200 text-[10px] font-black uppercase cursor-pointer"
+                    >
+                      🏷️ Novo Encarte
+                    </button>
+                  </div>
+                </div>
 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
@@ -929,17 +1063,31 @@ export const AdminModule = React.memo(({
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
-                    URL do Ícone (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    value={pushIcon}
-                    onChange={(e) => setPushIcon(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/5 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500 transition-all font-mono"
-                    placeholder="/icon-192.png"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
+                      URL de Destino ao Clicar
+                    </label>
+                    <input
+                      type="text"
+                      value={pushUrl}
+                      onChange={(e) => setPushUrl(e.target.value)}
+                      className="w-full bg-slate-900 border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 transition-all font-mono"
+                      placeholder="/?shortcut=encartes"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
+                      URL do Ícone (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={pushIcon}
+                      onChange={(e) => setPushIcon(e.target.value)}
+                      className="w-full bg-slate-900 border border-white/5 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 transition-all font-mono"
+                      placeholder="/icon-192.png"
+                    />
+                  </div>
                 </div>
 
                 <div className="pt-2">
@@ -1087,15 +1235,19 @@ export const AdminModule = React.memo(({
                       <tr className="border-b border-white/5">
                         <th className="py-3 px-4 text-[10px] font-black uppercase tracking-wider text-slate-400">Usuário</th>
                         <th className="py-3 px-4 text-[10px] font-black uppercase tracking-wider text-slate-400">E-mail</th>
+                        <th className="py-3 px-4 text-[10px] font-black uppercase tracking-wider text-slate-400">Plano & Teste 30d</th>
                         <th className="py-3 px-4 text-[10px] font-black uppercase tracking-wider text-slate-400">Acesso</th>
                         <th className="py-3 px-4 text-right text-[10px] font-black uppercase tracking-wider text-slate-400">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
                       {registeredUsers.map((userItem) => {
-                        const isCriticalAdmin = userItem.email === 'denisejesusdasilva1988@gmail.com' 
-                          || userItem.email === 'denisejesusdasilva1988@gmail.com.br' 
-                          || userItem.email === 'calculadoracerebrointeligente@gmail.com';
+                        const isCriticalAdmin = isOfficialAdminEmail(userItem.email);
+                        const currentUserTier = userItem.subscriptionTier || "free";
+                        const isBusy = updatingUserId === userItem.id;
+                        const trialEndsFormatted = userItem.trialEndsAt
+                          ? new Date(userItem.trialEndsAt).toLocaleDateString("pt-BR")
+                          : null;
                         
                         return (
                           <tr key={userItem.id} className="hover:bg-white/5 transition-colors">
@@ -1114,6 +1266,27 @@ export const AdminModule = React.memo(({
                               {userItem.email}
                             </td>
                             <td className="py-4 px-4">
+                              <div className="flex flex-col gap-1.5">
+                                <select
+                                  disabled={isBusy}
+                                  value={currentUserTier}
+                                  onChange={(e) => handleUpdateUserTier(userItem.id, e.target.value)}
+                                  className="bg-slate-900 border border-white/10 rounded-lg px-2 py-1 text-[10px] font-bold text-white outline-none focus:border-amber-500"
+                                >
+                                  <option value="free">Grátis (R$ 0)</option>
+                                  <option value="pro_tools">Pro & Agenda (R$ 14,90)</option>
+                                  <option value="estoque_gestao">Ferro Velho & Caixa (R$ 29,90)</option>
+                                  <option value="pdv_total">PDV Total & IA (R$ 39,90)</option>
+                                  <option value="infinite">Infinito Vitalício ♾️</option>
+                                </select>
+                                {trialEndsFormatted && (
+                                  <span className="text-[9px] text-emerald-400 font-bold">
+                                    Teste até: {trialEndsFormatted}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-4 px-4">
                               {userItem.isOwner ? (
                                 <span className="inline-flex items-center gap-1 bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">
                                   Proprietário 👑
@@ -1125,29 +1298,41 @@ export const AdminModule = React.memo(({
                               )}
                             </td>
                             <td className="py-4 px-4 text-right">
-                              {userItem.isOwner ? (
+                              <div className="flex items-center justify-end gap-1.5 flex-wrap">
                                 <button
                                   type="button"
-                                  disabled={isCriticalAdmin}
-                                  onClick={() => handleToggleOwner(userItem.id, true)}
-                                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
-                                    isCriticalAdmin
-                                      ? "bg-slate-900 text-slate-600 border-white/5 cursor-not-allowed"
-                                      : "bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500 hover:text-slate-950 cursor-pointer"
-                                  }`}
-                                  title={isCriticalAdmin ? "Não é possível revogar o acesso do administrador principal" : "Revogar Proprietário"}
+                                  disabled={isBusy}
+                                  onClick={() => handleGrantTrial30Days(userItem.id)}
+                                  className="px-2.5 py-1.5 bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 hover:bg-emerald-500 hover:text-slate-950 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                                  title="Conceder ou renovar 30 dias grátis de teste na nuvem"
                                 >
-                                  {isCriticalAdmin ? "Protegido 🔒" : "Revogar Dono"}
+                                  +30d Teste
                                 </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleOwner(userItem.id, false)}
-                                  className="px-3 py-1.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500 hover:text-slate-950 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
-                                >
-                                  Conceder Dono
-                                </button>
-                              )}
+                                {userItem.isOwner ? (
+                                  <button
+                                    type="button"
+                                    disabled={isCriticalAdmin || isBusy}
+                                    onClick={() => handleToggleOwner(userItem.id, true)}
+                                    className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
+                                      isCriticalAdmin
+                                        ? "bg-slate-900 text-slate-600 border-white/5 cursor-not-allowed"
+                                        : "bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500 hover:text-slate-950 cursor-pointer"
+                                    }`}
+                                    title={isCriticalAdmin ? "Não é possível revogar o acesso do administrador principal" : "Revogar Proprietário"}
+                                  >
+                                    {isCriticalAdmin ? "Protegido 🔒" : "Revogar Dono"}
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={isBusy}
+                                    onClick={() => handleToggleOwner(userItem.id, false)}
+                                    className="px-3 py-1.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500 hover:text-slate-950 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                                  >
+                                    Conceder Dono
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );

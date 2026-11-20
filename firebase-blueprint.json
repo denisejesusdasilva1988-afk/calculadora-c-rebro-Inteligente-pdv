@@ -146,13 +146,16 @@
     },
     "User": {
       "title": "User Profile",
-      "description": "User profile with owner privilege flag",
+      "description": "User profile with owner privilege flag, subscription tier, and 30-day trial metadata",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
         "email": { "type": "string" },
         "displayName": { "type": "string" },
         "isOwner": { "type": "boolean" },
+        "subscriptionTier": { "type": "string", "enum": ["free", "pro_tools", "estoque_gestao", "pdv_total", "infinite"] },
+        "trialStartedAt": { "type": "string", "format": "date-time" },
+        "trialEndsAt": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -194,7 +197,11 @@
     },
     "/users/{userId}": {
       "schema": "User",
-      "description": "Collection of user profiles containing owner privilege flag"
+      "description": "Collection of user profiles containing owner privilege flag and subscription state"
+    },
+    "/users/{userId}/pdv_data/{docId}": {
+      "schema": "UserData",
+      "description": "Loyal customers and sub-collection PDV documents per user"
     }
   }
 }

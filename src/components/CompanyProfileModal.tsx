@@ -466,7 +466,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                     type="text"
                     value={profile.ownerName || ""}
                     onChange={(e) => handleChange("ownerName", e.target.value)}
-                    placeholder="Ex: Denise Jesus & Wellington Oliveira"
+                    placeholder="Ex: Nome do Proprietário ou Sócios"
                     className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold focus:border-cyan-500/50"
                   />
                   <p className="text-[10px] text-slate-400">

@@ -682,7 +682,7 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
     }
 
     // 2. Persistência multi-armazenamento com deduplicação rigorosa
-    const targetStoreId = storeId || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("loja") : "") || "loja_denise";
+    const targetStoreId = storeId || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("loja") : "") || "loja_padrao";
     if (targetStoreId) {
       try {
         const storeKey = `barbearia_${targetStoreId}_agendamentos`;
@@ -887,8 +887,8 @@ export const ClientPublicAgendaPortal: React.FC<ClientPublicAgendaPortalProps> =
                   companyName.trim() === "Barbearia, Salão & Festas" ||
                   companyName.trim() === "Barbearia & Salão" ||
                   companyName.trim() === "Barbearia e Salão" ||
-                  companyName.trim() === "Denise PDV" ||
-                  companyName.trim() === "Sistema Denise PDV";
+                  companyName.trim() === "Minha Empresa" ||
+                  companyName.trim() === "Calculadora Cérebro PDV";
                 return isGenericName ? infoSegmento.nomeCompleto : companyName;
               })()}
             </h1>

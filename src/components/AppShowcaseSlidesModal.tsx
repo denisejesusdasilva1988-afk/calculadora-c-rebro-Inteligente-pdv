@@ -36,7 +36,8 @@ import {
   Eye,
   Sliders,
   DollarSign,
-  UserCheck
+  UserCheck,
+  Download
 } from "lucide-react";
 
 interface AppShowcaseSlidesModalProps {
@@ -650,6 +651,43 @@ export const AppShowcaseSlidesModal: React.FC<AppShowcaseSlidesModalProps> = ({
           ) : (
             // ================= VIEW: INTERACTIVE VIDEO DEMOS =================
             <div className="space-y-4">
+              {/* Vídeo Oficial do App */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/35 flex flex-col sm:flex-row items-center gap-4">
+                <div className="w-full sm:w-44 shrink-0 bg-black rounded-xl overflow-hidden border border-white/10">
+                  <video
+                    controls
+                    playsInline
+                    preload="metadata"
+                    poster="/screenshot-1.png"
+                    className="w-full max-h-52 bg-black"
+                  >
+                    <source
+                      src="/assets/aistudio/Calculadora_Cerebro_PDV_PlayStore_30s-2_7070a6f6.mp4"
+                      type="video/mp4"
+                    />
+                  </video>
+                </div>
+                <div className="flex-1 text-left space-y-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 inline-block">
+                    Apresentação Oficial • 30s
+                  </span>
+                  <h4 className="text-sm font-black text-white">
+                    Vídeo de Apresentação — Calculadora Cérebro PDV
+                  </h4>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Veja na prática como lançar vendas, calcular o troco automático e emitir o recibo do cliente em segundos.
+                  </p>
+                  <a
+                    href="/assets/aistudio/Calculadora_Cerebro_PDV_PlayStore_30s-2_7070a6f6.mp4"
+                    download="Calculadora_Cerebro_PDV_Apresentacao.mp4"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] uppercase rounded-xl transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Baixar Vídeo MP4</span>
+                  </a>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
                 {/* Video Playlist Sidebar */}
                 <div className="md:col-span-4 space-y-2">

@@ -48,7 +48,16 @@ import {
   Folder,
   FolderOpen,
   Scissors,
-  TrendingUp
+  TrendingUp,
+  Volume2,
+  VolumeX,
+  Bluetooth,
+  Mic,
+  MicOff,
+  FlaskConical,
+  Flashlight,
+  Focus,
+  ZoomIn
 } from "lucide-react";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
@@ -69,8 +78,43 @@ import {
   ThermalCanvasReceiptPayload,
   buildThermalDocumentHtmlFromPayload,
   generateMiniPrint57mmPngBlob,
-  shareOrDownloadReceiptPng
+  shareOrDownloadReceiptPng,
+  isBluetoothPrintSupported,
+  printViaBluetoothEscPos
 } from "../../utils/thermalPrinterHelper";
+import {
+  roundCurrencyBrl,
+  roundWeightKg,
+  computeScrapLineTotal,
+  getTicketEffectiveMonetaryValue,
+  computeFolderSectorBreakdown,
+  FolderSectorBreakdown,
+  getVoiceAnnouncerEnabled,
+  setVoiceAnnouncerEnabled,
+  speakYardAnnouncement,
+  stopYardAnnouncement,
+  formatCurrencyPtBrForSpeech,
+  formatWeightKgForSpeech,
+  isBluetoothScaleSupported,
+  connectBluetoothHookScale,
+  BluetoothScaleConnection,
+  isVoiceWeightSupported,
+  startVoiceWeightDictation,
+  computeGlassCatalogSummary,
+  reconcileGlassCatalogFromActiveTickets,
+  GlassYardSummary,
+  formatBrl
+} from "../../utils/scrapHardwareHelper";
+import {
+  CameraTrackStatus,
+  inspectCameraTrackStatus,
+  applyCameraTorch,
+  applyCameraZoom,
+  triggerCameraRefocus,
+  startTransparentBottleContrastLoop,
+  scanBarcodeFromPhotoFile
+} from "../../utils/enhancedBarcodeScanner";
+import { loadCompanyProfile } from "../../utils/companyProfile";
 
 export interface CatalogBottleItem {
   id: string;
@@ -149,7 +193,7 @@ export interface GlassCartItem {
 export interface CollaboratorAccount {
   id: string;
   name: string;
-  isFounder?: boolean; // Denise Jesus e Wellington Oliveira!
+  isFounder?: boolean; // Coleta própria da equipe/proprietário!
   phone?: string;
   notes?: string;
   createdAt: string;
@@ -172,6 +216,7 @@ export interface CollaboratorPaymentReceipt {
   notes: string;
   previousBalance: number;
   remainingBalance: number;
+  sector?: "vidros" | "ferro_velho" | "geral";
   syncedPdvEventId?: string;
   isCancelled?: boolean;
   cancelledAt?: string;
@@ -183,7 +228,7 @@ export interface CompletedPurchaseTicket {
   timestamp: string;
   collectorName: string;
   collaboratorId?: string;
-  isFounder: boolean; // Se foi coleta própria de Denise e Wellington
+  isFounder: boolean; // Se foi coleta própria da empresa
   isScrapPurchase?: boolean; // Compra de Ferro Velho / Balança Digital (PET, Plástico Duro, Latinha, etc.)
   syncedPdvEventId?: string;
   isCancelled?: boolean;
@@ -211,7 +256,7 @@ export interface CompletedPurchaseTicket {
   totalPaid: number;
   expectedPlantRevenue: number;
   netProfit: number;
-  paymentStatus: "pago_na_hora" | "pendente_caderninho" | "coleta_propria_dw";
+  paymentStatus: "pago_na_hora" | "pendente_caderninho" | "coleta_propria_empresa";
   sellPricePerTonUsed?: number;
 }
 
@@ -226,7 +271,7 @@ export interface DispatchedTruckShipment {
   summaryText: string;
 }
 
-// Catálogo com estoque inicial ZERADO (Denise e Wellington preenchem com a realidade do pátio!)
+// Catálogo com estoque inicial ZERADO (preenchido conforme a realidade de cada pátio)
 const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
   {
     id: "bottle_cachaca_51_900",
@@ -262,7 +307,7 @@ const DEFAULT_BOTTLE_CATALOG: CatalogBottleItem[] = [
     volumeMl: 330,
     barcode: "78936683",
     additionalBarcodes: ["7891991010856", "8712000025649", "7896045506101"],
-    unitWeightGrams: 182, // 182 gramas vazia na balança da Denise!
+    unitWeightGrams: 182, // 182 gramas vazia na balança!
     unitWeightKg: 0.182,
     category: "longneck",
     buyPricePerUnit: 0.50 / 30, // 30 garrafas = R$ 0,50 (1,67¢ por garrafa)
@@ -506,42 +551,14 @@ export const SIMILAR_GLASS_PRESETS = [
   }
 ];
 
-// Colaboradores da Reciclagem padrão: Denise e Wellington em primeiro lugar com honra!
+// Colaborador padrão para lançamentos internos da própria equipe da empresa
 const INITIAL_COLLABORATORS: CollaboratorAccount[] = [
   {
-    id: "collab_dw_fundadores",
-    name: "Denise Jesus & Wellington Oliveira (Coleta Própria D.W)",
+    id: "collab_coleta_propria",
+    name: "Coleta Própria (Empresa)",
     isFounder: true,
     phone: "",
-    notes: "Fundadores da D.W Vidros. O que reciclamos é lucro 100% nosso e economiza custo de compra!",
-    createdAt: "Novembro/2026",
-    totalDeliveries: 0,
-    totalBottles: 0,
-    totalWeightKg: 0,
-    totalEarned: 0,
-    totalPaid: 0,
-    balancePending: 0
-  },
-  {
-    id: "collab_denise_solo",
-    name: "Denise Jesus (Coleta Própria)",
-    isFounder: true,
-    phone: "",
-    notes: "Coleta própria da Denise. Economia própria para a D.W Vidros.",
-    createdAt: "Novembro/2026",
-    totalDeliveries: 0,
-    totalBottles: 0,
-    totalWeightKg: 0,
-    totalEarned: 0,
-    totalPaid: 0,
-    balancePending: 0
-  },
-  {
-    id: "collab_wellington_solo",
-    name: "Wellington Oliveira (Coleta Própria)",
-    isFounder: true,
-    phone: "",
-    notes: "Coleta própria do Wellington. Economia própria para a D.W Vidros.",
+    notes: "Material coletado pela própria equipe da empresa (economia de 100% do custo de compra).",
     createdAt: "Novembro/2026",
     totalDeliveries: 0,
     totalBottles: 0,
@@ -607,7 +624,7 @@ const DEFAULT_CATEGORY_WEIGHT_GRAMS: Record<string, number> = {
 };
 
 // Cálculo de unidades no lote de R$ 0,50 calibrado dinamicamente pelo PESO REAL da garrafa
-// e pela cotação ativa do Victor, garantindo ~38% de lucro para a D.W Vidros sem prejuízo!
+// e pela cotação ativa do Victor, garantindo ~38% de lucro para a sua empresa sem prejuízo!
 export const getVictorSafeLotUnits = (
   category: string,
   sellPricePerKg = 0.15,
@@ -816,11 +833,12 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
   const fontHeaderPx = fontBasePx + 2;
   const fontSmallPx = fontBasePx - 1.5;
 
-  const storeTitle = config.storeName?.trim() || "D.W VIDROS & RECICLAGEM";
-  const storeCnpj = config.storeCnpjCpf?.trim() || "67.965.725/0001-95";
+  const prof = loadCompanyProfile();
+  const storeTitle = config.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM";
+  const storeCnpj = config.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "";
   const statusLabel =
-    ticket.paymentStatus === "coleta_propria_dw"
-      ? "COLETA PRÓPRIA D.W (100% EMPRESA)"
+    String(ticket.paymentStatus || "").startsWith("coleta_propria")
+      ? "COLETA PRÓPRIA (100% EMPRESA)"
       : ticket.paymentStatus === "pago_na_hora"
       ? "PAGO NA HORA (PORTÃO / CAIXA)"
       : "LANÇADO NO CADERNINHO (A ACERTAR)";
@@ -881,7 +899,7 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
           }
           <div style="text-align:center;margin-bottom:4px;">
             <div style="font-size:${fontHeaderPx}px;font-weight:900;text-transform:uppercase;">${storeTitle}</div>
-            <div style="font-size:${fontSmallPx}px;">CNPJ: ${storeCnpj}</div>
+            ${storeCnpj ? `<div style="font-size:${fontSmallPx}px;">CNPJ/CPF: ${storeCnpj}</div>` : ""}
             <div style="font-size:${fontSmallPx}px;font-weight:900;margin-top:3px;border:1px solid #000;padding:2px;">
               ${ticket.isScrapPurchase ? "RECIBO - FERRO VELHO & RECICLAGEM" : "COMPROVANTE DE COMPRA - GARRAFAS / VIDROS"}
             </div>
@@ -947,7 +965,7 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
             ${
               ticket.isFounder
                 ? `<div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;font-weight:900;margin-top:2px;">
-                    <span>ECONOMIA D.W (VALOR EQUIV.):</span>
+                    <span>ECONOMIA PRÓPRIA (VALOR EQUIV.):</span>
                     <span>R$ ${ticket.items.reduce((s, it) => s + it.costPaid, 0).toFixed(2).replace(".", ",")}</span>
                   </div>`
                 : ""
@@ -965,7 +983,7 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
             }
           </div>
           <div style="text-align:center;margin-top:8px;border-top:1px dashed #000;padding-top:4px;font-size:${fontSmallPx}px;">
-            <div style="font-weight:900;">D.W VIDROS & RECICLAGEM</div>
+            <div style="font-weight:900;">${storeTitle}</div>
             <div>${ticket.isCancelled ? "DOCUMENTO SEM VALOR FISCAL - ESTORNADO" : "Obrigado pela parceria na reciclagem!"}</div>
           </div>
           <div style="height:${(config.feedLines || 4) * 9}px;"></div>
@@ -995,6 +1013,7 @@ interface Props {
   initialActiveTab?: "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos";
   initialYardControlFilter?: "vidro" | "outros";
   onAddItemsToYardStock?: (itemsToAdd: { name: string; quantity: number; weightKg: number; costPaid: number }[]) => void;
+  onYardSummaryChange?: (summary: GlassYardSummary) => void;
   onSyncFinancialEventToPDV?: (event: PdvSyncedFinancialEvent) => void;
   onCancelSyncedFinancialEventFromPDV?: (eventId: string, reason?: string) => void;
   showNotification?: (msg: string, type: "success" | "error" | "info" | "warning") => void;
@@ -1009,6 +1028,7 @@ export function GlassBarcodeScannerCart({
   initialActiveTab,
   initialYardControlFilter,
   onAddItemsToYardStock,
+  onYardSummaryChange,
   onSyncFinancialEventToPDV,
   onCancelSyncedFinancialEventFromPDV,
   showNotification
@@ -1330,7 +1350,31 @@ export function GlassBarcodeScannerCart({
   });
   const [selectedFolderKey, setSelectedFolderKey] = useState<string | null>(null);
   const [folderSearchQuery, setFolderSearchQuery] = useState<string>("");
+  const [folderSectorFilter, setFolderSectorFilter] = useState<"todos" | "ferro_velho" | "vidros">(
+    initialYardControlFilter === "outros" || initialActiveTab === "guia_plasticos"
+      ? "ferro_velho"
+      : initialYardControlFilter === "vidro"
+      ? "vidros"
+      : "todos"
+  );
   const [isGeneratingFunPrint, setIsGeneratingFunPrint] = useState<boolean>(false);
+
+  // Hardware Real no Portão: Locutor IA (Caixa de Som Bluetooth), Balança de Gancho (BLE / Voz) & Painel Testar Tudo
+  const [voiceAnnouncerEnabled, setVoiceAnnouncerEnabledState] = useState<boolean>(() =>
+    getVoiceAnnouncerEnabled()
+  );
+  const [bleConnected, setBleConnected] = useState<boolean>(false);
+  const [bleDeviceName, setBleDeviceName] = useState<string | null>(null);
+  const [bleStatusMsg, setBleStatusMsg] = useState<string | null>(null);
+  const bleConnectionRef = useRef<BluetoothScaleConnection | null>(null);
+  const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
+  const [voiceTranscriptMsg, setVoiceTranscriptMsg] = useState<string | null>(null);
+  const voiceDictationStopRef = useRef<(() => void) | null>(null);
+  const [showHardwareTestSuite, setShowHardwareTestSuite] = useState<boolean>(false);
+  const [funPrintTestPreviewUrl, setFunPrintTestPreviewUrl] = useState<string | null>(null);
+  const [hardwareTestLogs, setHardwareTestLogs] = useState<
+    { id: string; time: string; msg: string; status: "ok" | "info" | "warn" }[]
+  >([]);
 
   // Destino da câmera: leitura de compra ("search") ou preenchimento dos 5 campos de código no modal Editar ("primary" ou índice 0..3)
   const [cameraTargetField, setCameraTargetField] = useState<"search" | "primary" | number>("search");
@@ -1386,7 +1430,7 @@ export function GlassBarcodeScannerCart({
     return () => window.removeEventListener("dw_glass_zero_yard", handleYardZeroEvent);
   }, []);
 
-  // Fecha porta serial da balança USB caso usuário saia da tela
+  // Fecha porta serial, Bluetooth BLE, voz e preview temporário caso usuário saia da tela
   useEffect(() => {
     return () => {
       serialReaderCancelRef.current = true;
@@ -1394,6 +1438,15 @@ export function GlassBarcodeScannerCart({
         if (serialPortRef.current && typeof serialPortRef.current.close === "function") {
           serialPortRef.current.close().catch(() => {});
         }
+      } catch {}
+      try {
+        bleConnectionRef.current?.disconnect();
+      } catch {}
+      try {
+        voiceDictationStopRef.current?.();
+      } catch {}
+      try {
+        stopYardAnnouncement();
       } catch {}
     };
   }, []);
@@ -1418,7 +1471,7 @@ export function GlassBarcodeScannerCart({
     return [];
   });
 
-  // Caderninho de Colaboradores da Reciclagem (com Denise e Wellington)
+  // Caderninho de Colaboradores da Reciclagem (incluindo coleta própria)
   const [collaborators, setCollaborators] = useState<CollaboratorAccount[]>(() => {
     try {
       const stored = localStorage.getItem("pdv_dw_collaborators_accounts_v3");
@@ -1499,11 +1552,21 @@ export function GlassBarcodeScannerCart({
     }
   }, [initialYardControlFilter]);
 
-  // Entrada de código de barras
+  // Entrada de código de barras e controles reais de câmera (Lanterna, Zoom, Refoco, Contraste Vidro Transparente)
   const [barcodeInput, setBarcodeInput] = useState<string>("");
   const [showCameraModal, setShowCameraModal] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraTrackStatus, setCameraTrackStatus] = useState<CameraTrackStatus | null>(null);
+  const [cameraTorchOn, setCameraTorchOn] = useState<boolean>(false);
+  const [cameraZoom, setCameraZoom] = useState<number>(1.5);
+  const [transparentBottleBoost, setTransparentBottleBoost] = useState<boolean>(true);
+  const [isScanningPhoto, setIsScanningPhoto] = useState<boolean>(false);
+  const [refocusFeedback, setRefocusFeedback] = useState<string | null>(null);
+  const transparentBottleBoostRef = useRef<boolean>(true);
+  transparentBottleBoostRef.current = transparentBottleBoost;
   const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
+  const contrastLoopStopRef = useRef<(() => void) | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   // Modais
   const [showAddCollabModal, setShowAddCollabModal] = useState<boolean>(false);
@@ -2000,9 +2063,126 @@ export function GlassBarcodeScannerCart({
     return selectedScaleMaterial?.buyPricePerKg || 0;
   }, [scalePricePerKgInput, selectedScaleMaterial?.buyPricePerKg]);
 
-  const scaleCombinedWeightKg = scaleQueueTotalNetKg + scaleCurrentNetKg;
-  const scaleCurrentPayable = Number((scaleCurrentNetKg * scaleEffectivePricePerKg).toFixed(2));
-  const scaleTotalPayable = Number((scaleCombinedWeightKg * scaleEffectivePricePerKg).toFixed(2));
+  const scaleCombinedWeightKg = roundWeightKg(scaleQueueTotalNetKg + scaleCurrentNetKg);
+  const scaleCurrentPayable = computeScrapLineTotal(scaleCurrentNetKg, scaleEffectivePricePerKg);
+  const scaleTotalPayable = computeScrapLineTotal(scaleCombinedWeightKg, scaleEffectivePricePerKg);
+
+  const appendHardwareLog = (msg: string, status: "ok" | "info" | "warn" = "info") => {
+    const time = new Date().toLocaleTimeString("pt-BR");
+    setHardwareTestLogs((prev) => [{ id: `${Date.now()}_${Math.random()}`, time, msg, status }, ...prev].slice(0, 12));
+  };
+
+  const handleToggleVoiceAnnouncer = () => {
+    const next = !voiceAnnouncerEnabled;
+    setVoiceAnnouncerEnabledState(next);
+    setVoiceAnnouncerEnabled(next);
+    if (next) {
+      speakYardAnnouncement("Locutor de voz ativado na caixa de som.", { force: true });
+      appendHardwareLog("Locutor IA ativado para anunciar pesagens e totais na caixa de som.", "ok");
+    } else {
+      stopYardAnnouncement();
+      appendHardwareLog("Locutor IA silenciado.", "info");
+    }
+  };
+
+  const handleConnectBluetoothScale = async () => {
+    if (!isBluetoothScaleSupported()) {
+      const msg =
+        "Bluetooth direto da balança funciona no Google Chrome (Android ou PC). Se sua balança de gancho não tiver Bluetooth, olhe o visor e digite o peso ou toque em Falar Peso!";
+      setBleStatusMsg(msg);
+      appendHardwareLog(msg, "warn");
+      if (showNotification) showNotification(msg, "info");
+      return;
+    }
+
+    try {
+      setBleStatusMsg("Buscando balança Bluetooth...");
+      const conn = await connectBluetoothHookScale({
+        onWeightKg: (kg) => {
+          setScaleUnitMode("kg");
+          setScaleGrossInput(kg.toFixed(3).replace(/\.?0+$/, "") || "0");
+        },
+        onStatus: (statusMsg) => {
+          setBleStatusMsg(statusMsg);
+        },
+        onDisconnect: () => {
+          setBleConnected(false);
+          setBleDeviceName(null);
+          bleConnectionRef.current = null;
+          setBleStatusMsg("Balança Bluetooth desconectada.");
+          appendHardwareLog("Balança Bluetooth desconectada.", "warn");
+        }
+      });
+      bleConnectionRef.current = conn;
+      setBleConnected(true);
+      setBleDeviceName(conn.deviceName);
+      appendHardwareLog(`Balança Bluetooth conectada: ${conn.deviceName}.`, "ok");
+      if (voiceAnnouncerEnabled) {
+        speakYardAnnouncement(`Balança Bluetooth ${conn.deviceName} conectada.`);
+      }
+      if (showNotification) {
+        showNotification(`Balança Bluetooth "${conn.deviceName}" conectada! 📡⚖️`, "success");
+      }
+    } catch (err: any) {
+      setBleConnected(false);
+      if (err?.name !== "NotFoundError") {
+        const msg = err?.message || "Não foi possível parear a balança Bluetooth.";
+        setBleStatusMsg(msg);
+        appendHardwareLog(msg, "warn");
+        if (showNotification) showNotification(msg, "info");
+      } else {
+        setBleStatusMsg(null);
+      }
+    }
+  };
+
+  const handleDisconnectBluetoothScale = () => {
+    try {
+      bleConnectionRef.current?.disconnect();
+    } catch {}
+    bleConnectionRef.current = null;
+    setBleConnected(false);
+    setBleDeviceName(null);
+    setBleStatusMsg("Balança Bluetooth desconectada.");
+  };
+
+  const handleToggleVoiceWeight = () => {
+    if (isVoiceListening) {
+      voiceDictationStopRef.current?.();
+      voiceDictationStopRef.current = null;
+      setIsVoiceListening(false);
+      return;
+    }
+    if (!isVoiceWeightSupported()) {
+      const msg = "Ditado por voz não está disponível neste navegador. Digite o peso direto do visor da balança.";
+      setVoiceTranscriptMsg(msg);
+      if (showNotification) showNotification(msg, "info");
+      return;
+    }
+
+    setIsVoiceListening(true);
+    setVoiceTranscriptMsg("🎤 Fale o peso (ex: 3 quilos e 200 ou 850 gramas)...");
+    voiceDictationStopRef.current = startVoiceWeightDictation({
+      onWeightKg: (kg, transcript) => {
+        setScaleUnitMode("kg");
+        setScaleGrossInput(kg.toFixed(3).replace(/\.?0+$/, "") || "0");
+        const okMsg = `🎤 Ouvi "${transcript}" → ${kg.toFixed(2).replace(".", ",")} kg`;
+        setVoiceTranscriptMsg(okMsg);
+        appendHardwareLog(`Ditado por voz aplicado: ${kg.toFixed(2)} kg ("${transcript}").`, "ok");
+        if (voiceAnnouncerEnabled) {
+          speakYardAnnouncement(`Peso anotado: ${formatWeightKgForSpeech(kg)}.`);
+        }
+      },
+      onError: (errMsg) => {
+        setVoiceTranscriptMsg(`⚠️ ${errMsg}`);
+        appendHardwareLog(errMsg, "warn");
+      },
+      onEnd: () => {
+        setIsVoiceListening(false);
+        voiceDictationStopRef.current = null;
+      }
+    });
+  };
 
   const filteredScrapMaterials = useMemo(() => {
     const q = scrapSearchQuery.trim().toLowerCase();
@@ -2032,10 +2212,10 @@ export function GlassBarcodeScannerCart({
     const navAny = navigator as any;
     if (!navAny || !navAny.serial) {
       setSerialStatusMsg(
-        "Este celular/navegador não usa cabo USB direto (Web Serial). Sem problemas: olhe o visor da sua balança digital e digite o peso abaixo!"
+        "Este celular/navegador não usa cabo USB direto (Web Serial). Sem problemas: use Bluetooth, Falar Peso ou digite o peso do visor abaixo!"
       );
       if (showNotification) {
-        showNotification("Use a balança digital normalmente e digite o peso do visor no campo abaixo! ⚖️", "info");
+        showNotification("Use Bluetooth, Falar Peso ou digite o peso do visor no campo abaixo! ⚖️", "info");
       }
       return;
     }
@@ -2047,6 +2227,7 @@ export function GlassBarcodeScannerCart({
       serialReaderCancelRef.current = false;
       setSerialConnected(true);
       setSerialStatusMsg("Balança USB conectada! Lendo peso em tempo real...");
+      appendHardwareLog("Balança USB/Serial conectada com sucesso.", "ok");
       if (showNotification) {
         showNotification("Balança digital USB conectada ao app! ⚖️🔌", "success");
       }
@@ -2099,21 +2280,27 @@ export function GlassBarcodeScannerCart({
         label: `Pesada #${prev.length + 1}`
       }
     ]);
+    if (voiceAnnouncerEnabled) {
+      speakYardAnnouncement(`Pesada adicionada: ${formatWeightKgForSpeech(scaleCurrentNetKg)}.`);
+    }
     setScaleGrossInput("");
     playScannerBeep(980, 0.06);
   };
 
   const scrapBasketStats = useMemo(() => {
-    const totalWeightKg = scrapBasket.reduce((s, item) => s + Math.max(0, item.weightKg), 0);
-    const totalUnits = scrapBasket.reduce((s, item) => s + Math.max(0, item.units), 0);
-    const subtotal = Number(
-      scrapBasket.reduce((s, item) => s + Math.max(0, item.weightKg) * Math.max(0, item.pricePerKg), 0).toFixed(2)
+    const totalWeightKg = roundWeightKg(
+      scrapBasket.reduce((s, item) => s + Math.max(0, item.weightKg), 0)
     );
-    const bonus = Math.max(0, Number((parseFloat(scrapBasketBonusInput.replace(",", ".")) || 0).toFixed(2)));
-    const discount = Math.max(0, Number((parseFloat(scrapBasketDiscountInput.replace(",", ".")) || 0).toFixed(2)));
-    const rawNet = Number((subtotal + bonus - discount).toFixed(2));
-    const netPayable = Math.max(0, rawNet);
-    const remainingDebt = rawNet < 0 ? Math.abs(rawNet) : 0;
+    const totalUnits = scrapBasket.reduce((s, item) => s + Math.max(0, item.units), 0);
+    // Soma exatamente os valores já arredondados de cada linha para bater centavo por centavo com o recibo!
+    const subtotal = roundCurrencyBrl(
+      scrapBasket.reduce((s, item) => s + computeScrapLineTotal(item.weightKg, item.pricePerKg), 0)
+    );
+    const bonus = roundCurrencyBrl(parseFloat(scrapBasketBonusInput.replace(",", ".")) || 0);
+    const discount = roundCurrencyBrl(parseFloat(scrapBasketDiscountInput.replace(",", ".")) || 0);
+    const rawNet = Math.round(((subtotal + bonus - discount) + Number.EPSILON) * 100) / 100;
+    const netPayable = Math.max(0, roundCurrencyBrl(rawNet));
+    const remainingDebt = rawNet < 0 ? roundCurrencyBrl(Math.abs(rawNet)) : 0;
     return { totalWeightKg, totalUnits, subtotal, bonus, discount, netPayable, remainingDebt };
   }, [scrapBasket, scrapBasketBonusInput, scrapBasketDiscountInput]);
 
@@ -2137,7 +2324,7 @@ export function GlassBarcodeScannerCart({
     pricePerKg: number;
     addToStock: boolean;
   }) => {
-    const cleanW = Math.max(0, Number(weightKg.toFixed(3)));
+    const cleanW = roundWeightKg(weightKg);
     const cleanP = Math.max(0, Number.isFinite(pricePerKg) ? pricePerKg : 0);
     const cleanU = Math.max(0, Math.round(units || 0));
     if (cleanW <= 0 && cleanU <= 0) {
@@ -2148,6 +2335,9 @@ export function GlassBarcodeScannerCart({
     if (cleanP > 0 && cleanP !== material.buyPricePerKg) {
       handleUpdateScrapPricePerKg(material.id, cleanP);
     }
+
+    const rowValue = computeScrapLineTotal(cleanW, cleanP);
+    const nextSubtotal = roundCurrencyBrl(scrapBasketStats.subtotal + rowValue);
 
     setScrapBasket((prev) => [
       ...prev,
@@ -2163,9 +2353,16 @@ export function GlassBarcodeScannerCart({
       }
     ]);
     playScannerBeep(1040, 0.07);
+    if (voiceAnnouncerEnabled) {
+      const spokenLine =
+        rowValue > 0
+          ? `${material.name}, ${formatWeightKgForSpeech(cleanW)}, ${formatCurrencyPtBrForSpeech(rowValue)}. Parcial do recibo: ${formatCurrencyPtBrForSpeech(nextSubtotal)}.`
+          : `${material.name}, ${formatWeightKgForSpeech(cleanW)} somado no recibo.`;
+      speakYardAnnouncement(spokenLine);
+    }
     if (showNotification) {
       showNotification(
-        `${material.emoji} ${material.name} (${cleanW.toFixed(2)} kg • R$ ${(cleanW * cleanP).toFixed(2).replace(".", ",")}) somado no Recibo do Dia! 🧺`,
+        `${material.emoji} ${material.name} (${cleanW.toFixed(2)} kg • R$ ${rowValue.toFixed(2).replace(".", ",")}) somado no Recibo do Dia! 🧺`,
         "success"
       );
     }
@@ -2281,16 +2478,18 @@ export function GlassBarcodeScannerCart({
     const validEntries = entries.filter((e) => e.weightKg > 0 || e.units > 0);
     if (validEntries.length === 0) return false;
 
-    const totalWeightKg = Number(validEntries.reduce((s, e) => s + Math.max(0, e.weightKg), 0).toFixed(3));
+    const totalWeightKg = roundWeightKg(validEntries.reduce((s, e) => s + Math.max(0, e.weightKg), 0));
     const totalUnits = validEntries.reduce((s, e) => s + Math.max(0, Math.round(e.units)), 0);
-    const subtotalAmount = Number(
-      validEntries
-        .reduce((s, e) => s + Math.max(0, e.weightKg) * Math.max(0, e.pricePerKg), 0)
-        .toFixed(2)
+    // Garante que o subtotal seja a soma exata dos valores arredondados de cada item do recibo
+    const subtotalAmount = roundCurrencyBrl(
+      validEntries.reduce((s, e) => s + computeScrapLineTotal(e.weightKg, e.pricePerKg), 0)
     );
-    const cleanBonus = Math.max(0, Number((bonusAmount || 0).toFixed(2)));
-    const cleanDiscount = Math.max(0, Number((discountAmount || 0).toFixed(2)));
-    const netTotalAmount = Math.max(0, Number((subtotalAmount + cleanBonus - cleanDiscount).toFixed(2)));
+    const cleanBonus = roundCurrencyBrl(bonusAmount || 0);
+    const cleanDiscount = roundCurrencyBrl(discountAmount || 0);
+    const netTotalAmount = Math.max(
+      0,
+      roundCurrencyBrl(subtotalAmount + cleanBonus - cleanDiscount)
+    );
 
     const isCaderninhoRequested = mode === "caderninho";
     const resolved = resolveScrapCollaboratorTarget({
@@ -2376,7 +2575,7 @@ export function GlassBarcodeScannerCart({
     // 3. Gera Recibo Único (com ou sem nome, 1 ou vários materiais, com acréscimo/desconto)
     if (shouldGenerateReceipt) {
       const paymentStatus: CompletedPurchaseTicket["paymentStatus"] = isFounder
-        ? "coleta_propria_dw"
+        ? "coleta_propria_empresa"
         : paidNow
         ? "pago_na_hora"
         : "pendente_caderninho";
@@ -2439,6 +2638,23 @@ export function GlassBarcodeScannerCart({
     }
 
     playScannerBeep(1180, 0.09);
+
+    if (voiceAnnouncerEnabled) {
+      const targetSpoken = resolved.displayName;
+      if (isFounder) {
+        speakYardAnnouncement(
+          `Coleta própria registrada para ${targetSpoken}. ${formatWeightKgForSpeech(totalWeightKg)}, economia equivalente de ${formatCurrencyPtBrForSpeech(netTotalAmount)}.`
+        );
+      } else if (shouldGenerateReceipt) {
+        speakYardAnnouncement(
+          paidNow
+            ? `Recibo fechado para ${targetSpoken}. ${formatWeightKgForSpeech(totalWeightKg)}. Total pago: ${formatCurrencyPtBrForSpeech(netTotalAmount)}.`
+            : `Anotado no caderninho de ${targetSpoken}. ${formatWeightKgForSpeech(totalWeightKg)}, valor ${formatCurrencyPtBrForSpeech(netTotalAmount)}.`
+        );
+      } else {
+        speakYardAnnouncement(`Peso lançado no estoque: ${formatWeightKgForSpeech(totalWeightKg)}.`);
+      }
+    }
 
     if (showNotification) {
       const countLabel = validEntries.length > 1 ? `${validEntries.length} materiais (${totalWeightKg.toFixed(2)} kg)` : `${validEntries[0].material.emoji} ${validEntries[0].material.name} (${totalWeightKg.toFixed(2)} kg)`;
@@ -2661,32 +2877,20 @@ export function GlassBarcodeScannerCart({
     }
   };
 
-  // Totais do Estoque no Pátio (SOMENTE VIDROS DA RECICLAGEM!)
+  // Totais do Estoque no Pátio (SOMENTE VIDROS DA RECICLAGEM — fonte única!)
   const yardTotals = useMemo(() => {
-    let totalUnits = 0;
-    let totalWeightKg = 0;
-    catalog.forEach((b) => {
-      const units = b.stockUnits || 0;
-      totalUnits += units;
-      totalWeightKg += (units * b.unitWeightGrams) / 1000;
-    });
-
-    const totalWeightTon = totalWeightKg / 1000;
-    const grossRevenueTon = totalWeightKg * sellPricePerKg;
+    const core = computeGlassCatalogSummary(catalog, sellPricePerKg);
 
     // Meta configurável (padrão 3.000 kg para o caminhão do Victor) e Carga Cheia 5.000 kg
     const minTonTargetKg = Math.max(100, yardGoalKg || 3000);
     const idealTonTargetKg = Math.max(minTonTargetKg, 5000);
-    const kgMissingForMin = Math.max(0, minTonTargetKg - totalWeightKg);
-    const kgMissingForIdeal = Math.max(0, idealTonTargetKg - totalWeightKg);
-    const progressMinPct = Math.min(100, (totalWeightKg / minTonTargetKg) * 100);
-    const progressIdealPct = Math.min(100, (totalWeightKg / idealTonTargetKg) * 100);
+    const kgMissingForMin = Math.max(0, minTonTargetKg - core.totalWeightKg);
+    const kgMissingForIdeal = Math.max(0, idealTonTargetKg - core.totalWeightKg);
+    const progressMinPct = Math.min(100, (core.totalWeightKg / minTonTargetKg) * 100);
+    const progressIdealPct = Math.min(100, (core.totalWeightKg / idealTonTargetKg) * 100);
 
     return {
-      totalUnits,
-      totalWeightKg,
-      totalWeightTon,
-      grossRevenueTon,
+      ...core,
       minTonTargetKg,
       idealTonTargetKg,
       kgMissingForMin,
@@ -2696,12 +2900,52 @@ export function GlassBarcodeScannerCart({
     };
   }, [catalog, sellPricePerKg, yardGoalKg]);
 
+  useEffect(() => {
+    if (onYardSummaryChange) {
+      onYardSummaryChange({
+        totalUnits: yardTotals.totalUnits,
+        totalWeightKg: yardTotals.totalWeightKg,
+        totalWeightTon: yardTotals.totalWeightTon,
+        grossRevenueTon: yardTotals.grossRevenueTon,
+        estimatedAcquisitionCost: yardTotals.estimatedAcquisitionCost,
+        netProfit: yardTotals.netProfit,
+        profitMarginPct: yardTotals.profitMarginPct
+      });
+    }
+  }, [yardTotals, onYardSummaryChange]);
+
+  // Conferência automática: Estoque atual de Vidros vs Soma real dos Recibos Ativos
+  const ticketReconciliation = useMemo(
+    () => reconcileGlassCatalogFromActiveTickets(catalog, purchaseHistory, truckShipments),
+    [catalog, purchaseHistory, truckShipments]
+  );
+
+  const hasGlassStockTicketMismatch =
+    ticketReconciliation.matchedTicketsCount > 0 &&
+    (yardTotals.totalUnits !== ticketReconciliation.expectedUnits ||
+      Math.abs(yardTotals.totalWeightKg - ticketReconciliation.expectedWeightKg) >= 0.05);
+
+  const handleReconcileGlassStockFromTickets = () => {
+    markLocalYardMutation();
+    setCatalog(ticketReconciliation.reconciledCatalog);
+    try {
+      localStorage.setItem("pdv_dw_glass_catalog_v10", JSON.stringify(ticketReconciliation.reconciledCatalog));
+      window.dispatchEvent(new CustomEvent("dw_glass_catalog_updated", { detail: ticketReconciliation.reconciledCatalog }));
+    } catch {}
+    if (showNotification) {
+      showNotification(
+        `✅ Pátio de Vidros sincronizado pelos recibos ativos: ${ticketReconciliation.expectedUnits} garrafas (${ticketReconciliation.expectedWeightKg.toFixed(1)} kg)!`,
+        "success"
+      );
+    }
+  };
+
   // Resumo Financeiro Geral dos Colaboradores da Reciclagem
   const caderninhoTotals = useMemo(() => {
     let totalPendingAll = 0;
     let totalPaidAll = 0;
     let totalEarnedAll = 0;
-    let founderSelfSaved = 0; // O quanto Denise e Wellington economizaram reciclando eles mesmos
+    let founderSelfSaved = 0; // O quanto a empresa economizou com coleta própria
 
     collaborators.forEach((c) => {
       if (c.isFounder) {
@@ -2721,7 +2965,7 @@ export function GlassBarcodeScannerCart({
     };
   }, [collaborators]);
 
-  // Pastas organizadas automaticamente por Colaborador da Reciclagem (Compras + Pagamentos + Saldo)
+  // Pastas organizadas automaticamente por Colaborador — com separação estrita entre PÁTIO DE VIDROS e RECICLAGEM / FERRO VELHO
   const collaboratorFolders = useMemo(() => {
     interface FolderEntry {
       key: string;
@@ -2737,8 +2981,10 @@ export function GlassBarcodeScannerCart({
       totalPendingDebtAmount: number;
       activeCount: number;
       cancelledCount: number;
+      sectorBreakdown: FolderSectorBreakdown;
     }
 
+    const emptyBreakdown: FolderSectorBreakdown = computeFolderSectorBreakdown([]);
     const folderMap = new Map<string, FolderEntry>();
     const normalizeNameKey = (raw: string) =>
       String(raw || "Sem Nome / Balcão")
@@ -2761,7 +3007,8 @@ export function GlassBarcodeScannerCart({
         totalPaidSettlementAmount: 0,
         totalPendingDebtAmount: 0,
         activeCount: 0,
-        cancelledCount: 0
+        cancelledCount: 0,
+        sectorBreakdown: emptyBreakdown
       });
     });
 
@@ -2791,7 +3038,8 @@ export function GlassBarcodeScannerCart({
           totalPaidSettlementAmount: 0,
           totalPendingDebtAmount: 0,
           activeCount: 0,
-          cancelledCount: 0
+          cancelledCount: 0,
+          sectorBreakdown: emptyBreakdown
         };
         folderMap.set(customKey, existing);
       }
@@ -2805,11 +3053,11 @@ export function GlassBarcodeScannerCart({
         folder.cancelledCount += 1;
       } else {
         folder.activeCount += 1;
-        folder.totalWeightKg += tk.totalWeightKg || 0;
+        folder.totalWeightKg = roundWeightKg(folder.totalWeightKg + (tk.totalWeightKg || 0));
         if (!tk.isFounder) {
-          folder.totalBoughtAmount += tk.totalPaid || 0;
+          folder.totalBoughtAmount = roundCurrencyBrl(folder.totalBoughtAmount + (tk.totalPaid || 0));
           if (tk.paymentStatus === "pago_na_hora") {
-            folder.totalPaidDirectAmount += tk.totalPaid || 0;
+            folder.totalPaidDirectAmount = roundCurrencyBrl(folder.totalPaidDirectAmount + (tk.totalPaid || 0));
           }
         }
       }
@@ -2822,19 +3070,20 @@ export function GlassBarcodeScannerCart({
         folder.cancelledCount += 1;
       } else {
         folder.activeCount += 1;
-        folder.totalPaidSettlementAmount += pay.amountPaid || 0;
+        folder.totalPaidSettlementAmount = roundCurrencyBrl(folder.totalPaidSettlementAmount + (pay.amountPaid || 0));
       }
     });
 
-    // Sincroniza saldo oficial do Caderninho (separando fundadores de parceiros pagos e evitando saldo fantasma sem recibos ativos)
+    // Sincroniza separação estrita Vidros vs Ferro Velho + saldo oficial do Caderninho
     folderMap.forEach((entry) => {
+      entry.sectorBreakdown = computeFolderSectorBreakdown(entry.tickets);
       if (entry.isFounder) {
         entry.totalBoughtAmount = 0;
         entry.totalPaidDirectAmount = 0;
         entry.totalPaidSettlementAmount = 0;
         entry.totalPendingDebtAmount = 0;
       } else if (entry.collaborator) {
-        const activeTicketsCount = entry.tickets.filter((t) => !t.isCancelled).length;
+        const activeTicketsCount = entry.sectorBreakdown.all.activeCount;
         const activePaymentsCount = entry.payments.filter((p) => !p.isCancelled).length;
         if (activeTicketsCount === 0 && activePaymentsCount === 0) {
           entry.totalBoughtAmount = 0;
@@ -2872,7 +3121,7 @@ export function GlassBarcodeScannerCart({
       totalRevenue += c.totalRevenue;
     });
 
-    // Se for Denise e Wellington (fundadores), o custo de compra de terceiros é R$ 0,
+    // Se for coleta própria da empresa, o custo de compra de terceiros é R$ 0,
     // e o valor que seria pago é pura ECONOMIA financeira!
     const isFounder = !!activeCollab?.isFounder;
     const actualBuyCostToThirdParties = isFounder ? 0 : totalBuyCost;
@@ -2893,8 +3142,19 @@ export function GlassBarcodeScannerCart({
     };
   }, [cart, activeCollab, sellPricePerKg]);
 
-  // Câmera Scanner
+  // Câmera Scanner (Otimizada para celulares simples e garrafas transparentes)
   const stopCameraSafely = () => {
+    if (contrastLoopStopRef.current) {
+      try {
+        contrastLoopStopRef.current();
+      } catch {}
+      contrastLoopStopRef.current = null;
+    }
+    try {
+      applyCameraTorch("mobile-glass-scanner-viewport", false);
+    } catch {}
+    setCameraTorchOn(false);
+    setCameraTrackStatus(null);
     if (html5QrcodeRef.current) {
       try {
         html5QrcodeRef.current
@@ -2912,11 +3172,93 @@ export function GlassBarcodeScannerCart({
     }
   };
 
+  const handleToggleCameraTorch = async () => {
+    const next = !cameraTorchOn;
+    const ok = await applyCameraTorch("mobile-glass-scanner-viewport", next);
+    if (ok) {
+      setCameraTorchOn(next);
+      setCameraTrackStatus((prev) => (prev ? { ...prev, torchOn: next } : prev));
+    } else if (showNotification) {
+      showNotification("Este navegador/câmera não liberou o controle direto da lanterna.", "info");
+    }
+  };
+
+  const handleSelectCameraZoom = async (targetZoom: number) => {
+    const applied = await applyCameraZoom("mobile-glass-scanner-viewport", targetZoom);
+    if (applied !== null) {
+      setCameraZoom(applied);
+      setCameraTrackStatus((prev) => (prev ? { ...prev, currentZoom: applied } : prev));
+    }
+  };
+
+  const handleTriggerCameraRefocus = async () => {
+    setRefocusFeedback("🎯 Focando câmera...");
+    await triggerCameraRefocus("mobile-glass-scanner-viewport");
+    setTimeout(() => setRefocusFeedback(null), 1100);
+  };
+
+  const handlePhotoBarcodeFallback = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setIsScanningPhoto(true);
+    setCameraError(null);
+    try {
+      const code = await scanBarcodeFromPhotoFile(file, html5QrcodeRef.current);
+      if (code) {
+        playScannerBeep(2150, 0.1);
+        const isTargetSearch = cameraTargetFieldRef.current === "search";
+        if (isTargetSearch && continuousBeepModeRef.current) {
+          handleProcessBarcodeRef.current(code, true);
+        } else {
+          handleProcessBarcodeRef.current(code, false);
+          setShowCameraModal(false);
+        }
+      } else {
+        setCameraError("Não foi possível identificar as barras na foto. Aproxime mais, ligue a lanterna ou toque na garrafa abaixo.");
+      }
+    } catch {
+      setCameraError("Erro ao analisar a foto do código. Tente novamente ou selecione a garrafa manualmente.");
+    } finally {
+      setIsScanningPhoto(false);
+    }
+  };
+
   useEffect(() => {
     let isCancelled = false;
 
     if (showCameraModal) {
       setCameraError(null);
+      setCameraTorchOn(false);
+      setRefocusFeedback(null);
+
+      const handleDecodedCameraBarcode = (decodedText: string) => {
+        if (isCancelled) return;
+        const trimmed = decodedText.trim();
+        if (!trimmed) return;
+        const now = Date.now();
+        const isTargetSearch = cameraTargetFieldRef.current === "search";
+
+        // Cooldown curto para não duplicar entre motor nativo e Html5Qrcode
+        if (
+          lastScannedCooldownRef.current &&
+          lastScannedCooldownRef.current.code === trimmed &&
+          now - lastScannedCooldownRef.current.at < (isTargetSearch && continuousBeepModeRef.current ? 1400 : 1200)
+        ) {
+          return;
+        }
+        lastScannedCooldownRef.current = { code: trimmed, at: now };
+
+        if (isTargetSearch && continuousBeepModeRef.current) {
+          playScannerBeep(2150, 0.08);
+          handleProcessBarcodeRef.current(trimmed, true);
+          return;
+        }
+        playScannerBeep(2100, 0.09);
+        handleProcessBarcodeRef.current(trimmed, false);
+        setShowCameraModal(false);
+      };
+
       const timer = setTimeout(() => {
         if (isCancelled) return;
         const viewport = document.getElementById("mobile-glass-scanner-viewport");
@@ -2930,8 +3272,12 @@ export function GlassBarcodeScannerCart({
               Html5QrcodeSupportedFormats.UPC_A,
               Html5QrcodeSupportedFormats.UPC_E,
               Html5QrcodeSupportedFormats.CODE_128,
-              Html5QrcodeSupportedFormats.CODE_39
+              Html5QrcodeSupportedFormats.CODE_39,
+              Html5QrcodeSupportedFormats.ITF
             ],
+            experimentalFeatures: {
+              useBarCodeDetectorIfSupported: true
+            },
             verbose: false
           });
 
@@ -2941,43 +3287,58 @@ export function GlassBarcodeScannerCart({
             .start(
               { facingMode: "environment" },
               {
-                fps: 20,
-                qrbox: { width: 280, height: 180 }
-              },
-              (decodedText) => {
-                if (isCancelled) return;
-                const trimmed = decodedText.trim();
-                if (!trimmed) return;
-                const now = Date.now();
-                const isTargetSearch = cameraTargetFieldRef.current === "search";
-                if (isTargetSearch && continuousBeepModeRef.current) {
-                  if (
-                    lastScannedCooldownRef.current &&
-                    lastScannedCooldownRef.current.code === trimmed &&
-                    now - lastScannedCooldownRef.current.at < 1400
-                  ) {
-                    return;
-                  }
-                  lastScannedCooldownRef.current = { code: trimmed, at: now };
-                  playScannerBeep(2150, 0.08);
-                  handleProcessBarcodeRef.current(trimmed, true);
-                  return;
+                fps: 18,
+                qrbox: { width: 290, height: 150 },
+                videoConstraints: {
+                  facingMode: { ideal: "environment" },
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 }
                 }
-                playScannerBeep(2100, 0.09);
-                handleProcessBarcodeRef.current(trimmed, false);
-                setShowCameraModal(false);
               },
+              (decodedText) => handleDecodedCameraBarcode(decodedText),
               () => {}
             )
+            .then(async () => {
+              if (isCancelled) {
+                try {
+                  await scanner.stop();
+                  scanner.clear();
+                } catch {}
+                return;
+              }
+              // Aguarda stream estabilizar e aplica zoom inicial 1.5x (permite afastar a garrafa p/ câmera simples focar melhor) + foco contínuo
+              setTimeout(async () => {
+                if (isCancelled) return;
+                const status = inspectCameraTrackStatus("mobile-glass-scanner-viewport", false);
+                if (status.hasZoom) {
+                  const targetZoom = Math.min(status.maxZoom, Math.max(status.minZoom, 1.5));
+                  const applied = await applyCameraZoom("mobile-glass-scanner-viewport", targetZoom);
+                  if (applied !== null) {
+                    status.currentZoom = applied;
+                    setCameraZoom(applied);
+                  }
+                }
+                setCameraTrackStatus(status);
+                triggerCameraRefocus("mobile-glass-scanner-viewport");
+
+                // Loop auxiliar de alto contraste + inversão (crítico para código branco em garrafa transparente!)
+                contrastLoopStopRef.current = startTransparentBottleContrastLoop({
+                  viewportId: "mobile-glass-scanner-viewport",
+                  isEnhancedEnabled: () => transparentBottleBoostRef.current,
+                  onDetected: (code) => handleDecodedCameraBarcode(code),
+                  intervalMs: 210
+                });
+              }, 350);
+            })
             .catch((err) => {
               if (isCancelled) return;
               console.warn("Erro ao iniciar câmera:", err);
-              setCameraError("Câmera não disponível. Digite o código de barras no campo de texto.");
+              setCameraError("Câmera não disponível ao vivo. Use 'Ler por Foto' ou toque na garrafa abaixo.");
             });
         } catch {
-          setCameraError("Erro ao inicializar câmera. Digite o código no campo de texto.");
+          setCameraError("Erro ao inicializar câmera. Use 'Ler por Foto' ou digite o código.");
         }
-      }, 300);
+      }, 280);
 
       return () => {
         isCancelled = true;
@@ -3445,8 +3806,8 @@ export function GlassBarcodeScannerCart({
     markLocalYardMutation();
 
     const isFounder = !!activeCollab.isFounder;
-    const paymentStatus = isFounder
-      ? "coleta_propria_dw"
+    const paymentStatus: CompletedPurchaseTicket["paymentStatus"] = isFounder
+      ? "coleta_propria_empresa"
       : settlementMode === "pago_na_hora"
       ? "pago_na_hora"
       : "pendente_caderninho";
@@ -3482,7 +3843,7 @@ export function GlassBarcodeScannerCart({
           const newEarned = collab.totalEarned + cartTotals.totalBuyCost;
 
           if (collab.isFounder) {
-            // Denise e Wellington: não há pagamento a terceiros nem dívida, é pura economia e coleta própria!
+            // Coleta própria: não há pagamento a terceiros nem dívida, é pura economia da empresa!
             return {
               ...collab,
               totalDeliveries: newDeliveries,
@@ -3565,10 +3926,24 @@ export function GlassBarcodeScannerCart({
     setCart([]);
     playScannerBeep(2400, 0.15);
 
+    if (voiceAnnouncerEnabled) {
+      if (isFounder) {
+        speakYardAnnouncement(
+          `Vidros lançados em coleta própria para ${activeCollab.name}. ${ticket.totalBottles} garrafas, ${formatWeightKgForSpeech(ticket.totalWeightKg)}, economia de ${formatCurrencyPtBrForSpeech(cartTotals.totalBuyCost)}.`
+        );
+      } else {
+        speakYardAnnouncement(
+          settlementMode === "pago_na_hora"
+            ? `Compra de vidros paga para ${activeCollab.name}. Total: ${formatCurrencyPtBrForSpeech(ticket.totalPaid)}.`
+            : `Vidros anotados no caderninho de ${activeCollab.name}. Total: ${formatCurrencyPtBrForSpeech(ticket.totalPaid)}.`
+        );
+      }
+    }
+
     if (showNotification) {
       if (isFounder) {
         showNotification(
-          `Coleta D.W Registrada! +${cartTotals.totalBottles} garrafas (+${cartTotals.totalWeightKg.toFixed(1)}kg) somadas para a carga do Victor! 👑🚚`,
+          `Coleta Própria Registrada! +${cartTotals.totalBottles} garrafas (+${cartTotals.totalWeightKg.toFixed(1)}kg) somadas para a carga do caminhão! 👑🚚`,
           "success"
         );
       } else if (settlementMode === "pago_na_hora") {
@@ -3634,6 +4009,12 @@ export function GlassBarcodeScannerCart({
       notes: payNotes,
       previousBalance: prevPending,
       remainingBalance: remaining,
+      sector:
+        folderSectorFilter === "ferro_velho"
+          ? "ferro_velho"
+          : folderSectorFilter === "vidros"
+          ? "vidros"
+          : "geral",
       syncedPdvEventId: payPdvEventId
     };
 
@@ -3654,6 +4035,11 @@ export function GlassBarcodeScannerCart({
     }
 
     playScannerBeep(2200, 0.12);
+    if (voiceAnnouncerEnabled) {
+      speakYardAnnouncement(
+        `Acerto registrado para ${payingCollab.name}. Valor pago: ${formatCurrencyPtBrForSpeech(amount)}.`
+      );
+    }
     if (showNotification) {
       showNotification(
         `Pagamento de R$ ${amount.toFixed(2)} registrado para ${payingCollab.name}! 🧾🤝`,
@@ -3725,7 +4111,7 @@ export function GlassBarcodeScannerCart({
     }
   };
 
-  // Zerar Todos os Testes e Começar do Zero com a Realidade da D.W Vidros
+  // Zerar Todos os Testes e Começar do Zero com a Realidade do Pátio
   const handleResetAllToZeroReal = () => {
     markLocalYardMutation();
     // 1. Zera o estoque de vidros no pátio (mantendo garrafas e códigos cadastrados)
@@ -3847,9 +4233,15 @@ export function GlassBarcodeScannerCart({
 
   // Compartilhar Comprovante no WhatsApp
   const handleShareReceiptWhatsApp = (receipt: CollaboratorPaymentReceipt) => {
-    let msg = `🧾 *D.W VIDROS & RECICLAGEM*\n`;
-    msg += `_CNPJ: 67.965.725/0001-95 • Denise Jesus & Wellington Oliveira_\n`;
-    msg += `_Plano Infinito Vitalício ♾️ • Licença Ativa_\n`;
+    const cfg = loadPrinterConfig();
+    const prof = loadCompanyProfile();
+    const storeTitle = cfg.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM";
+    const storeCnpj = cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "";
+    const ownerName = prof.ownerName?.trim() || "";
+    let msg = `🧾 *${storeTitle}*\n`;
+    if (storeCnpj || ownerName) {
+      msg += `_${[storeCnpj ? `CNPJ/CPF: ${storeCnpj}` : "", ownerName].filter(Boolean).join(" • ")}_\n`;
+    }
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     msg += `🤝 *RECIBO DE PAGAMENTO / ACERTO*\n`;
     msg += `👤 *Colaborador:* ${receipt.collaboratorName}\n`;
@@ -3859,7 +4251,7 @@ export function GlassBarcodeScannerCart({
     if (receipt.notes) msg += `📝 *Obs:* ${receipt.notes}\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     msg += `Saldo Restante no Caderninho: R$ ${receipt.remainingBalance.toFixed(2)}\n\n`;
-    msg += `_Obrigado pela parceria na reciclagem de vidros! D.W Vidros & Reciclagem 🌱_`;
+    msg += `_Obrigado pela parceria na reciclagem! ${storeTitle} 🌱_`;
 
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank");
@@ -3885,7 +4277,7 @@ export function GlassBarcodeScannerCart({
     savePrinterConfig(nextCfg);
     if (showNotification) {
       showNotification(
-        `MiniPrint PocketTM (57×30mm / Fun Print) ativada para ${receiptCopiesMode === 2 ? "2 Vias (D.W + Reciclador)" : "1 Via"}! 🐱🖨️`,
+        `MiniPrint PocketTM (57×30mm / Fun Print) ativada para ${receiptCopiesMode === 2 ? "2 Vias (Empresa + Reciclador)" : "1 Via"}! 🐱🖨️`,
         "success"
       );
     }
@@ -3912,9 +4304,10 @@ export function GlassBarcodeScannerCart({
     copies: 1 | 2
   ): ThermalCanvasReceiptPayload => {
     const cfg = loadPrinterConfig();
+    const prof = loadCompanyProfile();
     const statusLabel =
-      ticket.paymentStatus === "coleta_propria_dw"
-        ? "COLETA PRÓPRIA D.W (100% EMPRESA)"
+      String(ticket.paymentStatus || "").startsWith("coleta_propria")
+        ? "COLETA PRÓPRIA (100% EMPRESA)"
         : ticket.paymentStatus === "pago_na_hora"
         ? "PAGO NA HORA (PORTÃO / CAIXA)"
         : "LANÇADO NO CADERNINHO (A ACERTAR)";
@@ -3963,7 +4356,7 @@ export function GlassBarcodeScannerCart({
     }
     if (ticket.isFounder) {
       summaryLines.push({
-        label: "ECONOMIA D.W:",
+        label: "ECONOMIA PRÓPRIA:",
         value: `R$ ${ticket.items.reduce((s, it) => s + it.costPaid, 0).toFixed(2).replace(".", ",")}`,
         bold: true
       });
@@ -3980,8 +4373,8 @@ export function GlassBarcodeScannerCart({
       title: ticket.isScrapPurchase
         ? "RECIBO DE COMPRA - RECICLAGEM"
         : "COMPROVANTE DE COMPRA - VIDROS",
-      storeName: cfg.storeName || "D.W VIDROS & RECICLAGEM",
-      storeCnpj: cfg.storeCnpjCpf || "67.965.725/0001-95",
+      storeName: cfg.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM",
+      storeCnpj: cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "",
       dateStr: ticket.timestamp,
       ticketId: ticket.id,
       collaboratorName: ticket.collectorName,
@@ -4015,7 +4408,7 @@ export function GlassBarcodeScannerCart({
       () => {
         if (showNotification) {
           showNotification(
-            `Notinha enviada para impressão em ${copies === 2 ? "2 Vias (D.W + Reciclador)" : "1 Via"}! 🖨️🧾`,
+            `Notinha enviada para impressão em ${copies === 2 ? "2 Vias (Empresa + Reciclador)" : "1 Via"}! 🖨️🧾`,
             "success"
           );
         }
@@ -4062,12 +4455,13 @@ export function GlassBarcodeScannerCart({
     copies: 1 | 2
   ): ThermalCanvasReceiptPayload => {
     const cfg = loadPrinterConfig();
+    const prof = loadCompanyProfile();
     const matched = collaborators.find((c) => c.id === receipt.collaboratorId);
     return {
       title: "RECIBO DE PAGAMENTO / ACERTO",
       subtitle: "CADERNINHO DA RECICLAGEM",
-      storeName: cfg.storeName || "D.W VIDROS & RECICLAGEM",
-      storeCnpj: cfg.storeCnpjCpf || "67.965.725/0001-95",
+      storeName: cfg.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM",
+      storeCnpj: cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "",
       dateStr: receipt.timestamp,
       ticketId: receipt.id,
       collaboratorName: receipt.collaboratorName,
@@ -4161,19 +4555,44 @@ export function GlassBarcodeScannerCart({
 
   const buildFolderSummaryPayload = (
     folder: (typeof collaboratorFolders)[number],
-    copies: 1 | 2
+    copies: 1 | 2,
+    sectorFilter: "todos" | "ferro_velho" | "vidros" = folderSectorFilter
   ): ThermalCanvasReceiptPayload => {
     const cfg = loadPrinterConfig();
-    const activeTickets = folder.tickets.filter((t) => !t.isCancelled);
+    const prof = loadCompanyProfile();
+    const allActiveTickets = folder.tickets.filter((t) => !t.isCancelled);
+    const filteredActiveTickets = allActiveTickets.filter((t) =>
+      sectorFilter === "ferro_velho"
+        ? Boolean(t.isScrapPurchase)
+        : sectorFilter === "vidros"
+        ? !t.isScrapPurchase
+        : true
+    );
+    const filteredWeightKg = filteredActiveTickets.reduce((s, tk) => roundWeightKg(s + (tk.totalWeightKg || 0)), 0);
+    const filteredTotalValue = filteredActiveTickets.reduce(
+      (s, tk) => roundCurrencyBrl(s + getTicketEffectiveMonetaryValue(tk)),
+      0
+    );
+
     const lines: ThermalCanvasReceiptPayload["lines"] = [
-      ...activeTickets.slice(0, 18).map((tk) => ({
-        left: `${tk.timestamp.split(",")[0] || tk.timestamp} • ${tk.items.map((i) => i.name).join(" + ")}`,
-        right: tk.isFounder ? "D.W" : `R$ ${tk.totalPaid.toFixed(2).replace(".", ",")}`,
-        detail: `${tk.totalWeightKg.toFixed(2)} kg • ${
-          tk.paymentStatus === "pago_na_hora" ? "Pago na hora" : tk.paymentStatus === "coleta_propria_dw" ? "Própria" : "Caderninho"
-        }`,
-        bold: true
-      })),
+      ...filteredActiveTickets.slice(0, 18).map((tk) => {
+        const val = getTicketEffectiveMonetaryValue(tk);
+        const sectorTag = tk.isScrapPurchase ? "[FERRO VELHO]" : "[VIDROS]";
+        return {
+          left: `${sectorTag} ${tk.timestamp.split(",")[0] || tk.timestamp} • ${tk.items.map((i) => i.name).join(" + ")}`,
+          right: tk.isFounder
+            ? `Própria (R$ ${val.toFixed(2).replace(".", ",")})`
+            : `R$ ${val.toFixed(2).replace(".", ",")}`,
+          detail: `${tk.totalWeightKg.toFixed(2)} kg • ${
+            tk.paymentStatus === "pago_na_hora"
+              ? "Pago na hora"
+              : String(tk.paymentStatus || "").startsWith("coleta_propria")
+              ? "Coleta Própria"
+              : "Caderninho"
+          }`,
+          bold: true
+        };
+      }),
       ...folder.payments.slice(0, 10).map((pay) => ({
         left: `ACERTO (${pay.timestamp.split(",")[0] || pay.timestamp})`,
         right: `-R$ ${pay.amountPaid.toFixed(2).replace(".", ",")}`,
@@ -4182,29 +4601,73 @@ export function GlassBarcodeScannerCart({
       }))
     ];
     if (lines.length === 0) {
-      lines.push({ left: "Sem lançamentos registrados nesta pasta ainda", right: "R$ 0,00" });
+      lines.push({ left: "Sem lançamentos neste setor ainda", right: "R$ 0,00" });
     }
+    const sectorTitleSuffix =
+      sectorFilter === "ferro_velho"
+        ? " (FERRO VELHO / RECICLAGEM)"
+        : sectorFilter === "vidros"
+        ? " (PÁTIO DE VIDROS)"
+        : " (VIDROS + FERRO VELHO SEPARADOS)";
     const totalPaid = folder.collaborator ? folder.collaborator.totalPaid : folder.totalPaidDirectAmount;
     const pending = folder.collaborator ? folder.collaborator.balancePending : 0;
+
+    const summaryLines: ThermalCanvasReceiptPayload["summaryLines"] = [];
+    if (sectorFilter === "todos") {
+      const fvVal = folder.isFounder
+        ? folder.sectorBreakdown.ferroVelho.founderSavedAmount
+        : folder.sectorBreakdown.ferroVelho.boughtAmount;
+      const vidVal = folder.isFounder
+        ? folder.sectorBreakdown.vidros.founderSavedAmount
+        : folder.sectorBreakdown.vidros.boughtAmount;
+      summaryLines.push({
+        label: `RECICLAGEM FERRO VELHO (${folder.sectorBreakdown.ferroVelho.weightKg.toFixed(2)} kg):`,
+        value: `R$ ${fvVal.toFixed(2).replace(".", ",")}`,
+        bold: true
+      });
+      summaryLines.push({
+        label: `PÁTIO DE VIDROS (${folder.sectorBreakdown.vidros.weightKg.toFixed(2)} kg):`,
+        value: `R$ ${vidVal.toFixed(2).replace(".", ",")}`,
+        bold: true
+      });
+    }
+    if (folder.isFounder) {
+      summaryLines.push({
+        label: "ECONOMIA COLETA PRÓPRIA:",
+        value: `R$ ${filteredTotalValue.toFixed(2).replace(".", ",")}`,
+        big: true,
+        bold: true
+      });
+      summaryLines.push({ label: "PAGO A TERCEIROS:", value: "R$ 0,00" });
+    } else {
+      summaryLines.push({
+        label: sectorFilter === "todos" ? "TOTAL GERAL COMPRADO:" : "TOTAL DO SETOR:",
+        value: `R$ ${filteredTotalValue.toFixed(2).replace(".", ",")}`,
+        bold: true
+      });
+      summaryLines.push({ label: "TOTAL JÁ PAGO:", value: `R$ ${totalPaid.toFixed(2).replace(".", ",")}`, bold: true });
+      summaryLines.push({ label: "SALDO A ACERTAR:", value: `R$ ${pending.toFixed(2).replace(".", ",")}`, big: true, bold: true });
+    }
+
     return {
-      title: "EXTRATO DA PASTA DO COLABORADOR",
+      title: `EXTRATO DA PASTA${sectorTitleSuffix}`,
       subtitle: "CONFERÊNCIA DE CADERNINHO & RECIBOS",
-      storeName: cfg.storeName || "D.W VIDROS & RECICLAGEM",
-      storeCnpj: cfg.storeCnpjCpf || "67.965.725/0001-95",
+      storeName: cfg.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM",
+      storeCnpj: cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "",
       dateStr: new Date().toLocaleString("pt-BR"),
       ticketId: folder.key,
       collaboratorName: folder.name,
-      statusLabel: pending > 0 ? `DEVENDO R$ ${pending.toFixed(2).replace(".", ",")}` : "CONTAS EM DIA",
+      statusLabel: folder.isFounder
+        ? "COLETA PRÓPRIA (ECONOMIA EMPRESA)"
+        : pending > 0
+        ? `DEVENDO R$ ${pending.toFixed(2).replace(".", ",")}`
+        : "CONTAS EM DIA",
       extraMeta: [
-        `COMPRAS ATIVAS: ${activeTickets.length} | ACERTOS: ${folder.payments.length}`,
-        `PESO TOTAL TRAZIDO: ${folder.totalWeightKg.toFixed(2)} kg`
+        `COMPRAS DO SETOR: ${filteredActiveTickets.length} | ACERTOS: ${folder.payments.length}`,
+        `PESO DO SETOR: ${filteredWeightKg.toFixed(2)} kg`
       ],
       lines,
-      summaryLines: [
-        { label: "TOTAL JÁ COMPRADO:", value: `R$ ${folder.totalBoughtAmount.toFixed(2).replace(".", ",")}`, bold: true },
-        { label: "TOTAL JÁ PAGO:", value: `R$ ${totalPaid.toFixed(2).replace(".", ",")}`, bold: true },
-        { label: "SALDO A ACERTAR:", value: `R$ ${pending.toFixed(2).replace(".", ",")}`, big: true, bold: true }
-      ],
+      summaryLines,
       caderninhoBox: folder.collaborator && !folder.isFounder
         ? {
             totalEarned: folder.collaborator.totalEarned,
@@ -4222,7 +4685,7 @@ export function GlassBarcodeScannerCart({
   const handlePrintFolderSummary = (folder: (typeof collaboratorFolders)[number], copiesOverride?: 1 | 2) => {
     const config = { ...loadPrinterConfig(), ...printerConfigState };
     const copies: 1 | 2 = copiesOverride || receiptCopiesMode || (config.printTwoCopies ? 2 : 1);
-    const payload = buildFolderSummaryPayload(folder, copies);
+    const payload = buildFolderSummaryPayload(folder, copies, folderSectorFilter);
     const html = buildThermalDocumentHtmlFromPayload(payload, config);
     executeThermalPrint(
       html,
@@ -4243,7 +4706,7 @@ export function GlassBarcodeScannerCart({
     const copies: 1 | 2 = copiesOverride || receiptCopiesMode || 1;
     setIsGeneratingFunPrint(true);
     try {
-      const payload = buildFolderSummaryPayload(folder, copies);
+      const payload = buildFolderSummaryPayload(folder, copies, folderSectorFilter);
       const blob = await generateMiniPrint57mmPngBlob(payload);
       const safeName = folder.name.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 18);
       const res = await shareOrDownloadReceiptPng(
@@ -4267,16 +4730,37 @@ export function GlassBarcodeScannerCart({
   };
 
   const handleShareFolderWhatsApp = (folder: (typeof collaboratorFolders)[number]) => {
-    const activeTickets = folder.tickets.filter((t) => !t.isCancelled);
+    const allActiveTickets = folder.tickets.filter((t) => !t.isCancelled);
+    const activeTickets = allActiveTickets.filter((t) =>
+      folderSectorFilter === "ferro_velho"
+        ? Boolean(t.isScrapPurchase)
+        : folderSectorFilter === "vidros"
+        ? !t.isScrapPurchase
+        : true
+    );
+    const sectorWeightKg = activeTickets.reduce((s, tk) => roundWeightKg(s + (tk.totalWeightKg || 0)), 0);
+    const sectorValue = activeTickets.reduce((s, tk) => roundCurrencyBrl(s + getTicketEffectiveMonetaryValue(tk)), 0);
     const totalPaid = folder.collaborator ? folder.collaborator.totalPaid : folder.totalPaidDirectAmount;
     const pending = folder.collaborator ? folder.collaborator.balancePending : 0;
-    let msg = `📁 *PASTA DE RECIBOS — D.W VIDROS & RECICLAGEM*\n`;
+    const cfg = loadPrinterConfig();
+    const prof = loadCompanyProfile();
+    const storeTitle = cfg.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM";
+    const sectorHeaderLabel =
+      folderSectorFilter === "ferro_velho"
+        ? "♻️ FERRO VELHO / RECICLAGEM"
+        : folderSectorFilter === "vidros"
+        ? "🍾 PÁTIO DE VIDROS"
+        : "📦 VIDROS + FERRO VELHO SEPARADOS";
+    let msg = `📁 *PASTA DE RECIBOS — ${storeTitle}*\n`;
+    msg += `🏷️ *Setor:* ${sectorHeaderLabel}\n`;
     msg += `👤 *Colaborador:* ${folder.name}\n`;
-    msg += `⚖️ *Peso Total Trazido:* ${folder.totalWeightKg.toFixed(2)} kg\n`;
+    msg += `⚖️ *Peso do Setor:* ${sectorWeightKg.toFixed(2)} kg\n`;
     msg += `🛒 *Compras Registradas:* ${activeTickets.length}\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     activeTickets.slice(0, 12).forEach((tk) => {
-      msg += `• ${tk.timestamp.split(",")[0]} — ${tk.items.map((i) => `${i.name} (${i.totalWeightKg.toFixed(2)}kg)`).join(", ")} = R$ ${tk.totalPaid.toFixed(2)}\n`;
+      const val = getTicketEffectiveMonetaryValue(tk);
+      const tag = tk.isScrapPurchase ? "♻️ FV" : "🍾 VIDRO";
+      msg += `• [${tag}] ${tk.timestamp.split(",")[0]} — ${tk.items.map((i) => `${i.name} (${i.totalWeightKg.toFixed(2)}kg)`).join(", ")} = R$ ${val.toFixed(2)}\n`;
     });
     if (folder.payments.length > 0) {
       msg += `\n🤝 *ACERTOS / PAGAMENTOS FEITOS:*\n`;
@@ -4285,9 +4769,19 @@ export function GlassBarcodeScannerCart({
       });
     }
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `💰 *Total Já Comprado:* R$ ${folder.totalBoughtAmount.toFixed(2)}\n`;
-    msg += `✅ *Total Já Pago:* R$ ${totalPaid.toFixed(2)}\n`;
-    msg += `📓 *SALDO A ACERTAR:* *R$ ${pending.toFixed(2)}*\n`;
+    if (folderSectorFilter === "todos") {
+      const fvVal = folder.isFounder ? folder.sectorBreakdown.ferroVelho.founderSavedAmount : folder.sectorBreakdown.ferroVelho.boughtAmount;
+      const vidVal = folder.isFounder ? folder.sectorBreakdown.vidros.founderSavedAmount : folder.sectorBreakdown.vidros.boughtAmount;
+      msg += `♻️ *Ferro Velho:* ${folder.sectorBreakdown.ferroVelho.weightKg.toFixed(2)} kg • R$ ${fvVal.toFixed(2)}\n`;
+      msg += `🍾 *Pátio de Vidros:* ${folder.sectorBreakdown.vidros.weightKg.toFixed(2)} kg • R$ ${vidVal.toFixed(2)}\n`;
+    }
+    if (folder.isFounder) {
+      msg += `👑 *Economia Coleta Própria:* R$ ${sectorValue.toFixed(2)}\n`;
+    } else {
+      msg += `💰 *Total do Setor:* R$ ${sectorValue.toFixed(2)}\n`;
+      msg += `✅ *Total Já Pago:* R$ ${totalPaid.toFixed(2)}\n`;
+      msg += `📓 *SALDO A ACERTAR:* *R$ ${pending.toFixed(2)}*\n`;
+    }
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
@@ -4598,16 +5092,20 @@ export function GlassBarcodeScannerCart({
 
   // Enviar Notinha de Compra no WhatsApp
   const handleShareGlassTicketWhatsApp = (ticket: CompletedPurchaseTicket) => {
+    const cfg = loadPrinterConfig();
+    const prof = loadCompanyProfile();
+    const storeTitle = cfg.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM";
+    const storeCnpj = cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "";
     const statusLabel = ticket.isCancelled
       ? "🚫 COMPRA CANCELADA / ESTORNADA"
-      : ticket.paymentStatus === "coleta_propria_dw"
-      ? "👑 Coleta Própria D.W (100% Empresa)"
+      : String(ticket.paymentStatus || "").startsWith("coleta_propria")
+      ? "👑 Coleta Própria (100% Empresa)"
       : ticket.paymentStatus === "pago_na_hora"
       ? "💵 Pago na Hora no Portão"
       : "📓 Lançado no Caderninho do Colaborador";
 
-    let msg = `🧾 *D.W VIDROS & RECICLAGEM*\n`;
-    msg += `_CNPJ: 67.965.725/0001-95 • Compra no Portão_\n`;
+    let msg = `🧾 *${storeTitle}*\n`;
+    msg += storeCnpj ? `_CNPJ/CPF: ${storeCnpj} • Compra no Portão_\n` : `_Recibo de Compra no Portão_\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     if (ticket.isCancelled) {
       msg += `🚫 *COMPRA CANCELADA / ESTORNADA*\n`;
@@ -4638,7 +5136,7 @@ export function GlassBarcodeScannerCart({
     }
     if (ticket.isFounder) {
       const equiv = ticket.items.reduce((s, it) => s + it.costPaid, 0);
-      msg += `👑 *Economia Própria D.W:* R$ ${equiv.toFixed(2)}\n`;
+      msg += `👑 *Economia Própria:* R$ ${equiv.toFixed(2)}\n`;
     }
     msg += `💰 *${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA)" : "TOTAL LÍQUIDO"}:* R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2)}\n`;
     if (!ticket.isScrapPurchase) {
@@ -4655,27 +5153,328 @@ export function GlassBarcodeScannerCart({
     }
   };
 
+  const companyProf = loadCompanyProfile();
+  const displayStoreName = (printerConfigState.storeName || companyProf.name || "PÁTIO DE VIDROS & RECICLAGEM").trim();
+  const displayStoreCnpj = (printerConfigState.storeCnpjCpf || companyProf.cnpjCpf || "").trim();
+  const displayOwnerName = (companyProf.ownerName || "").trim();
+
+  const handleRunHardwareAudioTest = async () => {
+    const ok = await speakYardAnnouncement(
+      "Teste da caixa de som do Ferro Velho ativado! Pesagem conferida: 7 quilos e 100 gramas, total de 14 reais e 60 centavos.",
+      { force: true }
+    );
+    appendHardwareLog(
+      ok
+        ? "Locutor IA falou na caixa de som (pulso Bluetooth + voz PT-BR)."
+        : "Navegador sem suporte a síntese de voz; use o Chrome no Android para falar na caixa Bluetooth.",
+      ok ? "ok" : "warn"
+    );
+  };
+
+  const handleLoadLiveScaleBasketTest = () => {
+    const pet = otherScrapMaterials.find((m) => m.id === "scrap_pet") || otherScrapMaterials[0];
+    const plastic = otherScrapMaterials.find((m) => m.id === "scrap_plastico_duro") || otherScrapMaterials[1] || pet;
+    const lata = otherScrapMaterials.find((m) => m.id === "scrap_latinha") || otherScrapMaterials[2] || pet;
+    const testItems = [
+      { id: `test_b_1_${Date.now()}`, materialId: pet.id, materialName: pet.name, emoji: pet.emoji, weightKg: 3.2, units: 0, pricePerKg: 2.2, addToStock: true },
+      { id: `test_b_2_${Date.now()}`, materialId: plastic.id, materialName: plastic.name, emoji: plastic.emoji, weightKg: 3.4, units: 0, pricePerKg: 0.9, addToStock: true },
+      { id: `test_b_3_${Date.now()}`, materialId: lata.id, materialName: lata.name, emoji: lata.emoji, weightKg: 0.5, units: 0, pricePerKg: 9.0, addToStock: true }
+    ];
+    setScrapBasket(testItems);
+    setActiveSector("reciclagem");
+    setYardControlFilter("outros");
+    setActiveTab("estoque");
+    appendHardwareLog("Exemplo 3,20kg PET + 3,40kg Plástico + 0,50kg Latinha = R$ 14,60 carregado no Recibo Único (não grava no estoque até fechar).", "ok");
+    if (voiceAnnouncerEnabled) {
+      speakYardAnnouncement("Recibo de teste carregado: 7 quilos e 100 gramas, total exato de 14 reais e 60 centavos.");
+    }
+    setTimeout(() => {
+      scrapBasketPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  };
+
+  const handleGenerateFunPrintTestReceipt = async (andShare: boolean) => {
+    setIsGeneratingFunPrint(true);
+    try {
+      const cfg = loadPrinterConfig();
+      const prof = loadCompanyProfile();
+      const testPayload: ThermalCanvasReceiptPayload = {
+        title: "TESTE PORTAO - FUN PRINT 57MM",
+        subtitle: "BALANCA GANCHO + LOCUTOR + IMPRESSORA",
+        storeName: cfg.storeName?.trim() || prof.name?.trim() || "FERRO VELHO & RECICLAGEM",
+        storeCnpj: cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "",
+        dateStr: new Date().toLocaleString("pt-BR"),
+        ticketId: "TESTE_57MM",
+        collaboratorName: "TESTE OPERACIONAL PORTAO",
+        statusLabel: "IMPRESSORA FUN PRINT OK",
+        extraMeta: ["SETOR: FERRO VELHO & RECICLAGEM", "CONFERENCIA CENTAVO A CENTAVO"],
+        lines: [
+          { left: "PET (3.20 kg x R$ 2,20)", right: "R$ 7,04", detail: "Peso Liquido Balanca Gancho", bold: true },
+          { left: "PLASTICO DURO (3.40 kg x R$ 0,90)", right: "R$ 3,06", bold: true },
+          { left: "LATINHA ALUMINIO (0.50 kg x R$ 9,00)", right: "R$ 4,50", bold: true }
+        ],
+        summaryLines: [
+          { label: "PESO TOTAL TESTADO:", value: "7.10 kg", bold: true },
+          { label: "TOTAL EXATO:", value: "R$ 14,60", big: true, bold: true }
+        ],
+        footerNote: "Se saiu legivel na bobina 57x30mm, Fun Print esta pronta!",
+        copies: receiptCopiesMode
+      };
+
+      const blob = await generateMiniPrint57mmPngBlob(testPayload);
+      const nextUrl = URL.createObjectURL(blob);
+      setFunPrintTestPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return nextUrl;
+      });
+      appendHardwareLog(`Cupom de teste Fun Print 57mm (${receiptCopiesMode} via${receiptCopiesMode > 1 ? "s" : ""}) gerado com R$ 14,60.`, "ok");
+
+      if (andShare) {
+        const res = await shareOrDownloadReceiptPng(
+          blob,
+          `teste_funprint_57mm_${receiptCopiesMode}vias.png`,
+          "Cupom Teste Fun Print 57mm"
+        );
+        if (showNotification) {
+          showNotification(
+            res === "shared"
+              ? "Cupom de teste enviado! Escolha o app Fun Print no Android para imprimir na bobina 57mm. 🐱🖨️"
+              : "Cupom de teste 57mm baixado! Abra no app Fun Print -> Imprimir Imagem. 🐱📥",
+            "success"
+          );
+        }
+      }
+    } catch (err: any) {
+      appendHardwareLog(err?.message || "Erro ao gerar cupom de teste Fun Print.", "warn");
+    } finally {
+      setIsGeneratingFunPrint(false);
+    }
+  };
+
+  const renderHardwareTestSuiteCard = () => {
+    if (!showHardwareTestSuite) return null;
+    return (
+      <div className="p-4 sm:p-5 bg-gradient-to-br from-indigo-950/60 via-slate-900 to-slate-950 border-2 border-indigo-400/50 rounded-3xl shadow-2xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+          <div>
+            <span className="text-[10px] font-black uppercase text-indigo-300 tracking-wider block">
+              🧪 Diagnóstico Real de Portão — Sem Alterar Seu Caixa nem Estoque
+            </span>
+            <h4 className="text-base sm:text-lg font-black text-white flex items-center gap-2 mt-0.5">
+              <FlaskConical className="w-5 h-5 text-indigo-400" />
+              Testar Tudo Agora (Balança de Gancho + Caixa de Som + Fun Print)
+            </h4>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowHardwareTestSuite(false)}
+            className="min-h-[38px] px-3 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs font-bold rounded-xl border border-white/15 cursor-pointer self-start sm:self-center"
+          >
+            Fechar Teste
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          {/* Bloco 1: Caixa de Som + Locutor IA */}
+          <div className="p-3.5 bg-slate-950/90 border border-emerald-500/35 rounded-2xl space-y-2.5">
+            <div className="font-black text-emerald-300 flex items-center gap-1.5">
+              <Volume2 className="w-4 h-4" />
+              <span>1. Caixa de Som (Locutor IA)</span>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              Ligue a caixa de som no Bluetooth do celular e clique abaixo. O app envia um pulso sonoro antes da fala para não cortar o começo!
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={handleRunHardwareAudioTest}
+                className="flex-1 min-h-[42px] px-3 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl cursor-pointer touch-manipulation active:scale-95"
+              >
+                🔊 Testar Som na Caixa
+              </button>
+              <button
+                type="button"
+                onClick={handleToggleVoiceAnnouncer}
+                className={`min-h-[42px] px-2.5 py-2 font-black text-[11px] rounded-xl border cursor-pointer ${
+                  voiceAnnouncerEnabled
+                    ? "bg-emerald-950/60 text-emerald-300 border-emerald-500/40"
+                    : "bg-slate-900 text-slate-400 border-white/15"
+                }`}
+              >
+                {voiceAnnouncerEnabled ? "Voz: ON" : "Voz: OFF"}
+              </button>
+            </div>
+          </div>
+
+          {/* Bloco 2: Balança de Gancho Digital */}
+          <div className="p-3.5 bg-slate-950/90 border border-cyan-500/35 rounded-2xl space-y-2.5">
+            <div className="font-black text-cyan-300 flex items-center gap-1.5">
+              <Scale className="w-4 h-4" />
+              <span>2. Balança de Gancho + Soma</span>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              Se sua balança tiver Bluetooth, pareie no Chrome. Se for visor comum, dite pelo microfone ou teste a conta exata de <strong>R$ 14,60</strong>.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={bleConnected ? handleDisconnectBluetoothScale : handleConnectBluetoothScale}
+                  className="min-h-[40px] px-2.5 py-1.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer touch-manipulation"
+                >
+                  {bleConnected ? "📡 Desconectar" : "📡 Parear BLE"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggleVoiceWeight}
+                  className={`min-h-[40px] px-2.5 py-1.5 font-black text-[11px] rounded-xl border cursor-pointer touch-manipulation ${
+                    isVoiceListening
+                      ? "bg-rose-500 text-white border-rose-400 animate-pulse"
+                      : "bg-slate-900 hover:bg-slate-800 text-cyan-200 border-cyan-500/40"
+                  }`}
+                >
+                  {isVoiceListening ? "🎤 Ouvindo..." : "🎤 Falar Peso"}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleLoadLiveScaleBasketTest}
+                className="min-h-[40px] px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer touch-manipulation"
+              >
+                ⚖️ Testar Conta 7,10kg = R$ 14,60
+              </button>
+            </div>
+          </div>
+
+          {/* Bloco 3: Impressora Fun Print 57mm */}
+          <div className="p-3.5 bg-slate-950/90 border border-pink-500/35 rounded-2xl space-y-2.5">
+            <div className="font-black text-pink-300 flex items-center gap-1.5">
+              <Printer className="w-4 h-4" />
+              <span>3. Impressora Fun Print 57mm</span>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              Gere o cupom 57×30mm agora, confira na tela e clique em Enviar para abrir direto no app <strong>Fun Print</strong> do celular.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleGenerateFunPrintTestReceipt(true)}
+                disabled={isGeneratingFunPrint}
+                className="min-h-[42px] px-3 py-2 bg-pink-500 hover:bg-pink-400 text-slate-950 font-black text-xs rounded-xl cursor-pointer touch-manipulation active:scale-95"
+              >
+                🐱 Testar Impressão Fun Print
+              </button>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleGenerateFunPrintTestReceipt(false)}
+                  disabled={isGeneratingFunPrint}
+                  className="min-h-[36px] px-2 py-1 bg-slate-900 hover:bg-slate-800 text-pink-200 font-bold text-[10.5px] rounded-xl border border-pink-500/35 cursor-pointer"
+                >
+                  👁️ Só Pré-Visualizar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      if (!isBluetoothPrintSupported()) {
+                        appendHardwareLog("Impressora ESC/POS Bluetooth direta indisponível neste navegador; use o botão Fun Print acima.", "warn");
+                        return;
+                      }
+                      await printViaBluetoothEscPos(
+                        {
+                          id: "TESTE_PORTAO",
+                          type: "saida",
+                          description: "Teste Impressao Portao Ferro Velho",
+                          category: "despesa",
+                          amount: 14.6,
+                          paymentMethod: "dinheiro",
+                          date: new Date().toLocaleString("pt-BR"),
+                          timestamp: Date.now(),
+                          clientName: "TESTE PORTAO FERRO VELHO",
+                          items: [
+                            { name: "PET 3.20kg", price: 7.04, quantity: 1, unit: "lote" },
+                            { name: "PLASTICO 3.40kg", price: 3.06, quantity: 1, unit: "lote" },
+                            { name: "LATINHA 0.50kg", price: 4.5, quantity: 1, unit: "lote" }
+                          ]
+                        },
+                        printerConfigState,
+                        (s) => appendHardwareLog(s, "info")
+                      );
+                      appendHardwareLog("Impressão ESC/POS Bluetooth enviada!", "ok");
+                    } catch (e: any) {
+                      appendHardwareLog(e?.message || "Use o botão Fun Print PNG para modelos MiniPrint Cat.", "warn");
+                    }
+                  }}
+                  className="min-h-[36px] px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-200 font-bold text-[10.5px] rounded-xl border border-white/15 cursor-pointer"
+                >
+                  📡 Teste ESC/POS
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {funPrintTestPreviewUrl && (
+          <div className="p-3 bg-slate-950 border border-pink-500/35 rounded-2xl flex flex-col sm:flex-row items-center gap-3">
+            <img
+              src={funPrintTestPreviewUrl}
+              alt="Pré-visualização cupom 57mm Fun Print"
+              className="w-48 sm:w-56 rounded-xl border-2 border-white bg-white shadow-lg"
+            />
+            <div className="space-y-1.5 text-xs text-slate-200">
+              <strong className="text-pink-300 block">✅ Cupom 57×30mm pronto para bobina térmica!</strong>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Confira os valores alinhados: PET (R$ 7,04) + Plástico (R$ 3,06) + Latinha (R$ 4,50) = <strong>R$ 14,60</strong>. No Android, toque em <strong>Testar Impressão Fun Print</strong> e selecione <strong>Fun Print</strong> na janela Compartilhar.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {hardwareTestLogs.length > 0 && (
+          <div className="p-2.5 bg-slate-950/90 border border-white/10 rounded-xl space-y-1 max-h-32 overflow-y-auto text-[11px]">
+            {hardwareTestLogs.map((log) => (
+              <div
+                key={log.id}
+                className={
+                  log.status === "ok"
+                    ? "text-emerald-300"
+                    : log.status === "warn"
+                    ? "text-amber-300"
+                    : "text-cyan-200"
+                }
+              >
+                <span className="font-mono text-slate-500 mr-1.5">[{log.time}]</span>
+                <span>{log.msg}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className={`space-y-5 text-left font-sans ${cart.length > 0 ? "pb-28" : ""}`}>
-      {/* CABEÇALHO OFICIAL: D.W VIDROS & RECICLAGEM */}
+      {/* CABEÇALHO DO PÁTIO & RECICLAGEM */}
       <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 border-2 border-emerald-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border border-emerald-500/40 shadow-sm">
                 <Crown className="w-4 h-4 text-amber-400" />
-                D.W VIDROS & RECICLAGEM
+                {displayStoreName}
               </span>
-              <span className="text-[11px] bg-amber-500/20 text-amber-300 font-mono font-bold px-2.5 py-1 rounded-lg border border-amber-500/40 shadow-sm">
-                CNPJ: 67.965.725/0001-95
-              </span>
-              <span className="text-[11px] bg-purple-500/20 text-purple-200 font-bold px-2.5 py-1 rounded-lg border border-purple-500/30 flex items-center gap-1">
-                <span>♾️</span>
-                <span>Plano Infinito Vitalício</span>
-              </span>
-              <span className="text-[11px] bg-slate-800 text-slate-200 font-bold px-2.5 py-1 rounded-lg border border-white/10">
-                Denise Jesus & Wellington Oliveira
-              </span>
+              {displayStoreCnpj && (
+                <span className="text-[11px] bg-amber-500/20 text-amber-300 font-mono font-bold px-2.5 py-1 rounded-lg border border-amber-500/40 shadow-sm">
+                  CNPJ/CPF: {displayStoreCnpj}
+                </span>
+              )}
+              {displayOwnerName && (
+                <span className="text-[11px] bg-slate-800 text-slate-200 font-bold px-2.5 py-1 rounded-lg border border-white/10">
+                  {displayOwnerName}
+                </span>
+              )}
               <span className="text-[11px] bg-amber-500/20 text-amber-300 font-bold px-2.5 py-1 rounded-lg border border-amber-500/30">
                 Cotação: R$ {activeSellPricePerTon.toFixed(2)}/t (R$ {sellPricePerKg.toFixed(2)}/kg)
               </span>
@@ -4833,10 +5632,10 @@ export function GlassBarcodeScannerCart({
             </div>
             <div className="text-right shrink-0 font-mono">
               <strong className="text-base sm:text-lg font-black text-emerald-300 block">
-                {yardTotals.totalWeightKg.toFixed(1)} kg
+                {yardTotals.totalWeightKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg
               </strong>
               <span className="text-[10px] text-amber-300 font-bold block">
-                R$ {yardTotals.grossRevenueTon.toFixed(2).replace(".", ",")}
+                R$ {formatBrl(yardTotals.grossRevenueTon)}
               </span>
             </div>
           </button>
@@ -4884,6 +5683,35 @@ export function GlassBarcodeScannerCart({
         {/* PAINEL EXCLUSIVO DO SETOR ATIVO */}
         {activeSector === "vidros" ? (
         <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+          {hasGlassStockTicketMismatch && (
+            <div className="p-3.5 bg-amber-950/60 border-2 border-amber-400/70 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-lg">
+              <div className="space-y-1">
+                <strong className="text-amber-300 font-black flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>Diferença entre Estoque de Vidros e Recibos Ativos!</span>
+                </strong>
+                <p className="text-[11px] text-slate-200 leading-relaxed">
+                  Catálogo marca <strong>{yardTotals.totalUnits} garrafas ({yardTotals.totalWeightKg.toFixed(1)} kg)</strong>, mas seus recibos ativos de Vidros somam{" "}
+                  <strong className="text-emerald-300">
+                    {ticketReconciliation.expectedUnits} garrafas ({ticketReconciliation.expectedWeightKg.toFixed(1)} kg)
+                  </strong>
+                  {ticketReconciliation.breakdownLabels.length > 0 && (
+                    <span className="text-slate-300 block mt-0.5">
+                      ({ticketReconciliation.breakdownLabels.join(" + ")})
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleReconcileGlassStockFromTickets}
+                className="min-h-[44px] px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl cursor-pointer touch-manipulation active:scale-95 shrink-0 shadow-md"
+              >
+                🔄 Sincronizar Pátio ({ticketReconciliation.expectedUnits} un • {ticketReconciliation.expectedWeightKg.toFixed(1)} kg)
+              </button>
+            </div>
+          )}
+
           {/* Card Central com Destaque Máximo — SOMENTE VIDROS */}
           <div className="p-4 bg-gradient-to-r from-slate-950 via-emerald-950/50 to-slate-950 rounded-2xl border-2 border-emerald-500/50 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="space-y-1.5 flex-1">
@@ -5133,7 +5961,7 @@ export function GlassBarcodeScannerCart({
         )}
       </div>
 
-      {/* ABAS DO SISTEMA D.W VIDROS & FERRO VELHO */}
+      {/* ABAS DO SISTEMA PÁTIO DE VIDROS & FERRO VELHO */}
       <div className="flex items-center gap-1.5 p-1.5 bg-slate-900 border border-white/10 rounded-2xl overflow-x-auto">
         {(activeSector === "vidros"
           ? [
@@ -5391,13 +6219,13 @@ export function GlassBarcodeScannerCart({
               })}
             </div>
 
-            {/* BANNER SE FOR COLETA PRÓPRIA DE DENISE & WELLINGTON */}
+            {/* BANNER SE FOR COLETA PRÓPRIA DA EMPRESA */}
             {activeCollab.isFounder && (
               <div className="p-3.5 bg-amber-950/40 border border-amber-500/40 rounded-2xl flex items-center gap-3 text-xs text-amber-200">
                 <Crown className="w-5 h-5 text-amber-400 shrink-0" />
                 <div>
                   <strong className="text-white block font-black">
-                    👑 Coleta Própria D.W (Denise Jesus & Wellington Oliveira)
+                    👑 {activeCollab.name}
                   </strong>
                   As garrafas adicionadas agora entram no estoque para somar nas <strong>toneladas do caminhão</strong>, sem gerar dívida a terceiros! O valor é pura <strong>economia e faturamento 100% da sua empresa</strong>!
                 </div>
@@ -5997,7 +6825,7 @@ export function GlassBarcodeScannerCart({
                   </div>
                   <div>
                     <span className="text-[10px] uppercase font-bold text-amber-400 block">
-                      {activeCollab.isFounder ? "Economia D.W:" : "Valor a Pagar:"}
+                      {activeCollab.isFounder ? "Economia Própria:" : "Valor a Pagar:"}
                     </span>
                     <strong className="text-xl font-mono text-amber-400 font-black">
                       R$ {cartTotals.totalBuyCost.toFixed(2)}
@@ -6016,11 +6844,11 @@ export function GlassBarcodeScannerCart({
                   {activeCollab.isFounder ? (
                     <button
                       type="button"
-                      onClick={() => handleFinalizeTicket("coleta_propria_dw" as any)}
+                      onClick={() => handleFinalizeTicket("coleta_propria_empresa" as any)}
                       className="w-full sm:w-auto min-h-[50px] px-6 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-400/30 touch-manipulation"
                     >
                       <Crown className="w-5 h-5" />
-                      <span>Lançar Coleta Própria D.W (Economia de R$ {cartTotals.totalBuyCost.toFixed(2)}) 👑</span>
+                      <span>Lançar Coleta Própria (Economia de R$ {cartTotals.totalBuyCost.toFixed(2)}) 👑</span>
                     </button>
                   ) : (
                     <div className="w-full space-y-2">
@@ -6067,7 +6895,7 @@ export function GlassBarcodeScannerCart({
                       <div className="p-2 bg-slate-950/80 border border-white/5 rounded-xl text-[10px] text-slate-400 flex items-center gap-2">
                         <span className="text-emerald-400 text-xs">ℹ️</span>
                         <span>
-                          <strong>Caderninho dos Colaboradores:</strong> Este registro fica exclusivo para os recicladores parceiros da D.W Vidros. O fiado de clientes da loja continua 100% separado no módulo Fiado!
+                          <strong>Caderninho dos Colaboradores:</strong> Este registro fica exclusivo para os recicladores parceiros do pátio. O fiado de clientes da loja continua 100% separado no módulo Fiado!
                         </span>
                       </div>
                     </div>
@@ -6134,7 +6962,7 @@ export function GlassBarcodeScannerCart({
 
               <div className="p-4 bg-slate-950 rounded-2xl border border-amber-500/30 space-y-1">
                 <span className="text-[10px] uppercase font-bold text-amber-400 block">
-                  👑 Economia Denise & Wellington:
+                  👑 Economia Coleta Própria:
                 </span>
                 <strong className="text-2xl font-mono text-amber-300 font-black">
                   R$ {caderninhoTotals.founderSelfSaved.toFixed(2)}
@@ -6183,7 +7011,7 @@ export function GlassBarcodeScannerCart({
                     className="min-h-[42px] px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
                   >
                     <Scissors className="w-3.5 h-3.5" />
-                    <span>Imprimir 2 Vias (D.W + Reciclador)</span>
+                    <span>Imprimir 2 Vias (Empresa + Reciclador)</span>
                   </button>
                   <button
                     type="button"
@@ -6233,7 +7061,7 @@ export function GlassBarcodeScannerCart({
                       <strong className="text-white text-base font-black">{collab.name}</strong>
                       {collab.isFounder && (
                         <span className="px-2 py-0.5 bg-amber-400 text-slate-950 text-[10px] font-black rounded uppercase">
-                          Fundadores D.W
+                          Equipe Própria
                         </span>
                       )}
                     </div>
@@ -6603,32 +7431,89 @@ export function GlassBarcodeScannerCart({
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handleToggleVoiceAnnouncer}
+                      className={`min-h-[44px] px-3 py-2 font-black text-xs rounded-xl border flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
+                        voiceAnnouncerEnabled
+                          ? "bg-emerald-500/20 text-emerald-200 border-emerald-400/50"
+                          : "bg-slate-900 text-slate-400 border-white/15"
+                      }`}
+                      title="Anunciar cada pesagem e total na caixa de som Bluetooth"
+                    >
+                      {voiceAnnouncerEnabled ? <Volume2 className="w-4 h-4 text-emerald-300" /> : <VolumeX className="w-4 h-4" />}
+                      <span>{voiceAnnouncerEnabled ? "Locutor IA (ON)" : "Locutor IA (OFF)"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={bleConnected ? handleDisconnectBluetoothScale : handleConnectBluetoothScale}
+                      className={`min-h-[44px] px-3 py-2 font-black text-xs rounded-xl border flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
+                        bleConnected
+                          ? "bg-cyan-500/20 text-cyan-200 border-cyan-400"
+                          : "bg-slate-900 hover:bg-slate-800 text-cyan-200 border-cyan-500/35"
+                      }`}
+                      title="Conectar balança de gancho digital Bluetooth (BLE)"
+                    >
+                      <Bluetooth className="w-4 h-4 text-cyan-400" />
+                      <span>{bleConnected ? `BLE: ${bleDeviceName || "Ativa"}` : "Balança Bluetooth"}</span>
+                    </button>
+
                     {serialConnected ? (
                       <button
                         type="button"
                         onClick={handleDisconnectUsbScale}
-                        className="min-h-[44px] px-3.5 py-2 bg-emerald-500/20 hover:bg-rose-950/60 text-emerald-300 hover:text-rose-200 font-black text-xs rounded-xl border border-emerald-400/40 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                        className="min-h-[44px] px-3 py-2 bg-emerald-500/20 hover:bg-rose-950/60 text-emerald-300 hover:text-rose-200 font-black text-xs rounded-xl border border-emerald-400/40 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
                       >
                         <Usb className="w-4 h-4" />
-                        <span>Balança USB Ativa (Desconectar)</span>
+                        <span>USB Ativa</span>
                       </button>
                     ) : (
                       <button
                         type="button"
                         onClick={handleConnectUsbScale}
-                        className="min-h-[44px] px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-cyan-200 font-bold text-xs rounded-xl border border-cyan-500/35 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                        className="min-h-[44px] px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-200 font-bold text-xs rounded-xl border border-white/15 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
                         title="Conectar balança digital compatível via cabo USB/Serial no Chrome"
                       >
                         <Usb className="w-4 h-4 text-cyan-400" />
-                        <span>Conectar Balança USB/Serial</span>
+                        <span>USB</span>
                       </button>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => setShowHardwareTestSuite((v) => !v)}
+                      className={`min-h-[44px] px-3 py-2 font-black text-xs rounded-xl border flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 ${
+                        showHardwareTestSuite
+                          ? "bg-indigo-500 text-white border-indigo-400"
+                          : "bg-indigo-950/60 hover:bg-indigo-900 text-indigo-200 border-indigo-400/40"
+                      }`}
+                    >
+                      <FlaskConical className="w-4 h-4" />
+                      <span>🧪 Testar Tudo</span>
+                    </button>
                   </div>
                 </div>
 
-                {serialStatusMsg && (
-                  <div className="p-2.5 bg-slate-900/90 border border-cyan-500/30 rounded-xl text-[11.5px] text-cyan-100">
-                    {serialStatusMsg}
+                {renderHardwareTestSuiteCard()}
+
+                {(serialStatusMsg || bleStatusMsg || voiceTranscriptMsg) && (
+                  <div className="space-y-1.5">
+                    {bleStatusMsg && (
+                      <div className="p-2.5 bg-slate-900/90 border border-cyan-500/35 rounded-xl text-[11.5px] text-cyan-100">
+                        📡 {bleStatusMsg}
+                      </div>
+                    )}
+                    {serialStatusMsg && (
+                      <div className="p-2.5 bg-slate-900/90 border border-cyan-500/30 rounded-xl text-[11.5px] text-cyan-100">
+                        🔌 {serialStatusMsg}
+                      </div>
+                    )}
+                    {voiceTranscriptMsg && (
+                      <div className="p-2.5 bg-slate-900/90 border border-emerald-500/35 rounded-xl text-[11.5px] text-emerald-100">
+                        {voiceTranscriptMsg}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -6830,22 +7715,36 @@ export function GlassBarcodeScannerCart({
                     <div className="space-y-1">
                       <label className="text-[11px] font-black uppercase text-cyan-300 block">
                         {scaleSubtractTare
-                          ? `2. Peso no Visor c/ Tábua (${scaleUnitMode})`
-                          : `2. Peso da Reciclagem (${scaleUnitMode})`}
+                          ? `2. Peso no Visor c/ Saco/Tábua (${scaleUnitMode})`
+                          : `2. Peso na Balança de Gancho (${scaleUnitMode})`}
                       </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={scaleGrossInput}
-                        onChange={(e) => setScaleGrossInput(e.target.value)}
-                        placeholder={scaleUnitMode === "kg" ? "Ex: 3.100" : "Ex: 850"}
-                        className="w-full min-h-[48px] bg-slate-900 border-2 border-cyan-400/50 rounded-xl px-3 text-center text-white font-mono font-black text-lg outline-none focus:border-cyan-300"
-                      />
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={scaleGrossInput}
+                          onChange={(e) => setScaleGrossInput(e.target.value)}
+                          placeholder={scaleUnitMode === "kg" ? "Ex: 3.100" : "Ex: 850"}
+                          className="flex-1 min-w-0 min-h-[48px] bg-slate-900 border-2 border-cyan-400/50 rounded-xl px-2 text-center text-white font-mono font-black text-lg outline-none focus:border-cyan-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleToggleVoiceWeight}
+                          className={`min-h-[48px] min-w-[46px] px-2.5 rounded-xl border flex items-center justify-center cursor-pointer touch-manipulation active:scale-95 ${
+                            isVoiceListening
+                              ? "bg-rose-500 text-white border-rose-400 animate-pulse"
+                              : "bg-slate-900 hover:bg-slate-800 text-emerald-300 border-emerald-500/40"
+                          }`}
+                          title="Falar o peso da balança de gancho pelo microfone"
+                        >
+                          {isVoiceListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="space-y-1">
                       <label className="text-[11px] font-black uppercase text-slate-300 block">
-                        Tara: Tábua/Caixa ({scaleUnitMode})
+                        Tara: Saco/Balde/Tábua ({scaleUnitMode})
                       </label>
                       <input
                         type="text"
@@ -6987,18 +7886,17 @@ export function GlassBarcodeScannerCart({
                   </div>
                 </div>
 
-                {/* Explicação prática da Tara + Dica para Balança de Vidro Temperado + Tábua */}
+                {/* Explicação prática da Tara + Dica para Balança de Gancho Digital & Vidro Temperado */}
                 <div className="p-3 bg-amber-950/25 border border-amber-500/30 rounded-xl text-[11.5px] text-slate-200 space-y-1.5 leading-relaxed">
                   <div className="font-black text-amber-300 flex items-center gap-1.5">
                     <span>💡</span>
-                    <span>O que é Tara & Dica para Balança de Vidro Temperado com Tábua:</span>
+                    <span>Tara na Balança de Gancho Digital (Big Bag / Saco / Balde) &amp; Vidro:</span>
                   </div>
                   <p>
-                    <strong className="text-white">Sim, a tábua/caixa/balde vazio em cima da balança se chama TARA!</strong> O app faz{" "}
-                    <span className="font-mono text-emerald-300">Peso Bruto - Tara = Peso Líquido</span>. Se a sua balança já zerou (<span className="font-mono">0.0</span>) com a tábua em cima antes de pesar o material, deixe a Tara em <strong className="text-white">0</strong>.
+                    <strong className="text-white">O peso do saco, balde ou tábua vazia se chama TARA!</strong> Pendure o saco vazio na balança de gancho e aperte <strong>TARE</strong> nela para zerar (<span className="font-mono">0.00</span>), OU digite o peso do saco no campo <strong>Tara</strong> acima e ative <strong>➖ Descontar Tara</strong> para o app fazer <span className="font-mono text-emerald-300">Bruto − Tara = Líquido</span>.
                   </p>
                   <p className="text-amber-100/90">
-                    ⚠️ <strong className="text-white">Cuidado no vidro temperado:</strong> não apoie pés de fogão ou ferro duro direto no vidro (pode trincar o vidro ou dar erro nos 4 sensores dos cantos). Use uma borrachinha/EVA entre a tábua e o vidro e deixe a balança em chão reto.
+                    🪝 <strong className="text-white">Dica de Portão (Balança de Gancho + Locutor):</strong> ao pendurar o saco e estabilizar o peso, aperte <strong>🎤 Falar Peso</strong> (ou digite) e toque em <strong>+ Somar no Recibo</strong>. O app fala automaticamente cada item e o total na sua caixa de som Bluetooth!
                   </p>
                   <details className="pt-1.5 border-t border-amber-500/20">
                     <summary className="cursor-pointer font-black text-cyan-300 hover:text-cyan-200 select-none">
@@ -7190,7 +8088,7 @@ export function GlassBarcodeScannerCart({
                     {scaleCombinedWeightKg > 0 && scaleEffectivePricePerKg > 0 && (
                       <div className="px-3.5 py-2 bg-slate-950 border border-amber-500/35 rounded-xl text-right shrink-0">
                         <span className="text-[10px] font-bold uppercase text-amber-300 block">
-                          {scrapCollabMode === "cadastrado" && activeCollab?.isFounder ? "Economia D.W:" : "Total Só Este Item:"}
+                          {scrapCollabMode === "cadastrado" && activeCollab?.isFounder ? "Economia Própria:" : "Total Só Este Item:"}
                         </span>
                         <strong className="text-lg font-mono font-black text-amber-300">
                           R$ {scaleTotalPayable.toFixed(2).replace(".", ",")}
@@ -7575,58 +8473,75 @@ export function GlassBarcodeScannerCart({
                           </strong>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const entries = scrapBasket
-                              .map((b) => {
-                                const m = otherScrapMaterials.find((x) => x.id === b.materialId);
-                                if (!m) return null;
-                                return {
-                                  material: m,
-                                  weightKg: b.weightKg,
-                                  units: b.units,
-                                  pricePerKg: b.pricePerKg,
-                                  addWeightToStock: b.addToStock
-                                };
-                              })
-                              .filter(Boolean) as {
-                              material: OtherScrapMaterial;
-                              weightKg: number;
-                              units: number;
-                              pricePerKg: number;
-                              addWeightToStock: boolean;
-                            }[];
-
-                            const ok = commitScrapItemsWithAdjustments({
-                              entries,
-                              collabChoiceId: activeCollab?.id || selectedCollabId,
-                              collabMode: scrapCollabMode,
-                              customName: scrapCustomCollabName,
-                              mode: scaleSettlementMode,
-                              bonusAmount: scrapBasketStats.bonus,
-                              bonusReason: scrapBasketBonusReason,
-                              discountAmount: scrapBasketStats.discount,
-                              discountReason: scrapBasketDiscountReason
-                            });
-
-                            if (ok) {
-                              setScrapBasket([]);
-                              setScrapBasketBonusInput("");
-                              setScrapBasketBonusReason("");
-                              setScrapBasketDiscountInput("");
-                              setScrapBasketDiscountReason("");
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              speakYardAnnouncement(
+                                `Resumo do recibo: ${scrapBasket.length} materiais, ${formatWeightKgForSpeech(scrapBasketStats.totalWeightKg)}. Total líquido: ${formatCurrencyPtBrForSpeech(scrapBasketStats.netPayable)}.`,
+                                { force: true }
+                              )
                             }
-                          }}
-                          className="min-h-[50px] px-5 py-2.5 bg-gradient-to-r from-amber-400 to-emerald-400 hover:from-amber-300 hover:to-emerald-300 text-slate-950 font-black text-xs sm:text-sm uppercase rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95"
-                        >
-                          <CheckCircle2 className="w-5 h-5" />
-                          <span>
-                            {!(scrapCollabMode === "cadastrado" && activeCollab?.isFounder) && scaleSettlementMode === "caderninho"
-                              ? `Fechar Recibo + Caderninho (R$ ${scrapBasketStats.netPayable.toFixed(2).replace(".", ",")})`
-                              : `Fechar Recibo Único (R$ ${scrapBasketStats.netPayable.toFixed(2).replace(".", ",")})`}
-                          </span>
-                        </button>
+                            className="min-h-[50px] px-3.5 py-2.5 bg-slate-950 hover:bg-slate-800 text-emerald-300 font-black text-xs uppercase rounded-xl border border-emerald-500/40 flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                            title="Falar total do recibo na caixa de som"
+                          >
+                            <Volume2 className="w-4 h-4" />
+                            <span>Ouvir</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const entries = scrapBasket
+                                .map((b) => {
+                                  const m = otherScrapMaterials.find((x) => x.id === b.materialId);
+                                  if (!m) return null;
+                                  return {
+                                    material: m,
+                                    weightKg: b.weightKg,
+                                    units: b.units,
+                                    pricePerKg: b.pricePerKg,
+                                    addWeightToStock: b.addToStock
+                                  };
+                                })
+                                .filter(Boolean) as {
+                                material: OtherScrapMaterial;
+                                weightKg: number;
+                                units: number;
+                                pricePerKg: number;
+                                addWeightToStock: boolean;
+                              }[];
+
+                              const ok = commitScrapItemsWithAdjustments({
+                                entries,
+                                collabChoiceId: activeCollab?.id || selectedCollabId,
+                                collabMode: scrapCollabMode,
+                                customName: scrapCustomCollabName,
+                                mode: scaleSettlementMode,
+                                bonusAmount: scrapBasketStats.bonus,
+                                bonusReason: scrapBasketBonusReason,
+                                discountAmount: scrapBasketStats.discount,
+                                discountReason: scrapBasketDiscountReason
+                              });
+
+                              if (ok) {
+                                setScrapBasket([]);
+                                setScrapBasketBonusInput("");
+                                setScrapBasketBonusReason("");
+                                setScrapBasketDiscountInput("");
+                                setScrapBasketDiscountReason("");
+                              }
+                            }}
+                            className="min-h-[50px] px-5 py-2.5 bg-gradient-to-r from-amber-400 to-emerald-400 hover:from-amber-300 hover:to-emerald-300 text-slate-950 font-black text-xs sm:text-sm uppercase rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none active:scale-95"
+                          >
+                            <CheckCircle2 className="w-5 h-5" />
+                            <span>
+                              {!(scrapCollabMode === "cadastrado" && activeCollab?.isFounder) && scaleSettlementMode === "caderninho"
+                                ? `Fechar Recibo + Caderninho (R$ ${scrapBasketStats.netPayable.toFixed(2).replace(".", ",")})`
+                                : `Fechar Recibo Único (R$ ${scrapBasketStats.netPayable.toFixed(2).replace(".", ",")})`}
+                            </span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -8326,7 +9241,7 @@ export function GlassBarcodeScannerCart({
                                   className="min-h-[44px] px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none active:scale-95"
                                 >
                                   {targetCollab?.isFounder
-                                    ? `✓ Registrar ${w.toFixed(2)} kg (D.W)`
+                                    ? `✓ Registrar ${w.toFixed(2)} kg (Própria)`
                                     : cardPayMethod === "caderninho"
                                     ? `✓ Caderninho (R$ ${total.toFixed(2).replace(".", ",")})`
                                     : `✓ Pagar R$ ${total.toFixed(2).replace(".", ",")} (${targetDisplayName})`}
@@ -8620,16 +9535,22 @@ export function GlassBarcodeScannerCart({
                 </div>
               </div>
 
-              {/* TABELA DE GARRAFAS CADASTRADAS */}
+              {/* TABELA DE GARRAFAS CADASTRADAS (Garrafas com estoque > 0 no topo para conferência imediata) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {catalog.map((bottle) => {
+                {[...catalog]
+                  .sort((a, b) => ((b.stockUnits || 0) > 0 ? 1 : 0) - ((a.stockUnits || 0) > 0 ? 1 : 0))
+                  .map((bottle) => {
                   const totalBottleWeightKg = ((bottle.stockUnits || 0) * bottle.unitWeightGrams) / 1000;
                   const totalValueVictor = totalBottleWeightKg * sellPricePerKg;
 
                   return (
                     <div
                       key={bottle.id}
-                      className="p-4 bg-slate-950 rounded-2xl border border-white/10 hover:border-emerald-500/40 transition-all space-y-3"
+                      className={`p-4 bg-slate-950 rounded-2xl border transition-all space-y-3 ${
+                        (bottle.stockUnits || 0) > 0
+                          ? "border-emerald-400/60 shadow-lg shadow-emerald-950/40"
+                          : "border-white/10 hover:border-emerald-500/40"
+                      }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2.5">
@@ -8708,20 +9629,26 @@ export function GlassBarcodeScannerCart({
                         </div>
                       </div>
 
-                      {/* BOTÕES RÁPIDOS DE AJUSTE NO PÁTIO */}
+                      {/* BOTÕES RÁPIDOS DE AJUSTE NO PÁTIO (-10/-1 e +1/+10/+30/+50) */}
                       <div className="flex items-center justify-between text-[11px] pt-1 gap-1.5 flex-wrap">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {[
+                            { label: "-10", add: -10 },
+                            { label: "-1", add: -1 },
+                            { label: "+1", add: 1 },
                             { label: "+10", add: 10 },
                             { label: "+30", add: 30 },
-                            { label: "+50", add: 50 },
-                            { label: "+100", add: 100 }
+                            { label: "+50", add: 50 }
                           ].map((btn) => (
                             <button
                               key={btn.add}
                               type="button"
                               onClick={() => handleUpdateYardStockDirect(bottle.id, (bottle.stockUnits || 0) + btn.add)}
-                              className="min-h-[44px] px-3 py-1 bg-slate-900 hover:bg-slate-800 active:scale-95 text-slate-300 hover:text-white rounded-xl font-mono font-bold border border-white/10 cursor-pointer touch-manipulation select-none"
+                              className={`min-h-[44px] px-2.5 py-1 active:scale-95 rounded-xl font-mono font-bold border cursor-pointer touch-manipulation select-none ${
+                                btn.add < 0
+                                  ? "bg-rose-950/60 hover:bg-rose-900/70 text-rose-200 border-rose-500/30"
+                                  : "bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border-white/10"
+                              }`}
                             >
                               {btn.label}
                             </button>
@@ -8795,10 +9722,10 @@ export function GlassBarcodeScannerCart({
                 </span>
                 <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2 mt-0.5">
                   <Printer className="w-5 h-5 text-pink-400" />
-                  Impressão 1× ou 2× Vias (Controle Caderninho D.W + Via do Reciclador)
+                  Impressão 1× ou 2× Vias (Controle Caderninho + Via do Reciclador)
                 </h3>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  Escolha <strong>1 Via</strong> (só seu controle para grampear) ou <strong>2 Vias</strong> (1ª Via D.W + linha de corte ✂️ + 2ª Via Reciclador). Use <strong>Fun Print 57mm</strong> para gerar a imagem nítida do rolinho 57×30mm!
+                  Escolha <strong>1 Via</strong> (só seu controle para grampear) ou <strong>2 Vias</strong> (1ª Via Empresa + linha de corte ✂️ + 2ª Via Reciclador). Use <strong>Fun Print 57mm</strong> para gerar a imagem nítida do rolinho 57×30mm!
                 </p>
               </div>
 
@@ -8836,23 +9763,36 @@ export function GlassBarcodeScannerCart({
                 >
                   {printerConfigState.miniPrintPocketMode ? "✓ MiniPrint 57×30mm Ativa" : "🐱 Ativar MiniPrint 57×30mm"}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setShowHardwareTestSuite((v) => !v)}
+                  className={`min-h-[44px] px-3.5 py-2 rounded-xl font-black text-xs border transition-all cursor-pointer touch-manipulation ${
+                    showHardwareTestSuite
+                      ? "bg-indigo-500 text-white border-indigo-400 shadow"
+                      : "bg-indigo-950/60 text-indigo-200 border-indigo-400/40 hover:bg-indigo-500 hover:text-white"
+                  }`}
+                >
+                  🧪 Testar Tudo Agora
+                </button>
               </div>
             </div>
           </div>
 
-          {/* PASTAS PARA SALVAR RECIBOS POR COLABORADOR */}
+          {renderHardwareTestSuiteCard()}
+
+          {/* PASTAS PARA SALVAR RECIBOS POR COLABORADOR (SEPARANDO VIDROS VS FERRO VELHO) */}
           <div className="bg-slate-900 border border-cyan-500/35 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
               <div>
                 <span className="text-[10px] font-black uppercase text-cyan-300 tracking-wider block">
-                  Arquivo Organizado do Caderninho — Grampear &amp; Conferir
+                  Arquivo Organizado do Caderninho — Pátio de Vidros &amp; Ferro Velho Separados
                 </span>
                 <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
                   <Folder className="w-5 h-5 text-cyan-400" />
                   Pastas de Recibos por Colaborador ({collaboratorFolders.length} pastas)
                 </h3>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  Cada compra ou acerto é salvo automaticamente na pasta do reciclador com total comprado, pago e quanto falta acertar.
+                  Os recibos de <strong>♻️ Ferro Velho / Reciclagem</strong> e <strong>🍾 Pátio de Vidros</strong> ficam separados nos totais para nunca misturar valores!
                 </p>
               </div>
 
@@ -8868,44 +9808,110 @@ export function GlassBarcodeScannerCart({
               </div>
             </div>
 
+            {/* Filtro Estrito de Setor dentro das Pastas */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setFolderSectorFilter("ferro_velho")}
+                className={`min-h-[44px] px-3.5 py-2 rounded-xl font-black text-xs border transition-all cursor-pointer touch-manipulation ${
+                  folderSectorFilter === "ferro_velho"
+                    ? "bg-amber-400 text-slate-950 border-amber-300 shadow"
+                    : "bg-slate-950 text-amber-200 border-amber-500/30 hover:border-amber-400"
+                }`}
+              >
+                ♻️ Só Reciclagem / Ferro Velho
+              </button>
+              <button
+                type="button"
+                onClick={() => setFolderSectorFilter("vidros")}
+                className={`min-h-[44px] px-3.5 py-2 rounded-xl font-black text-xs border transition-all cursor-pointer touch-manipulation ${
+                  folderSectorFilter === "vidros"
+                    ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow"
+                    : "bg-slate-950 text-emerald-200 border-emerald-500/30 hover:border-emerald-400"
+                }`}
+              >
+                🍾 Só Pátio de Vidros
+              </button>
+              <button
+                type="button"
+                onClick={() => setFolderSectorFilter("todos")}
+                className={`min-h-[44px] px-3.5 py-2 rounded-xl font-black text-xs border transition-all cursor-pointer touch-manipulation ${
+                  folderSectorFilter === "todos"
+                    ? "bg-cyan-400 text-slate-950 border-cyan-300 shadow"
+                    : "bg-slate-950 text-cyan-200 border-cyan-500/30 hover:border-cyan-400"
+                }`}
+              >
+                📦 Ambos (Separados por Setor)
+              </button>
+            </div>
+
             {(() => {
               const q = folderSearchQuery.trim().toLowerCase();
-              const visibleFolders = q
+              const baseFolders = q
                 ? collaboratorFolders.filter((f) => f.name.toLowerCase().includes(q))
                 : collaboratorFolders;
+              const visibleFolders = baseFolders.filter((f) => {
+                if (folderSectorFilter === "todos") return true;
+                const sectorActive =
+                  folderSectorFilter === "ferro_velho"
+                    ? f.sectorBreakdown.ferroVelho.tickets.length
+                    : f.sectorBreakdown.vidros.tickets.length;
+                // Mantém pastas com recibos do setor selecionado (ou todas quando não há nenhum filtro específico)
+                return sectorActive > 0 || (f.tickets.length === 0 && f.payments.length === 0);
+              });
               const openFolder = selectedFolderKey
                 ? collaboratorFolders.find((f) => f.key === selectedFolderKey) || null
                 : null;
 
               if (openFolder) {
-                const activeFolderTickets = openFolder.tickets.filter((t) => !t.isCancelled);
-                const activeFolderPayments = openFolder.payments.filter((p) => !p.isCancelled);
+                const fvStats = openFolder.sectorBreakdown.ferroVelho;
+                const vidStats = openFolder.sectorBreakdown.vidros;
+                const filteredTickets = openFolder.tickets.filter((t) =>
+                  folderSectorFilter === "ferro_velho"
+                    ? Boolean(t.isScrapPurchase)
+                    : folderSectorFilter === "vidros"
+                    ? !t.isScrapPurchase
+                    : true
+                );
+                const activeFilteredTickets = filteredTickets.filter((t) => !t.isCancelled);
+                const filteredWeightKg =
+                  folderSectorFilter === "ferro_velho"
+                    ? fvStats.weightKg
+                    : folderSectorFilter === "vidros"
+                    ? vidStats.weightKg
+                    : openFolder.sectorBreakdown.all.weightKg;
+                const filteredPayments = openFolder.payments.filter((p) => {
+                  if (folderSectorFilter === "todos" || !p.sector || p.sector === "geral") return true;
+                  return p.sector === folderSectorFilter;
+                });
+                const activeFolderPayments = filteredPayments.filter((p) => !p.isCancelled);
+
+                const sectorBoughtTotal =
+                  folderSectorFilter === "ferro_velho"
+                    ? fvStats.boughtAmount
+                    : folderSectorFilter === "vidros"
+                    ? vidStats.boughtAmount
+                    : openFolder.sectorBreakdown.all.boughtAmount;
+                const sectorFounderSavings =
+                  folderSectorFilter === "ferro_velho"
+                    ? fvStats.founderSavedAmount
+                    : folderSectorFilter === "vidros"
+                    ? vidStats.founderSavedAmount
+                    : openFolder.sectorBreakdown.all.founderSavedAmount;
+
                 const folderPaidTotal = openFolder.isFounder
                   ? 0
-                  : activeFolderTickets.length === 0 && activeFolderPayments.length === 0
+                  : openFolder.sectorBreakdown.all.activeCount === 0 && openFolder.payments.filter((p) => !p.isCancelled).length === 0
                   ? 0
                   : openFolder.collaborator
                   ? openFolder.collaborator.totalPaid
                   : openFolder.totalPaidDirectAmount;
                 const folderPending = openFolder.isFounder
                   ? 0
-                  : activeFolderTickets.length === 0 && activeFolderPayments.length === 0
+                  : openFolder.sectorBreakdown.all.activeCount === 0 && openFolder.payments.filter((p) => !p.isCancelled).length === 0
                   ? 0
                   : openFolder.collaborator
                   ? openFolder.collaborator.balancePending
-                  : 0;
-                const founderActiveSavings = openFolder.isFounder
-                  ? activeFolderTickets.reduce(
-                      (sum, tk) =>
-                        sum +
-                        Math.max(
-                          0,
-                          tk.items.reduce((s, it) => s + (it.costPaid || 0), 0) +
-                            (tk.bonusAmount || 0) -
-                            (tk.discountAmount || 0)
-                        ),
-                      0
-                    )
                   : 0;
 
                 return (
@@ -8922,14 +9928,21 @@ export function GlassBarcodeScannerCart({
                             ← Todas as Pastas
                           </button>
                           <div>
-                            <div className="text-base font-black text-white flex items-center gap-2">
+                            <div className="text-base font-black text-white flex items-center gap-2 flex-wrap">
                               <FolderOpen className="w-5 h-5 text-cyan-400" />
                               <span>Pasta: {openFolder.name}</span>
+                              <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase bg-cyan-500/15 text-cyan-200 border border-cyan-400/30">
+                                {folderSectorFilter === "ferro_velho"
+                                  ? "♻️ Só Ferro Velho"
+                                  : folderSectorFilter === "vidros"
+                                  ? "🍾 Só Vidros"
+                                  : "📦 Vidros + Ferro Velho Separados"}
+                              </span>
                             </div>
                             <span className="text-[11px] text-slate-400 block">
-                              {activeFolderTickets.length} compra(s) • {activeFolderPayments.length} acerto(s) •{" "}
+                              {activeFilteredTickets.length} compra(s) neste setor • {activeFolderPayments.length} acerto(s) •{" "}
                               {openFolder.cancelledCount > 0 ? `${openFolder.cancelledCount} estornado(s) • ` : ""}
-                              {openFolder.totalWeightKg.toFixed(2)} kg trazidos
+                              {filteredWeightKg.toFixed(2)} kg neste setor
                             </span>
                           </div>
                         </div>
@@ -8967,6 +9980,35 @@ export function GlassBarcodeScannerCart({
                         </div>
                       </div>
 
+                      {/* Quadro de Separação Transparente: Ferro Velho vs Pátio de Vidros */}
+                      {(fvStats.activeCount > 0 || vidStats.activeCount > 0) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          <div className="p-2.5 bg-amber-950/25 border border-amber-500/35 rounded-xl flex items-center justify-between gap-2">
+                            <div>
+                              <span className="text-[10px] font-black uppercase text-amber-300 block">
+                                ♻️ Reciclagem / Ferro Velho ({fvStats.activeCount})
+                              </span>
+                              <span className="text-[11px] text-slate-300 font-mono">{fvStats.weightKg.toFixed(2)} kg</span>
+                            </div>
+                            <strong className="text-base font-mono font-black text-amber-300">
+                              R$ {(openFolder.isFounder ? fvStats.founderSavedAmount : fvStats.boughtAmount).toFixed(2)}
+                            </strong>
+                          </div>
+
+                          <div className="p-2.5 bg-emerald-950/25 border border-emerald-500/35 rounded-xl flex items-center justify-between gap-2">
+                            <div>
+                              <span className="text-[10px] font-black uppercase text-emerald-300 block">
+                                🍾 Pátio de Vidros ({vidStats.activeCount})
+                              </span>
+                              <span className="text-[11px] text-slate-300 font-mono">{vidStats.weightKg.toFixed(2)} kg</span>
+                            </div>
+                            <strong className="text-base font-mono font-black text-emerald-300">
+                              R$ {(openFolder.isFounder ? vidStats.founderSavedAmount : vidStats.boughtAmount).toFixed(2)}
+                            </strong>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Resumo Financeiro da Pasta */}
                       {openFolder.isFounder ? (
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
@@ -8975,9 +10017,11 @@ export function GlassBarcodeScannerCart({
                             <strong className="text-lg font-mono font-black text-white">R$ 0.00</strong>
                           </div>
                           <div className="p-3 bg-slate-900 rounded-xl border border-amber-500/35">
-                            <span className="text-[10px] uppercase font-bold text-amber-300 block">👑 Economia Coleta Própria:</span>
+                            <span className="text-[10px] uppercase font-bold text-amber-300 block">
+                              👑 Economia {folderSectorFilter === "ferro_velho" ? "(Só Ferro Velho)" : folderSectorFilter === "vidros" ? "(Só Vidros)" : "(Total Somado)"}:
+                            </span>
                             <strong className="text-lg font-mono font-black text-amber-300">
-                              R$ {founderActiveSavings.toFixed(2)}
+                              R$ {sectorFounderSavings.toFixed(2)}
                             </strong>
                           </div>
                           <div className="p-3 bg-slate-900 rounded-xl border border-emerald-500/25">
@@ -8988,9 +10032,11 @@ export function GlassBarcodeScannerCart({
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
                           <div className="p-3 bg-slate-900 rounded-xl border border-white/10">
-                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Quanto Já Comprei Dele:</span>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                              Comprado {folderSectorFilter === "ferro_velho" ? "(Ferro Velho)" : folderSectorFilter === "vidros" ? "(Vidros)" : "(Total)"}:
+                            </span>
                             <strong className="text-lg font-mono font-black text-white">
-                              R$ {openFolder.totalBoughtAmount.toFixed(2)}
+                              R$ {sectorBoughtTotal.toFixed(2)}
                             </strong>
                           </div>
                           <div className="p-3 bg-slate-900 rounded-xl border border-emerald-500/25">
@@ -9024,7 +10070,7 @@ export function GlassBarcodeScannerCart({
                           className="min-h-[42px] px-3 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
                         >
                           <Scissors className="w-4 h-4" />
-                          <span>Extrato 2 Vias (D.W + Reciclador)</span>
+                          <span>Extrato 2 Vias (Empresa + Reciclador)</span>
                         </button>
                         <button
                           type="button"
@@ -9046,12 +10092,12 @@ export function GlassBarcodeScannerCart({
                     </div>
 
                     {/* Lista de Recibos de Pagamento / Acertos dentro desta Pasta */}
-                    {openFolder.payments.length > 0 && (
+                    {filteredPayments.length > 0 && (
                       <div className="space-y-2">
                         <h4 className="text-xs font-black uppercase text-amber-300 tracking-wider">
                           🤝 Recibos de Pagamento / Acerto ({activeFolderPayments.length} ativos)
                         </h4>
-                        {openFolder.payments.map((rec) => {
+                        {filteredPayments.map((rec) => {
                           const isConfirmingCancelPay = cancellingPaymentId === rec.id;
                           return (
                           <div
@@ -9149,27 +10195,44 @@ export function GlassBarcodeScannerCart({
                     {/* Lista de Compras / Notinhas dentro desta Pasta */}
                     <div className="space-y-2">
                       <h4 className="text-xs font-black uppercase text-emerald-300 tracking-wider">
-                        🧾 Notinhas de Compra Salvas na Pasta ({openFolder.tickets.length})
+                        🧾 Notinhas de Compra Salvas na Pasta ({filteredTickets.length})
                       </h4>
-                      {openFolder.tickets.length === 0 ? (
+                      {filteredTickets.length === 0 ? (
                         <div className="p-4 bg-slate-950 rounded-2xl border border-white/10 text-xs text-slate-400 text-center">
-                          Nenhuma notinha de compra salva nesta pasta ainda.
+                          Nenhuma notinha deste setor salva nesta pasta ainda.
                         </div>
                       ) : (
-                        openFolder.tickets.map((ticket) => {
+                        filteredTickets.map((ticket) => {
                           const isConfirmingCancel = cancellingTicketId === ticket.id;
+                          const ticketMonetaryVal = getTicketEffectiveMonetaryValue(ticket);
                           return (
                             <div
                               key={ticket.id}
                               className={`p-3.5 bg-slate-950 rounded-2xl border space-y-2 text-xs ${
-                                ticket.isCancelled ? "border-rose-500/40 opacity-85" : "border-emerald-500/25"
+                                ticket.isCancelled
+                                  ? "border-rose-500/40 opacity-85"
+                                  : ticket.isScrapPurchase
+                                  ? "border-amber-500/35"
+                                  : "border-emerald-500/30"
                               }`}
                             >
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                                <div className="space-y-0.5">
+                                <div className="space-y-1">
                                   <div className="font-black text-white text-sm flex items-center gap-2 flex-wrap">
+                                    <span
+                                      className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                                        ticket.isScrapPurchase
+                                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                                          : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                                      }`}
+                                    >
+                                      {ticket.isScrapPurchase ? "♻️ Ferro Velho" : "🍾 Pátio de Vidros"}
+                                    </span>
                                     <span className={ticket.isCancelled ? "line-through text-slate-400" : ""}>
-                                      {ticket.isFounder ? "D.W Própria" : `R$ ${ticket.totalPaid.toFixed(2)}`} • {ticket.totalWeightKg.toFixed(2)} kg
+                                      <strong className="text-emerald-300 font-mono">
+                                        R$ {ticketMonetaryVal.toFixed(2).replace(".", ",")}
+                                      </strong>{" "}
+                                      • {ticket.totalWeightKg.toFixed(2)} kg
                                     </span>
                                     {ticket.isCancelled && (
                                       <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded text-[10px] font-black uppercase">
@@ -9184,8 +10247,8 @@ export function GlassBarcodeScannerCart({
                                   <div className="text-[10.5px] font-bold text-amber-300">
                                     {ticket.isCancelled
                                       ? `Estornado em ${ticket.cancelledAt || "—"}${ticket.cancelReason ? ` • ${ticket.cancelReason}` : ""}`
-                                      : ticket.paymentStatus === "coleta_propria_dw"
-                                      ? "👑 Coleta Própria D.W"
+                                      : String(ticket.paymentStatus || "").startsWith("coleta_propria")
+                                      ? `👑 Coleta Própria (Equivalente R$ ${ticketMonetaryVal.toFixed(2).replace(".", ",")})`
                                       : ticket.paymentStatus === "pago_na_hora"
                                       ? "💵 Pago na Hora no Portão"
                                       : "📓 Lançado no Caderninho (Acertar depois)"}
@@ -9272,36 +10335,35 @@ export function GlassBarcodeScannerCart({
               return (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {visibleFolders.map((folder) => {
-                    const activeFolderTickets = folder.tickets.filter((t) => !t.isCancelled);
+                    const fvStats = folder.sectorBreakdown.ferroVelho;
+                    const vidStats = folder.sectorBreakdown.vidros;
+                    const activeSectorStats =
+                      folderSectorFilter === "ferro_velho"
+                        ? fvStats
+                        : folderSectorFilter === "vidros"
+                        ? vidStats
+                        : folder.sectorBreakdown.all;
                     const activeFolderPayments = folder.payments.filter((p) => !p.isCancelled);
-                    const activeDocs = activeFolderTickets.length + activeFolderPayments.length;
+                    const activeDocs = activeSectorStats.activeCount + activeFolderPayments.length;
+                    const sectorWeightKg = activeSectorStats.weightKg;
+                    const sectorBought = activeSectorStats.boughtAmount;
+                    const sectorFounderSaved = activeSectorStats.founderSavedAmount;
+
                     const folderPaid = folder.isFounder
                       ? 0
-                      : activeDocs === 0
+                      : folder.sectorBreakdown.all.activeCount === 0 && activeFolderPayments.length === 0
                       ? 0
                       : folder.collaborator
                       ? folder.collaborator.totalPaid
                       : folder.totalPaidDirectAmount;
                     const folderPending = folder.isFounder
                       ? 0
-                      : activeDocs === 0
+                      : folder.sectorBreakdown.all.activeCount === 0 && activeFolderPayments.length === 0
                       ? 0
                       : folder.collaborator
                       ? folder.collaborator.balancePending
                       : 0;
-                    const founderSavedAmt = folder.isFounder
-                      ? activeFolderTickets.reduce(
-                          (sum, tk) =>
-                            sum +
-                            Math.max(
-                              0,
-                              tk.items.reduce((s, it) => s + (it.costPaid || 0), 0) +
-                                (tk.bonusAmount || 0) -
-                                (tk.discountAmount || 0)
-                            ),
-                          0
-                        )
-                      : 0;
+
                     return (
                       <button
                         key={folder.key}
@@ -9321,7 +10383,7 @@ export function GlassBarcodeScannerCart({
                             <div className="min-w-0">
                               <strong className="text-sm font-black text-white truncate block">{folder.name}</strong>
                               <span className="text-[10.5px] text-slate-400 block">
-                                {activeDocs} {activeDocs === 1 ? "recibo ativo" : "recibos ativos"} • {folder.totalWeightKg.toFixed(1)} kg
+                                {activeDocs} {activeDocs === 1 ? "recibo ativo" : "recibos ativos"} • {sectorWeightKg.toFixed(1)} kg
                                 {folder.cancelledCount > 0 ? ` (${folder.cancelledCount} estornado${folder.cancelledCount > 1 ? "s" : ""})` : ""}
                               </span>
                             </div>
@@ -9329,11 +10391,25 @@ export function GlassBarcodeScannerCart({
                           <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 mt-1" />
                         </div>
 
+                        {/* Resumo separado Vidros vs Ferro Velho dentro do card da pasta */}
+                        {(fvStats.activeCount > 0 || vidStats.activeCount > 0) && (
+                          <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
+                            <div className="px-2 py-1 rounded-lg bg-amber-950/35 border border-amber-500/30 text-amber-200 truncate">
+                              ♻️ FV: R$ {(folder.isFounder ? fvStats.founderSavedAmount : fvStats.boughtAmount).toFixed(2)} ({fvStats.weightKg.toFixed(1)}kg)
+                            </div>
+                            <div className="px-2 py-1 rounded-lg bg-emerald-950/35 border border-emerald-500/30 text-emerald-200 truncate">
+                              🍾 Vidro: R$ {(folder.isFounder ? vidStats.founderSavedAmount : vidStats.boughtAmount).toFixed(2)} ({vidStats.weightKg.toFixed(1)}kg)
+                            </div>
+                          </div>
+                        )}
+
                         {folder.isFounder ? (
                           <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-white/10 text-[10.5px]">
                             <div>
-                              <span className="text-slate-400 block">Coleta Própria</span>
-                              <strong className="font-mono text-amber-300">R$ {founderSavedAmt.toFixed(2)}</strong>
+                              <span className="text-slate-400 block">
+                                {folderSectorFilter === "ferro_velho" ? "Só Ferro Velho" : folderSectorFilter === "vidros" ? "Só Vidros" : "Coleta Própria"}
+                              </span>
+                              <strong className="font-mono text-amber-300">R$ {sectorFounderSaved.toFixed(2)}</strong>
                             </div>
                             <div>
                               <span className="text-emerald-400 block">Pago</span>
@@ -9347,8 +10423,10 @@ export function GlassBarcodeScannerCart({
                         ) : (
                           <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-white/10 text-[10.5px]">
                             <div>
-                              <span className="text-slate-400 block">Comprei</span>
-                              <strong className="font-mono text-white">R$ {folder.totalBoughtAmount.toFixed(2)}</strong>
+                              <span className="text-slate-400 block">
+                                {folderSectorFilter === "ferro_velho" ? "Comprei FV" : folderSectorFilter === "vidros" ? "Comprei Vidro" : "Comprei"}
+                              </span>
+                              <strong className="font-mono text-white">R$ {sectorBought.toFixed(2)}</strong>
                             </div>
                             <div>
                               <span className="text-emerald-400 block">Pago</span>
@@ -9372,36 +10450,70 @@ export function GlassBarcodeScannerCart({
 
           {/* HISTÓRICO DE NOTINHAS / TÍQUETES DE COMPRA NO PORTÃO */}
           <div className="bg-slate-900 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
-            <div className="border-b border-white/10 pb-3">
-              <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
-                Comprovantes & Cupons de Compra na Reciclagem
-              </span>
-              <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
-                <Printer className="w-5 h-5 text-emerald-400" />
-                Histórico Geral de Notinhas ({purchaseHistory.length})
-              </h3>
+            <div className="border-b border-white/10 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                  Comprovantes &amp; Cupons — {folderSectorFilter === "ferro_velho" ? "♻️ Só Ferro Velho" : folderSectorFilter === "vidros" ? "🍾 Só Vidros" : "📦 Vidros & Ferro Velho"}
+                </span>
+                <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                  <Printer className="w-5 h-5 text-emerald-400" />
+                  Histórico Geral de Notinhas ({
+                    purchaseHistory.filter((t) =>
+                      folderSectorFilter === "ferro_velho"
+                        ? Boolean(t.isScrapPurchase)
+                        : folderSectorFilter === "vidros"
+                        ? !t.isScrapPurchase
+                        : true
+                    ).length
+                  })
+                </h3>
+              </div>
             </div>
 
-            {purchaseHistory.length === 0 ? (
+            {purchaseHistory.filter((t) =>
+              folderSectorFilter === "ferro_velho"
+                ? Boolean(t.isScrapPurchase)
+                : folderSectorFilter === "vidros"
+                ? !t.isScrapPurchase
+                : true
+            ).length === 0 ? (
               <div className="py-6 text-center text-slate-400 text-xs">
-                Nenhuma compra finalizada ainda. Ao finalizar na aba "Bipar & Comprar" ou na Balança Digital, o recibo aparecerá aqui e na Pasta do Colaborador!
+                Nenhuma compra finalizada neste setor ainda. Ao finalizar na aba "Bipar &amp; Comprar" ou na Balança Digital, o recibo aparecerá aqui e na Pasta do Colaborador!
               </div>
             ) : (
               <div className="space-y-2.5">
-                {purchaseHistory.map((ticket) => {
+                {purchaseHistory
+                  .filter((t) =>
+                    folderSectorFilter === "ferro_velho"
+                      ? Boolean(t.isScrapPurchase)
+                      : folderSectorFilter === "vidros"
+                      ? !t.isScrapPurchase
+                      : true
+                  )
+                  .map((ticket) => {
                   const isConfirmingCancel = cancellingTicketId === ticket.id;
+                  const ticketVal = getTicketEffectiveMonetaryValue(ticket);
                   return (
                     <div
                       key={ticket.id}
                       className={`p-4 bg-slate-950 rounded-2xl border space-y-2.5 text-xs ${
-                        ticket.isCancelled ? "border-rose-500/40 opacity-85" : "border-emerald-500/20"
+                        ticket.isCancelled ? "border-rose-500/40 opacity-85" : ticket.isScrapPurchase ? "border-amber-500/30" : "border-emerald-500/20"
                       }`}
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="space-y-1">
                           <div className="font-black text-white text-sm flex items-center gap-2 flex-wrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                                ticket.isScrapPurchase
+                                  ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                                  : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                              }`}
+                            >
+                              {ticket.isScrapPurchase ? "♻️ Ferro Velho" : "🍾 Vidros"}
+                            </span>
                             <span className={ticket.isCancelled ? "line-through text-slate-400" : ""}>
-                              🧾 {ticket.collectorName}
+                              🧾 {ticket.collectorName} • <strong className="text-emerald-300 font-mono">R$ {ticketVal.toFixed(2).replace(".", ",")}</strong>
                             </span>
                             {ticket.isCancelled && (
                               <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-md text-[10px] font-black uppercase">
@@ -9423,12 +10535,12 @@ export function GlassBarcodeScannerCart({
                                 Estornado em {ticket.cancelledAt || "—"}
                                 {ticket.cancelReason ? ` • Motivo: ${ticket.cancelReason}` : ""} (Estoque, Caderninho & PDV revertidos)
                               </span>
-                            ) : ticket.paymentStatus === "coleta_propria_dw" ? (
-                              "👑 Coleta Própria D.W"
+                            ) : String(ticket.paymentStatus || "").startsWith("coleta_propria") ? (
+                              `👑 Coleta Própria (Equivalente R$ ${ticketVal.toFixed(2).replace(".", ",")})`
                             ) : ticket.paymentStatus === "pago_na_hora" ? (
-                              `💵 Pago na Hora: R$ ${ticket.totalPaid.toFixed(2)}`
+                              `💵 Pago na Hora: R$ ${ticketVal.toFixed(2).replace(".", ",")}`
                             ) : (
-                              `📓 Lançado no Caderninho: R$ ${ticket.totalPaid.toFixed(2)}`
+                              `📓 Lançado no Caderninho: R$ ${ticketVal.toFixed(2).replace(".", ",")}`
                             )}
                           </div>
                         </div>
@@ -10825,10 +11937,152 @@ export function GlassBarcodeScannerCart({
               </div>
             )}
 
+            {/* Controles Reais de Hardware para Câmeras Simples & Garrafas Transparentes */}
+            <div className="grid grid-cols-3 gap-1.5 text-[10.5px]">
+              <button
+                type="button"
+                onClick={handleToggleCameraTorch}
+                disabled={cameraTrackStatus ? !cameraTrackStatus.hasTorch : false}
+                className={`min-h-[40px] px-2 py-1.5 rounded-xl font-black flex items-center justify-center gap-1 border cursor-pointer touch-manipulation active:scale-95 disabled:opacity-40 ${
+                  cameraTorchOn
+                    ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md"
+                    : "bg-slate-950 text-amber-200 border-amber-500/30 hover:bg-slate-800"
+                }`}
+                title="Ligar/Desligar lanterna para dar contraste no vidro transparente"
+              >
+                <Flashlight className="w-3.5 h-3.5 shrink-0" />
+                <span>{cameraTorchOn ? "Lanterna ON" : "Lanterna"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTriggerCameraRefocus}
+                className="min-h-[40px] px-2 py-1.5 rounded-xl font-black flex items-center justify-center gap-1 bg-slate-950 text-cyan-200 border border-cyan-500/35 hover:bg-slate-800 cursor-pointer touch-manipulation active:scale-95"
+                title="Forçar câmera a refocar agora"
+              >
+                <Focus className="w-3.5 h-3.5 shrink-0" />
+                <span>Refocar</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTransparentBottleBoost((v) => !v)}
+                className={`min-h-[40px] px-2 py-1.5 rounded-xl font-black flex items-center justify-center gap-1 border cursor-pointer touch-manipulation active:scale-95 ${
+                  transparentBottleBoost
+                    ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                    : "bg-slate-950 text-slate-300 border-white/15"
+                }`}
+                title="Estica contraste e inverte cores para códigos brancos em garrafas transparentes"
+              >
+                <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                <span>{transparentBottleBoost ? "Vidro Claro ON" : "Vidro Claro"}</span>
+              </button>
+            </div>
+
+            {cameraTrackStatus?.hasZoom && (
+              <div className="flex items-center justify-between gap-1.5 bg-slate-950 px-2.5 py-1.5 rounded-xl border border-white/10 text-[10.5px]">
+                <span className="text-slate-300 font-bold flex items-center gap-1 shrink-0">
+                  <ZoomIn className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Zoom (afaste ~20cm):</span>
+                </span>
+                <div className="flex items-center gap-1">
+                  {[1, 1.5, 2, 2.5]
+                    .filter((z) => z >= cameraTrackStatus.minZoom && z <= cameraTrackStatus.maxZoom + 0.05)
+                    .map((z) => (
+                      <button
+                        key={z}
+                        type="button"
+                        onClick={() => handleSelectCameraZoom(z)}
+                        className={`min-h-[32px] px-2 rounded-lg font-mono font-black border cursor-pointer touch-manipulation ${
+                          Math.abs(cameraZoom - z) < 0.2
+                            ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                            : "bg-slate-900 text-slate-300 border-white/10"
+                        }`}
+                      >
+                        {z.toFixed(1).replace(".0", "")}x
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
+
             <div
-              id="mobile-glass-scanner-viewport"
-              className="w-full aspect-[4/3] bg-black rounded-2xl overflow-hidden relative border-2 border-emerald-500/40"
-            />
+              onClick={handleTriggerCameraRefocus}
+              className="w-full aspect-[4/3] bg-black rounded-2xl overflow-hidden relative border-2 border-emerald-500/40 cursor-pointer"
+              title="Toque na tela para refocar a câmera"
+            >
+              <div id="mobile-glass-scanner-viewport" className="w-full h-full" />
+              {refocusFeedback && (
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-slate-950/85 border border-cyan-400 text-cyan-200 text-[11px] font-black pointer-events-none">
+                  {refocusFeedback}
+                </div>
+              )}
+            </div>
+
+            <p className="text-[10.5px] text-slate-300 leading-snug bg-slate-950/90 px-2.5 py-2 rounded-xl border border-white/10 text-left">
+              💡 <strong className="text-emerald-300">Rótulo branco/transparente:</strong> afaste ~20cm com <strong>Zoom 1.5x</strong>, ligue a <strong>Lanterna</strong> de lado ou coloque a mão/fundo escuro atrás do vidro.
+            </p>
+
+            {/* Fallback 1: Tirar Foto com Foco Nativo da Câmera | Fallback 2: Toque Rápido na Garrafa */}
+            <div className="grid grid-cols-1 gap-2">
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handlePhotoBarcodeFallback}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={isScanningPhoto}
+                className="w-full min-h-[42px] px-3 py-2 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/50 text-cyan-200 font-black text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation active:scale-95 disabled:opacity-50"
+              >
+                <Camera className="w-4 h-4 shrink-0" />
+                <span>{isScanningPhoto ? "⏳ Analisando foto com alto contraste..." : "📸 Ler por Foto (Câmera Nítida p/ Foco Difícil)"}</span>
+              </button>
+            </div>
+
+            {cameraTargetField === "search" && (
+              <div className="p-2 bg-slate-950/90 border border-white/10 rounded-xl space-y-1.5 text-left">
+                <span className="text-[9.5px] font-black uppercase text-amber-300 block">
+                  Código apagado ou não leu? Selecione em 1 toque:
+                </span>
+                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                  {catalog.slice(0, 6).map((b) => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => {
+                        if (continuousBeepModeRef.current) {
+                          const qty = Math.max(1, continuousBatchQtyRef.current || 1);
+                          handleAddBottleToCart(b, qty);
+                          playScannerBeep(2150, 0.08);
+                          setLastBeepHud({
+                            bottleId: b.id,
+                            bottleName: b.name,
+                            emoji: b.emoji,
+                            code: b.barcode || "MANUAL",
+                            addedQty: qty,
+                            unitGrams: b.unitWeightGrams,
+                            timestamp: Date.now()
+                          });
+                        } else {
+                          const safeLot = getVictorSafeLotUnits(b.category, sellPricePerKg, b.unitWeightGrams);
+                          setScannedPrompt({ bottle: b, matchedCode: b.barcode || "MANUAL" });
+                          setScannedPromptQtyStr(String(safeLot || 1));
+                          setShowCameraModal(false);
+                        }
+                      }}
+                      className="min-h-[34px] px-2.5 py-1 bg-slate-900 hover:bg-emerald-950/60 border border-white/15 hover:border-emerald-400 rounded-lg text-[10.5px] font-bold text-slate-200 cursor-pointer touch-manipulation"
+                    >
+                      {b.emoji} {b.name.split("(")[0].trim()} ({b.unitWeightGrams}g)
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {cameraTargetField === "search" && continuousBeepMode && (
               <div className="p-2.5 bg-slate-950 rounded-2xl border border-emerald-500/40 text-left space-y-1.5 text-xs">
@@ -11152,7 +12406,7 @@ export function GlassBarcodeScannerCart({
                   <span className="text-[10px] font-black uppercase text-emerald-400 block">
                     Compra Registrada & Somada ao Pátio!
                   </span>
-                  <h3 className="text-base font-black text-white">Notinha de Compra — D.W Vidros</h3>
+                  <h3 className="text-base font-black text-white">Notinha de Compra — Reciclagem</h3>
                 </div>
               </div>
               <button
@@ -11166,8 +12420,8 @@ export function GlassBarcodeScannerCart({
 
             <div className="p-4 bg-white text-slate-950 rounded-2xl font-mono text-xs space-y-2 shadow-inner">
               <div className="text-center border-b border-dashed border-slate-400 pb-2">
-                <div className="font-black text-sm">D.W VIDROS & RECICLAGEM</div>
-                <div className="text-[10px]">CNPJ: 67.965.725/0001-95</div>
+                <div className="font-black text-sm">{displayStoreName}</div>
+                {displayStoreCnpj && <div className="text-[10px]">CNPJ/CPF: {displayStoreCnpj}</div>}
                 <div className="text-[10px] font-black mt-1">COMPROVANTE DE COMPRA (PORTÃO)</div>
               </div>
               <div className="text-[11px] space-y-0.5 border-b border-dashed border-slate-400 pb-2">
@@ -11175,8 +12429,8 @@ export function GlassBarcodeScannerCart({
                 <div><strong>PARCEIRO:</strong> {lastPurchaseReceipt.collectorName}</div>
                 <div>
                   <strong>STATUS:</strong>{" "}
-                  {lastPurchaseReceipt.paymentStatus === "coleta_propria_dw"
-                    ? "Coleta Própria D.W"
+                  {String(lastPurchaseReceipt.paymentStatus || "").startsWith("coleta_propria")
+                    ? "Coleta Própria (Empresa)"
                     : lastPurchaseReceipt.paymentStatus === "pago_na_hora"
                     ? "Pago Agora no Portão"
                     : "Lançado no Caderninho do Colaborador"}
@@ -11234,7 +12488,7 @@ export function GlassBarcodeScannerCart({
                 )}
                 {lastPurchaseReceipt.isFounder && (
                   <div className="flex justify-between text-[11px] font-bold text-slate-700">
-                    <span>ECONOMIA D.W (VALOR EQUIV.):</span>
+                    <span>ECONOMIA PRÓPRIA (VALOR EQUIV.):</span>
                     <span>R$ {lastPurchaseReceipt.items.reduce((s, it) => s + it.costPaid, 0).toFixed(2)}</span>
                   </div>
                 )}
@@ -11275,12 +12529,13 @@ export function GlassBarcodeScannerCart({
                         f.name.trim().toLowerCase() === lastPurchaseReceipt.collectorName.trim().toLowerCase()
                     );
                     if (matched) setSelectedFolderKey(matched.key);
+                    setFolderSectorFilter(lastPurchaseReceipt.isScrapPurchase ? "ferro_velho" : "vidros");
                     setLastPurchaseReceipt(null);
                     setActiveTab("cargas");
                   }}
                   className="text-[11px] font-black text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
                 >
-                  Abrir Pasta 📁
+                  Abrir Pasta ({lastPurchaseReceipt.isScrapPurchase ? "♻️ Ferro Velho" : "🍾 Vidros"}) 📁
                 </button>
               </div>
 
@@ -11315,7 +12570,7 @@ export function GlassBarcodeScannerCart({
                       : "bg-slate-900 text-slate-300 border-white/15"
                   }`}
                 >
-                  📄 1 Via (Só D.W)
+                  📄 1 Via (Só Empresa)
                 </button>
                 <button
                   type="button"
@@ -11326,7 +12581,7 @@ export function GlassBarcodeScannerCart({
                       : "bg-slate-900 text-slate-300 border-white/15"
                   }`}
                 >
-                  ✂️ 2 Vias (D.W + Reciclador)
+                  ✂️ 2 Vias (Empresa + Reciclador)
                 </button>
               </div>
             </div>
@@ -11432,7 +12687,7 @@ export function GlassBarcodeScannerCart({
                       Análise Estratégica dos 8 Itens & Veredito do Victor
                     </h3>
                     <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-                      D.W VIDROS & RECICLAGEM
+                      {displayStoreName}
                     </span>
                   </div>
                   <p className="text-xs text-slate-300 mt-0.5">
@@ -11827,7 +13082,7 @@ export function GlassBarcodeScannerCart({
             <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/40 via-slate-950 to-emerald-950/40 border border-amber-500/40 space-y-2">
               <span className="text-[11px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-amber-400" />
-                💡 Resumo do Veredito da D.W VIDROS:
+                💡 Resumo do Veredito da Tabela:
               </span>
               <ul className="text-xs text-slate-200 space-y-1.5 list-disc list-inside">
                 <li>
@@ -11878,7 +13133,7 @@ export function GlassBarcodeScannerCart({
               </button>
             </div>
 
-            {/* Seleção Rápida de Quem Trouxe (D.W Própria vs Colaborador) */}
+            {/* Seleção Rápida de Quem Trouxe (Coleta Própria vs Colaborador) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-black uppercase text-amber-400">
@@ -11989,7 +13244,7 @@ export function GlassBarcodeScannerCart({
               </div>
               <div className="flex items-center justify-between border-t border-white/10 pt-2">
                 <span className="text-amber-300 font-black uppercase text-[11px]">
-                  {activeCollab.isFounder ? "Economia D.W (Coleta Própria):" : `Total a Pagar (${activeCollab.name}):`}
+                  {activeCollab.isFounder ? "Economia Própria (Coleta Empresa):" : `Total a Pagar (${activeCollab.name}):`}
                 </span>
                 <strong className="text-xl font-mono font-black text-amber-400">
                   R$ {cartTotals.totalBuyCost.toFixed(2)}
@@ -12003,7 +13258,7 @@ export function GlassBarcodeScannerCart({
                 {activeCollab.isFounder ? (
                   <button
                     type="button"
-                    onClick={() => handleFinalizeTicket("coleta_propria_dw" as any)}
+                    onClick={() => handleFinalizeTicket("coleta_propria_empresa" as any)}
                     className="w-full min-h-[54px] px-5 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-400/30 touch-manipulation select-none"
                   >
                     <Crown className="w-5 h-5 shrink-0" />
@@ -12083,7 +13338,7 @@ export function GlassBarcodeScannerCart({
                       </span>
                     </div>
                     <p className="text-[10.5px] text-slate-300 truncate max-w-[240px] sm:max-w-[340px]">
-                      {activeCollab.isFounder ? "👑 Coleta Própria D.W" : `👤 ${activeCollab.name}`} •{" "}
+                      {activeCollab.isFounder ? "👑 Coleta Própria" : `👤 ${activeCollab.name}`} •{" "}
                       {cart.map((c) => `${c.quantity}× ${c.name}`).join(", ")}
                     </p>
                   </div>

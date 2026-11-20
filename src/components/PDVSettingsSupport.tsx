@@ -373,37 +373,35 @@ export const PDVSettingsSupport: React.FC<PDVSettingsSupportProps> = ({
         <div className="bg-slate-950 p-4 rounded-xl border border-white/5 space-y-4">
           <div className="flex items-center gap-2 border-b border-white/5 pb-2">
             <MessageSquare className="w-4 h-4 text-emerald-400" />
-            <span className="text-[11.5px] font-black uppercase text-emerald-400 font-sans">💬 Suporte WhatsApp</span>
+            <span className="text-[11.5px] font-black uppercase text-emerald-400 font-sans">📧 Suporte Oficial</span>
           </div>
 
           <div className="space-y-3">
             <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
-              Para suporte operacional rápido em tempo real e plantão técnico, envie uma mensagem para o nosso WhatsApp oficial:
+              Para suporte operacional, dúvidas técnicas ou feedback sobre o aplicativo, envie um e-mail para o canal oficial:
             </p>
 
             <div className="bg-slate-900 border border-white/5 p-3 rounded-lg text-center space-y-2">
-              <span className="text-xs font-black text-white font-mono block select-all">
-                (21) 96671-3263
+              <span className="text-xs font-black text-white font-mono block select-all truncate">
+                calculadoracerebrointeligente@gmail.com
               </span>
               <div className="flex gap-2 justify-center">
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard.writeText("21966713263");
-                    showNotification("WhatsApp de suporte copiado! 📋", "success");
+                    navigator.clipboard.writeText("calculadoracerebrointeligente@gmail.com");
+                    showNotification("E-mail oficial de suporte copiado! 📋", "success");
                   }}
                   className="px-2.5 py-1.5 bg-slate-850 hover:bg-slate-800 text-slate-300 font-bold text-[9px] uppercase tracking-wider rounded border border-white/5 flex items-center gap-1 cursor-pointer transition-all"
                 >
                   <Copy className="w-3 h-3 text-emerald-400" />
-                  Copiar Número
+                  Copiar E-mail
                 </button>
                 <a
-                  href="https://wa.me/5521966713263?text=Ol%C3%A1%2C%20preciso%20de%20suporte%20no%20PDV%20C%C3%A9rebro%20Inteligente"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href="mailto:calculadoracerebrointeligente@gmail.com?subject=Suporte%20Calculadora%20C%C3%A9rebro%20PDV"
                   className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[9px] uppercase tracking-wider rounded flex items-center gap-1 cursor-pointer transition-all"
                 >
-                  Falar no WhatsApp
+                  Enviar E-mail
                 </a>
               </div>
             </div>

@@ -1,22 +1,20 @@
 {
-  "id": "/?homescreen=1",
-  "name": "D.W VIDROS & RECICLAGEM - Calculadora Cérebro PDV",
-  "short_name": "D.W VIDROS",
-  "description": "D.W VIDROS & RECICLAGEM (CNPJ: 67.965.725/0001-95) - Sistema Inteligente de Frente de Caixa, Controle de Pátio de Vidros, Pesagem em Balança e Caderninho de Reciclagem.",
+  "id": "/",
+  "name": "Calculadora Cérebro PDV",
+  "short_name": "Cérebro PDV",
+  "description": "Sistema Inteligente de Frente de Caixa PDV, Controle de Pátio de Vidros, Pesagem em Balança, Reciclagem, Lista de Supermercado e Caderninho Financeiro.",
   "lang": "pt-BR",
   "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "display_override": [
-    "window-controls-overlay",
     "standalone",
-    "browser"
+    "window-controls-overlay"
   ],
   "orientation": "portrait",
-  "background_color": "#0d1117",
+  "background_color": "#0b0f19",
   "theme_color": "#0d1117",
-  "iarc_rating_id": "e58c174a-81d2-5c3c-32cc-34b8de4a52e9",
   "categories": [
     "finance",
     "business",
@@ -50,82 +48,82 @@
   ],
   "screenshots": [
     {
-      "src": "screenshot-desktop.png",
+      "src": "/screenshot-desktop.png",
       "sizes": "1920x1080",
       "type": "image/png",
       "form_factor": "wide",
       "label": "Painel de Controle e Frente de Caixa no Desktop"
     },
     {
-      "src": "screenshot-mobile.png",
+      "src": "/screenshot-mobile.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Vendas Rápidas e Controle na Palma da Mão"
     },
     {
-      "src": "screenshot-1.png",
+      "src": "/screenshot-1.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Painel de Controle e Menu Principal do PDV"
     },
     {
-      "src": "screenshot-2.png",
+      "src": "/screenshot-2.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Abertura de Caixa Diária e Fundo de Troco"
     },
     {
-      "src": "screenshot-3.png",
+      "src": "/screenshot-3.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Catálogo de Serviços, Itens e Controle de Estoque"
+      "label": "Catálogo de Materiais, Preços e Controle de Pátio"
     },
     {
-      "src": "screenshot-4.png",
+      "src": "/screenshot-4.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Cadastro de Item e Scanner de Código de Barras por Câmera"
     },
     {
-      "src": "screenshot-5.png",
+      "src": "/screenshot-5.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Recibo Comercial, Impressão Bluetooth e Cupom de Venda"
+      "label": "Recibo Comercial, Impressão Bluetooth 58mm e Cupom"
     },
     {
-      "src": "screenshot-6.png",
+      "src": "/screenshot-6.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Calculadora de Supermercado e Checklist de Compras"
+      "label": "Calculadora de Nota, Supermercado e Exportação Excel"
     },
     {
-      "src": "screenshot-7.png",
+      "src": "/screenshot-7.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Detalhes do Item, Quantidades e Precificação"
+      "label": "Pastas Salvas Offline e Sincronização na Nuvem"
     },
     {
-      "src": "screenshot-8.png",
+      "src": "/screenshot-8.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Talonários de Notas Promissórias, Recibos e Orçamentos"
+      "label": "Caderninho de Colaboradores, Vales e Recibos"
     }
   ],
   "shortcuts": [
     {
-      "name": "Frente de Caixa",
-      "short_name": "Caixa",
-      "description": "Abrir o PDV de Vendas Imediatas",
-      "url": "/?action=vendas",
+      "name": "Frente de Caixa PDV",
+      "short_name": "Caixa PDV",
+      "description": "Abrir o PDV de Vendas, Pesagem e Reciclagem",
+      "url": "/?shortcut=pdv",
       "icons": [
         {
           "src": "/assets/icons/icon-192.png",
@@ -135,10 +133,10 @@
       ]
     },
     {
-      "name": "Catálogo de Itens",
-      "short_name": "Produtos",
-      "description": "Gerenciar produtos e estoque",
-      "url": "/?action=catalogo",
+      "name": "Calculadora e Notas",
+      "short_name": "Calculadora",
+      "description": "Abrir Calculadora Nota e Listas Salvas",
+      "url": "/?shortcut=notes",
       "icons": [
         {
           "src": "/assets/icons/icon-192.png",
@@ -149,27 +147,17 @@
     }
   ],
   "share_target": {
-    "action": "/collect-files",
-    "method": "POST",
-    "enctype": "multipart/form-data",
+    "action": "/",
+    "method": "GET",
     "params": {
       "title": "title",
       "text": "text",
-      "url": "url",
-      "files": [
-        {
-          "name": "lists",
-          "accept": [
-            "text/csv",
-            ".csv"
-          ]
-        }
-      ]
+      "url": "url"
     }
   },
   "file_handlers": [
     {
-      "action": "/open-file",
+      "action": "/",
       "accept": {
         "text/csv": [
           ".csv"
@@ -194,14 +182,5 @@
       "auto"
     ]
   },
-  "edge_side_panel": {
-    "preferred_width": 400
-  },
-  "protocol_handlers": [
-    {
-      "protocol": "web+calculadora",
-      "url": "/?action=%s"
-    }
-  ],
   "prefer_related_applications": false
 }

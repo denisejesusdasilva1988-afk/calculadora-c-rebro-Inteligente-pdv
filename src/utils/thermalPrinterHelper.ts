@@ -811,8 +811,8 @@ export function buildThermalDocumentHtmlFromPayload(
   const fontSmallPx = Math.max(8, fontBasePx - 1.5);
   const boldWeight = "900";
   const bodyWeight = config.highContrast || config.miniPrintPocketMode ? "700" : "500";
-  const storeTitle = payload.storeName?.trim() || config.storeName?.trim() || "D.W VIDROS & RECICLAGEM";
-  const storeCnpj = payload.storeCnpj?.trim() || config.storeCnpjCpf?.trim() || "67.965.725/0001-95";
+  const storeTitle = payload.storeName?.trim() || config.storeName?.trim() || "MINHA EMPRESA";
+  const storeCnpj = payload.storeCnpj?.trim() || config.storeCnpjCpf?.trim() || "";
 
   const renderCopy = (viaLabel?: string) => {
     const itemRows = payload.lines
@@ -878,7 +878,7 @@ export function buildThermalDocumentHtmlFromPayload(
               : ""
           }
           <div style="margin-top:4px;border-top:1px dotted #000;padding-top:3px;font-size:${Math.max(7.5, fontSmallPx - 0.5)}px;">
-            [ ] Grampeado D.W &nbsp; [ ] Conferido Reciclador
+            [ ] Grampeado Empresa &nbsp; [ ] Conferido Reciclador
           </div>
         </div>`
       : "";
@@ -940,7 +940,7 @@ export function buildThermalDocumentHtmlFromPayload(
   const bodyContent =
     payload.copies === 2
       ? `
-      ${renderCopy("1ª VIA - CONTROLE D.W / CADERNINHO (GRAMPEAR)")}
+      ${renderCopy("1ª VIA - CONTROLE EMPRESA / CADERNINHO (GRAMPEAR)")}
       <div style="text-align:center;border-top:2px dashed #000;border-bottom:2px dashed #000;margin:14px 0;padding:5px 0;font-size:${fontSmallPx}px;font-weight:900;">
         ✂ - - CORTAR / GRAMPEAR AQUI - - ✂
       </div>
@@ -1149,10 +1149,10 @@ export async function generateMiniPrint57mmPngBlob(
       if (payload.cancelReason) addCenteredText(`MOTIVO: ${payload.cancelReason.toUpperCase()}`, FONT_SMALL, 22);
     }
 
-    const storeTitle = payload.storeName?.trim() || "D.W VIDROS & RECICLAGEM";
-    const storeCnpj = payload.storeCnpj?.trim() || "67.965.725/0001-95";
+    const storeTitle = payload.storeName?.trim() || "MINHA EMPRESA";
+    const storeCnpj = payload.storeCnpj?.trim() || "";
     addCenteredText(storeTitle.toUpperCase(), FONT_TITLE, 32);
-    addCenteredText(`CNPJ: ${storeCnpj}`, FONT_SMALL, 22);
+    if (storeCnpj) addCenteredText(`CNPJ/CPF: ${storeCnpj}`, FONT_SMALL, 22);
     addBoxedBanner(payload.title, FONT_BOLD);
     if (payload.subtitle) addCenteredText(payload.subtitle, FONT_SMALL, 22);
 
@@ -1218,7 +1218,7 @@ export async function generateMiniPrint57mmPngBlob(
           22
         );
       }
-      addLeftText("[ ] Grampeado D.W   [ ] Conferido", FONT_SMALL, 22);
+      addLeftText("[ ] Grampeado Empresa   [ ] Conferido", FONT_SMALL, 22);
       const boxEndY = y + 4;
       cmds.push((c) => {
         c.strokeStyle = "#000000";
@@ -1241,7 +1241,7 @@ export async function generateMiniPrint57mmPngBlob(
   };
 
   if (payload.copies === 2) {
-    drawSingleVia("1ª VIA - CONTROLE D.W / CADERNINHO (GRAMPEAR)");
+    drawSingleVia("1ª VIA - CONTROLE EMPRESA / CADERNINHO (GRAMPEAR)");
     y += 6;
     addDashedRule();
     addCenteredText("✂  CORTAR / DESTACAR / GRAMPEAR AQUI  ✂", FONT_BOLD, 26);

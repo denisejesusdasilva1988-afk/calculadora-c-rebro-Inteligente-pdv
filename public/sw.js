@@ -1,6 +1,6 @@
 // Service Worker para a Calculadora Cérebro Inteligente (PWA)
-// Incrementado para cerebro-pdv-v16: Network-First para HTML/navegação/versão garantindo atualização imediata no atalho instalado do Chrome
-const CACHE_NAME = 'cerebro-pdv-v16';
+// Incrementado para cerebro-pdv-v19: atualização Play Store (Push Supermercados + Trial 30 dias)
+const CACHE_NAME = 'cerebro-pdv-v19';
 const ASSETS_TO_CACHE = [
   './manifest.json',
   './icon.svg',
@@ -51,7 +51,12 @@ self.addEventListener('fetch', (event) => {
   }
 
   const url = event.request.url;
+  const parsedUrl = new URL(url);
+  const scopePathname = new URL(self.registration.scope).pathname;
+  const normalizedPath = parsedUrl.pathname;
+
   if (
+    normalizedPath.startsWith('/.well-known/') ||
     url.includes('/api/') ||
     url.includes('firestore.googleapis.com') ||
     url.includes('identitytoolkit.googleapis.com') ||
@@ -61,10 +66,6 @@ self.addEventListener('fetch', (event) => {
   ) {
     return;
   }
-
-  const parsedUrl = new URL(url);
-  const scopePathname = new URL(self.registration.scope).pathname;
-  const normalizedPath = parsedUrl.pathname;
   const isNavigationOrShell =
     event.request.mode === 'navigate' ||
     normalizedPath === scopePathname ||
@@ -137,14 +138,19 @@ self.addEventListener('fetch', (event) => {
 // Escuta o disparo do seu servidor com o texto do anúncio patrocinado
 self.addEventListener('push', (event) => {
   let notificationData = {
-    title: "Anúncio Local",
-    message: "Nova promoção no bairro!",
-    icon: "/icon-192.png"
+    title: "Ofertas de Supermercados & Mercadinhos 🛒",
+    message: "Confira os novos encartes e promoções do bairro!",
+    icon: "/icon-192.png",
+    url: "/?shortcut=encartes"
   };
 
   if (event.data) {
     try {
-      notificationData = event.data.json();
+      const parsed = event.data.json();
+      notificationData = {
+        ...notificationData,
+        ...parsed
+      };
     } catch (e) {
       notificationData.message = event.data.text();
     }
@@ -157,12 +163,12 @@ self.addEventListener('push', (event) => {
       badge: "/icon-192.png",
       vibrate: [100, 50, 100],
       data: {
-        url: '/'
+        url: notificationData.url || '/?shortcut=encartes'
       },
       actions: [
         {
           action: "view-content",
-          title: "Ver Promoção 🛍️"
+          title: "Ver Ofertas 🛍️"
         },
         {
           action: "go-home",
@@ -173,41 +179,29 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// Controla o clique nos botões "Ver Promoção" ou "Fechar" direto pelo balão do Windows/Celular
+// Controla o clique nos botões "Ver Ofertas" ou no balão da notificação
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close(); // Fecha o balão de alerta automaticamente
+  event.notification.close();
+  if (event.action === 'go-home') return;
 
-  if (event.action === 'view-content') {
-    // Redireciona o usuário para a página de encartes ou ofertas do comércio
-    event.waitUntil(
-      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-        for (let i = 0; i < windowClients.length; i++) {
-          const client = windowClients[i];
-          if (client.url && 'focus' in client) {
-            return client.focus();
+  const targetUrl = (event.notification && event.notification.data && event.notification.data.url) || '/?shortcut=encartes';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (let i = 0; i < windowClients.length; i++) {
+        const client = windowClients[i];
+        if (client.url && 'focus' in client) {
+          if ('navigate' in client && typeof client.navigate === 'function') {
+            client.navigate(targetUrl).catch(() => {});
           }
+          return client.focus();
         }
-        if (clients.openWindow) {
-          return clients.openWindow('/');
-        }
-      })
-    );
-  } else {
-    // Apenas leva para a home do aplicativo
-    event.waitUntil(
-      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-        for (let i = 0; i < windowClients.length; i++) {
-          const client = windowClients[i];
-          if (client.url && 'focus' in client) {
-            return client.focus();
-          }
-        }
-        if (clients.openWindow) {
-          return clients.openWindow('/');
-        }
-      })
-    );
-  }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
 }, false);
 
 // 3. Sincronização em Segundo Plano (Background Sync - Envio de dados pendentes)

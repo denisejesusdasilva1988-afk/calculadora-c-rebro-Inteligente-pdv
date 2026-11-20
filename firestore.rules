@@ -14,8 +14,7 @@ service cloud.firestore {
           && 'email' in request.auth.token 
           && (request.auth.token.email == 'denisejesusdasilva1988@gmail.com' 
               || request.auth.token.email == 'denisejesusdasilva1988@gmail.com.br'
-              || request.auth.token.email == 'calculadoracerebrointeligente@gmail.com'
-              || request.auth.token.email.matches('.*wellington.*'));
+              || request.auth.token.email == 'calculadoracerebrointeligente@gmail.com');
     }
 
     function incoming() {
@@ -138,9 +137,26 @@ service cloud.firestore {
     match /users/{userId} {
       allow list: if isAdmin();
       allow get: if isAdmin() || (isSignedIn() && userId == request.auth.uid);
-      allow create: if isSignedIn() && userId == request.auth.uid && isValidUser(incoming());
-      allow update: if isAdmin() || (isSignedIn() && userId == request.auth.uid && isValidUser(incoming()) && (!incoming().keys().hasAny(['isOwner']) || incoming().get('isOwner', false) == existing().get('isOwner', false)));
+      allow create: if isAdmin() || (
+        isSignedIn()
+        && userId == request.auth.uid
+        && isValidUser(incoming())
+        && incoming().get('isOwner', false) == false
+        && incoming().get('subscriptionTier', 'free') == 'free'
+      );
+      allow update: if isAdmin() || (
+        isSignedIn()
+        && userId == request.auth.uid
+        && isValidUser(incoming())
+        && (!incoming().keys().hasAny(['isOwner']) || incoming().get('isOwner', false) == existing().get('isOwner', false))
+        && (!incoming().keys().hasAny(['subscriptionTier']) || incoming().get('subscriptionTier', 'free') == existing().get('subscriptionTier', 'free'))
+        && (!incoming().keys().hasAny(['trialStartedAt']) || !existing().keys().hasAny(['trialStartedAt']) || incoming().get('trialStartedAt', '') == existing().get('trialStartedAt', ''))
+      );
       allow delete: if isAdmin();
+
+      match /pdv_data/{docId} {
+        allow read, write: if isAdmin() || (isSignedIn() && userId == request.auth.uid);
+      }
     }
 
     match /marketing_ads/{adId} {

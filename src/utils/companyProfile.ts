@@ -36,12 +36,12 @@ export interface CompanyProfile {
 }
 
 export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
-  name: "D.W VIDROS & RECICLAGEM",
-  cnpjCpf: "67.965.725/0001-95",
-  ownerName: "Denise Jesus & Wellington Oliveira",
-  ownerCpf: "67.965.725/0001-95",
+  name: "",
+  cnpjCpf: "",
+  ownerName: "",
+  ownerCpf: "",
   ownerPin: "",
-  pixKey: "67.965.725/0001-95",
+  pixKey: "",
   logoUrl: "",
   phone: "",
   whatsapp: "",
@@ -79,13 +79,13 @@ export function loadCompanyProfile(userId?: string | null): CompanyProfile {
       return {
         ...DEFAULT_COMPANY_PROFILE,
         ...parsed,
-        // Fallbacks para campos clássicos caso tenham sido salvos separadamente
-        name: parsed.name || localStorage.getItem("pdv_store_name") || "D.W VIDROS & RECICLAGEM",
-        cnpjCpf: parsed.cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "67.965.725/0001-95",
-        ownerName: parsed.ownerName || localStorage.getItem("pdv_owner_name") || "Denise Jesus & Wellington Oliveira",
-        ownerCpf: parsed.ownerCpf || parsed.cnpjCpf || localStorage.getItem("pdv_owner_cpf") || localStorage.getItem("pdv_store_cnpj_cpf") || "67.965.725/0001-95",
+        // Fallbacks para campos salvos pelo usuário no dispositivo
+        name: parsed.name || localStorage.getItem("pdv_store_name") || "",
+        cnpjCpf: parsed.cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "",
+        ownerName: parsed.ownerName || localStorage.getItem("pdv_owner_name") || "",
+        ownerCpf: parsed.ownerCpf || parsed.cnpjCpf || localStorage.getItem("pdv_owner_cpf") || localStorage.getItem("pdv_store_cnpj_cpf") || "",
         ownerPin: parsed.ownerPin || localStorage.getItem("pdv_owner_pin") || "",
-        pixKey: parsed.pixKey || localStorage.getItem("pdv_pix_key") || "67.965.725/0001-95",
+        pixKey: parsed.pixKey || localStorage.getItem("pdv_pix_key") || "",
         logoUrl: parsed.logoUrl || localStorage.getItem("pdv_company_logo") || "",
         phone: parsed.phone || localStorage.getItem("pdv_store_phone") || "",
         whatsapp: parsed.whatsapp || localStorage.getItem("pdv_store_whatsapp") || "",
@@ -102,12 +102,12 @@ export function loadCompanyProfile(userId?: string | null): CompanyProfile {
   // Fallbacks de chaves legadas se não houver JSON completo
   return {
     ...DEFAULT_COMPANY_PROFILE,
-    name: localStorage.getItem("pdv_store_name") || "D.W VIDROS & RECICLAGEM",
-    cnpjCpf: localStorage.getItem("pdv_store_cnpj_cpf") || "67.965.725/0001-95",
-    ownerName: localStorage.getItem("pdv_owner_name") || "Denise Jesus & Wellington Oliveira",
-    ownerCpf: localStorage.getItem("pdv_owner_cpf") || localStorage.getItem("pdv_store_cnpj_cpf") || "67.965.725/0001-95",
+    name: localStorage.getItem("pdv_store_name") || "",
+    cnpjCpf: localStorage.getItem("pdv_store_cnpj_cpf") || "",
+    ownerName: localStorage.getItem("pdv_owner_name") || "",
+    ownerCpf: localStorage.getItem("pdv_owner_cpf") || localStorage.getItem("pdv_store_cnpj_cpf") || "",
     ownerPin: localStorage.getItem("pdv_owner_pin") || "",
-    pixKey: localStorage.getItem("pdv_pix_key") || "67.965.725/0001-95",
+    pixKey: localStorage.getItem("pdv_pix_key") || "",
     logoUrl: localStorage.getItem("pdv_company_logo") || "",
     phone: localStorage.getItem("pdv_store_phone") || "",
     whatsapp: localStorage.getItem("pdv_store_whatsapp") || "",

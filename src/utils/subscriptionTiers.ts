@@ -6,6 +6,21 @@
 export type SubscriptionTier = "free" | "pro_tools" | "estoque_gestao" | "pdv_total" | "infinite";
 export type BillingCycle = "weekly" | "biweekly" | "monthly";
 
+export const TRIAL_DURATION_DAYS = 30;
+const TRIAL_DURATION_MS = TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000;
+const TRIAL_START_KEY = "app_free_trial_started_at";
+const LEGACY_PLAY_TRIAL_START_KEY = "play_store_trial_started";
+const LEGACY_PLAY_TRIAL_EXPIRY_KEY = "play_store_trial_expiry";
+
+export interface TrialStatus {
+  startedAt: Date;
+  expiresAt: Date;
+  daysRemaining: number;
+  isActive: boolean;
+  hasExpired: boolean;
+  expiryFormatted: string;
+}
+
 export interface TierPlanInfo {
   id: SubscriptionTier;
   name: string;
@@ -24,6 +39,95 @@ export interface TierPlanInfo {
 }
 
 /**
+ * Garante que o período de teste gratuito de 30 dias esteja inicializado no aparelho
+ * e retorna as datas e dias restantes com segurança.
+ */
+export function ensureFreeTrialInitialized(): string {
+  const nowIso = new Date().toISOString();
+  try {
+    const existing =
+      localStorage.getItem(TRIAL_START_KEY) ||
+      localStorage.getItem(LEGACY_PLAY_TRIAL_START_KEY);
+    if (existing && !isNaN(new Date(existing).getTime())) {
+      localStorage.setItem(TRIAL_START_KEY, existing);
+      return existing;
+    }
+    localStorage.setItem(TRIAL_START_KEY, nowIso);
+    return nowIso;
+  } catch {
+    return nowIso;
+  }
+}
+
+export function getTrialStatus(): TrialStatus {
+  const startIso = ensureFreeTrialInitialized();
+  const startedAt = new Date(startIso);
+  let expiresAt = new Date(startedAt.getTime() + TRIAL_DURATION_MS);
+
+  try {
+    const explicitExpiry = localStorage.getItem(LEGACY_PLAY_TRIAL_EXPIRY_KEY);
+    if (explicitExpiry && !isNaN(new Date(explicitExpiry).getTime())) {
+      const parsedExplicit = new Date(explicitExpiry);
+      if (parsedExplicit.getTime() > expiresAt.getTime()) {
+        expiresAt = parsedExplicit;
+      }
+    }
+  } catch {
+    // ignore storage restriction
+  }
+
+  const now = Date.now();
+  const diffMs = expiresAt.getTime() - now;
+  const isActive = diffMs > 0;
+  const daysRemaining = isActive ? Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24))) : 0;
+
+  return {
+    startedAt,
+    expiresAt,
+    daysRemaining,
+    isActive,
+    hasExpired: !isActive,
+    expiryFormatted: expiresAt.toLocaleDateString("pt-BR"),
+  };
+}
+
+/**
+ * Sincroniza plano e data do teste de 30 dias vindos do Firestore (sem resetar trial expirado).
+ */
+export function syncTrialAndTierFromCloud(options: {
+  cloudTier?: string | null;
+  cloudTrialStartedAt?: string | null;
+  cloudTrialEndsAt?: string | null;
+}): SubscriptionTier | null {
+  try {
+    const localStart = ensureFreeTrialInitialized();
+    if (options.cloudTrialStartedAt && !isNaN(new Date(options.cloudTrialStartedAt).getTime())) {
+      const cloudTime = new Date(options.cloudTrialStartedAt).getTime();
+      const localTime = new Date(localStart).getTime();
+      // Preserva a data mais antiga para impedir reinício indevido do teste de 30 dias
+      const earliest = cloudTime < localTime ? options.cloudTrialStartedAt : localStart;
+      localStorage.setItem(TRIAL_START_KEY, earliest);
+    }
+
+    if (options.cloudTrialEndsAt && !isNaN(new Date(options.cloudTrialEndsAt).getTime())) {
+      localStorage.setItem(LEGACY_PLAY_TRIAL_EXPIRY_KEY, options.cloudTrialEndsAt);
+    }
+
+    if (
+      options.cloudTier &&
+      ["free", "pro_tools", "estoque_gestao", "pdv_total", "infinite"].includes(options.cloudTier)
+    ) {
+      const validTier = options.cloudTier as SubscriptionTier;
+      saveSubscriptionTier(validTier);
+      return validTier;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
  * Calcula o preço dinâmico com base no ciclo:
  * - Mensal: valor normal (100%)
  * - Quinzenal: exatamente metade (50%)
@@ -35,7 +139,6 @@ export function calculatePlanPrice(baseMonthlyPrice: number, cycle: BillingCycle
   }
 
   if (cycle === "weekly") {
-    // 1 semana: metade da quinzena / 4 da mensal + 10% adicional
     const weeklyBase = baseMonthlyPrice / 4;
     const weeklyPrice = Math.round((weeklyBase * 1.10) * 100) / 100;
     return {
@@ -46,7 +149,6 @@ export function calculatePlanPrice(baseMonthlyPrice: number, cycle: BillingCycle
   }
 
   if (cycle === "biweekly") {
-    // Quinzenal: exatamente metade (50%)
     const biweeklyPrice = Math.round((baseMonthlyPrice / 2) * 100) / 100;
     return {
       priceNum: biweeklyPrice,
@@ -55,7 +157,6 @@ export function calculatePlanPrice(baseMonthlyPrice: number, cycle: BillingCycle
     };
   }
 
-  // Mensal
   return {
     priceNum: baseMonthlyPrice,
     formatted: `R$ ${baseMonthlyPrice.toFixed(2).replace(".", ",")}`,
@@ -67,119 +168,106 @@ export const SUBSCRIPTION_PLANS: TierPlanInfo[] = [
   {
     id: "free",
     name: "Plano Grátis",
-    tagline: "Para o dia a dia e clientes do bairro",
+    tagline: "Calculadora Nota, Excel e Ofertas do Bairro",
     price: "R$ 0,00",
     priceNum: 0,
     period: "Sempre Grátis",
-    badge: "100% GRÁTIS",
-    badgeBg: "bg-emerald-500/10 border-emerald-500/30 text-emerald-600",
-    badgeText: "text-emerald-500",
-    description: "Tudo o que os moradores e comerciantes precisam para não baixar múltiplos apps no celular:",
+    badge: "100% GRÁTIS PARA SEMPRE",
+    badgeBg: "bg-emerald-500/10 border-emerald-500/30 text-emerald-400",
+    badgeText: "text-emerald-400",
+    description: "Uso diário ilimitado e gratuito sem créditos ou mensalidade:",
     features: [
-      "Calculadora comum rápida do dia a dia",
-      "Calculadora Nota de Bloco com exportação para Excel e Pastas",
+      "Calculadora Nota & Excel 100% Gratuita (com Exportação Excel & Pastas Salvas)",
+      "Calculadora comum rápida do dia a dia offline",
       "Lista de compras de supermercado com soma automática",
-      "Mural de Encartes e Ofertas de Supermercados",
-      "Notificações Push com promoções e ofertas do bairro",
-      "Bloco de notas completo com Pastas organizadas, recados e lembretes",
-      "Agenda de compromissos e tarefas"
+      "Anúncios & Encartes de Supermercados e Mercadinhos",
+      "Notificações Push obrigatórias com promoções e ofertas do bairro",
+      "Bloco de notas completo com Pastas organizadas e lembretes simples"
     ],
     ctaLabel: "Plano Grátis"
   },
   {
     id: "pro_tools",
-    name: "Ferramentas Pro",
-    tagline: "Para quem precifica e gera recibos",
+    name: "Ferramentas Pro & Agenda",
+    tagline: "Agenda dos Profissionais, Precificação e Talões",
     price: "R$ 14,90",
     priceNum: 14.90,
     period: "por mês",
-    badge: "MENOR VALOR",
-    badgeBg: "bg-amber-500/10 border-amber-500/30 text-amber-600",
-    badgeText: "text-amber-500",
-    description: "Ferramentas essenciais para pequenas vendas, precificação e documentação:",
+    badge: "30 DIAS GRÁTIS P/ TESTE",
+    badgeBg: "bg-amber-500/10 border-amber-500/30 text-amber-400",
+    badgeText: "text-amber-400",
+    description: "Plano pago para autônomos e profissionais (30 dias grátis para testar):",
     features: [
       "Tudo incluído no Plano Grátis",
+      "Agenda dos Profissionais Completa (Salão, Barbearia, Manicure, Estética, Saúde & Festas)",
+      "Portal Público de Agendamento Online para seus Clientes",
       "Calculadora de Precificação Inteligente (lucro, custo e margem)",
-      "Talões e Papelarias (Recibos impressos e digitais de bazar/balcão)",
-      "Módulo Bazar / Brechó com crediário e controle de peças",
-      "Comprovantes com assinatura e compartilhamento no WhatsApp"
+      "Talões, Recibos Digitais e Módulo Bazar / Brechó com WhatsApp"
     ],
-    ctaLabel: "Assinar Ferramentas Pro (R$ 14,90)"
+    ctaLabel: "Testar 30 Dias Grátis (Depois R$ 14,90)"
   },
   {
     id: "estoque_gestao",
-    name: "Gestão, Estoque & Caixa",
-    tagline: "Controle de estoque e Frente de Caixa liberados",
+    name: "Gestão, Ferro Velho & Caixa",
+    tagline: "Ferro Velho, Pátio de Vidros, Estoque e PDV",
     price: "R$ 29,90",
     priceNum: 29.90,
     period: "por mês",
-    badge: "CAIXA & ESTOQUE LIBERADOS",
-    badgeBg: "bg-emerald-500/10 border-emerald-500/30 text-emerald-600",
-    badgeText: "text-emerald-500",
-    description: "Para comércios que precisam vender no caixa e controlar rigorosamente suas mercadorias:",
+    badge: "30 DIAS GRÁTIS • FERRO VELHO & PDV",
+    badgeBg: "bg-emerald-500/10 border-emerald-500/30 text-emerald-400",
+    badgeText: "text-emerald-400",
+    description: "Plano pago para depósitos, ferro velho, reciclagem e comércios (30 dias grátis):",
     features: [
-      "Tudo incluído no Plano Ferramentas Pro (R$ 14,90)",
+      "Tudo incluído no Plano Ferramentas Pro & Agenda (R$ 14,90)",
+      "Módulo Ferro Velho, Pátio de Vidros & Centro de Reciclagem (Balança, Lotes & Colaboradores)",
       "Frente de Caixa (PDV) completa para registrar vendas e emitir cupons",
-      "Controle de Estoque Completo Liberado",
-      "Recebimentos em Dinheiro, Pix, Cartão e Fiado",
-      "Cadastro e edição de produtos e preços no balcão",
-      "Alertas de estoque mínimo e risco de falta",
-      "Histórico de vendas, sangria e suprimento de caixa",
-      "(Sem assistência IA Gemini, exclusiva do plano de R$ 39,90)"
+      "Controle de Estoque Completo com alertas e cadastro rápido",
+      "Recebimentos em Dinheiro, Pix, Cartão e Fiado + Sangria e Suprimento"
     ],
-    ctaLabel: "Assinar Caixa & Estoque (R$ 29,90)"
+    ctaLabel: "Testar 30 Dias Grátis (Depois R$ 29,90)"
   },
   {
     id: "pdv_total",
     name: "PDV Total & IA",
-    tagline: "Direito a TUDO no sistema",
+    tagline: "Direito a TUDO no sistema + IA Gemini",
     price: "R$ 39,90",
     priceNum: 39.90,
     period: "por mês",
-    badge: "DIREITO A TUDO + IA 👑",
-    badgeBg: "bg-purple-500/10 border-purple-500/30 text-purple-600",
-    badgeText: "text-purple-500",
+    badge: "30 DIAS GRÁTIS • TUDO LIBERADO + IA 👑",
+    badgeBg: "bg-purple-500/10 border-purple-500/30 text-purple-400",
+    badgeText: "text-purple-400",
     popular: false,
     highlight: false,
-    description: "A solução comercial completa para comércios em geral:",
+    description: "A solução comercial completa com Inteligência Artificial (30 dias grátis):",
     features: [
-      "DIREITO A TUDO NO APLICATIVO",
-      "Frente de Caixa (PDV) completa com fluxo rápido",
-      "Controle de Estoque Completo Liberado",
+      "DIREITO A TUDO NO APLICATIVO (Agenda Profissional + Ferro Velho + PDV)",
       "Mentoria Inteligente com IA Gemini do Google",
-      "Leitor de código de barras pela câmera do celular",
-      "Balança digital para pesagem",
-      "Painel do Proprietário com PIN e gestão de múltiplos caixas",
-      "Recebimentos por Pix Dinâmico e Cartão",
-      "Envio de cupom fiscal/comprovante instantâneo no WhatsApp"
+      "Frente de Caixa (PDV) completa com fluxo rápido e impressora 58mm",
+      "Leitor de código de barras pela câmera + Balança digital",
+      "Painel do Proprietário com PIN, Auditoria e gestão de múltiplos caixas",
+      "Envio de cupom/comprovante instantâneo no WhatsApp"
     ],
-    ctaLabel: "Liberar Tudo com IA (R$ 39,90/mês)"
+    ctaLabel: "Testar 30 Dias Grátis (Depois R$ 39,90)"
   },
   {
     id: "infinite",
     name: "Plano Infinito Vitalício ♾️",
-    tagline: "Licença Vitalícia & Ilimitada D.W VIDROS & RECICLAGEM",
+    tagline: "Licença Vitalícia & Ilimitada (Administrador)",
     price: "Vitalício (Sem Mensalidade)",
     priceNum: 0,
     period: "Para Sempre",
-    badge: "LICENÇA VITALÍCIA INFINITA ♾️👑",
+    badge: "LICENÇA ADMINISTRATIVA ♾️👑",
     badgeBg: "bg-gradient-to-r from-amber-500/20 to-emerald-500/20 border-amber-400 text-amber-300",
     badgeText: "text-amber-400",
     popular: true,
     highlight: true,
-    description: "Acesso permanente, irrestrito e vitalício vinculado ao CNPJ 67.965.725/0001-95:",
+    description: "Acesso permanente exclusivo para contas administrativas autorizadas:",
     features: [
       "TODAS AS FERRAMENTAS DO SISTEMA 100% LIBERADAS PARA SEMPRE",
-      "CNPJ 67.965.725/0001-95 Ativo e Vinculado",
-      "Razão Social D.W VIDROS & RECICLAGEM Registrada",
+      "Agenda dos Profissionais + Ferro Velho & Pátio de Vidros",
       "Frente de Caixa (PDV) Completo com Cupom e Impressora Térmica",
-      "Controle de Estoque Ilimitado com Alertas e Cadastro Rápido",
-      "Módulo Especial D.W Vidros & Reciclagem (Balança, Lotes, Cargas e Toneladas)",
-      "Caderninho de Colaboradores da Reciclagem e Livro Caixa",
-      "Mentoria Inteligente com IA Gemini do Google Ilimitada",
-      "Leitor de Código de Barras por Câmera e Scanner USB Dual Mode",
-      "Recebimentos por Pix Dinâmico, Cartão e Controle de Fiado",
-      "Zero Mensalidades • Licença Vitalícia Permanente da D.W Vidros"
+      "Mentoria Inteligente com IA do Google Ilimitada",
+      "Zero Mensalidades • Licença Vitalícia Ativa"
     ],
     ctaLabel: "Plano Infinito Ativo ♾️"
   }
@@ -192,59 +280,63 @@ export type FeatureKey =
   | "notes_comum"
   | "agenda"
   | "excel_notas"
+  | "agenda_profissionais"
+  | "ferro_velho"
   | "taloes"
   | "precificacao"
   | "estoque"
-  | "pdv_completo";
+  | "pdv_completo"
+  | "ia_gemini";
 
 export function getCurrentSubscriptionTier(): SubscriptionTier {
   try {
     const saved = localStorage.getItem("app_subscription_tier");
-    if (saved === "infinite") return "infinite";
-
-    const cnpj = (localStorage.getItem("pdv_store_cnpj_cpf") || "").replace(/\D/g, "");
-    if (cnpj === "67965725000195" || saved === "infinite") {
-      saveSubscriptionTier("infinite");
-      return "infinite";
-    }
-
     if (saved && ["free", "pro_tools", "estoque_gestao", "pdv_total", "infinite"].includes(saved)) {
       return saved as SubscriptionTier;
     }
-
-    // Default para D.W VIDROS & RECICLAGEM com CNPJ 67.965.725/0001-95
-    saveSubscriptionTier("infinite");
-    return "infinite";
+    if (localStorage.getItem("pdv_owner_vip_unlocked") === "true") {
+      return "infinite";
+    }
   } catch {
     // ignore
   }
-  return "infinite";
+  return "free";
 }
 
 export function saveSubscriptionTier(tier: SubscriptionTier): void {
   try {
     localStorage.setItem("app_subscription_tier", tier);
-    if (tier === "infinite" || tier === "pdv_total" || tier === "estoque_gestao") {
+    if (tier === "infinite") {
       localStorage.setItem("pdv_license_active", "true");
       localStorage.setItem("is_premium", "true");
       localStorage.setItem("pdv_owner_vip_unlocked", "true");
       localStorage.setItem("pdv_owner_mode", "true");
+    } else if (tier === "pdv_total" || tier === "estoque_gestao") {
+      localStorage.setItem("pdv_license_active", "true");
+      localStorage.setItem("is_premium", "true");
+      localStorage.removeItem("pdv_owner_vip_unlocked");
     } else if (tier === "pro_tools") {
       localStorage.setItem("is_premium", "true");
       localStorage.setItem("pdv_license_active", "false");
+      localStorage.removeItem("pdv_owner_vip_unlocked");
     } else {
       localStorage.setItem("is_premium", "false");
       localStorage.setItem("pdv_license_active", "false");
+      localStorage.removeItem("pdv_owner_vip_unlocked");
     }
   } catch (e) {
     console.error("Erro ao salvar nível de assinatura:", e);
   }
 }
 
-export function isFeatureAllowedForTier(feature: FeatureKey, tier: SubscriptionTier, isAdmin: boolean = false): boolean {
-  if (isAdmin || tier === "infinite") return true;
+export function isFeatureAllowedForTier(
+  feature: FeatureKey,
+  tier: SubscriptionTier,
+  isAdminOrOwner: boolean = false
+): boolean {
+  if (isAdminOrOwner || tier === "infinite") return true;
 
-  // 1. Free features are ALWAYS allowed for everyone
+  // 1. Recursos 100% Gratuitos (Sempre Grátis: Calc Comum, Nota & Excel, Supermercado, Encartes/Anúncios, Bloco de Notas, Lembretes simples)
   if (
     feature === "calc_comum" ||
     feature === "super" ||
@@ -256,19 +348,23 @@ export function isFeatureAllowedForTier(feature: FeatureKey, tier: SubscriptionT
     return true;
   }
 
-  // 2. Pro Tools tier features (R$ 14,90, R$ 29,90, R$ 39,90)
-  if (feature === "taloes" || feature === "precificacao") {
+  // 2. Período de Teste Gratuito de 30 Dias ("Grátis por 30 dias para teste")
+  // Libera os módulos pagos (Agenda dos Profissionais, Ferro Velho, Precificação, Estoque e PDV) durante os 30 dias iniciais
+  if (getTrialStatus().isActive) {
+    return true;
+  }
+
+  // 3. Após os 30 dias de teste: exige assinatura ativa compatível
+  if (feature === "agenda_profissionais" || feature === "taloes" || feature === "precificacao") {
     return tier === "pro_tools" || tier === "estoque_gestao" || tier === "pdv_total";
   }
 
-  // 3. Estoque (Controle de Estoque Completo) - Liberado para R$ 29,90 e R$ 39,90!
-  if (feature === "estoque") {
+  if (feature === "ferro_velho" || feature === "estoque" || feature === "pdv_completo") {
     return tier === "estoque_gestao" || tier === "pdv_total";
   }
 
-  // 4. PDV Caixa (Frente de Caixa) - Liberado para R$ 29,90 e R$ 39,90!
-  if (feature === "pdv_completo") {
-    return tier === "estoque_gestao" || tier === "pdv_total";
+  if (feature === "ia_gemini") {
+    return tier === "pdv_total";
   }
 
   return false;

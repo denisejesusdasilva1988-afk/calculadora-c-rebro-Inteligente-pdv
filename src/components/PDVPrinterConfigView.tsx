@@ -501,7 +501,7 @@ export function PDVPrinterConfigView({
                   type="text"
                   value={localConfig.storeName}
                   onChange={(e) => handleUpdate("storeName", e.target.value)}
-                  placeholder="Ex: Supermercado Central, Loja da Denise..."
+                  placeholder="Ex: Supermercado Central, Minha Loja..."
                   className="w-full mt-1 bg-slate-900 border border-white/10 focus:border-emerald-400 px-3.5 py-2 rounded-xl text-xs font-bold text-white uppercase outline-none"
                 />
               </div>

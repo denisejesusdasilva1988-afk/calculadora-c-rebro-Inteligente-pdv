@@ -152,6 +152,11 @@ async function startServer() {
     res.json({ publicKey: publicVapidKey });
   });
 
+  app.get("/api/push/stats", (req, res) => {
+    const subs = getSubscriptions();
+    res.json({ subscriberCount: subs.length });
+  });
+
   app.post("/api/push/subscribe", (req, res) => {
     try {
       const { subscription } = req.body;
@@ -195,7 +200,7 @@ async function startServer() {
 
   app.post("/api/push/send", async (req, res) => {
     try {
-      const { title, message, icon } = req.body;
+      const { title, message, icon, url } = req.body;
       if (!title || !message) {
         return res.status(400).json({ error: "Título e mensagem são obrigatórios" });
       }
@@ -206,7 +211,8 @@ async function startServer() {
       const payload = JSON.stringify({
         title,
         message,
-        icon: icon || "/icon-192.png"
+        icon: icon || "/icon-192.png",
+        url: url || "/?shortcut=encartes"
       });
 
       const promises = subs.map(async (sub) => {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { isFeatureAllowedForTier, SubscriptionTier } from "../utils/subscriptionTiers";
 import { ai } from "../App";
 import { 
   motion, 
@@ -107,7 +108,9 @@ import {
   Flashlight,
   Recycle,
   Wine,
-  BookOpen
+  BookOpen,
+  Focus,
+  ZoomIn
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { doc, getDoc, setDoc, serverTimestamp, collection, addDoc, getDocs, query, where, limit, onSnapshot } from "firebase/firestore";
@@ -145,6 +148,15 @@ import {
   printViaBluetoothEscPos 
 } from "../utils/thermalPrinterHelper";
 import { cleanUndefinedForFirestore } from "../utils/cleanFirestore";
+import {
+  CameraTrackStatus,
+  inspectCameraTrackStatus,
+  applyCameraTorch,
+  applyCameraZoom,
+  triggerCameraRefocus,
+  startTransparentBottleContrastLoop,
+  scanBarcodeFromPhotoFile
+} from "../utils/enhancedBarcodeScanner";
 import { OperationType, FirestoreErrorInfo } from "../types";
 import {
   getScopedItem,
@@ -612,6 +624,9 @@ interface PDVModuleProps {
   onlyCheckout?: boolean;
   isNicheLocked?: boolean;
   onToggleNicheLock?: () => void;
+  currentTier?: SubscriptionTier;
+  isAdmin?: boolean;
+  onRequirePlanUpgrade?: (featureName: string, requiredTier: SubscriptionTier) => void;
 }
 
 // Predefined product catalog by business segment (niche)
@@ -1184,8 +1199,25 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   refreshSecuritySettings,
   onlyCheckout = false,
   isNicheLocked: propIsNicheLocked,
-  onToggleNicheLock: propOnToggleNicheLock
+  onToggleNicheLock: propOnToggleNicheLock,
+  currentTier,
+  isAdmin = false,
+  onRequirePlanUpgrade
 }) => {
+  const canAccessFerroVelho = useCallback(() => {
+    const resolvedTier: SubscriptionTier = currentTier || (pdvLicenseActive ? "pdv_total" : "free");
+    if (isFeatureAllowedForTier("ferro_velho", resolvedTier, isAdmin)) {
+      return true;
+    }
+    showNotification("🔒 Seus 30 dias grátis terminaram. O módulo Ferro Velho & Pátio faz parte do Plano Gestão (R$ 29,90/mês)!", "error");
+    if (onRequirePlanUpgrade) {
+      onRequirePlanUpgrade("Ferro Velho, Pátio de Vidros & Reciclagem", "estoque_gestao");
+    } else if (onActivatePDV) {
+      onActivatePDV();
+    }
+    return false;
+  }, [currentTier, pdvLicenseActive, isAdmin, showNotification, onRequirePlanUpgrade, onActivatePDV]);
+
   // --- Persistent States (with local fallbacks) ---
   const [localIsNicheLocked, setLocalIsNicheLocked] = useState<boolean>(() => {
     try { return getScopedItem("pdv_niche_locked", userId) === "true"; } catch { return false; }
@@ -2889,7 +2921,15 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [isGlassPurchaseModalOpen, setIsGlassPurchaseModalOpen] = useState(false);
   const [scannerContinuousMode, setScannerContinuousMode] = useState(true);
   const [scannerTorchOn, setScannerTorchOn] = useState(false);
-  const [scannerZoom, setScannerZoom] = useState(1);
+  const [scannerZoom, setScannerZoom] = useState(1.5);
+  const [pdvTrackStatus, setPdvTrackStatus] = useState<CameraTrackStatus | null>(null);
+  const [pdvTransparentBoost, setPdvTransparentBoost] = useState(true);
+  const pdvTransparentBoostRef = useRef(true);
+  pdvTransparentBoostRef.current = pdvTransparentBoost;
+  const [pdvRefocusFeedback, setPdvRefocusFeedback] = useState<string | null>(null);
+  const [isPdvScanningPhoto, setIsPdvScanningPhoto] = useState(false);
+  const pdvContrastLoopStopRef = useRef<(() => void) | null>(null);
+  const pdvPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const [lastScannedFeedback, setLastScannedFeedback] = useState<{ name: string; price: number; timestamp: number } | null>(null);
   const lastScannedCodeRef = useRef<{ code: string; time: number }>({ code: "", time: 0 });
   const [manualScannerInput, setManualScannerInput] = useState("");
@@ -3257,7 +3297,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [newStoreLongitude, setNewStoreLongitude] = useState("");
   const [newStoreReference, setNewStoreReference] = useState("");
 
-  // --- Mercado Pago Interactive Setup Wizard States (Denise Jesus's Flow) ---
+  // --- Mercado Pago Interactive Setup Wizard States ---
   const [mpShowWizard, setMpShowWizard] = useState<boolean>(() => {
     return localStorage.getItem("pdv_mp_show_wizard") !== "false";
   });
@@ -4752,45 +4792,29 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   }, []);
 
   const handleTogglePDVScannerTorch = async () => {
-    try {
-      const container = document.getElementById("barcode-scanner-viewport");
-      const video = container?.querySelector("video") as HTMLVideoElement | null;
-      if (video && video.srcObject) {
-        const stream = video.srcObject as MediaStream;
-        const track = stream.getVideoTracks()[0];
-        if (track) {
-          const next = !scannerTorchOn;
-          await track.applyConstraints({
-            advanced: [{ torch: next } as any]
-          });
-          setScannerTorchOn(next);
-          showNotification(next ? "Lanterna ligada 🔦" : "Lanterna desligada", "info");
-          return;
-        }
-      }
-      showNotification("Lanterna não suportada nesta câmera.", "warning");
-    } catch (e) {
-      showNotification("Lanterna indisponível neste dispositivo.", "warning");
+    const next = !scannerTorchOn;
+    const ok = await applyCameraTorch("barcode-scanner-viewport", next);
+    if (ok) {
+      setScannerTorchOn(next);
+      setPdvTrackStatus((prev) => (prev ? { ...prev, torchOn: next } : prev));
+      showNotification(next ? "Lanterna ligada 🔦" : "Lanterna desligada", "info");
+    } else {
+      showNotification("Este navegador/câmera não liberou o controle direto da lanterna.", "warning");
     }
   };
 
-  const handleTogglePDVScannerZoom = async () => {
-    try {
-      const container = document.getElementById("barcode-scanner-viewport");
-      const video = container?.querySelector("video") as HTMLVideoElement | null;
-      if (video && video.srcObject) {
-        const stream = video.srcObject as MediaStream;
-        const track = stream.getVideoTracks()[0];
-        if (track) {
-          const nextZoom = scannerZoom === 1 ? 2 : 1;
-          await track.applyConstraints({
-            advanced: [{ zoom: nextZoom } as any]
-          });
-          setScannerZoom(nextZoom);
-          showNotification(`Zoom ${nextZoom}x 🔍`, "info");
-        }
-      }
-    } catch (_) {}
+  const handleSelectPDVScannerZoom = async (targetZoom: number) => {
+    const applied = await applyCameraZoom("barcode-scanner-viewport", targetZoom);
+    if (applied !== null) {
+      setScannerZoom(applied);
+      setPdvTrackStatus((prev) => (prev ? { ...prev, currentZoom: applied } : prev));
+    }
+  };
+
+  const handleTriggerPDVRefocus = async () => {
+    setPdvRefocusFeedback("🎯 Focando câmera...");
+    await triggerCameraRefocus("barcode-scanner-viewport");
+    setTimeout(() => setPdvRefocusFeedback(null), 1100);
   };
 
   // --- Barcode Scanner Handler & Mock Database ---
@@ -4919,6 +4943,30 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     setIsScannerOpen(false);
   }, [customProducts, scannerContinuousMode, playPDVScannerBeep]);
 
+  const handleBarcodeScannedRef = useRef(handleBarcodeScanned);
+  handleBarcodeScannedRef.current = handleBarcodeScanned;
+
+  const handlePDVPhotoFallback = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setIsPdvScanningPhoto(true);
+    setScanningError(null);
+    try {
+      const code = await scanBarcodeFromPhotoFile(file, html5QrCodeRef.current, { include2D: true });
+      if (code) {
+        playPDVScannerBeep(2100, 0.09);
+        handleBarcodeScannedRef.current(code);
+      } else {
+        showNotification("Não foi possível ler o código na foto. Aproxime mais ou ligue o flash na foto.", "warning");
+      }
+    } catch {
+      showNotification("Erro ao analisar a foto do código. Tente novamente.", "error");
+    } finally {
+      setIsPdvScanningPhoto(false);
+    }
+  };
+
   const handleRequestScannerPermissionInPDV = async () => {
     setScanningError(null);
     try {
@@ -4946,6 +4994,17 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   // Stop all active MediaStream tracks inside the PDV scanner viewport to release hardware lock
   const stopPDVScannerMediaTracks = () => {
+    if (pdvContrastLoopStopRef.current) {
+      try {
+        pdvContrastLoopStopRef.current();
+      } catch {}
+      pdvContrastLoopStopRef.current = null;
+    }
+    try {
+      applyCameraTorch("barcode-scanner-viewport", false);
+    } catch {}
+    setScannerTorchOn(false);
+    setPdvTrackStatus(null);
     try {
       const container = document.getElementById("barcode-scanner-viewport");
       if (container) {
@@ -4996,8 +5055,23 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
     if (isScannerOpen) {
       setScanningError(null);
+      setScannerTorchOn(false);
+      setPdvRefocusFeedback(null);
       // Clean up any lingering hardware tracks before creating a new instance
       stopPDVScannerMediaTracks();
+
+      const handleDecodedPDVCode = (decodedText: string) => {
+        if (!isMounted) return;
+        const clean = decodedText.trim();
+        if (!clean) return;
+        const now = Date.now();
+        // Cooldown curto para não duplicar entre motor nativo e Html5Qrcode
+        if (lastScannedCodeRef.current.code === clean && now - lastScannedCodeRef.current.time < 1200) {
+          return;
+        }
+        lastScannedCodeRef.current = { code: clean, time: now };
+        handleBarcodeScannedRef.current(clean);
+      };
 
       // Wait for DOM to load fully
       const timer = setTimeout(() => {
@@ -5029,37 +5103,37 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           scannerInstance = scanner;
 
           // Camera start configuration: strictly rear camera
-          const cameraConfig = selectedCameraId 
-            ? selectedCameraId 
+          const cameraConfig = selectedCameraId
+            ? selectedCameraId
             : { facingMode: "environment" };
 
           startPromise = scanner.start(
             cameraConfig,
             {
-              fps: 30, // 30 FPS for fast and ultra-smooth reading frames
+              fps: 24,
               qrbox: (viewWidth: number, viewHeight: number) => {
                 // html5-qrcode strictly requires both width and height to be >= 50px
                 const minDimension = 60;
-                const vw = Math.max(minDimension, viewWidth || 280);
+                const vw = Math.max(minDimension, viewWidth || 290);
                 const vh = Math.max(minDimension, viewHeight || 200);
                 const boxWidth = Math.max(minDimension, Math.min(Math.floor(vw * 0.92), 400));
-                const boxHeight = Math.max(minDimension, Math.min(Math.floor(vh * 0.82), 260));
+                const boxHeight = Math.max(minDimension, Math.min(Math.floor(vh * 0.72), 240));
                 return { width: boxWidth, height: boxHeight };
               },
+              videoConstraints: selectedCameraId
+                ? {
+                    deviceId: { exact: selectedCameraId },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                  }
+                : {
+                    facingMode: { ideal: "environment" },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                  },
               aspectRatio: 1.333333
             },
-            (decodedText: string) => {
-              const clean = decodedText.trim();
-              const now = Date.now();
-              // Prevent accidental rapid duplicate scans of the exact same code within 1.2s in continuous mode
-              if (lastScannedCodeRef.current.code === clean && now - lastScannedCodeRef.current.time < 1200) {
-                return;
-              }
-              lastScannedCodeRef.current = { code: clean, time: now };
-              if (isMounted) {
-                handleBarcodeScanned(clean);
-              }
-            },
+            (decodedText: string) => handleDecodedPDVCode(decodedText),
             () => {}
           );
 
@@ -5069,6 +5143,30 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
                 safeStopPDVScanner(scanner);
                 return;
               }
+              // Aguarda stream estabilizar para aplicar zoom 1.5x (permite afastar embalagens p/ foco rápido) + foco contínuo + motor de contraste duplo
+              setTimeout(async () => {
+                if (!isMounted) return;
+                const status = inspectCameraTrackStatus("barcode-scanner-viewport", false);
+                if (status.hasZoom) {
+                  const targetZoom = Math.min(status.maxZoom, Math.max(status.minZoom, 1.5));
+                  const applied = await applyCameraZoom("barcode-scanner-viewport", targetZoom);
+                  if (applied !== null) {
+                    status.currentZoom = applied;
+                    setScannerZoom(applied);
+                  }
+                }
+                setPdvTrackStatus(status);
+                triggerCameraRefocus("barcode-scanner-viewport");
+
+                pdvContrastLoopStopRef.current = startTransparentBottleContrastLoop({
+                  viewportId: "barcode-scanner-viewport",
+                  isEnhancedEnabled: () => pdvTransparentBoostRef.current,
+                  include2D: true,
+                  onDetected: (code) => handleDecodedPDVCode(code),
+                  intervalMs: 210
+                });
+              }, 350);
+
               // Safely enumerate devices now that camera is actively streaming
               if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
                 navigator.mediaDevices.enumerateDevices().then(devices => {
@@ -5092,7 +5190,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
                 } else if (errStr.includes("NotAllowedError") || errStr.includes("Permission denied")) {
                   setScanningError("Acesso à câmera traseira não concedido. No celular, toque no cadeado 🔒 na barra do navegador (topo da tela) para permitir a Câmera.");
                 } else {
-                  setScanningError("Não foi possível acessar a câmera traseira. Verifique as permissões de vídeo do navegador.");
+                  setScanningError("Não foi possível acessar a câmera traseira. Use 'Ler por Foto' abaixo ou digite o código.");
                 }
               }
               stopPDVScannerMediaTracks();
@@ -5105,7 +5203,7 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       return () => {
         isMounted = false;
         clearTimeout(timer);
-        
+
         const scannerToStop = scannerInstance || html5QrCodeRef.current;
         html5QrCodeRef.current = null;
         if (scannerToStop) {
@@ -5116,6 +5214,8 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
           } else {
             safeStopPDVScanner(scannerToStop);
           }
+        } else {
+          stopPDVScannerMediaTracks();
         }
       };
     } else {
@@ -5123,9 +5223,11 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
       html5QrCodeRef.current = null;
       if (scannerToStop) {
         safeStopPDVScanner(scannerToStop);
+      } else {
+        stopPDVScannerMediaTracks();
       }
     }
-  }, [isScannerOpen, selectedCameraId, scannerRetryKey, handleBarcodeScanned]);
+  }, [isScannerOpen, selectedCameraId, scannerRetryKey]);
 
   // Ref to hold the latest values for global keydown handler to prevent stale closures and frequent listener re-creation
   const globalKeyDownRefs = useRef({
@@ -11315,6 +11417,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               <button
                 type="button"
                 onClick={() => {
+                  if (!canAccessFerroVelho()) return;
                   setFerroVelhoInitialTab("carrinho");
                   setFerroVelhoInitialFilter("vidro");
                   setOpMode("ferro_velho");
@@ -11327,6 +11430,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               <button
                 type="button"
                 onClick={() => {
+                  if (!canAccessFerroVelho()) return;
                   setFerroVelhoInitialTab("estoque");
                   setFerroVelhoInitialFilter("outros");
                   setOpMode("ferro_velho");
@@ -11340,6 +11444,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               <button
                 type="button"
                 onClick={() => {
+                  if (!canAccessFerroVelho()) return;
                   setFerroVelhoInitialTab("cargas");
                   setOpMode("ferro_velho");
                   if (onSubTabChange) onSubTabChange("ferro_velho_cargas");
@@ -11753,6 +11858,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               <button
                 type="button"
                 onClick={() => {
+                  if (!canAccessFerroVelho()) return;
                   setFerroVelhoInitialTab("carrinho");
                   setFerroVelhoInitialFilter("vidro");
                   setOpMode("ferro_velho");
@@ -11765,6 +11871,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               <button
                 type="button"
                 onClick={() => {
+                  if (!canAccessFerroVelho()) return;
                   setFerroVelhoInitialTab("estoque");
                   setFerroVelhoInitialFilter("outros");
                   setOpMode("ferro_velho");
@@ -11778,6 +11885,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               <button
                 type="button"
                 onClick={() => {
+                  if (!canAccessFerroVelho()) return;
                   setFerroVelhoInitialTab("guia_plasticos");
                   setOpMode("ferro_velho");
                   if (onSubTabChange) onSubTabChange("ferro_velho_guia");
@@ -16427,7 +16535,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                           </button>
                         </div>
 
-                        {/* Content for TAB 1: De quem é a conta? Denise vs Wellington/Dono */}
+                        {/* Content for TAB 1: De quem é a conta? Comerciante vs Desenvolvedor */}
                         {mpExplainerTab === "titular" && (
                           <div className="bg-slate-950/70 p-3.5 rounded-xl border border-white/5 space-y-2.5">
                             <div className="flex items-center gap-2">
@@ -16439,19 +16547,19 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                               <div className="bg-slate-900/60 p-3 rounded-lg border border-sky-500/20 space-y-1.5">
                                 <span className="font-black text-sky-300 uppercase block flex items-center gap-1">
                                   <Building className="w-3 h-3 text-sky-400" />
-                                  Dono do Estabelecimento (ex: Wellington)
+                                  Dono do Estabelecimento
                                 </span>
                                 <p className="text-slate-300 leading-relaxed">
-                                  O <strong>dono do comércio</strong> é quem deve abrir a conta no Mercado Pago (PF ou PJ). O <strong>Access Token</strong> ou a conexão rápida (OAuth) deve ser da conta dele. Assim, <strong>100% do dinheiro das vendas cai direto na conta bancária do Wellington</strong>!
+                                  O <strong>dono do comércio</strong> é quem deve abrir a conta no Mercado Pago (PF ou PJ). O <strong>Access Token</strong> ou a conexão rápida (OAuth) deve ser da conta dele. Assim, <strong>100% do dinheiro das vendas cai direto na conta bancária do estabelecimento</strong>!
                                 </p>
                               </div>
                               <div className="bg-slate-900/60 p-3 rounded-lg border border-amber-500/20 space-y-1.5">
                                 <span className="font-black text-amber-300 uppercase block flex items-center gap-1">
                                   <User className="w-3 h-3 text-amber-400" />
-                                  Denise Jesus (Programadora & Criadora)
+                                  Sistema Calculadora Cérebro PDV
                                 </span>
                                 <p className="text-slate-300 leading-relaxed">
-                                  Você (Denise) é a <strong>engenheira/desenvolvedora</strong> do sistema. A sua conta de e-mail (denisejesusdasilva1988@gmail.com) <strong>NÃO</strong> deve receber o dinheiro das vendas da loja, a não ser que você seja a dona do estabelecimento. A tecnologia é sua, mas o dinheiro das compras pertence à conta do cliente/dono da loja.
+                                  O sistema fornece a tecnologia de frente de caixa, mas <strong>NÃO</strong> intermedeia nem retém o dinheiro das vendas da loja. O valor das compras vai integralmente e diretamente para a conta conectada pelo dono da loja.
                                 </p>
                               </div>
                             </div>
@@ -16555,7 +16663,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                               <div className="flex items-start gap-2 bg-slate-900/50 p-2 rounded-lg border border-white/5">
                                 <span className="px-2 py-0.5 bg-teal-500 text-slate-950 font-black rounded text-[9px]">2</span>
                                 <div>
-                                  <strong className="text-white">Nome da Loja:</strong> Confirme o nome da Unidade/Loja (ex: "Mercado do Wellington Centro").
+                                  <strong className="text-white">Nome da Loja:</strong> Confirme o nome da Unidade/Loja (ex: "Mercado Central").
                                 </div>
                               </div>
                               <div className="flex items-start gap-2 bg-slate-900/50 p-2 rounded-lg border border-white/5">
@@ -16714,7 +16822,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                             type="email"
                             value={vaultInputEmail}
                             onChange={(e) => setVaultInputEmail(e.target.value)}
-                            placeholder="ex: wellington@comercio.com.br"
+                            placeholder="ex: contato@suaempresa.com.br"
                             className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold"
                           />
                           <span className="text-[8.5px] text-slate-400 block font-sans">Usado para redefinir o PIN caso você o esqueça.</span>
@@ -19966,6 +20074,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
             type="button"
             id="tab-mode-ferro-velho"
             onClick={() => {
+              if (!canAccessFerroVelho()) return;
               setFerroVelhoInitialFilter("vidro");
               setFerroVelhoInitialTab("carrinho");
               setOpMode("ferro_velho");
@@ -19985,6 +20094,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
             type="button"
             id="tab-mode-centro-reciclagem"
             onClick={() => {
+              if (!canAccessFerroVelho()) return;
               setFerroVelhoInitialFilter("outros");
               setFerroVelhoInitialTab("estoque");
               setOpMode("ferro_velho");
@@ -20733,6 +20843,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       <button
                         type="button"
                         onClick={() => {
+                          if (!canAccessFerroVelho()) return;
                           setOpMode("ferro_velho");
                           if (onSubTabChange) onSubTabChange("ferro_velho");
                         }}
@@ -22194,7 +22305,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                             className={`w-full bg-slate-950 border border-white/10 rounded-xl pl-8 pr-2.5 py-2 text-[12.5px] text-white uppercase font-bold outline-none font-sans focus:border-amber-400 ${
                               !hasContactPerm ? "opacity-50 cursor-not-allowed bg-slate-900" : ""
                             }`}
-                            placeholder={hasContactPerm ? "Comanda / Cliente Fiel (ex: Hélio, Denise...)" : "Permissão bloqueada para capturar contato"}
+                            placeholder={hasContactPerm ? "Comanda / Cliente Fiel (ex: Hélio, Maria...)" : "Permissão bloqueada para capturar contato"}
                           />
                           <datalist id="clientes-fieis-datalist">
                             {(() => {
@@ -22214,7 +22325,6 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                               return (
                                 <>
                                   <option value="Hélio da Silva">Cliente Fiel Diário</option>
-                                  <option value="Denise de Jesus">Cliente Fiel Diário</option>
                                   <option value="Evaldo & Verônica">Cliente Frequente (Mercearia)</option>
                                   <option value="Bar do Neném">Cliente Frequente</option>
                                   <option value="Bar da Helena">Cliente Frequente</option>
@@ -23299,7 +23409,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
         )}
       </AnimatePresence>
 
-      {/* MODAL: COMPRA DE GARRAFAS DE VIDRO & CACOS (RECICLAGEM / FERRO VELHO D.W) */}
+      {/* MODAL: COMPRA DE GARRAFAS DE VIDRO & CACOS (RECICLAGEM / FERRO VELHO) */}
       <AnimatePresence>
         {isGlassPurchaseModalOpen && (
           <motion.div
@@ -23317,7 +23427,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        Ferro Velho & Reciclagem D.W
+                        Ferro Velho & Reciclagem
                       </span>
                       <span className="text-[10px] font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
                         Balança Digital & Caderninho
@@ -23399,43 +23509,76 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               </div>
 
               {/* Camera Viewport Container */}
-              <div className="p-5 flex flex-col items-center space-y-3.5">
-                {/* Controls Bar for Torch and Zoom */}
-                <div className="w-full flex items-center justify-between">
-                  <p className="text-[10px] text-slate-400 text-left leading-tight">
-                    {scannerContinuousMode 
-                      ? "⚡ Modo Contínuo: Bipe quantos itens quiser sem fechar a câmera!"
-                      : "Aponte para o código de barras ou QR Code do produto."}
-                  </p>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
+              <div className="p-4 sm:p-5 flex flex-col items-center space-y-3 max-h-[82vh] overflow-y-auto">
+                {/* Controles Reais de Hardware (Lanterna, Refocar, Alto Contraste Vidro/Embalagem Clara) */}
+                <div className="w-full space-y-2">
+                  <div className="grid grid-cols-3 gap-1.5 text-[10px]">
                     <button
                       type="button"
                       onClick={handleTogglePDVScannerTorch}
-                      className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-1 cursor-pointer ${
+                      disabled={pdvTrackStatus ? !pdvTrackStatus.hasTorch : false}
+                      className={`min-h-[38px] px-2 py-1.5 rounded-xl font-black uppercase transition-all flex items-center justify-center gap-1 border cursor-pointer touch-manipulation disabled:opacity-40 ${
                         scannerTorchOn
-                          ? "bg-amber-400 text-slate-950 shadow-md shadow-amber-400/20"
-                          : "bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700"
+                          ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md shadow-amber-400/20"
+                          : "bg-slate-950 text-amber-200 border-amber-500/30 hover:bg-slate-800"
                       }`}
                       title="Ligar ou desligar lanterna"
                     >
-                      <Flashlight className="w-3 h-3" />
-                      <span>{scannerTorchOn ? "Ligada" : "Lanterna"}</span>
+                      <Flashlight className="w-3.5 h-3.5 shrink-0" />
+                      <span>{scannerTorchOn ? "Lanterna ON" : "Lanterna"}</span>
                     </button>
 
                     <button
                       type="button"
-                      onClick={handleTogglePDVScannerZoom}
-                      className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase transition-all flex items-center gap-0.5 cursor-pointer ${
-                        scannerZoom > 1
-                          ? "bg-emerald-400 text-slate-950"
-                          : "bg-slate-800 text-slate-300 hover:text-white"
-                      }`}
-                      title="Alternar Zoom"
+                      onClick={handleTriggerPDVRefocus}
+                      className="min-h-[38px] px-2 py-1.5 rounded-xl font-black uppercase flex items-center justify-center gap-1 bg-slate-950 text-cyan-200 border border-cyan-500/35 hover:bg-slate-800 cursor-pointer touch-manipulation active:scale-95"
+                      title="Forçar câmera a refocar agora"
                     >
-                      <span>🔍 {scannerZoom}x</span>
+                      <Focus className="w-3.5 h-3.5 shrink-0" />
+                      <span>Refocar</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPdvTransparentBoost((v) => !v)}
+                      className={`min-h-[38px] px-2 py-1.5 rounded-xl font-black uppercase flex items-center justify-center gap-1 border cursor-pointer touch-manipulation active:scale-95 ${
+                        pdvTransparentBoost
+                          ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                          : "bg-slate-950 text-slate-300 border-white/15"
+                      }`}
+                      title="Estica contraste e inverte cores para códigos brancos, transparentes ou com reflexo"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                      <span>{pdvTransparentBoost ? "Vidro/Clara ON" : "Contraste"}</span>
                     </button>
                   </div>
+
+                  {pdvTrackStatus?.hasZoom && (
+                    <div className="flex items-center justify-between gap-1.5 bg-slate-950 px-2.5 py-1.5 rounded-xl border border-white/10 text-[10px]">
+                      <span className="text-slate-300 font-bold flex items-center gap-1 shrink-0">
+                        <ZoomIn className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Zoom (afaste ~20cm):</span>
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {[1, 1.5, 2, 2.5]
+                          .filter((z) => z >= pdvTrackStatus.minZoom && z <= pdvTrackStatus.maxZoom + 0.05)
+                          .map((z) => (
+                            <button
+                              key={z}
+                              type="button"
+                              onClick={() => handleSelectPDVScannerZoom(z)}
+                              className={`min-h-[30px] px-2 rounded-lg font-mono font-black border cursor-pointer touch-manipulation ${
+                                Math.abs(scannerZoom - z) < 0.2
+                                  ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                                  : "bg-slate-900 text-slate-300 border-white/10"
+                              }`}
+                            >
+                              {z.toFixed(1).replace(".0", "")}x
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {availableCameras.length > 0 && (
@@ -23459,8 +23602,18 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   </div>
                 )}
 
-                <div className="relative w-full max-w-[440px] min-h-[220px] aspect-[4/3] bg-slate-950 rounded-2xl overflow-hidden border-2 border-emerald-500/40 shadow-2xl shadow-emerald-950/40 flex items-center justify-center">
+                <div
+                  onClick={handleTriggerPDVRefocus}
+                  className="relative w-full max-w-[440px] min-h-[210px] aspect-[4/3] bg-slate-950 rounded-2xl overflow-hidden border-2 border-emerald-500/40 shadow-2xl shadow-emerald-950/40 flex items-center justify-center cursor-pointer"
+                  title="Toque na tela para refocar a câmera"
+                >
                   <div id="barcode-scanner-viewport" className="absolute inset-0 w-full h-full" />
+
+                  {pdvRefocusFeedback && (
+                    <div className="absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-slate-950/85 border border-cyan-400 text-cyan-200 text-[11px] font-black pointer-events-none z-30">
+                      {pdvRefocusFeedback}
+                    </div>
+                  )}
                   
                   {/* Floating Positive Scan Toast Notification */}
                   {lastScannedFeedback && (Date.now() - lastScannedFeedback.timestamp < 3500) && (
@@ -23496,6 +23649,30 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       </button>
                     </div>
                   )}
+                </div>
+
+                {/* Dica para rótulo transparente/branco + Fallback por Foto Nítida */}
+                <div className="w-full space-y-2">
+                  <p className="text-[10px] text-slate-300 leading-snug bg-slate-950/90 px-2.5 py-2 rounded-xl border border-white/10 text-left">
+                    💡 <strong className="text-emerald-300">Rótulo transparente/branco ou brilho:</strong> afaste ~20cm com <strong>Zoom 1.5x</strong>, coloque a mão/fundo escuro atrás do plástico/vidro ou toque na imagem para <strong>Refocar</strong>.
+                  </p>
+                  <input
+                    ref={pdvPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handlePDVPhotoFallback}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => pdvPhotoInputRef.current?.click()}
+                    disabled={isPdvScanningPhoto}
+                    className="w-full min-h-[40px] px-3 py-2 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/50 text-cyan-200 font-black text-[11px] rounded-xl flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation active:scale-95 disabled:opacity-50"
+                  >
+                    <Camera className="w-4 h-4 shrink-0" />
+                    <span>{isPdvScanningPhoto ? "⏳ Analisando foto em alto contraste..." : "📸 Ler por Foto (Câmera Nítida p/ Foco Difícil)"}</span>
+                  </button>
                 </div>
 
                 {/* Mini Live Cart Summary when scanning continuously */}

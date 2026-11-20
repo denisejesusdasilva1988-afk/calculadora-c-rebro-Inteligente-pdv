@@ -12,6 +12,16 @@ if (!fs.existsSync(distDir)) {
   process.exit(1);
 }
 
+// Remover capturas de depuração/anexos antigos de dist/assets/aistudio para não expor imagens privadas no pacote público
+const distAistudioDir = path.join(distDir, 'assets', 'aistudio');
+if (fs.existsSync(distAistudioDir)) {
+  for (const file of fs.readdirSync(distAistudioDir)) {
+    if (file.startsWith('Screenshot_') || /\.(jpg|jpeg)$/i.test(file)) {
+      fs.unlinkSync(path.join(distAistudioDir, file));
+    }
+  }
+}
+
 // Ler itens do diretório dist/ para adicionar seletivamente (evitando arquivos do servidor e o próprio zip anterior)
 const items = fs.readdirSync(distDir);
 for (const item of items) {

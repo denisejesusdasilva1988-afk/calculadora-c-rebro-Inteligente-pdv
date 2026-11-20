@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  * 
  * Painel Administrativo de Moderação de Anúncios de Marketing
- * Exclusivo para Denise (denisejesus1988@gmail.com) e administradores
+ * Exclusivo para administração (calculadoracerebrointeligente@gmail.com) e administradores
  * 
  * Recursos:
  * - Listagem de solicitações pendentes de avaliação
@@ -143,7 +143,7 @@ export const MarketingAdsAdminModeration: React.FC<MarketingAdsAdminModerationPr
 
   return (
     <div className="space-y-6 text-left">
-      {/* Banner Informativo Exclusivo da Denise */}
+      {/* Banner Informativo Exclusivo da Administração */}
       <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-red-950 p-5 rounded-3xl border border-red-500/30 flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center shrink-0">
@@ -151,7 +151,7 @@ export const MarketingAdsAdminModeration: React.FC<MarketingAdsAdminModerationPr
           </div>
           <div className="space-y-1">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-500/20 text-red-300 text-[10px] font-black uppercase tracking-wider">
-              Painel Denise (denisejesus1988@gmail.com)
+              Painel Administrativo (calculadoracerebrointeligente@gmail.com)
             </div>
             <h3 className="text-base sm:text-lg font-black text-white">
               Moderação de Anúncios e Encartes Pagos
@@ -265,7 +265,7 @@ export const MarketingAdsAdminModeration: React.FC<MarketingAdsAdminModerationPr
                               : "bg-slate-800 text-slate-400"
                           }`}
                         >
-                          {isPending ? "Aguardando Denise Avaliar" : isApproved ? `No Ar (${remainingDays}d restantes)` : "Expirado"}
+                          {isPending ? "Aguardando Avaliação" : isApproved ? `No Ar (${remainingDays}d restantes)` : "Expirado"}
                         </span>
                         <span className="text-[10px] font-mono text-emerald-400 font-bold">
                           R$ {ad.pricePaid.toFixed(2).replace(".", ",")}

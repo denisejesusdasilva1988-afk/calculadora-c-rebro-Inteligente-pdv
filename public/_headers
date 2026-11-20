@@ -1,9 +1,18 @@
-# Controle de cache para arquivos criticos
+# Controle de cache e cabecalhos para PWA e Google Play Store (TWA / Digital Asset Links)
+/.well-known/assetlinks.json
+  Content-Type: application/json
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-cache, no-store, must-revalidate
+  CDN-Cache-Control: no-cache
+
 /sw.js
+  Content-Type: application/javascript
   Cache-Control: no-cache, no-store, must-revalidate
   CDN-Cache-Control: no-cache
 
 /manifest.json
+  Content-Type: application/manifest+json
+  Access-Control-Allow-Origin: *
   Cache-Control: no-cache, no-store, must-revalidate
   CDN-Cache-Control: no-cache
 
@@ -12,6 +21,7 @@
   CDN-Cache-Control: no-cache
 
 /version.json
+  Content-Type: application/json
   Cache-Control: no-cache, no-store, must-revalidate
   CDN-Cache-Control: no-cache
 
@@ -21,4 +31,3 @@
   X-Frame-Options: SAMEORIGIN
   X-Content-Type-Options: nosniff
   X-XSS-Protection: 1; mode=block
-
