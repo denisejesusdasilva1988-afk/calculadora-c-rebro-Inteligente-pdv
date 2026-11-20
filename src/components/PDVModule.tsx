@@ -138,6 +138,8 @@ import { PDVPrinterConfigModal } from "./PDVPrinterConfigModal";
 import { PDVPrinterConfigView } from "./PDVPrinterConfigView";
 import { TechRecyclingTradeCalculator } from "./pricing/TechRecyclingTradeCalculator";
 import { GlassBarcodeScannerCart, PdvSyncedFinancialEvent } from "./pricing/GlassBarcodeScannerCart";
+import { computeGlassCatalogSummary } from "../utils/scrapHardwareHelper";
+import { readLocalGlassCatalog } from "../utils/glassYardCloudSync";
 import { 
   PrinterConfig, 
   loadPrinterConfig, 
@@ -1500,7 +1502,13 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [orcamentoSeedItems, setOrcamentoSeedItems] = useState<{ name: string; price: number; quantity: number; unit?: string }[] | undefined>(undefined);
   const [ferroVelhoInitialTab, setFerroVelhoInitialTab] = useState<"carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos">(() => {
     if (activeSubTab === "ferro_velho_guia" || activeSubTab === "guia_plasticos") return "guia_plasticos";
-    if (activeSubTab === "ferro_velho_outros" || activeSubTab === "balanca_reciclagem") return "estoque";
+    if (
+      activeSubTab === "ferro_velho_outros" ||
+      activeSubTab === "balanca_reciclagem" ||
+      activeSubTab === "reciclagem"
+    ) {
+      return "estoque";
+    }
     try {
       const saved = localStorage.getItem("pdv_fv_initial_tab_v1");
       if (saved === "carrinho" || saved === "caderninho" || saved === "estoque" || saved === "cargas" || saved === "guia_plasticos") {
@@ -1516,7 +1524,16 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   }, [ferroVelhoInitialTab]);
 
   const [ferroVelhoInitialFilter, setFerroVelhoInitialFilter] = useState<"vidro" | "outros">(() => {
-    if (activeSubTab === "ferro_velho_outros" || activeSubTab === "balanca_reciclagem") return "outros";
+    if (
+      activeSubTab === "ferro_velho_outros" ||
+      activeSubTab === "balanca_reciclagem" ||
+      activeSubTab === "reciclagem"
+    ) {
+      return "outros";
+    }
+    if (activeSubTab === "patio" || activeSubTab === "vidros" || activeSubTab === "ferro_velho") {
+      return "vidro";
+    }
     try {
       const saved = localStorage.getItem("pdv_fv_initial_filter_v1");
       if (saved === "vidro" || saved === "outros") return saved;
@@ -1614,9 +1631,15 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   useEffect(() => {
     const bump = () => setYardSummaryVersion((v) => v + 1);
     window.addEventListener("dw_glass_yard_updated", bump);
+    window.addEventListener("dw_glass_catalog_updated", bump);
+    window.addEventListener("dw_glass_zero_yard", bump);
+    window.addEventListener("dw_glass_zero_yard_from_child", bump);
     window.addEventListener("storage", bump);
     return () => {
       window.removeEventListener("dw_glass_yard_updated", bump);
+      window.removeEventListener("dw_glass_catalog_updated", bump);
+      window.removeEventListener("dw_glass_zero_yard", bump);
+      window.removeEventListener("dw_glass_zero_yard_from_child", bump);
       window.removeEventListener("storage", bump);
     };
   }, []);
@@ -1624,19 +1647,13 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const ferroVelhoLiveSummary = useMemo(() => {
     void yardSummaryVersion;
     try {
-      const catRaw = localStorage.getItem("pdv_dw_glass_catalog_v10");
-      const cat: Array<{ stockUnits?: number; unitWeightKg?: number; unitWeightGrams?: number }> = catRaw ? JSON.parse(catRaw) : [];
-      const glassUnits = Array.isArray(cat) ? cat.reduce((s, b) => s + (Number(b.stockUnits) || 0), 0) : 0;
-      const glassKg = Array.isArray(cat)
-        ? cat.reduce((s, b) => {
-            const unitKg = Number(b.unitWeightKg) || (Number(b.unitWeightGrams) || 0) / 1000;
-            return s + (Number(b.stockUnits) || 0) * unitKg;
-          }, 0)
-        : 0;
-
+      const cat = readLocalGlassCatalog();
       const goalKg = Math.max(500, Number(localStorage.getItem("pdv_dw_yard_goal_kg")) || 3000);
       const sellPricePerTon = Math.max(50, Number(localStorage.getItem("pdv_dw_sell_price_per_ton")) || 150);
-      const estimatedGlassPlantValue = (glassKg / 1000) * sellPricePerTon;
+      const glassSummary = computeGlassCatalogSummary(cat, sellPricePerTon / 1000);
+      const glassUnits = glassSummary.totalUnits;
+      const glassKg = glassSummary.totalWeightKg;
+      const estimatedGlassPlantValue = glassSummary.grossRevenueTon;
 
       const scrapRaw = localStorage.getItem("pdv_dw_other_scrap_materials_v1");
       const scrapList: Array<{
@@ -2710,11 +2727,16 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
         activeSubTab === "guia_plasticos" ||
         activeSubTab === "balanca_reciclagem" ||
         activeSubTab === "patio" ||
+        activeSubTab === "vidros" ||
         activeSubTab === "reciclagem"
       ) {
         if (activeSubTab === "ferro_velho_guia" || activeSubTab === "guia_plasticos") {
           setFerroVelhoInitialTab("guia_plasticos");
-        } else if (activeSubTab === "ferro_velho_outros" || activeSubTab === "balanca_reciclagem") {
+        } else if (
+          activeSubTab === "ferro_velho_outros" ||
+          activeSubTab === "balanca_reciclagem" ||
+          activeSubTab === "reciclagem"
+        ) {
           setFerroVelhoInitialTab("estoque");
           setFerroVelhoInitialFilter("outros");
         } else {

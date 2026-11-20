@@ -43,7 +43,8 @@ import {
   Zap,
   Filter,
   Recycle,
-  BookOpen
+  BookOpen,
+  Cloud
 } from "lucide-react";
 
 interface BalcaoComandosModuleProps {
@@ -401,6 +402,21 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
       borderColor: "border-amber-500/40 hover:border-amber-400",
       textColor: "text-amber-300",
       iconBg: "bg-amber-500/20 text-amber-300"
+    },
+    {
+      id: "sincronizar_patios",
+      title: "Sincronizar Pátios na Nuvem",
+      subtitle: "Espelhar contagem de garrafas, kg e caderninho entre IA Google Studio e Chrome App",
+      category: "vendas",
+      categoryLabel: "Sincronização",
+      icon: Cloud,
+      badge: "Nuvem ☁️🔄",
+      actionKey: "sincronizar_patios",
+      keywords: ["sincronizar", "patio", "nuvem", "chrome", "app", "vidros", "reciclagem", "contagem", "garrafas", "kg", "espelhar"],
+      gradient: "from-cyan-600/25 to-indigo-950/45",
+      borderColor: "border-cyan-400/50 hover:border-cyan-300",
+      textColor: "text-cyan-300",
+      iconBg: "bg-cyan-500/20 text-cyan-300"
     },
     // Segmentos e Agendas
     {

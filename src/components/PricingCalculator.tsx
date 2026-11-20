@@ -90,7 +90,17 @@ class PricingErrorBoundary extends Component<PricingErrorBoundaryProps, PricingE
   }
 }
 
-export function PricingCalculator() {
+export interface PricingCalculatorProps {
+  db?: any;
+  userId?: string;
+  showNotification?: (msg: string, type?: any) => void;
+}
+
+export const PricingCalculator: React.FC<PricingCalculatorProps> = ({
+  db,
+  userId,
+  showNotification: externalShowNotification
+}) => {
   const [calculatorType, setCalculatorType] = useState<
     "culinary" | "commercial" | "bakery" | "butcher" | "retail" | "tech_trade" | "glass_recycling"
   >(() => {
@@ -117,9 +127,13 @@ export function PricingCalculator() {
   const [productName, setProductName] = useState("");
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
-  const showNotification = (msg: string, type: "success" | "error" | "info" | "warning") => {
-    setFeedbackMsg(msg);
-    setTimeout(() => setFeedbackMsg(null), 3500);
+  const showNotification = (msg: string, type: "success" | "error" | "info" | "warning" = "info") => {
+    if (externalShowNotification) {
+      externalShowNotification(msg, type === "warning" ? "info" : type);
+    } else {
+      setFeedbackMsg(msg);
+      setTimeout(() => setFeedbackMsg(null), 3500);
+    }
   };
   
   // Tab 1 state (Recommended markup)
@@ -374,7 +388,7 @@ export function PricingCalculator() {
       {/* RENDERIZAÇÃO DO MODO SELECIONADO */}
       {calculatorType === "glass_recycling" && (
         <PricingErrorBoundary calculatorTitle="Calculadora de Vidros & Ferro-Velho" storageKeyToClear="pdv_glass_items_inventory_v1">
-          <GlassRecyclingCalculator showNotification={showNotification} />
+          <GlassRecyclingCalculator db={db} userId={userId} showNotification={showNotification} />
         </PricingErrorBoundary>
       )}
 

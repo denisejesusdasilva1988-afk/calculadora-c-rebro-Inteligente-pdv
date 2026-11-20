@@ -773,7 +773,9 @@ export interface ThermalCanvasReceiptPayload {
     totalPaid: number;
     balancePending: number;
     totalWeightKg?: number;
+    totalBottles?: number;
     totalDeliveries?: number;
+    isFounder?: boolean;
   };
   footerNote?: string;
   copies: 1 | 2;
@@ -856,7 +858,33 @@ export function buildThermalDocumentHtmlFromPayload(
       .join("");
 
     const caderninhoHtml = payload.caderninhoBox
-      ? `<div style="border:1.5px solid #000;padding:4px;margin-top:6px;font-size:${fontSmallPx}px;">
+      ? payload.caderninhoBox.isFounder
+        ? `<div style="border:1.5px solid #000;padding:4px;margin-top:6px;font-size:${fontSmallPx}px;">
+          <div style="text-align:center;font-weight:900;border-bottom:1px dashed #000;padding-bottom:2px;margin-bottom:3px;">
+            ACUMULADO - COLETA PRÓPRIA
+          </div>
+          ${
+            typeof payload.caderninhoBox.totalBottles === "number" && payload.caderninhoBox.totalBottles > 0
+              ? `<div style="display:flex;justify-content:space-between;font-weight:900;">
+                  <span>GARRAFAS ACUMULADAS:</span>
+                  <span>${payload.caderninhoBox.totalBottles} un</span>
+                </div>`
+              : ""
+          }
+          ${
+            typeof payload.caderninhoBox.totalWeightKg === "number"
+              ? `<div style="display:flex;justify-content:space-between;font-weight:900;">
+                  <span>PESO ACUMULADO (${payload.caderninhoBox.totalDeliveries || 0} ent.):</span>
+                  <span>${payload.caderninhoBox.totalWeightKg.toFixed(2).replace(".", ",")} kg</span>
+                </div>`
+              : ""
+          }
+          <div style="display:flex;justify-content:space-between;border-top:1px dashed #000;margin-top:2px;padding-top:2px;font-weight:900;">
+            <span>ECONOMIA ACUMULADA:</span>
+            <span>R$ ${payload.caderninhoBox.totalEarned.toFixed(2).replace(".", ",")}</span>
+          </div>
+        </div>`
+        : `<div style="border:1.5px solid #000;padding:4px;margin-top:6px;font-size:${fontSmallPx}px;">
           <div style="text-align:center;font-weight:900;border-bottom:1px dashed #000;padding-bottom:2px;margin-bottom:3px;">
             CADERNINHO - CONFERÊNCIA
           </div>
@@ -873,8 +901,13 @@ export function buildThermalDocumentHtmlFromPayload(
             <span>R$ ${payload.caderninhoBox.balancePending.toFixed(2).replace(".", ",")}</span>
           </div>
           ${
+            typeof payload.caderninhoBox.totalBottles === "number" && payload.caderninhoBox.totalBottles > 0
+              ? `<div style="font-size:${fontSmallPx}px;margin-top:2px;font-weight:900;">GARRAFAS ACUM.: ${payload.caderninhoBox.totalBottles} un</div>`
+              : ""
+          }
+          ${
             typeof payload.caderninhoBox.totalWeightKg === "number"
-              ? `<div style="font-size:${fontSmallPx}px;margin-top:2px;">PESO ACUM.: ${payload.caderninhoBox.totalWeightKg.toFixed(2)} kg (${payload.caderninhoBox.totalDeliveries || 0} entregas)</div>`
+              ? `<div style="font-size:${fontSmallPx}px;margin-top:2px;">PESO ACUM.: ${payload.caderninhoBox.totalWeightKg.toFixed(2).replace(".", ",")} kg (${payload.caderninhoBox.totalDeliveries || 0} entregas)</div>`
               : ""
           }
           <div style="margin-top:4px;border-top:1px dotted #000;padding-top:3px;font-size:${Math.max(7.5, fontSmallPx - 0.5)}px;">
@@ -1192,33 +1225,57 @@ export async function generateMiniPrint57mmPngBlob(
     if (payload.caderninhoBox) {
       y += 4;
       const boxStartY = y;
-      addCenteredText("CONFERÊNCIA DO CADERNINHO", FONT_BOLD, 26);
-      addKeyValueRow(
-        "TOTAL COMPRADO:",
-        `R$ ${payload.caderninhoBox.totalEarned.toFixed(2).replace(".", ",")}`,
-        FONT_BODY,
-        25
-      );
-      addKeyValueRow(
-        "TOTAL JÁ PAGO:",
-        `R$ ${payload.caderninhoBox.totalPaid.toFixed(2).replace(".", ",")}`,
-        FONT_BODY,
-        25
-      );
-      addKeyValueRow(
-        "SALDO A ACERTAR:",
-        `R$ ${payload.caderninhoBox.balancePending.toFixed(2).replace(".", ",")}`,
-        FONT_BIG,
-        30
-      );
-      if (typeof payload.caderninhoBox.totalWeightKg === "number") {
-        addLeftText(
-          `PESO ACUMULADO: ${payload.caderninhoBox.totalWeightKg.toFixed(2)} kg (${payload.caderninhoBox.totalDeliveries || 0} entregas)`,
-          FONT_SMALL,
-          22
+      if (payload.caderninhoBox.isFounder) {
+        addCenteredText("ACUMULADO - COLETA PRÓPRIA", FONT_BOLD, 26);
+        if (typeof payload.caderninhoBox.totalBottles === "number" && payload.caderninhoBox.totalBottles > 0) {
+          addKeyValueRow("GARRAFAS ACUM.:", `${payload.caderninhoBox.totalBottles} un`, FONT_BOLD, 26);
+        }
+        if (typeof payload.caderninhoBox.totalWeightKg === "number") {
+          addKeyValueRow(
+            `PESO (${payload.caderninhoBox.totalDeliveries || 0} ENT.):`,
+            `${payload.caderninhoBox.totalWeightKg.toFixed(2).replace(".", ",")} kg`,
+            FONT_BOLD,
+            26
+          );
+        }
+        addKeyValueRow(
+          "ECONOMIA ACUM.:",
+          `R$ ${payload.caderninhoBox.totalEarned.toFixed(2).replace(".", ",")}`,
+          FONT_BOLD,
+          26
         );
+      } else {
+        addCenteredText("CONFERÊNCIA DO CADERNINHO", FONT_BOLD, 26);
+        addKeyValueRow(
+          "TOTAL COMPRADO:",
+          `R$ ${payload.caderninhoBox.totalEarned.toFixed(2).replace(".", ",")}`,
+          FONT_BODY,
+          25
+        );
+        addKeyValueRow(
+          "TOTAL JÁ PAGO:",
+          `R$ ${payload.caderninhoBox.totalPaid.toFixed(2).replace(".", ",")}`,
+          FONT_BODY,
+          25
+        );
+        addKeyValueRow(
+          "SALDO A ACERTAR:",
+          `R$ ${payload.caderninhoBox.balancePending.toFixed(2).replace(".", ",")}`,
+          FONT_BIG,
+          30
+        );
+        if (typeof payload.caderninhoBox.totalBottles === "number" && payload.caderninhoBox.totalBottles > 0) {
+          addKeyValueRow("GARRAFAS ACUM.:", `${payload.caderninhoBox.totalBottles} un`, FONT_BOLD, 25);
+        }
+        if (typeof payload.caderninhoBox.totalWeightKg === "number") {
+          addLeftText(
+            `PESO ACUMULADO: ${payload.caderninhoBox.totalWeightKg.toFixed(2).replace(".", ",")} kg (${payload.caderninhoBox.totalDeliveries || 0} entregas)`,
+            FONT_SMALL,
+            22
+          );
+        }
+        addLeftText("[ ] Grampeado Empresa   [ ] Conferido", FONT_SMALL, 22);
       }
-      addLeftText("[ ] Grampeado Empresa   [ ] Conferido", FONT_SMALL, 22);
       const boxEndY = y + 4;
       cmds.push((c) => {
         c.strokeStyle = "#000000";

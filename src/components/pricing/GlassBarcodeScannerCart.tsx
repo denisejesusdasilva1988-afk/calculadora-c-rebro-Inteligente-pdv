@@ -61,11 +61,18 @@ import {
   Pin,
   StickyNote,
   Image as ImageIcon,
-  Maximize2
+  Maximize2,
+  Download,
+  Upload
 } from "lucide-react";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import {
+  normalizeGlassCatalogList,
+  hasMeaningfulGlassYardData,
+  syncGlassYardWithCloud
+} from "../../utils/glassYardCloudSync";
 import { SmartNumericInput } from "./SmartNumericInput";
 import { PlasticRecyclingGuidePanel } from "./PlasticRecyclingGuidePanel";
 import {
@@ -682,8 +689,14 @@ const DEFAULT_CATEGORY_WEIGHT_GRAMS: Record<string, number> = {
   outro: 350
 };
 
-// Cálculo de unidades no lote de R$ 0,50 calibrado dinamicamente pelo PESO REAL da garrafa
-// e pela cotação ativa do Victor, garantindo ~38% de lucro para a sua empresa sem prejuízo!
+export const GLASS_BUY_RATE_SHARE = 0.62; // Paga 62% ao reciclador e retém 38% de margem bruta no pátio
+
+export const getExactGlassBuyRatePerKg = (sellPricePerKg = 0.15): number => {
+  const effectiveSellKg = sellPricePerKg > 0 ? sellPricePerKg : 0.15;
+  return Math.round((effectiveSellKg * GLASS_BUY_RATE_SHARE + Number.EPSILON) * 10000) / 10000;
+};
+
+// Cálculo de unidades aproximadas no lote de R$ 0,50 (referência visual)
 export const getVictorSafeLotUnits = (
   category: string,
   sellPricePerKg = 0.15,
@@ -696,13 +709,36 @@ export const getVictorSafeLotUnits = (
       ? unitWeightGrams
       : DEFAULT_CATEGORY_WEIGHT_GRAMS[category] || 350;
 
-  // Margem protegida de ~38%: compramos pagando 62% do valor pago pelo Victor na usina
-  const buyTargetPerKg = effectiveSellKg * 0.62;
+  const buyTargetPerKg = getExactGlassBuyRatePerKg(effectiveSellKg);
   const targetLotGrams = (0.50 / buyTargetPerKg) * 1000;
   return Math.max(1, Math.round(targetLotGrams / grams));
 };
 
-// Cálculo de custo de lote e centavos com proteção automática de margem POR PESO
+// Preço unitário exato por garrafa calculado diretamente pelo peso real em gramas × tarifa/kg do portão
+export const getExactGlassUnitBuyPrice = (
+  category: string,
+  defaultUnitCost?: number,
+  sellPricePerKg = 0.15,
+  unitWeightGrams?: number
+): number => {
+  const effectiveSellKg = sellPricePerKg > 0 ? sellPricePerKg : 0.15;
+  if (category === "caco") {
+    const weightKg = (unitWeightGrams && unitWeightGrams > 0 ? unitWeightGrams : 5000) / 1000;
+    const isDefault150Tier = effectiveSellKg >= 0.145 && effectiveSellKg <= 0.155;
+    if (isDefault150Tier && defaultUnitCost && defaultUnitCost > 0) {
+      return defaultUnitCost;
+    }
+    return Math.max(0.05, roundCurrencyBrl(weightKg * getExactGlassBuyRatePerKg(effectiveSellKg)));
+  }
+
+  const grams =
+    unitWeightGrams && unitWeightGrams > 0
+      ? unitWeightGrams
+      : DEFAULT_CATEGORY_WEIGHT_GRAMS[category] || 350;
+  return (grams / 1000) * getExactGlassBuyRatePerKg(effectiveSellKg);
+};
+
+// Cálculo EXATO de custo por peso real (100% proporcional em kg/gramas sem distorção de lote)
 export const calculateGlassBuyCost = (
   category: string,
   quantity: number,
@@ -711,25 +747,11 @@ export const calculateGlassBuyCost = (
   unitWeightGrams?: number
 ): number => {
   if (quantity <= 0) return 0;
-  const effectiveSellKg = sellPricePerKg > 0 ? sellPricePerKg : 0.15;
-
-  if (category === "caco") {
-    const weightKg = (unitWeightGrams && unitWeightGrams > 0 ? unitWeightGrams : 5000) / 1000;
-    const isDefault150Tier = effectiveSellKg >= 0.145 && effectiveSellKg <= 0.155;
-    const unitCost =
-      isDefault150Tier && defaultUnitCost && defaultUnitCost > 0
-        ? defaultUnitCost
-        : Math.max(0.05, Number((weightKg * effectiveSellKg * 0.62).toFixed(2)));
-    return Math.round(quantity * unitCost * 100) / 100;
-  }
-
-  // Todas as garrafas e potes de vidro (incluindo 600ml e Litrão!) são pagos normalmente CONFORME O PESO
-  const lotUnits = getVictorSafeLotUnits(category, effectiveSellKg, unitWeightGrams);
-  const cost = quantity * (0.50 / lotUnits);
-  return Math.round(cost * 100) / 100;
+  const unitPrice = getExactGlassUnitBuyPrice(category, defaultUnitCost, sellPricePerKg, unitWeightGrams);
+  return roundCurrencyBrl(quantity * unitPrice);
 };
 
-// Rótulo explicativo claro em centavos e peso real para cada garrafa
+// Rótulo explicativo claro em centavos, tarifa por kg e peso real para cada garrafa
 export const getBottleCentavosLabel = (
   category: string,
   defaultUnitCost?: number,
@@ -737,10 +759,11 @@ export const getBottleCentavosLabel = (
   unitWeightGrams?: number
 ): string => {
   const effectiveSellKg = sellPricePerKg > 0 ? sellPricePerKg : 0.15;
+  const buyRatePerKg = getExactGlassBuyRatePerKg(effectiveSellKg);
   if (category === "caco") {
     const kg = (unitWeightGrams && unitWeightGrams > 0 ? unitWeightGrams : 5000) / 1000;
     const unitCost = calculateGlassBuyCost("caco", 1, defaultUnitCost, effectiveSellKg, unitWeightGrams);
-    return `~${kg.toFixed(0)}kg = R$ ${unitCost.toFixed(2)} por un (Lucro ~38%)`;
+    return `~${kg.toFixed(0)}kg = R$ ${unitCost.toFixed(2)} por un (R$ ${buyRatePerKg.toFixed(3).replace(".", ",")}/kg)`;
   }
 
   const grams =
@@ -748,11 +771,40 @@ export const getBottleCentavosLabel = (
       ? unitWeightGrams
       : DEFAULT_CATEGORY_WEIGHT_GRAMS[category] || 350;
   const lotUnits = getVictorSafeLotUnits(category, effectiveSellKg, grams);
-  const centavos = ((0.50 / lotUnits) * 100).toFixed(2);
+  const unitCents = (getExactGlassUnitBuyPrice(category, defaultUnitCost, effectiveSellKg, grams) * 100).toFixed(2).replace(".", ",");
   const itemLabel = category === "pote" ? "pote" : "garrafa";
 
-  return `${centavos}¢ por ${itemLabel} (${lotUnits} un = R$ 0,50 • ${grams}g/un)`;
+  return `${unitCents}¢/${itemLabel} • R$ ${buyRatePerKg.toFixed(3).replace(".", ",")}/kg (${grams}g/un • ~${lotUnits} un ≈ R$ 0,50)`;
 };
+
+function getGlassTicketMathSummary(ticket: CompletedPurchaseTicket, fallbackSellTon = 150) {
+  const sellPerTon = Number(ticket.sellPricePerTonUsed) > 0 ? Number(ticket.sellPricePerTonUsed) : fallbackSellTon;
+  const sellPerKg = sellPerTon / 1000;
+  const buyPerKg = getExactGlassBuyRatePerKg(sellPerKg);
+  const itemsSum = roundCurrencyBrl(
+    (ticket.items || []).reduce((s, it) => s + roundCurrencyBrl(Number(it.costPaid) || 0), 0)
+  );
+  const weightKg = roundWeightKg(Number(ticket.totalWeightKg) || 0);
+  const plantGrossValue = roundCurrencyBrl(
+    Number(ticket.expectedPlantRevenue) > 0 ? Number(ticket.expectedPlantRevenue) : weightKg * sellPerKg
+  );
+  const bonus = roundCurrencyBrl(Number(ticket.bonusAmount) || 0);
+  const discount = roundCurrencyBrl(Number(ticket.discountAmount) || 0);
+  const netPayable = ticket.isFounder ? 0 : roundCurrencyBrl(Number(ticket.totalPaid) || Math.max(0, itemsSum + bonus - discount));
+  const companyMarginValue = roundCurrencyBrl(
+    ticket.isFounder ? plantGrossValue : Math.max(0, plantGrossValue - netPayable)
+  );
+  return {
+    sellPerTon,
+    sellPerKg,
+    buyPerKg,
+    itemsSum,
+    weightKg,
+    plantGrossValue,
+    netPayable,
+    companyMarginValue
+  };
+}
 
 // Som sonoro de bip do scanner
 const playScannerBeep = (freq = 1900, duration = 0.08) => {
@@ -968,11 +1020,19 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
             <div>TICKET: ${ticket.id.slice(-8).toUpperCase()}</div>
             <div style="font-weight:900;">PARCEIRO: ${ticket.collectorName.toUpperCase()}</div>
             <div style="font-weight:900;">STATUS: ${ticket.isCancelled ? "CANCELADA / ESTORNADA" : statusLabel}</div>
-            ${
-              ticket.isScrapPurchase
-                ? `<div>MODALIDADE: FERRO VELHO &amp; RECICLAGEM</div>`
-                : `<div>BASE TABELA VIDROS: R$ ${ticket.sellPricePerTonUsed || 150}/ton (R$ ${(((ticket.sellPricePerTonUsed || 150) / 1000)).toFixed(2).replace(".", ",")}/kg)</div>`
-            }
+            ${(() => {
+              if (ticket.isScrapPurchase) {
+                return `<div>MODALIDADE: FERRO VELHO &amp; RECICLAGEM</div>`;
+              }
+              const m = getGlassTicketMathSummary(ticket);
+              if (ticket.isFounder) {
+                return `
+                  <div>TARIFA PORTÃO (62%): R$ ${m.buyPerKg.toFixed(3).replace(".", ",")}/kg</div>
+                  <div>COTAÇÃO USINA (100%): R$ ${m.sellPerTon}/t (R$ ${m.sellPerKg.toFixed(2).replace(".", ",")}/kg)</div>
+                `;
+              }
+              return `<div>TARIFA COMPRA PORTÃO: R$ ${m.buyPerKg.toFixed(3).replace(".", ",")}/kg</div>`;
+            })()}
             ${
               !ticket.isFounder && ticket.paymentStatus === "pendente_caderninho" && ticket.agreedPaymentDateSnapshot
                 ? `<div style="font-weight:900;border:1px solid #000;padding:2px 4px;margin-top:3px;">PREVISÃO PAGTO: ${ticket.agreedPaymentDateSnapshot.toUpperCase()}</div>`
@@ -1000,7 +1060,7 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
             }
             <div style="display:flex;justify-content:space-between;font-weight:900;">
               <span>${ticket.isScrapPurchase ? "PESO TOTAL COMPRADO:" : "PESO SOMADO PÁTIO:"}</span>
-              <span>+${ticket.totalWeightKg.toFixed(2)} kg</span>
+              <span>+${ticket.totalWeightKg.toFixed(2).replace(".", ",")} kg</span>
             </div>
             ${
               typeof ticket.subtotalAmount === "number" && ((ticket.bonusAmount || 0) > 0 || (ticket.discountAmount || 0) > 0)
@@ -1026,14 +1086,24 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
                   </div>`
                 : ""
             }
-            ${
-              ticket.isFounder
-                ? `<div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;font-weight:900;margin-top:2px;">
-                    <span>ECONOMIA PRÓPRIA (VALOR EQUIV.):</span>
-                    <span>R$ ${ticket.items.reduce((s, it) => s + it.costPaid, 0).toFixed(2).replace(".", ",")}</span>
-                  </div>`
-                : ""
-            }
+            ${(() => {
+              if (!ticket.isFounder) return "";
+              const m = getGlassTicketMathSummary(ticket);
+              return `
+                <div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;font-weight:900;margin-top:2px;">
+                  <span>ECONOMIA PORTÃO (${ticket.isScrapPurchase ? "COMPRA" : "62%"}):</span>
+                  <span>R$ ${m.itemsSum.toFixed(2).replace(".", ",")}</span>
+                </div>
+                ${
+                  !ticket.isScrapPurchase
+                    ? `<div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;font-weight:900;">
+                        <span>VALOR BRUTO USINA (100%):</span>
+                        <span>R$ ${m.plantGrossValue.toFixed(2).replace(".", ",")}</span>
+                      </div>`
+                    : ""
+                }
+              `;
+            })()}
             <div style="display:flex;justify-content:space-between;font-size:${fontHeaderPx}px;font-weight:900;border-top:1px solid #000;border-bottom:1px solid #000;padding:3px 0;margin:4px 0;${ticket.isCancelled ? "text-decoration:line-through;" : ""}">
               <span>${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL LÍQUIDO:"}</span>
               <span>R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2).replace(".", ",")}</span>
@@ -1042,7 +1112,7 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
               ticket.isScrapPurchase
                 ? ""
                 : `<div style="font-size:${fontSmallPx}px;text-align:center;">
-                    PÁTIO ATUAL: ${yardCurrentKg.toFixed(1)} kg / ${yardGoalKg.toLocaleString("pt-BR")} kg
+                    PÁTIO ATUAL: ${yardCurrentKg.toFixed(2).replace(".", ",")} kg / ${yardGoalKg.toLocaleString("pt-BR")} kg
                   </div>`
             }
           </div>
@@ -1167,16 +1237,49 @@ export function GlassBarcodeScannerCart({
               additionalBarcodes: Array.isArray(item.additionalBarcodes) ? item.additionalBarcodes : []
             };
           });
-          return [...merged, ...missing.map((m) => ({ ...m, additionalBarcodes: m.additionalBarcodes || [] }))];
+          return normalizeGlassCatalogList([
+            ...merged,
+            ...missing.map((m) => ({ ...m, additionalBarcodes: m.additionalBarcodes || [] }))
+          ]);
         }
       }
     } catch {}
-    return DEFAULT_BOTTLE_CATALOG.map((b) => ({
-      ...b,
-      stockUnits: 0,
-      additionalBarcodes: Array.isArray(b.additionalBarcodes) ? b.additionalBarcodes : []
-    }));
+    return normalizeGlassCatalogList(
+      DEFAULT_BOTTLE_CATALOG.map((b) => ({
+        ...b,
+        stockUnits: 0,
+        additionalBarcodes: Array.isArray(b.additionalBarcodes) ? b.additionalBarcodes : []
+      }))
+    );
   });
+
+  const catalogRef = useRef<CatalogBottleItem[]>(catalog);
+  catalogRef.current = catalog;
+
+  const commitCatalogUpdate = (
+    updater: CatalogBottleItem[] | ((prev: CatalogBottleItem[]) => CatalogBottleItem[]),
+    extraEvents: string[] = []
+  ): CatalogBottleItem[] => {
+    const base = catalogRef.current;
+    const rawNext = typeof updater === "function" ? updater(base) : updater;
+    const normalized = normalizeGlassCatalogList(rawNext);
+    catalogRef.current = normalized;
+    setCatalog(normalized);
+    try {
+      localStorage.setItem("pdv_dw_glass_zero_clean_v10", "true");
+      localStorage.setItem("pdv_dw_glass_catalog_v10", JSON.stringify(normalized));
+    } catch {}
+    if (typeof window !== "undefined") {
+      try {
+        window.dispatchEvent(new CustomEvent("dw_glass_catalog_updated", { detail: normalized }));
+        window.dispatchEvent(new CustomEvent("dw_glass_yard_updated"));
+        extraEvents.forEach((evName) => {
+          window.dispatchEvent(new CustomEvent(evName));
+        });
+      } catch {}
+    }
+    return normalized;
+  };
 
   // Meta configurável do pátio de vidros (padrão 3.000 kg = Caminhão do Victor)
   const [yardGoalKg, setYardGoalKg] = useState<number>(() => {
@@ -2098,11 +2201,12 @@ export function GlassBarcodeScannerCart({
   useEffect(() => {
     try {
       localStorage.setItem("pdv_dw_sell_price_per_ton", String(activeSellPricePerTon));
+      localStorage.setItem("pdv_glass_price_ton", String(activeSellPricePerTon));
     } catch {}
     setCart((prev) => {
       if (prev.length === 0) return prev;
       return prev.map((c) => {
-        const totalWeightKg = (c.quantity * c.unitWeightGrams) / 1000;
+        const totalWeightKg = roundWeightKg((c.quantity * c.unitWeightGrams) / 1000);
         const totalBuyCost = calculateGlassBuyCost(
           c.category,
           c.quantity,
@@ -2110,14 +2214,14 @@ export function GlassBarcodeScannerCart({
           sellPricePerKg,
           c.unitWeightGrams
         );
-        const totalRevenue = totalWeightKg * sellPricePerKg;
+        const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
         return {
           ...c,
           totalWeightKg,
           totalBuyCost,
           sellPriceUnitOrWeight: (c.unitWeightGrams / 1000) * sellPricePerKg,
           totalRevenue,
-          profit: totalRevenue - totalBuyCost
+          profit: roundCurrencyBrl(totalRevenue - totalBuyCost)
         };
       });
     });
@@ -2256,6 +2360,108 @@ export function GlassBarcodeScannerCart({
     caderninhoDefaultPayDate
   };
 
+  const applyCloudPayloadToReactState = (cloudYard: any) => {
+    if (!cloudYard || typeof cloudYard !== "object") return;
+    const cloudTs = Number(cloudYard.updatedAt) || Date.now();
+    isApplyingCloudRef.current = true;
+    try {
+      if (Array.isArray(cloudYard.catalog) && cloudYard.catalog.length > 0) {
+        const normalizedCatalog = normalizeGlassCatalogList(cloudYard.catalog);
+        catalogRef.current = normalizedCatalog;
+        setCatalog(normalizedCatalog);
+        try {
+          localStorage.setItem("pdv_dw_glass_zero_clean_v10", "true");
+          localStorage.setItem("pdv_dw_glass_catalog_v10", JSON.stringify(normalizedCatalog));
+          window.dispatchEvent(new CustomEvent("dw_glass_catalog_updated", { detail: normalizedCatalog }));
+        } catch {}
+      }
+      if (Array.isArray(cloudYard.collaborators) && cloudYard.collaborators.length > 0) {
+        const cleanCollabs = cloudYard.collaborators.map((c: CollaboratorAccount) =>
+          c?.isFounder ? { ...c, totalPaid: 0, balancePending: 0 } : c
+        );
+        setCollaborators(cleanCollabs);
+        try {
+          localStorage.setItem("pdv_dw_collaborators_accounts_v3", JSON.stringify(cleanCollabs));
+        } catch {}
+      }
+      if (Array.isArray(cloudYard.purchaseHistory)) {
+        setPurchaseHistory(cloudYard.purchaseHistory);
+        try {
+          localStorage.setItem("pdv_dw_purchase_tickets_v3", JSON.stringify(cloudYard.purchaseHistory));
+        } catch {}
+      }
+      if (Array.isArray(cloudYard.paymentHistory)) {
+        setPaymentHistory(cloudYard.paymentHistory);
+        try {
+          localStorage.setItem("pdv_dw_collaborator_payments_v3", JSON.stringify(cloudYard.paymentHistory));
+        } catch {}
+      }
+      if (Array.isArray(cloudYard.truckShipments)) {
+        setTruckShipments(cloudYard.truckShipments);
+        try {
+          localStorage.setItem("pdv_dw_truck_shipments_v3", JSON.stringify(cloudYard.truckShipments));
+        } catch {}
+      }
+      if (Array.isArray(cloudYard.scrapSalesHistory)) {
+        setScrapSalesHistory(cloudYard.scrapSalesHistory);
+        try {
+          localStorage.setItem("pdv_dw_scrap_sales_v1", JSON.stringify(cloudYard.scrapSalesHistory));
+        } catch {}
+      }
+      if (typeof cloudYard.yardGoalKg === "number" && cloudYard.yardGoalKg >= 100) {
+        setYardGoalKg(cloudYard.yardGoalKg);
+        try {
+          localStorage.setItem("pdv_dw_yard_goal_kg", String(cloudYard.yardGoalKg));
+        } catch {}
+      }
+      if (typeof cloudYard.sellPricePerTon === "number" && cloudYard.sellPricePerTon >= 50) {
+        if (!onSetSellPricePerTon) {
+          setInternalSellPricePerTon(cloudYard.sellPricePerTon);
+        } else {
+          onSetSellPricePerTon(cloudYard.sellPricePerTon);
+        }
+        try {
+          localStorage.setItem("pdv_dw_sell_price_per_ton", String(cloudYard.sellPricePerTon));
+          localStorage.setItem("pdv_glass_price_ton", String(cloudYard.sellPricePerTon));
+        } catch {}
+      }
+      if (typeof cloudYard.caderninhoDefaultPayDate === "string" && cloudYard.caderninhoDefaultPayDate.trim()) {
+        setCaderninhoDefaultPayDate(cloudYard.caderninhoDefaultPayDate);
+        try {
+          localStorage.setItem("pdv_dw_caderninho_default_pay_date_v1", cloudYard.caderninhoDefaultPayDate);
+        } catch {}
+      }
+      if (Array.isArray(cloudYard.otherScrapMaterials) && cloudYard.otherScrapMaterials.length > 0) {
+        const mergedScrap = mergeScrapMaterialsWithDefaults(cloudYard.otherScrapMaterials, false);
+        setOtherScrapMaterials(mergedScrap);
+        try {
+          localStorage.setItem("pdv_dw_other_scrap_materials_v1", JSON.stringify(mergedScrap));
+        } catch {}
+      }
+      localMutationTsRef.current = cloudTs;
+      try {
+        localStorage.setItem("pdv_dw_last_updated_at", String(cloudTs));
+        window.dispatchEvent(new CustomEvent("dw_glass_yard_updated"));
+      } catch {}
+    } finally {
+      setTimeout(() => {
+        isApplyingCloudRef.current = false;
+      }, 200);
+    }
+  };
+
+  // Escuta sincronizações globais disparadas pelo App.tsx / atalhos de sincronização
+  useEffect(() => {
+    const handleExternalCloudSyncApplied = (ev: any) => {
+      const detail = ev?.detail;
+      if (detail?.fromCloud && detail?.payload) {
+        applyCloudPayloadToReactState(detail.payload);
+      }
+    };
+    window.addEventListener("dw_glass_yard_updated", handleExternalCloudSyncApplied);
+    return () => window.removeEventListener("dw_glass_yard_updated", handleExternalCloudSyncApplied);
+  }, []);
+
   const pushYardDataToCloud = async (explicitTs?: number, forceNotify = false) => {
     try {
       const authInstance = getAuth();
@@ -2271,6 +2477,7 @@ export function GlassBarcodeScannerCart({
       } catch {}
       const payload = {
         ...latestCloudPayloadRef.current,
+        catalog: normalizeGlassCatalogList(latestCloudPayloadRef.current?.catalog || catalogRef.current),
         updatedAt: ts
       };
       await setDoc(
@@ -2283,13 +2490,46 @@ export function GlassBarcodeScannerCart({
       );
       setCloudSyncStatus("synced");
       if (forceNotify && showNotification) {
-        showNotification("Pátio e códigos sincronizados na nuvem! ☁️✅", "success");
+        showNotification("Pátio e códigos enviados para a nuvem! ☁️⬆️✅", "success");
       }
     } catch (err: any) {
       if (isQuotaExhaustedError(err)) {
         markFirestoreQuotaPaused();
       }
       setCloudSyncStatus("local_only");
+    }
+  };
+
+  const handleManualCloudPull = async () => {
+    const authInstance = getAuth();
+    const uid = authInstance?.currentUser?.uid || activeAuthUid || (userId && userId !== "guest_visitor" ? userId : null);
+    if (!db || !uid) {
+      if (showNotification) showNotification("Entre na sua conta Google para puxar o Pátio da nuvem.", "warning");
+      return;
+    }
+    setCloudSyncStatus("syncing");
+    const res = await syncGlassYardWithCloud({ db, uid, mode: "pull" });
+    setCloudSyncStatus(res.status === "error" || res.status === "offline_or_unauth" ? "local_only" : "synced");
+    if (showNotification) {
+      showNotification(
+        res.message || "Pátio atualizado a partir da nuvem!",
+        res.status === "pulled" ? "success" : res.status === "error" ? "error" : "info"
+      );
+    }
+  };
+
+  const handleSmartCloudSync = async () => {
+    const authInstance = getAuth();
+    const uid = authInstance?.currentUser?.uid || activeAuthUid || (userId && userId !== "guest_visitor" ? userId : null);
+    if (!db || !uid) {
+      if (showNotification) showNotification("Entre na sua conta Google para sincronizar os pátios.", "warning");
+      return;
+    }
+    setCloudSyncStatus("syncing");
+    const res = await syncGlassYardWithCloud({ db, uid, mode: "auto" });
+    setCloudSyncStatus(res.status === "error" || res.status === "offline_or_unauth" ? "local_only" : "synced");
+    if (showNotification && res.message) {
+      showNotification(res.message, res.status === "error" ? "error" : "success");
     }
   };
 
@@ -2327,57 +2567,19 @@ export function GlassBarcodeScannerCart({
             if (cloudYard && typeof cloudYard === "object") {
               const cloudTs = Number(cloudYard.updatedAt) || 0;
               const localTs = localMutationTsRef.current || 0;
-              if (cloudTs > localTs && !snap.metadata.hasPendingWrites) {
-                isApplyingCloudRef.current = true;
-                try {
-                  if (Array.isArray(cloudYard.catalog) && cloudYard.catalog.length > 0) {
-                    setCatalog(cloudYard.catalog);
-                  }
-                  if (Array.isArray(cloudYard.collaborators) && cloudYard.collaborators.length > 0) {
-                    setCollaborators(
-                      cloudYard.collaborators.map((c: CollaboratorAccount) =>
-                        c?.isFounder ? { ...c, totalPaid: 0, balancePending: 0 } : c
-                      )
-                    );
-                  }
-                  if (Array.isArray(cloudYard.purchaseHistory)) {
-                    setPurchaseHistory(cloudYard.purchaseHistory);
-                  }
-                  if (Array.isArray(cloudYard.paymentHistory)) {
-                    setPaymentHistory(cloudYard.paymentHistory);
-                  }
-                  if (Array.isArray(cloudYard.truckShipments)) {
-                    setTruckShipments(cloudYard.truckShipments);
-                  }
-                  if (Array.isArray(cloudYard.scrapSalesHistory)) {
-                    setScrapSalesHistory(cloudYard.scrapSalesHistory);
-                  }
-                  if (typeof cloudYard.yardGoalKg === "number" && cloudYard.yardGoalKg >= 100) {
-                    setYardGoalKg(cloudYard.yardGoalKg);
-                  }
-                  if (typeof cloudYard.sellPricePerTon === "number" && cloudYard.sellPricePerTon >= 50 && !onSetSellPricePerTon) {
-                    setInternalSellPricePerTon(cloudYard.sellPricePerTon);
-                  }
-                  if (typeof cloudYard.caderninhoDefaultPayDate === "string" && cloudYard.caderninhoDefaultPayDate.trim()) {
-                    setCaderninhoDefaultPayDate(cloudYard.caderninhoDefaultPayDate);
-                  }
-                  if (Array.isArray(cloudYard.otherScrapMaterials) && cloudYard.otherScrapMaterials.length > 0) {
-                    setOtherScrapMaterials(mergeScrapMaterialsWithDefaults(cloudYard.otherScrapMaterials, false));
-                  }
-                  localMutationTsRef.current = cloudTs;
-                  try {
-                    localStorage.setItem("pdv_dw_last_updated_at", String(cloudTs));
-                  } catch {}
-                } finally {
-                  setTimeout(() => {
-                    isApplyingCloudRef.current = false;
-                  }, 150);
-                }
-              } else if (!hasHydratedCloudOnceRef.current && localTs > cloudTs) {
-                pushYardDataToCloud(localTs);
+              const localHasData = hasMeaningfulGlassYardData(latestCloudPayloadRef.current);
+              const cloudHasData = hasMeaningfulGlassYardData(cloudYard);
+              const shouldPull =
+                !snap.metadata.hasPendingWrites &&
+                (cloudTs > localTs || (!localHasData && cloudHasData));
+
+              if (shouldPull) {
+                applyCloudPayloadToReactState(cloudYard);
+              } else if (!hasHydratedCloudOnceRef.current && (localTs > cloudTs || (localHasData && !cloudHasData))) {
+                pushYardDataToCloud(localTs || Date.now());
               }
-            } else if (!hasHydratedCloudOnceRef.current && localMutationTsRef.current > 0) {
-              pushYardDataToCloud(localMutationTsRef.current);
+            } else if (!hasHydratedCloudOnceRef.current && (localMutationTsRef.current > 0 || hasMeaningfulGlassYardData(latestCloudPayloadRef.current))) {
+              pushYardDataToCloud(localMutationTsRef.current || Date.now());
             }
             hasHydratedCloudOnceRef.current = true;
             setCloudSyncStatus("synced");
@@ -3628,26 +3830,26 @@ export function GlassBarcodeScannerCart({
     });
   }, [collaborators, purchaseHistory, paymentHistory]);
 
-  // Totais do Carrinho Atual
+  // Totais do Carrinho Atual (com arredondamento exato para bater centavo por centavo com a Notinha!)
   const cartTotals = useMemo(() => {
     let totalBottles = 0;
     let totalWeightKg = 0;
     let totalBuyCost = 0;
-    let totalRevenue = 0;
 
     cart.forEach((c) => {
-      totalBottles += c.quantity;
-      totalWeightKg += c.totalWeightKg;
-      totalBuyCost += c.totalBuyCost;
-      totalRevenue += c.totalRevenue;
+      totalBottles += Math.max(0, Math.round(c.quantity || 0));
+      totalWeightKg = roundWeightKg(totalWeightKg + Math.max(0, c.totalWeightKg || 0));
+      totalBuyCost = roundCurrencyBrl(totalBuyCost + roundCurrencyBrl(c.totalBuyCost || 0));
     });
+
+    const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
 
     // Se for coleta própria da empresa, o custo de compra de terceiros é R$ 0,
     // e o valor que seria pago é pura ECONOMIA financeira!
     const isFounder = !!activeCollab?.isFounder;
     const actualBuyCostToThirdParties = isFounder ? 0 : totalBuyCost;
     const founderSavedAmount = isFounder ? totalBuyCost : 0;
-    const netProfit = totalRevenue - actualBuyCostToThirdParties;
+    const netProfit = roundCurrencyBrl(totalRevenue - actualBuyCostToThirdParties);
     const marginPct = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
     return {
@@ -4022,7 +4224,7 @@ export function GlassBarcodeScannerCart({
         const updated = [...prev];
         const existing = updated[idx];
         const newQty = existing.quantity + qty;
-        const totalWeightKg = (newQty * bottle.unitWeightGrams) / 1000;
+        const totalWeightKg = roundWeightKg((newQty * bottle.unitWeightGrams) / 1000);
         const totalBuyCost = calculateGlassBuyCost(
           bottle.category,
           newQty,
@@ -4030,8 +4232,8 @@ export function GlassBarcodeScannerCart({
           sellPricePerKg,
           bottle.unitWeightGrams
         );
-        const totalRevenue = totalWeightKg * sellPricePerKg;
-        const profit = totalRevenue - totalBuyCost;
+        const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
+        const profit = roundCurrencyBrl(totalRevenue - totalBuyCost);
 
         updated[idx] = {
           ...existing,
@@ -4044,7 +4246,7 @@ export function GlassBarcodeScannerCart({
         };
         return updated;
       } else {
-        const totalWeightKg = (qty * bottle.unitWeightGrams) / 1000;
+        const totalWeightKg = roundWeightKg((qty * bottle.unitWeightGrams) / 1000);
         const totalBuyCost = calculateGlassBuyCost(
           bottle.category,
           qty,
@@ -4052,8 +4254,8 @@ export function GlassBarcodeScannerCart({
           sellPricePerKg,
           bottle.unitWeightGrams
         );
-        const totalRevenue = totalWeightKg * sellPricePerKg;
-        const profit = totalRevenue - totalBuyCost;
+        const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
+        const profit = roundCurrencyBrl(totalRevenue - totalBuyCost);
 
         const newItem: GlassCartItem = {
           id: `cart_${Date.now()}_${Math.random()}`,
@@ -4088,7 +4290,7 @@ export function GlassBarcodeScannerCart({
     setCart((prev) =>
       prev.map((c) => {
         if (c.id === cartId) {
-          const totalWeightKg = (newQty * c.unitWeightGrams) / 1000;
+          const totalWeightKg = roundWeightKg((newQty * c.unitWeightGrams) / 1000);
           const totalBuyCost = calculateGlassBuyCost(
             c.category,
             newQty,
@@ -4096,8 +4298,8 @@ export function GlassBarcodeScannerCart({
             sellPricePerKg,
             c.unitWeightGrams
           );
-          const totalRevenue = totalWeightKg * sellPricePerKg;
-          const profit = totalRevenue - totalBuyCost;
+          const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
+          const profit = roundCurrencyBrl(totalRevenue - totalBuyCost);
 
           return {
             ...c,
@@ -4124,24 +4326,22 @@ export function GlassBarcodeScannerCart({
     if (!calibratingBottle) return;
     const cleanStr = String(calibratedGramsInput).replace(",", ".");
     const grams = Math.max(0.01, parseFloat(cleanStr) || calibratingBottle.unitWeightGrams || 1);
-    const kg = grams / 1000;
+    const kg = Number((grams / 1000).toFixed(5));
 
-    let nextCatalog: CatalogBottleItem[] = [];
     markLocalYardMutation();
-    setCatalog((prev) => {
-      nextCatalog = prev.map((b) =>
+    commitCatalogUpdate((prev) =>
+      prev.map((b) =>
         b.id === calibratingBottle.id
           ? { ...b, unitWeightGrams: grams, unitWeightKg: kg }
           : b
-      );
-      return nextCatalog;
-    });
+      )
+    );
 
     // Atualiza também itens que estejam no carrinho recalculando valor pelo novo peso
     setCart((prev) =>
       prev.map((c) => {
         if (c.catalogId === calibratingBottle.id) {
-          const totalWeightKg = (c.quantity * grams) / 1000;
+          const totalWeightKg = roundWeightKg((c.quantity * grams) / 1000);
           const totalBuyCost = calculateGlassBuyCost(
             c.category,
             c.quantity,
@@ -4149,7 +4349,7 @@ export function GlassBarcodeScannerCart({
             sellPricePerKg,
             grams
           );
-          const totalRevenue = totalWeightKg * sellPricePerKg;
+          const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
           return {
             ...c,
             unitWeightGrams: grams,
@@ -4158,17 +4358,12 @@ export function GlassBarcodeScannerCart({
             totalBuyCost,
             sellPriceUnitOrWeight: kg * sellPricePerKg,
             totalRevenue,
-            profit: totalRevenue - totalBuyCost
+            profit: roundCurrencyBrl(totalRevenue - totalBuyCost)
           };
         }
         return c;
       })
     );
-
-    // Sincroniza com a calculadora geral do pátio
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("dw_glass_catalog_updated", { detail: nextCatalog }));
-    }
 
     setCalibratingBottle(null);
     if (showNotification) {
@@ -4180,19 +4375,17 @@ export function GlassBarcodeScannerCart({
   const handleUpdateBottleWeightDirect = (bottleId: string, gramsInput: number | string) => {
     const cleanStr = String(gramsInput).replace(",", ".");
     const grams = Math.max(0.01, parseFloat(cleanStr) || 0);
-    const kg = grams / 1000;
-    let nextCatalog: CatalogBottleItem[] = [];
+    const kg = Number((grams / 1000).toFixed(5));
     markLocalYardMutation();
-    setCatalog((prev) => {
-      nextCatalog = prev.map((b) => (b.id === bottleId ? { ...b, unitWeightGrams: grams, unitWeightKg: kg } : b));
-      return nextCatalog;
-    });
+    commitCatalogUpdate((prev) =>
+      prev.map((b) => (b.id === bottleId ? { ...b, unitWeightGrams: grams, unitWeightKg: kg } : b))
+    );
 
     // Atualizar itens no carrinho por peso real
     setCart((prev) =>
       prev.map((c) => {
         if (c.catalogId === bottleId) {
-          const totalWeightKg = (c.quantity * grams) / 1000;
+          const totalWeightKg = roundWeightKg((c.quantity * grams) / 1000);
           const totalBuyCost = calculateGlassBuyCost(
             c.category,
             c.quantity,
@@ -4200,7 +4393,7 @@ export function GlassBarcodeScannerCart({
             sellPricePerKg,
             grams
           );
-          const totalRevenue = totalWeightKg * sellPricePerKg;
+          const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
           return {
             ...c,
             unitWeightGrams: grams,
@@ -4209,16 +4402,12 @@ export function GlassBarcodeScannerCart({
             totalBuyCost,
             sellPriceUnitOrWeight: kg * sellPricePerKg,
             totalRevenue,
-            profit: totalRevenue - totalBuyCost
+            profit: roundCurrencyBrl(totalRevenue - totalBuyCost)
           };
         }
         return c;
       })
     );
-
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("dw_glass_catalog_updated", { detail: nextCatalog }));
-    }
   };
 
   // Salvar garrafa ou pote criado / editado (Nome, ML, Peso em Gramas, Código)
@@ -4231,7 +4420,7 @@ export function GlassBarcodeScannerCart({
     }
     const cleanGramsStr = String(editingWeightGramsInput).replace(",", ".");
     const grams = Math.max(0.01, parseFloat(cleanGramsStr) || Number(editingBottle.unitWeightGrams) || 100);
-    const kg = grams / 1000;
+    const kg = Number((grams / 1000).toFixed(5));
     const volume = Math.max(10, Number(editingBottle.volumeMl) || 300);
 
     const cleanAdditional = (editingBottle.additionalBarcodes || [])
@@ -4247,20 +4436,14 @@ export function GlassBarcodeScannerCart({
       volumeMl: volume,
       unitWeightGrams: grams,
       unitWeightKg: kg,
-      stockUnits: Math.max(0, Number(editingBottle.stockUnits) || 0)
+      stockUnits: Math.max(0, Math.round(Number(editingBottle.stockUnits) || 0))
     };
 
-    let nextCatalog: CatalogBottleItem[] = [];
     markLocalYardMutation();
-    setCatalog((prev) => {
+    commitCatalogUpdate((prev) => {
       const exists = prev.some((b) => b.id === saved.id);
-      nextCatalog = exists ? prev.map((b) => (b.id === saved.id ? saved : b)) : [saved, ...prev];
-      return nextCatalog;
+      return exists ? prev.map((b) => (b.id === saved.id ? saved : b)) : [saved, ...prev];
     });
-
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("dw_glass_catalog_updated", { detail: nextCatalog }));
-    }
 
     removePersistedKey("pdv_dw_bottle_edit_draft_v1");
     setEditingBottle(null);
@@ -4278,12 +4461,12 @@ export function GlassBarcodeScannerCart({
 
   // Excluir garrafa ou pote do catálogo
   const handleDeleteBottle = (bottleId: string, bottleName: string) => {
-    if (catalog.length <= 1) {
+    if (catalogRef.current.length <= 1) {
       if (showNotification) showNotification("Mantenha ao menos 1 item cadastrado no catálogo.", "warning");
       return;
     }
     markLocalYardMutation();
-    setCatalog((prev) => prev.filter((b) => b.id !== bottleId));
+    commitCatalogUpdate((prev) => prev.filter((b) => b.id !== bottleId));
     setEditingBottle(null);
     setIsRegisteringNew(false);
     if (showNotification) {
@@ -4313,7 +4496,7 @@ export function GlassBarcodeScannerCart({
   const handleUpdateYardStockDirect = (bottleId: string, newQty: number) => {
     const qty = Math.max(0, Math.round(newQty));
     markLocalYardMutation();
-    setCatalog((prev) =>
+    commitCatalogUpdate((prev) =>
       prev.map((b) => (b.id === bottleId ? { ...b, stockUnits: qty } : b))
     );
   };
@@ -4334,12 +4517,12 @@ export function GlassBarcodeScannerCart({
       ? "pago_na_hora"
       : "pendente_caderninho";
 
-    // 1. Atualizar estoque no pátio geral
-    setCatalog((prev) =>
+    // 1. Atualizar estoque no pátio geral de forma síncrona (fonte única!)
+    commitCatalogUpdate((prev) =>
       prev.map((b) => {
         const inCart = cart.find((c) => c.catalogId === b.id);
         if (inCart) {
-          return { ...b, stockUnits: (b.stockUnits || 0) + inCart.quantity };
+          return { ...b, stockUnits: Math.max(0, Math.round((b.stockUnits || 0) + inCart.quantity)) };
         }
         return b;
       })
@@ -4361,8 +4544,8 @@ export function GlassBarcodeScannerCart({
         if (collab.id === activeCollab.id) {
           const newDeliveries = collab.totalDeliveries + 1;
           const newBottles = collab.totalBottles + cartTotals.totalBottles;
-          const newWeight = collab.totalWeightKg + cartTotals.totalWeightKg;
-          const newEarned = collab.totalEarned + cartTotals.totalBuyCost;
+          const newWeight = roundWeightKg(collab.totalWeightKg + cartTotals.totalWeightKg);
+          const newEarned = roundCurrencyBrl(collab.totalEarned + cartTotals.totalBuyCost);
 
           if (collab.isFounder) {
             // Coleta própria: não há pagamento a terceiros nem dívida, é pura economia da empresa!
@@ -4378,8 +4561,8 @@ export function GlassBarcodeScannerCart({
           } else {
             // Colaborador Parceiro: se pagou na hora, soma no pago; se pendente, soma no saldo a pagar!
             const addedPaid = settlementMode === "pago_na_hora" ? cartTotals.totalBuyCost : 0;
-            const newPaid = collab.totalPaid + addedPaid;
-            const newPending = newEarned - newPaid;
+            const newPaid = roundCurrencyBrl(collab.totalPaid + addedPaid);
+            const newPending = roundCurrencyBrl(Math.max(0, newEarned - newPaid));
 
             return {
               ...collab,
@@ -4415,11 +4598,12 @@ export function GlassBarcodeScannerCart({
         barcode: c.barcode,
         quantity: c.quantity,
         unitWeightGrams: c.unitWeightGrams,
-        totalWeightKg: c.totalWeightKg,
-        costPaid: c.totalBuyCost
+        totalWeightKg: roundWeightKg(c.totalWeightKg),
+        costPaid: roundCurrencyBrl(c.totalBuyCost)
       })),
       totalBottles: cartTotals.totalBottles,
       totalWeightKg: cartTotals.totalWeightKg,
+      subtotalAmount: cartTotals.totalBuyCost,
       totalPaid: isFounder ? 0 : cartTotals.totalBuyCost,
       expectedPlantRevenue: cartTotals.totalRevenue,
       netProfit: cartTotals.netProfit,
@@ -4619,10 +4803,9 @@ export function GlassBarcodeScannerCart({
     }
 
     // Zera o estoque do pátio para recomeçar o ciclo de toneladas
-    setCatalog((prev) => prev.map((b) => ({ ...b, stockUnits: 0 })));
-    try {
-      window.dispatchEvent(new CustomEvent("dw_glass_zero_yard_from_child"));
-    } catch {}
+    commitCatalogUpdate((prev) => prev.map((b) => ({ ...b, stockUnits: 0 })), [
+      "dw_glass_zero_yard_from_child"
+    ]);
 
     setShowTruckDispatchModal(false);
     playScannerBeep(2600, 0.2);
@@ -4815,18 +4998,91 @@ export function GlassBarcodeScannerCart({
   };
 
   const getTicketCollabSnapshot = (ticket: CompletedPurchaseTicket) => {
+    const normName = ticket.collectorName.trim().toLowerCase();
     const matched = collaborators.find(
       (c) =>
         (ticket.collaboratorId && c.id === ticket.collaboratorId) ||
-        c.name.trim().toLowerCase() === ticket.collectorName.trim().toLowerCase()
+        c.name.trim().toLowerCase() === normName
     );
-    if (!matched || matched.isFounder) return undefined;
+    const isFounder = matched ? Boolean(matched.isFounder) : Boolean(ticket.isFounder);
+    const activeCollabTickets = purchaseHistory.filter(
+      (t) =>
+        !t.isCancelled &&
+        ((matched?.id && t.collaboratorId === matched.id) ||
+          t.collectorName.trim().toLowerCase() === normName)
+    );
+    if (!ticket.isCancelled && !activeCollabTickets.some((t) => t.id === ticket.id)) {
+      activeCollabTickets.unshift(ticket);
+    }
+
+    const sectorTickets = activeCollabTickets.filter((t) =>
+      ticket.isScrapPurchase ? Boolean(t.isScrapPurchase) : !t.isScrapPurchase
+    );
+
+    const totalBottles = ticket.isScrapPurchase
+      ? 0
+      : sectorTickets.reduce((sum, t) => {
+          const count =
+            typeof t.totalBottles === "number" && t.totalBottles > 0
+              ? t.totalBottles
+              : (t.items || []).reduce((s, it) => s + Math.max(0, Math.round(it.quantity || 0)), 0);
+          return sum + count;
+        }, 0);
+
+    const totalWeightKg = roundWeightKg(
+      sectorTickets.reduce((sum, t) => sum + (Number(t.totalWeightKg) || 0), 0)
+    );
+    const totalDeliveries = sectorTickets.length;
+
+    const alreadyInHistory = purchaseHistory.some((t) => t.id === ticket.id);
+    const ticketVal = ticket.isCancelled ? 0 : getTicketEffectiveMonetaryValue(ticket);
+
+    if (isFounder) {
+      const founderSectorEarned = roundCurrencyBrl(
+        sectorTickets.reduce((sum, t) => sum + getTicketEffectiveMonetaryValue(t), 0)
+      );
+      return {
+        totalEarned: founderSectorEarned,
+        totalPaid: 0,
+        balancePending: 0,
+        totalWeightKg,
+        totalBottles,
+        totalDeliveries,
+        isFounder: true
+      };
+    }
+
+    const totalEarned = matched
+      ? alreadyInHistory
+        ? matched.totalEarned
+        : roundCurrencyBrl(matched.totalEarned + ticketVal)
+      : roundCurrencyBrl(
+          activeCollabTickets.reduce((sum, t) => sum + getTicketEffectiveMonetaryValue(t), 0)
+        );
+
+    const totalPaid = matched
+      ? alreadyInHistory
+        ? matched.totalPaid
+        : roundCurrencyBrl(
+            matched.totalPaid +
+              (ticket.paymentStatus === "pago_na_hora" && !ticket.isCancelled ? ticketVal : 0)
+          )
+      : roundCurrencyBrl(
+          activeCollabTickets
+            .filter((t) => t.paymentStatus === "pago_na_hora")
+            .reduce((sum, t) => sum + getTicketEffectiveMonetaryValue(t), 0)
+        );
+
+    const balancePending = Math.max(0, roundCurrencyBrl(totalEarned - totalPaid));
+
     return {
-      totalEarned: matched.totalEarned,
-      totalPaid: matched.totalPaid,
-      balancePending: matched.balancePending,
-      totalWeightKg: matched.totalWeightKg,
-      totalDeliveries: matched.totalDeliveries
+      totalEarned,
+      totalPaid,
+      balancePending,
+      totalWeightKg,
+      totalBottles,
+      totalDeliveries,
+      isFounder: false
     };
   };
 
@@ -4844,23 +5100,29 @@ export function GlassBarcodeScannerCart({
         ? "PAGO NA HORA (PORTÃO / CAIXA)"
         : "LANÇADO NO CADERNINHO (A ACERTAR)";
 
+    const math = getGlassTicketMathSummary(ticket, activeSellPricePerTon);
+    const ticketBottlesCount = !ticket.isScrapPurchase
+      ? ticket.totalBottles > 0
+        ? ticket.totalBottles
+        : ticket.items.reduce((s, it) => s + Math.max(0, Math.round(it.quantity || 0)), 0)
+      : 0;
     const lines = ticket.items.map((it) => ({
       left: `${it.name.toUpperCase()}${it.volumeMl > 0 ? ` (${it.volumeMl}ml)` : ""}`,
       right: `R$ ${it.costPaid.toFixed(2).replace(".", ",")}`,
       detail:
         it.volumeMl > 0
-          ? `${it.quantity} un x ${it.unitWeightGrams}g = ${it.totalWeightKg.toFixed(2)} kg`
-          : `Peso Líquido: ${it.totalWeightKg.toFixed(2)} kg`,
+          ? `${it.quantity} un × ${it.unitWeightGrams}g = ${it.totalWeightKg.toFixed(2).replace(".", ",")} kg (R$ ${math.buyPerKg.toFixed(3).replace(".", ",")}/kg)`
+          : `Peso Líquido: ${it.totalWeightKg.toFixed(2).replace(".", ",")} kg`,
       bold: true
     }));
 
     const summaryLines: ThermalCanvasReceiptPayload["summaryLines"] = [];
-    if (!ticket.isScrapPurchase && ticket.totalBottles > 0) {
-      summaryLines.push({ label: "QTD GARRAFAS:", value: `${ticket.totalBottles} un`, bold: true });
+    if (!ticket.isScrapPurchase && ticketBottlesCount > 0) {
+      summaryLines.push({ label: "QTD TOTAL GARRAFAS:", value: `${ticketBottlesCount} un`, bold: true });
     }
     summaryLines.push({
-      label: ticket.isScrapPurchase ? "PESO COMPRADO:" : "PESO SOMADO:",
-      value: `+${ticket.totalWeightKg.toFixed(2)} kg`,
+      label: ticket.isScrapPurchase ? "PESO COMPRADO:" : "PESO SOMADO PÁTIO:",
+      value: `+${ticket.totalWeightKg.toFixed(2).replace(".", ",")} kg`,
       bold: true
     });
     if (
@@ -4888,13 +5150,20 @@ export function GlassBarcodeScannerCart({
     }
     if (ticket.isFounder) {
       summaryLines.push({
-        label: "ECONOMIA PRÓPRIA:",
-        value: `R$ ${ticket.items.reduce((s, it) => s + it.costPaid, 0).toFixed(2).replace(".", ",")}`,
+        label: ticket.isScrapPurchase ? "ECONOMIA PRÓPRIA:" : "ECONOMIA PORTÃO (62%):",
+        value: `R$ ${math.itemsSum.toFixed(2).replace(".", ",")}`,
         bold: true
       });
+      if (!ticket.isScrapPurchase) {
+        summaryLines.push({
+          label: "VALOR BRUTO USINA (100%):",
+          value: `R$ ${math.plantGrossValue.toFixed(2).replace(".", ",")}`,
+          bold: true
+        });
+      }
     }
     summaryLines.push({
-      label: ticket.isFounder ? "TOTAL A PAGAR:" : "TOTAL LÍQUIDO:",
+      label: ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL LÍQUIDO:",
       value: `R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2).replace(".", ",")}`,
       big: true,
       bold: true,
@@ -4903,11 +5172,12 @@ export function GlassBarcodeScannerCart({
 
     const extraMeta: string[] = ticket.isScrapPurchase
       ? ["MODALIDADE: FERRO VELHO & RECICLAGEM"]
-      : [
-          `BASE TABELA VIDROS: R$ ${ticket.sellPricePerTonUsed || 150}/t (R$ ${((ticket.sellPricePerTonUsed || 150) / 1000)
-            .toFixed(2)
-            .replace(".", ",")}/kg)`
-        ];
+      : ticket.isFounder
+      ? [
+          `TARIFA PORTÃO (62%): R$ ${math.buyPerKg.toFixed(3).replace(".", ",")}/kg`,
+          `COTAÇÃO USINA (100%): R$ ${math.sellPerTon}/t (R$ ${math.sellPerKg.toFixed(2).replace(".", ",")}/kg)`
+        ]
+      : [`TARIFA COMPRA PORTÃO: R$ ${math.buyPerKg.toFixed(3).replace(".", ",")}/kg`];
     if (resolvedPayDate) {
       extraMeta.push(`DATA PAGTO COMBINADA: ${resolvedPayDate.toUpperCase()}`);
     }
@@ -5223,13 +5493,24 @@ export function GlassBarcodeScannerCart({
       extraMeta: folderExtraMeta,
       lines,
       summaryLines,
-      caderninhoBox: folder.collaborator && !folder.isFounder
+      caderninhoBox: folder.collaborator
         ? {
-            totalEarned: folder.collaborator.totalEarned,
-            totalPaid: folder.collaborator.totalPaid,
-            balancePending: folder.collaborator.balancePending,
-            totalWeightKg: folder.collaborator.totalWeightKg,
-            totalDeliveries: folder.collaborator.totalDeliveries
+            totalEarned: folder.isFounder ? filteredTotalValue : folder.collaborator.totalEarned,
+            totalPaid: folder.isFounder ? 0 : folder.collaborator.totalPaid,
+            balancePending: folder.isFounder ? 0 : folder.collaborator.balancePending,
+            totalWeightKg: filteredWeightKg,
+            totalBottles: filteredActiveTickets.reduce(
+              (s, tk) =>
+                s +
+                (tk.isScrapPurchase
+                  ? 0
+                  : tk.totalBottles > 0
+                  ? tk.totalBottles
+                  : (tk.items || []).reduce((acc, it) => acc + Math.max(0, Math.round(it.quantity || 0)), 0)),
+              0
+            ),
+            totalDeliveries: filteredActiveTickets.length,
+            isFounder: folder.isFounder
           }
         : undefined,
       footerNote: folderAgreedPayDate
@@ -5374,7 +5655,7 @@ export function GlassBarcodeScannerCart({
         })
       );
     } else {
-      setCatalog((prev) =>
+      commitCatalogUpdate((prev) =>
         prev.map((b) => {
           const matchedItems = ticket.items.filter(
             (it) =>
@@ -5675,6 +5956,7 @@ export function GlassBarcodeScannerCart({
       msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     }
     const resolvedPayDate = resolveTicketAgreedPaymentDate(ticket);
+    const math = getGlassTicketMathSummary(ticket, activeSellPricePerTon);
     msg += `👤 *Parceiro:* ${ticket.collectorName}\n`;
     msg += `📅 *Data:* ${ticket.timestamp}\n`;
     msg += `📌 *Status:* ${statusLabel}\n`;
@@ -5682,30 +5964,57 @@ export function GlassBarcodeScannerCart({
       msg += `📆 *Previsão de Pagto:* ${resolvedPayDate}\n`;
     }
     if (!ticket.isScrapPurchase) {
-      msg += `📊 *Base Tabela Vidros:* R$ ${ticket.sellPricePerTonUsed || activeSellPricePerTon}/t (R$ ${(((ticket.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2)}/kg)\n`;
+      msg += `💵 *Tarifa Portão (62%):* R$ ${math.buyPerKg.toFixed(3).replace(".", ",")}/kg\n`;
+      if (ticket.isFounder) {
+        msg += `📊 *Cotação Usina (100%):* R$ ${math.sellPerTon}/t (R$ ${math.sellPerKg.toFixed(2).replace(".", ",")}/kg)\n`;
+      }
     }
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     ticket.items.forEach((it) => {
-      msg += `• *${it.quantity}×* ${it.name} (${it.totalWeightKg.toFixed(2)} kg) — R$ ${it.costPaid.toFixed(2)}\n`;
+      msg += `• *${it.quantity}×* ${it.name} (${it.totalWeightKg.toFixed(2).replace(".", ",")} kg) — R$ ${it.costPaid.toFixed(2).replace(".", ",")}\n`;
     });
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `⚖️ *Peso Total:* +${ticket.totalWeightKg.toFixed(2)} kg${!ticket.isScrapPurchase ? ` (${ticket.totalBottles} un)` : ""}\n`;
+    const ticketBottlesCount = !ticket.isScrapPurchase
+      ? ticket.totalBottles > 0
+        ? ticket.totalBottles
+        : ticket.items.reduce((s, it) => s + Math.max(0, Math.round(it.quantity || 0)), 0)
+      : 0;
+    if (!ticket.isScrapPurchase && ticketBottlesCount > 0) {
+      msg += `🍾 *Qtd Total Garrafas:* ${ticketBottlesCount} un\n`;
+    }
+    msg += `⚖️ *Peso Total:* +${ticket.totalWeightKg.toFixed(2).replace(".", ",")} kg\n`;
     if (((ticket.bonusAmount || 0) > 0 || (ticket.discountAmount || 0) > 0) && typeof ticket.subtotalAmount === "number") {
-      msg += `🧮 *Subtotal Materiais:* R$ ${ticket.subtotalAmount.toFixed(2)}\n`;
+      msg += `🧮 *Subtotal Materiais:* R$ ${ticket.subtotalAmount.toFixed(2).replace(".", ",")}\n`;
     }
     if ((ticket.bonusAmount || 0) > 0) {
-      msg += `➕ *Acréscimo${ticket.bonusReason ? ` (${ticket.bonusReason})` : ""}:* +R$ ${(ticket.bonusAmount || 0).toFixed(2)}\n`;
+      msg += `➕ *Acréscimo${ticket.bonusReason ? ` (${ticket.bonusReason})` : ""}:* +R$ ${(ticket.bonusAmount || 0).toFixed(2).replace(".", ",")}\n`;
     }
     if ((ticket.discountAmount || 0) > 0) {
-      msg += `➖ *Desconto/Dívida${ticket.discountReason ? ` (${ticket.discountReason})` : ""}:* -R$ ${(ticket.discountAmount || 0).toFixed(2)}\n`;
+      msg += `➖ *Desconto/Dívida${ticket.discountReason ? ` (${ticket.discountReason})` : ""}:* -R$ ${(ticket.discountAmount || 0).toFixed(2).replace(".", ",")}\n`;
     }
     if (ticket.isFounder) {
-      const equiv = ticket.items.reduce((s, it) => s + it.costPaid, 0);
-      msg += `👑 *Economia Própria:* R$ ${equiv.toFixed(2)}\n`;
+      msg += `👑 *Economia Portão (${ticket.isScrapPurchase ? "Compra" : "62%"}):* R$ ${math.itemsSum.toFixed(2).replace(".", ",")}\n`;
+      if (!ticket.isScrapPurchase) {
+        msg += `🏭 *Valor Bruto Usina (100%):* R$ ${math.plantGrossValue.toFixed(2).replace(".", ",")}\n`;
+      }
     }
-    msg += `💰 *${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA)" : "TOTAL LÍQUIDO"}:* R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2)}\n`;
+    msg += `💰 *${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA)" : "TOTAL LÍQUIDO"}:* R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2).replace(".", ",")}\n`;
+    const snap = getTicketCollabSnapshot(ticket);
+    if (snap) {
+      msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+      msg += `📊 *Acumulado de ${ticket.collectorName} (${ticket.isScrapPurchase ? "Ferro Velho" : "Vidros"}):*\n`;
+      if (!ticket.isScrapPurchase && snap.totalBottles > 0) {
+        msg += `🍾 *Garrafas Acumuladas:* ${snap.totalBottles} un\n`;
+      }
+      msg += `⚖️ *Peso Acumulado:* ${snap.totalWeightKg.toFixed(2).replace(".", ",")} kg (${snap.totalDeliveries} ${snap.totalDeliveries === 1 ? "entrega" : "entregas"})\n`;
+      if (snap.isFounder) {
+        msg += `👑 *Economia Acumulada:* R$ ${snap.totalEarned.toFixed(2).replace(".", ",")}\n`;
+      } else {
+        msg += `📓 *Caderninho:* Comprado R$ ${snap.totalEarned.toFixed(2).replace(".", ",")} | Pago R$ ${snap.totalPaid.toFixed(2).replace(".", ",")} | Saldo R$ ${snap.balancePending.toFixed(2).replace(".", ",")}\n`;
+      }
+    }
     if (!ticket.isScrapPurchase) {
-      msg += `🚛 *Pátio Atual:* ${yardTotals.totalWeightKg.toFixed(1)} kg / ${yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg\n`;
+      msg += `🚛 *Pátio Atual:* ${yardTotals.totalWeightKg.toFixed(2).replace(".", ",")} kg / ${yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg\n`;
     }
 
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
@@ -6070,19 +6379,39 @@ export function GlassBarcodeScannerCart({
                 </button>
               )}
               {activeAuthUid ? (
-                <button
-                  type="button"
-                  onClick={() => pushYardDataToCloud(Date.now(), true)}
-                  className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1 cursor-pointer touch-manipulation ${
-                    cloudSyncStatus === "synced"
-                      ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/25"
-                      : "bg-amber-500/15 text-amber-300 border-amber-500/30"
-                  }`}
-                  title="Sincronizar pátio e códigos com a sua conta na nuvem para o app instalado no celular"
-                >
-                  <Cloud className="w-3.5 h-3.5" />
-                  <span>{cloudSyncStatus === "syncing" ? "Sincronizando..." : "☁️ Nuvem Ativa (Sincronizar)"}</span>
-                </button>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleSmartCloudSync}
+                    className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1 cursor-pointer touch-manipulation ${
+                      cloudSyncStatus === "synced"
+                        ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/25"
+                        : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                    }`}
+                    title="Sincronizar automaticamente Pátio de Vidros e Reciclagem entre IA Google Studio e Chrome App"
+                  >
+                    <Cloud className="w-3.5 h-3.5" />
+                    <span>{cloudSyncStatus === "syncing" ? "Sincronizando..." : "☁️ Sincronizar Pátios"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleManualCloudPull}
+                    className="text-[10.5px] font-black px-2 py-1 rounded-lg border bg-emerald-500/15 text-emerald-300 border-emerald-500/35 hover:bg-emerald-500/25 flex items-center gap-1 cursor-pointer touch-manipulation"
+                    title="Puxar contagem de garrafas, pesos e caderninho da nuvem para este aparelho"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Puxar Nuvem</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => pushYardDataToCloud(Date.now(), true)}
+                    className="text-[10.5px] font-black px-2 py-1 rounded-lg border bg-indigo-500/15 text-indigo-300 border-indigo-500/35 hover:bg-indigo-500/25 flex items-center gap-1 cursor-pointer touch-manipulation"
+                    title="Enviar contagem atual deste aparelho para a nuvem"
+                  >
+                    <Upload className="w-3 h-3" />
+                    <span>Enviar Nuvem</span>
+                  </button>
+                </div>
               ) : (
                 <span className="text-[10.5px] bg-slate-800/80 text-slate-300 font-bold px-2.5 py-1 rounded-lg border border-white/10">
                   📱 Salvo neste aparelho (Entre na sua conta para sincronizar o Pátio no app instalado)
@@ -6675,7 +7004,7 @@ export function GlassBarcodeScannerCart({
                   Clique na cotação que será paga pela sua carga fechada:
                 </span>
                 <span className="font-mono text-emerald-400 font-black">
-                  Ativo: R$ {activeSellPricePerTon}/ton (R$ {sellPricePerKg.toFixed(2)}/kg)
+                  Usina: R$ {activeSellPricePerTon}/t (R$ {sellPricePerKg.toFixed(2).replace(".", ",")}/kg) • Portão (62%): R$ {getExactGlassBuyRatePerKg(sellPricePerKg).toFixed(3).replace(".", ",")}/kg
                 </span>
               </div>
 
@@ -12108,19 +12437,19 @@ export function GlassBarcodeScannerCart({
                 {(() => {
                   const grams = parseFloat(String(editingWeightGramsInput).replace(",", ".")) || editingBottle.unitWeightGrams || 182;
                   const safeLot = getVictorSafeLotUnits(editingBottle.category, sellPricePerKg, grams);
-                  const costUnit = calculateGlassBuyCost(editingBottle.category, 1, editingBottle.buyPricePerUnit, sellPricePerKg, grams);
+                  const costUnit = getExactGlassUnitBuyPrice(editingBottle.category, editingBottle.buyPricePerUnit, sellPricePerKg, grams);
                   const victorValue = (grams / 1000) * sellPricePerKg;
                   return (
                     <div className="grid grid-cols-2 gap-3 text-xs">
                       <div className="space-y-0.5">
                         <span className="text-[10px] font-black uppercase text-amber-400 block">
-                          Compra no Portão (por peso):
+                          Compra no Portão (R$ {getExactGlassBuyRatePerKg(sellPricePerKg).toFixed(3).replace(".", ",")}/kg):
                         </span>
                         <strong className="text-sm font-mono font-black text-white block">
                           R$ {costUnit.toFixed(4)} / un
                         </strong>
                         <span className="text-[10px] text-amber-300 font-mono block">
-                          Lote R$ 0,50: {safeLot} garrafas
+                          Lote ~R$ 0,50: {safeLot} garrafas
                         </span>
                       </div>
                       <div className="space-y-0.5 text-right">
@@ -13284,11 +13613,23 @@ export function GlassBarcodeScannerCart({
                   </div>
                 )}
                 {!lastPurchaseReceipt.isScrapPurchase ? (
-                  <div>
-                    <strong>BASE TABELA VIDROS:</strong>{" "}
-                    R$ {lastPurchaseReceipt.sellPricePerTonUsed || activeSellPricePerTon}/t (R${" "}
-                    {(((lastPurchaseReceipt.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2).replace(".", ",")}/kg)
-                  </div>
+                  (() => {
+                    const m = getGlassTicketMathSummary(lastPurchaseReceipt, activeSellPricePerTon);
+                    return (
+                      <div className="space-y-0.5">
+                        <div>
+                          <strong>TARIFA PORTÃO (62%):</strong>{" "}
+                          R$ {m.buyPerKg.toFixed(3).replace(".", ",")}/kg
+                        </div>
+                        {lastPurchaseReceipt.isFounder && (
+                          <div>
+                            <strong>COTAÇÃO USINA (100%):</strong>{" "}
+                            R$ {m.sellPerTon}/t (R$ {m.sellPerKg.toFixed(2).replace(".", ",")}/kg)
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()
                 ) : (
                   <div>
                     <strong>MODALIDADE:</strong> Ferro Velho &amp; Reciclagem ({lastPurchaseReceipt.items.length}{" "}
@@ -13300,22 +13641,39 @@ export function GlassBarcodeScannerCart({
                 {lastPurchaseReceipt.items.map((it, idx) => (
                   <div key={idx} className="flex justify-between gap-2 text-[11px]">
                     <span>
-                      <strong>{it.quantity}×</strong> {it.name} ({it.totalWeightKg.toFixed(2)} kg)
+                      <strong>{it.quantity}×</strong> {it.name} ({it.totalWeightKg.toFixed(2).replace(".", ",")} kg)
                     </span>
-                    <span className="font-black shrink-0">R$ {it.costPaid.toFixed(2)}</span>
+                    <span className="font-black shrink-0">R$ {it.costPaid.toFixed(2).replace(".", ",")}</span>
                   </div>
                 ))}
               </div>
               <div className="space-y-1 text-xs">
+                {(() => {
+                  const receiptBottlesCount = !lastPurchaseReceipt.isScrapPurchase
+                    ? lastPurchaseReceipt.totalBottles > 0
+                      ? lastPurchaseReceipt.totalBottles
+                      : lastPurchaseReceipt.items.reduce(
+                          (s, it) => s + Math.max(0, Math.round(it.quantity || 0)),
+                          0
+                        )
+                    : 0;
+                  if (lastPurchaseReceipt.isScrapPurchase || receiptBottlesCount <= 0) return null;
+                  return (
+                    <div className="flex justify-between font-black">
+                      <span>QTD TOTAL GARRAFAS:</span>
+                      <span>{receiptBottlesCount} un</span>
+                    </div>
+                  );
+                })()}
                 <div className="flex justify-between font-black">
                   <span>{lastPurchaseReceipt.isScrapPurchase ? "PESO TOTAL:" : "PESO SOMADO NO PÁTIO:"}</span>
-                  <span className="text-emerald-700">+{lastPurchaseReceipt.totalWeightKg.toFixed(2)} kg</span>
+                  <span className="text-emerald-700">+{lastPurchaseReceipt.totalWeightKg.toFixed(2).replace(".", ",")} kg</span>
                 </div>
                 {((lastPurchaseReceipt.bonusAmount || 0) > 0 || (lastPurchaseReceipt.discountAmount || 0) > 0) &&
                   typeof lastPurchaseReceipt.subtotalAmount === "number" && (
                     <div className="flex justify-between text-[11px] font-bold text-slate-700">
                       <span>SUBTOTAL MATERIAIS:</span>
-                      <span>R$ {lastPurchaseReceipt.subtotalAmount.toFixed(2)}</span>
+                      <span>R$ {lastPurchaseReceipt.subtotalAmount.toFixed(2).replace(".", ",")}</span>
                     </div>
                   )}
                 {(lastPurchaseReceipt.bonusAmount || 0) > 0 && (
@@ -13323,7 +13681,7 @@ export function GlassBarcodeScannerCart({
                     <span>
                       + ACRÉSCIMO{lastPurchaseReceipt.bonusReason ? ` (${lastPurchaseReceipt.bonusReason})` : ""}:
                     </span>
-                    <span>+R$ {(lastPurchaseReceipt.bonusAmount || 0).toFixed(2)}</span>
+                    <span>+R$ {(lastPurchaseReceipt.bonusAmount || 0).toFixed(2).replace(".", ",")}</span>
                   </div>
                 )}
                 {(lastPurchaseReceipt.discountAmount || 0) > 0 && (
@@ -13331,24 +13689,79 @@ export function GlassBarcodeScannerCart({
                     <span>
                       - DESCONTO{lastPurchaseReceipt.discountReason ? ` (${lastPurchaseReceipt.discountReason})` : ""}:
                     </span>
-                    <span>-R$ {(lastPurchaseReceipt.discountAmount || 0).toFixed(2)}</span>
+                    <span>-R$ {(lastPurchaseReceipt.discountAmount || 0).toFixed(2).replace(".", ",")}</span>
                   </div>
                 )}
-                {lastPurchaseReceipt.isFounder && (
-                  <div className="flex justify-between text-[11px] font-bold text-slate-700">
-                    <span>ECONOMIA PRÓPRIA (VALOR EQUIV.):</span>
-                    <span>R$ {lastPurchaseReceipt.items.reduce((s, it) => s + it.costPaid, 0).toFixed(2)}</span>
-                  </div>
-                )}
+                {lastPurchaseReceipt.isFounder && (() => {
+                  const m = getGlassTicketMathSummary(lastPurchaseReceipt, activeSellPricePerTon);
+                  return (
+                    <>
+                      <div className="flex justify-between text-[11px] font-bold text-slate-700">
+                        <span>ECONOMIA PORTÃO ({lastPurchaseReceipt.isScrapPurchase ? "COMPRA" : "62%"}):</span>
+                        <span>R$ {m.itemsSum.toFixed(2).replace(".", ",")}</span>
+                      </div>
+                      {!lastPurchaseReceipt.isScrapPurchase && (
+                        <div className="flex justify-between text-[11px] font-black text-emerald-800">
+                          <span>VALOR BRUTO USINA (100%):</span>
+                          <span>R$ {m.plantGrossValue.toFixed(2).replace(".", ",")}</span>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
                 <div className="flex justify-between font-black text-sm border-t border-slate-300 pt-1">
                   <span>{lastPurchaseReceipt.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL LÍQUIDO:"}</span>
                   <span>
-                    R$ {lastPurchaseReceipt.isFounder ? "0,00" : lastPurchaseReceipt.totalPaid.toFixed(2)}
+                    R$ {lastPurchaseReceipt.isFounder ? "0,00" : lastPurchaseReceipt.totalPaid.toFixed(2).replace(".", ",")}
                   </span>
                 </div>
+                {(() => {
+                  const snap = getTicketCollabSnapshot(lastPurchaseReceipt);
+                  if (!snap) return null;
+                  return (
+                    <div className="mt-2 p-2 border border-slate-900 rounded-lg bg-slate-100 text-[10.5px] space-y-0.5">
+                      <div className="text-center font-black border-b border-dashed border-slate-400 pb-0.5 mb-1">
+                        {snap.isFounder
+                          ? `ACUMULADO COLETA PRÓPRIA (${lastPurchaseReceipt.isScrapPurchase ? "FERRO VELHO" : "VIDROS"})`
+                          : `ACUMULADO DO COLABORADOR (${lastPurchaseReceipt.isScrapPurchase ? "FERRO VELHO" : "VIDROS"})`}
+                      </div>
+                      {!lastPurchaseReceipt.isScrapPurchase && snap.totalBottles > 0 && (
+                        <div className="flex justify-between font-black">
+                          <span>GARRAFAS ACUMULADAS:</span>
+                          <span>{snap.totalBottles} un</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-bold">
+                        <span>PESO ACUMULADO ({snap.totalDeliveries} ent.):</span>
+                        <span>{snap.totalWeightKg.toFixed(2).replace(".", ",")} kg</span>
+                      </div>
+                      {snap.isFounder ? (
+                        <div className="flex justify-between font-black text-emerald-800 border-t border-dashed border-slate-300 pt-0.5">
+                          <span>ECONOMIA ACUMULADA:</span>
+                          <span>R$ {snap.totalEarned.toFixed(2).replace(".", ",")}</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex justify-between">
+                            <span>TOTAL COMPRADO:</span>
+                            <span className="font-black">R$ {snap.totalEarned.toFixed(2).replace(".", ",")}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>TOTAL JÁ PAGO:</span>
+                            <span className="font-black">R$ {snap.totalPaid.toFixed(2).replace(".", ",")}</span>
+                          </div>
+                          <div className="flex justify-between font-black border-t border-dashed border-slate-300 pt-0.5">
+                            <span>SALDO A ACERTAR:</span>
+                            <span>R$ {snap.balancePending.toFixed(2).replace(".", ",")}</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
                 {!lastPurchaseReceipt.isScrapPurchase && (
                   <div className="text-center text-[10px] text-slate-600 pt-1">
-                    Pátio Atual: {yardTotals.totalWeightKg.toFixed(1)} kg / {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg
+                    Pátio Atual: {yardTotals.totalWeightKg.toFixed(2).replace(".", ",")} kg / {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg
                   </div>
                 )}
               </div>
@@ -13391,19 +13804,40 @@ export function GlassBarcodeScannerCart({
                 const snap = getTicketCollabSnapshot(lastPurchaseReceipt);
                 if (!snap) return null;
                 return (
-                  <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-white/10 text-[10.5px]">
-                    <div>
-                      <span className="text-slate-400 block">Comprei (Total)</span>
-                      <strong className="font-mono text-white">R$ {snap.totalEarned.toFixed(2)}</strong>
+                  <div className="space-y-1.5 pt-1.5 border-t border-white/10 text-[10.5px]">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {!lastPurchaseReceipt.isScrapPurchase && (
+                        <div>
+                          <span className="text-cyan-300 block">Garrafas Acum.</span>
+                          <strong className="font-mono text-white">{snap.totalBottles} un</strong>
+                        </div>
+                      )}
+                      <div className={!lastPurchaseReceipt.isScrapPurchase ? "text-right" : ""}>
+                        <span className="text-cyan-300 block">Peso Acum. ({snap.totalDeliveries} ent.)</span>
+                        <strong className="font-mono text-white">{snap.totalWeightKg.toFixed(2).replace(".", ",")} kg</strong>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-emerald-400 block">Já Pago</span>
-                      <strong className="font-mono text-emerald-300">R$ {snap.totalPaid.toFixed(2)}</strong>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-rose-400 block">Devo Caderninho</span>
-                      <strong className="font-mono text-rose-300">R$ {snap.balancePending.toFixed(2)}</strong>
-                    </div>
+                    {snap.isFounder ? (
+                      <div className="flex items-center justify-between pt-1 border-t border-white/10">
+                        <span className="text-emerald-400 font-bold">Economia Acumulada</span>
+                        <strong className="font-mono text-emerald-300">R$ {snap.totalEarned.toFixed(2).replace(".", ",")}</strong>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-white/10">
+                        <div>
+                          <span className="text-slate-400 block">Comprei (Total)</span>
+                          <strong className="font-mono text-white">R$ {snap.totalEarned.toFixed(2).replace(".", ",")}</strong>
+                        </div>
+                        <div>
+                          <span className="text-emerald-400 block">Já Pago</span>
+                          <strong className="font-mono text-emerald-300">R$ {snap.totalPaid.toFixed(2).replace(".", ",")}</strong>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-rose-400 block">Devo Caderninho</span>
+                          <strong className="font-mono text-rose-300">R$ {snap.balancePending.toFixed(2).replace(".", ",")}</strong>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })()}

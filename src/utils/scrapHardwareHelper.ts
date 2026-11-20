@@ -572,6 +572,7 @@ export function startVoiceWeightDictation({
 export interface GlassCatalogBottleLike {
   id: string;
   name: string;
+  category?: string;
   volumeMl?: number;
   barcode?: string;
   additionalBarcodes?: string[];
@@ -650,12 +651,22 @@ export function computeGlassCatalogSummary(
   let totalWeightGrams = 0;
   let estimatedAcquisitionCost = 0;
 
-  for (const b of catalog) {
-    const units = Math.max(0, Math.round(Number(b.stockUnits) || 0));
-    const grams = Math.max(0, Number(b.unitWeightGrams) || 0);
-    totalUnits += units;
-    totalWeightGrams += units * grams;
-    estimatedAcquisitionCost += units * Math.max(0, Number(b.buyPricePerUnit) || 0);
+  if (Array.isArray(catalog)) {
+    for (const b of catalog) {
+      if (!b || typeof b !== "object") continue;
+      const units = Math.max(0, Math.round(Number(b.stockUnits) || 0));
+      const rawGrams = Number(b.unitWeightGrams);
+      const rawKg = Number(b.unitWeightKg);
+      const grams =
+        Number.isFinite(rawGrams) && rawGrams > 0
+          ? rawGrams
+          : Number.isFinite(rawKg) && rawKg > 0
+          ? rawKg * 1000
+          : 0;
+      totalUnits += units;
+      totalWeightGrams += units * grams;
+      estimatedAcquisitionCost += units * Math.max(0, Number(b.buyPricePerUnit) || 0);
+    }
   }
 
   const totalWeightKg = roundWeightKg(totalWeightGrams / 1000);

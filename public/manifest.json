@@ -120,10 +120,10 @@
   ],
   "shortcuts": [
     {
-      "name": "Frente de Caixa PDV",
-      "short_name": "Caixa PDV",
-      "description": "Abrir o PDV de Vendas, Pesagem e Reciclagem",
-      "url": "/?shortcut=pdv",
+      "name": "Pátio de Vidros",
+      "short_name": "Pátio Vidros",
+      "description": "Abrir Pátio de Vidros, Leitor de Garrafas e Caderninho",
+      "url": "/?shortcut=patio",
       "icons": [
         {
           "src": "/assets/icons/icon-192.png",
@@ -133,10 +133,36 @@
       ]
     },
     {
-      "name": "Calculadora e Notas",
-      "short_name": "Calculadora",
-      "description": "Abrir Calculadora Nota e Listas Salvas",
-      "url": "/?shortcut=notes",
+      "name": "Centro de Reciclagem",
+      "short_name": "Reciclagem",
+      "description": "Abrir Ferro Velho, Balança e Compra de Materiais",
+      "url": "/?shortcut=reciclagem",
+      "icons": [
+        {
+          "src": "/assets/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Sincronizar Pátios",
+      "short_name": "Sinc. Pátios",
+      "description": "Sincronizar Pátio de Vidros e Reciclagem na Nuvem",
+      "url": "/?shortcut=sincronizar_patios",
+      "icons": [
+        {
+          "src": "/assets/icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Frente de Caixa PDV",
+      "short_name": "Caixa PDV",
+      "description": "Abrir o PDV de Vendas, Pesagem e Reciclagem",
+      "url": "/?shortcut=pdv",
       "icons": [
         {
           "src": "/assets/icons/icon-192.png",

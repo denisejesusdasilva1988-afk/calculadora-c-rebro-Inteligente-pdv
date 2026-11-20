@@ -158,6 +158,13 @@ import { ClientPublicAgendaPortal } from "./components/ClientPublicAgendaPortal"
 import { ThemeSelectorModal, ThemeMode, ColorPalette } from "./components/ThemeSelectorModal";
 import { MarketingAdModal } from "./components/MarketingAdModal";
 import { MarketingAdsCarousel, MarketingAdDetailModal } from "./components/MarketingAdsView";
+import {
+  syncGlassYardWithCloud,
+  applyCloudGlassYardToLocal,
+  getLocalGlassYardUpdatedAt,
+  buildLocalGlassYardPayload,
+  hasMeaningfulGlassYardData
+} from "./utils/glassYardCloudSync";
 import { MarketingAd, loadLocalMarketingAds, saveLocalMarketingAds } from "./utils/marketingAds";
 import { WhatsAppBusinessModal } from "./components/WhatsAppBusinessModal";
 import { PushNotificationGateModal } from "./components/PushNotificationGateModal";
@@ -939,7 +946,7 @@ const saveUserProfileToFirestore = async (currentUser: any) => {
 };
 
 export default function App() {
-  const runningVersion = "v_online_2.8";
+  const runningVersion = "v_online_2.9";
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [downloadZipStatus, setDownloadZipStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [downloadZipError, setDownloadZipError] = useState<string | null>(null);
@@ -1675,6 +1682,8 @@ export default function App() {
       }
     } catch {}
   }, [pdvActiveSubTab]);
+  const [isYardSyncing, setIsYardSyncing] = useState(false);
+  const pendingShortcutYardSyncRef = useRef(false);
   const [contabilidadeActiveTab, setContabilidadeActiveTab] = useState<"tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa">(() => {
     try {
       return (localStorage.getItem("contabilidade_active_tab") as any) || "tributos";
@@ -3411,6 +3420,69 @@ export default function App() {
     }
   }, [excelRows]);
 
+  const handleSyncYardsWithCloud = useCallback(
+    async (mode: "auto" | "pull" | "push" = "auto", openPatioAfter = false) => {
+      if (openPatioAfter) {
+        try {
+          localStorage.setItem("pdv_fv_initial_filter_v1", "vidro");
+          localStorage.setItem("pdv_fv_initial_tab_v1", "carrinho");
+          localStorage.setItem("pdv_dw_yard_active_sector_v1", "vidros");
+          localStorage.setItem("pdv_dw_yard_control_filter_v1", "vidro");
+        } catch {}
+        setActiveTab("calc");
+        setPdvCheckoutOnly(false);
+        setPdvActiveSubTab("ferro_velho");
+        setNotepadMode("pdv");
+      }
+
+      const activeUid = auth?.currentUser?.uid || (user?.uid && user.uid !== "guest_visitor" ? user.uid : null);
+      if (!activeUid) {
+        pendingShortcutYardSyncRef.current = true;
+        showNotification("Entre na sua conta Google para sincronizar os Pátios com o celular/Chrome App! ☁️", "info");
+        return;
+      }
+
+      setIsYardSyncing(true);
+      showNotification("Sincronizando Pátio de Vidros e Reciclagem na nuvem... ☁️🔄", "syncing");
+      try {
+        const res = await syncGlassYardWithCloud({ db, uid: activeUid, mode });
+        if (res.status === "pulled") {
+          showNotification(`☁️ Pátios atualizados da nuvem! ${res.totalUnits ?? 0} garrafas (${(res.totalWeightKg ?? 0).toFixed(2)} kg)`, "success");
+        } else if (res.status === "pushed") {
+          showNotification(`☁️ Pátios enviados para a nuvem! ${res.totalUnits ?? 0} garrafas (${(res.totalWeightKg ?? 0).toFixed(2)} kg)`, "success");
+        } else if (res.status === "up_to_date") {
+          showNotification(`✅ Pátios já estão iguais na nuvem! ${res.totalUnits ?? 0} garrafas (${(res.totalWeightKg ?? 0).toFixed(2)} kg)`, "success");
+        } else if (res.status === "no_cloud_data") {
+          showNotification("Nenhum estoque salvo na nuvem ainda para esta conta. Adicione itens e clique em Enviar Nuvem! 📦", "info");
+        } else {
+          showNotification(res.message || "Verifique sua internet para sincronizar os pátios.", "error");
+        }
+      } catch {
+        showNotification("Erro temporário ao sincronizar Pátios na nuvem.", "error");
+      } finally {
+        setIsYardSyncing(false);
+      }
+    },
+    [user, showNotification]
+  );
+
+  useEffect(() => {
+    const onRequestYardSync = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail || {};
+      handleSyncYardsWithCloud(detail.mode || "auto", Boolean(detail.openAfter));
+    };
+    window.addEventListener("dw_request_yard_cloud_sync", onRequestYardSync);
+    return () => window.removeEventListener("dw_request_yard_cloud_sync", onRequestYardSync);
+  }, [handleSyncYardsWithCloud]);
+
+  useEffect(() => {
+    const activeUid = auth?.currentUser?.uid || (user?.uid && user.uid !== "guest_visitor" ? user.uid : null);
+    if (activeUid && pendingShortcutYardSyncRef.current) {
+      pendingShortcutYardSyncRef.current = false;
+      handleSyncYardsWithCloud("auto", false);
+    }
+  }, [user, handleSyncYardsWithCloud]);
+
   // Leitura de parâmetros compartilhados (URLSearchParams) para Atalhos e Share Target do PWA
   useEffect(() => {
     try {
@@ -3429,7 +3501,59 @@ export default function App() {
       // 1. Atalhos do PWA (shortcuts)
       if (urlParams.has("shortcut") || urlParams.has("action")) {
         const shortcut = urlParams.get("shortcut") || urlParams.get("action");
-        if (shortcut === "pdv" || shortcut === "vendas") {
+        if (shortcut === "patio" || shortcut === "vidros" || shortcut === "ferro_velho") {
+          try {
+            localStorage.setItem("pdv_fv_initial_filter_v1", "vidro");
+            localStorage.setItem("pdv_fv_initial_tab_v1", "carrinho");
+            localStorage.setItem("pdv_dw_yard_active_sector_v1", "vidros");
+            localStorage.setItem("pdv_dw_yard_control_filter_v1", "vidro");
+          } catch {}
+          setActiveTab("calc");
+          setPdvCheckoutOnly(false);
+          setPdvActiveSubTab("ferro_velho");
+          setNotepadMode("pdv");
+          showNotification("Acesso rápido: Pátio de Vidros 🍾", "info");
+        } else if (shortcut === "reciclagem" || shortcut === "ferro_velho_outros" || shortcut === "balanca_reciclagem") {
+          try {
+            localStorage.setItem("pdv_fv_initial_filter_v1", "outros");
+            localStorage.setItem("pdv_fv_initial_tab_v1", "estoque");
+            localStorage.setItem("pdv_dw_yard_active_sector_v1", "reciclagem");
+            localStorage.setItem("pdv_dw_yard_control_filter_v1", "outros");
+          } catch {}
+          setActiveTab("calc");
+          setPdvCheckoutOnly(false);
+          setPdvActiveSubTab("ferro_velho_outros");
+          setNotepadMode("pdv");
+          showNotification("Acesso rápido: Centro de Reciclagem ♻️", "info");
+        } else if (shortcut === "sincronizar_patios" || shortcut === "sync_patios") {
+          try {
+            localStorage.setItem("pdv_fv_initial_filter_v1", "vidro");
+            localStorage.setItem("pdv_fv_initial_tab_v1", "carrinho");
+            localStorage.setItem("pdv_dw_yard_active_sector_v1", "vidros");
+            localStorage.setItem("pdv_dw_yard_control_filter_v1", "vidro");
+          } catch {}
+          setActiveTab("calc");
+          setPdvCheckoutOnly(false);
+          setPdvActiveSubTab("ferro_velho");
+          setNotepadMode("pdv");
+          pendingShortcutYardSyncRef.current = true;
+          const activeUid = auth?.currentUser?.uid;
+          if (activeUid) {
+            pendingShortcutYardSyncRef.current = false;
+            syncGlassYardWithCloud({ db, uid: activeUid, mode: "auto" })
+              .then((res) => {
+                if (res.status === "pulled" || res.status === "pushed" || res.status === "up_to_date") {
+                  showNotification(
+                    res.message || `Pátios sincronizados! ${res.totalUnits ?? 0} un • ${(res.totalWeightKg ?? 0).toFixed(2)} kg ☁️`,
+                    "success"
+                  );
+                }
+              })
+              .catch(() => {});
+          } else {
+            showNotification("Abrindo Pátios e preparando sincronização na nuvem... ☁️", "syncing");
+          }
+        } else if (shortcut === "pdv" || shortcut === "vendas") {
           setActiveTab("calc");
           setNotepadMode("pdv");
           showNotification("Acesso rápido: Frente de Caixa (PDV) 🛒", "info");
@@ -6553,6 +6677,21 @@ export default function App() {
           loadFromLocalStorage(userId);
           await syncToCloudWithTime(userId, localTime);
           setLastModifiedAt(localTime);
+
+          // Sincroniza Pátio de Vidros e Reciclagem de forma independente pelo próprio timestamp do pátio
+          if (data.dwGlassYardData && typeof data.dwGlassYardData === "object") {
+            const localYardTs = getLocalGlassYardUpdatedAt();
+            const cloudYardTs = Number(data.dwGlassYardData.updatedAt) || 0;
+            const localHasYard = hasMeaningfulGlassYardData(buildLocalGlassYardPayload(localYardTs || undefined));
+            const cloudHasYard = hasMeaningfulGlassYardData(data.dwGlassYardData);
+            if (cloudYardTs > localYardTs || (!localHasYard && cloudHasYard)) {
+              applyCloudGlassYardToLocal(data.dwGlassYardData);
+            } else if (localYardTs > cloudYardTs || (localHasYard && !cloudHasYard)) {
+              syncGlassYardWithCloud({ db, uid: userId, mode: "push" }).catch(() => {});
+            }
+          } else {
+            syncGlassYardWithCloud({ db, uid: userId, mode: "auto" }).catch(() => {});
+          }
         } else {
           // CLOUD is superior or equal: overwrite local version
           if (data.inputText !== undefined) setInputText(data.inputText);
@@ -6688,6 +6827,22 @@ export default function App() {
           
           setLastModifiedAt(cloudTime);
           localStorage.setItem(`notepad_last_modified_at${suffix}`, cloudTime.toString());
+
+          // Sincroniza Pátio de Vidros e Reciclagem de forma independente
+          if (data.dwGlassYardData && typeof data.dwGlassYardData === "object") {
+            const localYardTs = getLocalGlassYardUpdatedAt();
+            const cloudYardTs = Number(data.dwGlassYardData.updatedAt) || 0;
+            const localHasYard = hasMeaningfulGlassYardData(buildLocalGlassYardPayload(localYardTs || undefined));
+            const cloudHasYard = hasMeaningfulGlassYardData(data.dwGlassYardData);
+            if (cloudYardTs > localYardTs || (!localHasYard && cloudHasYard)) {
+              applyCloudGlassYardToLocal(data.dwGlassYardData);
+            } else if (localYardTs > cloudYardTs || (localHasYard && !cloudHasYard)) {
+              syncGlassYardWithCloud({ db, uid: userId, mode: "push" }).catch(() => {});
+            }
+          } else {
+            syncGlassYardWithCloud({ db, uid: userId, mode: "auto" }).catch(() => {});
+          }
+
           showNotification("Sincronizado! Dados mais recentes carregados da nuvem. ☁️✨", "success");
         }
       } else {
@@ -6696,6 +6851,7 @@ export default function App() {
           await syncToCloudWithTime(userId, localTime);
           setLastModifiedAt(localTime);
         }
+        syncGlassYardWithCloud({ db, uid: userId, mode: "auto" }).catch(() => {});
       }
 
       // Sync user profile permissions, subscription tier, and 30-day free trial
@@ -6853,6 +7009,9 @@ export default function App() {
             localStorage.setItem("pdv_niche_locked", locked ? "true" : "false");
             localStorage.setItem("barbearia_segment_locked", locked ? "true" : "false");
             setScopedItem("pdv_niche_locked", locked ? "true" : "false", user.uid);
+          }
+          if (data.dwGlassYardData && typeof data.dwGlassYardData === "object") {
+            applyCloudGlassYardToLocal(data.dwGlassYardData);
           }
         } else {
           loadFromLocalStorage(user.uid);
@@ -11520,6 +11679,18 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => handleSyncYardsWithCloud("auto", true)}
+                  disabled={isYardSyncing}
+                  className="flex-1 min-w-[155px] bg-gradient-to-r from-cyan-600/35 to-teal-500/25 hover:from-cyan-600/50 active:scale-[0.99] border border-cyan-500/40 text-cyan-200 hover:text-white flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-[10.5px] uppercase tracking-wide transition-all duration-200 cursor-pointer text-center disabled:opacity-60"
+                  title="Sincronizar o Pátio de Vidros e Reciclagem entre o Google Studio e o Chrome App na nuvem"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Cloud className={`w-3.5 h-3.5 text-cyan-400 ${isYardSyncing ? "animate-bounce" : ""}`} />
+                    <span>{isYardSyncing ? "Sincronizando..." : "Sincronizar Pátios ☁️"}</span>
+                  </div>
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleSetNotepadMode("ajuda")}
                   className={`flex-1 min-w-[150px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-extrabold text-xs sm:text-sm uppercase tracking-wide transition-all duration-200 cursor-pointer text-center ${
                     notepadMode === "ajuda"
@@ -11728,6 +11899,20 @@ export default function App() {
                   <div className="flex items-center gap-1.5">
                     <Recycle className="w-3.5 h-3.5 text-teal-400" />
                     <span>Ferro Velho & Pátio ♻️</span>
+                  </div>
+                </button>
+
+                {/* 2.6 SINCRONIZAR PÁTIOS NUVEM */}
+                <button
+                  type="button"
+                  onClick={() => handleSyncYardsWithCloud("auto", true)}
+                  disabled={isYardSyncing}
+                  className="flex-1 min-w-[155px] min-h-[48px] flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl font-black text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer text-center bg-cyan-950/50 hover:bg-cyan-900/80 border border-cyan-500/35 text-cyan-200 hover:text-white touch-manipulation select-none active:scale-95 disabled:opacity-60"
+                  title="Sincronizar estoque de garrafas e kg dos Pátios com a nuvem"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Cloud className={`w-3.5 h-3.5 text-cyan-400 ${isYardSyncing ? "animate-bounce" : ""}`} />
+                    <span>{isYardSyncing ? "Sincronizando..." : "Sincronizar Pátios ☁️"}</span>
                   </div>
                 </button>
 
@@ -12349,7 +12534,12 @@ export default function App() {
                       showNotification={showNotification}
                     />
                   ) : notepadMode === "pricing" ? (
-                    <PricingCalculator key="pricing-calculator" />
+                    <PricingCalculator
+                      key="pricing-calculator"
+                      db={db}
+                      userId={user?.uid}
+                      showNotification={showNotification}
+                    />
                   ) : notepadMode === "agenda" ? (
                     <AgendaModule
                       key="agenda"
@@ -12786,6 +12976,8 @@ export default function App() {
                           handleSetNotepadMode("pdv", false, undefined, "proprietario");
                         } else if (action === "ajuda") {
                           handleSetNotepadMode("ajuda");
+                        } else if (action === "sincronizar_patios") {
+                          handleSyncYardsWithCloud("auto", true);
                         } else if (action === "ferro_velho" || action === "ferro_velho_outros" || action === "ferro_velho_guia") {
                           handleSetNotepadMode("pdv", false, undefined, action);
                         } else if (action.startsWith("segmento_")) {

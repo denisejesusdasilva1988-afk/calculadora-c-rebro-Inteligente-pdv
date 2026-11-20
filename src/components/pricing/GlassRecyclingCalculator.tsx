@@ -37,6 +37,7 @@ import {
   formatBrl,
   roundCurrencyBrl
 } from "../../utils/scrapHardwareHelper";
+import { readLocalGlassCatalog } from "../../utils/glassYardCloudSync";
 
 export interface GlassItemType {
   id: string;
@@ -180,8 +181,12 @@ const DEFAULT_GLASS_ITEMS: GlassItemType[] = [
 ];
 
 export function GlassRecyclingCalculator({
+  db,
+  userId,
   showNotification
 }: {
+  db?: any;
+  userId?: string;
   showNotification?: (msg: string, type: "success" | "error" | "info" | "warning") => void;
 }) {
   // Aba padrão abre direto no Carrinho & Leitor de Código de Barras (e permanece fixada!)
@@ -229,8 +234,10 @@ export function GlassRecyclingCalculator({
   // R$ 150/tonelada = R$ 0,15 por kg
   const [sellPricePerTon, setSellPricePerTon] = useState<number>(() => {
     try {
-      const stored = localStorage.getItem("pdv_glass_price_ton");
-      return stored ? Number(stored) : 150.0;
+      const storedDw = Number(localStorage.getItem("pdv_dw_sell_price_per_ton"));
+      if (Number.isFinite(storedDw) && storedDw >= 50) return storedDw;
+      const stored = Number(localStorage.getItem("pdv_glass_price_ton"));
+      return Number.isFinite(stored) && stored >= 50 ? stored : 150.0;
     } catch {
       return 150.0;
     }
@@ -291,20 +298,35 @@ export function GlassRecyclingCalculator({
   // Resumo unificado ao vivo vindo do Catálogo/Pátio de Vidros (fonte única entre os dois quadros!)
   const [liveChildYardSummary, setLiveChildYardSummary] = useState<GlassYardSummary | null>(() => {
     try {
-      const stored = localStorage.getItem("pdv_dw_glass_catalog_v10");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const initialPricePerKg = (Number(localStorage.getItem("pdv_glass_price_ton")) || 150) / 1000;
-          return computeGlassCatalogSummary(parsed, initialPricePerKg);
-        }
+      const parsed = readLocalGlassCatalog();
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const initialPricePerKg =
+          (Number(localStorage.getItem("pdv_dw_sell_price_per_ton")) ||
+            Number(localStorage.getItem("pdv_glass_price_ton")) ||
+            150) / 1000;
+        return computeGlassCatalogSummary(parsed, initialPricePerKg);
       }
     } catch {}
     return null;
   });
 
-  // Ouvinte de evento global para quando o carrinho ou despacho zerar o estoque
+  // Ouvinte de evento global para quando o carrinho, despacho ou sincronização na nuvem atualizar/zerar o estoque
   useEffect(() => {
+    const refreshFromLocalCatalog = (maybeCatalog?: any[]) => {
+      try {
+        const sourceCatalog = Array.isArray(maybeCatalog) && maybeCatalog.length > 0 ? maybeCatalog : readLocalGlassCatalog();
+        if (Array.isArray(sourceCatalog) && sourceCatalog.length > 0) {
+          const pricePerTon =
+            Number(localStorage.getItem("pdv_dw_sell_price_per_ton")) ||
+            sellPricePerTon ||
+            150;
+          setLiveChildYardSummary(
+            computeGlassCatalogSummary(sourceCatalog, pricePerTon > 0 ? pricePerTon / 1000 : 0.15)
+          );
+        }
+      } catch {}
+    };
+
     const handleChildZero = () => {
       setItems((prev) => prev.map((item) => ({ ...item, quantity: 0 })));
       setLiveChildYardSummary({
@@ -317,15 +339,42 @@ export function GlassRecyclingCalculator({
         profitMarginPct: 0
       });
     };
+
+    const handleYardUpdated = (e: any) => {
+      const detail = e?.detail;
+      if (detail?.fromCloud && detail?.payload) {
+        if (typeof detail.payload.sellPricePerTon === "number" && detail.payload.sellPricePerTon >= 50) {
+          setSellPricePerTon(detail.payload.sellPricePerTon);
+        }
+        if (Array.isArray(detail.payload.catalog)) {
+          refreshFromLocalCatalog(detail.payload.catalog);
+          return;
+        }
+      }
+      refreshFromLocalCatalog();
+    };
+
+    const handleStorageChange = () => {
+      refreshFromLocalCatalog();
+    };
+
     window.addEventListener("dw_glass_zero_yard_from_child", handleChildZero);
-    return () => window.removeEventListener("dw_glass_zero_yard_from_child", handleChildZero);
-  }, []);
+    window.addEventListener("dw_glass_zero_yard", handleChildZero);
+    window.addEventListener("dw_glass_yard_updated", handleYardUpdated);
+    window.addEventListener("storage", handleStorageChange);
+    return () => {
+      window.removeEventListener("dw_glass_zero_yard_from_child", handleChildZero);
+      window.removeEventListener("dw_glass_zero_yard", handleChildZero);
+      window.removeEventListener("dw_glass_yard_updated", handleYardUpdated);
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, [sellPricePerTon]);
 
   // Ouvinte para quando o catálogo / balança for calibrado ou atualizado
   useEffect(() => {
     const handleCatalogUpdate = (e: any) => {
-      const updatedCatalog = e.detail;
-      if (!Array.isArray(updatedCatalog)) return;
+      const updatedCatalog = Array.isArray(e?.detail) && e.detail.length > 0 ? e.detail : readLocalGlassCatalog();
+      if (!Array.isArray(updatedCatalog) || updatedCatalog.length === 0) return;
 
       setLiveChildYardSummary(computeGlassCatalogSummary(updatedCatalog, sellPricePerTon > 0 ? sellPricePerTon / 1000 : 0.15));
 
@@ -374,6 +423,7 @@ export function GlassRecyclingCalculator({
       try {
         localStorage.setItem("pdv_glass_items_inventory_v1", JSON.stringify(items));
         localStorage.setItem("pdv_glass_price_ton", String(sellPricePerTon));
+        localStorage.setItem("pdv_dw_sell_price_per_ton", String(sellPricePerTon));
         localStorage.setItem("pdv_glass_buyer_name", buyerName);
         localStorage.setItem("pdv_glass_target_coin", String(targetCoinPayout));
         localStorage.setItem("pdv_glass_gate_logs_today", JSON.stringify(purchaseHistory));
@@ -1128,7 +1178,7 @@ export function GlassRecyclingCalculator({
                 {unifiedYard.totalWeightTon.toFixed(2)} <span className="text-xs text-emerald-400 font-bold">Ton</span>
               </span>
               <span className="text-[10px] text-slate-400 block">
-                {unifiedYard.totalWeightKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg ({unifiedYard.totalUnits.toLocaleString("pt-BR")} un)
+                {unifiedYard.totalWeightKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} kg ({unifiedYard.totalUnits.toLocaleString("pt-BR")} un)
               </span>
             </div>
           </div>
@@ -1163,6 +1213,8 @@ export function GlassRecyclingCalculator({
       {activeTab === "bipar_carrinho" && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
           <GlassBarcodeScannerCart
+            db={db}
+            userId={userId}
             sellPricePerTon={sellPricePerTon}
             onSetSellPricePerTon={setSellPricePerTon}
             buyerName={buyerName}
@@ -1651,6 +1703,68 @@ export function GlassRecyclingCalculator({
                 </button>
               </div>
             </div>
+
+            {/* ESPELHO AO VIVO DO ESTOQUE REAL DO PÁTIO DE VIDROS (FONTE ÚNICA) */}
+            {(() => {
+              const liveCatalogItems = readLocalGlassCatalog().filter((b: any) => (Number(b.stockUnits) || 0) > 0);
+              return (
+                <div className="bg-emerald-950/35 border border-emerald-500/35 rounded-2xl p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                        Espelho Oficial do Pátio de Vidros (Sincronizado com Balança & Nuvem)
+                      </span>
+                      <div className="text-sm sm:text-base font-black text-white mt-0.5">
+                        {unifiedYard.totalUnits.toLocaleString("pt-BR")} garrafas •{" "}
+                        <span className="text-emerald-400">
+                          {unifiedYard.totalWeightKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} kg
+                        </span>{" "}
+                        ({unifiedYard.totalWeightTon.toFixed(3)} t)
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("bipar_carrinho")}
+                      className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] uppercase rounded-xl cursor-pointer shrink-0"
+                    >
+                      Editar no Pátio de Vidros 🍾
+                    </button>
+                  </div>
+                  {liveCatalogItems.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {liveCatalogItems.map((b: any) => {
+                        const units = Math.max(0, Math.round(Number(b.stockUnits) || 0));
+                        const grams = Number(b.unitWeightGrams) || (Number(b.unitWeightKg) || 0) * 1000;
+                        const weightKg = (units * grams) / 1000;
+                        return (
+                          <div
+                            key={b.id}
+                            className="bg-slate-950/80 border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between gap-2 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-black text-white truncate">
+                                {b.emoji || "🍾"} {b.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {grams}g/un
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div className="font-mono font-black text-emerald-400">{units} un</div>
+                              <div className="text-[10px] font-mono text-slate-300">{weightKg.toFixed(2)} kg</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400">
+                      Nenhuma garrafa em estoque no catálogo do Pátio ainda. Adicione pelo Leitor/Carrinho na aba 1.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* CARDS DE CADA TIPO DE GARRAFA */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">

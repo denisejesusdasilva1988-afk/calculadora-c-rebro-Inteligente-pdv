@@ -74,7 +74,9 @@ import {
   Smartphone,
   Laptop,
   Zap,
-  Wine
+  Wine,
+  Cloud,
+  Scale
 } from "lucide-react";
 
 interface SidebarDrawerProps {
@@ -1669,7 +1671,63 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />
                   </button>
 
-                  {/* 1.6 Vidros & Ferro-Velho (Unidades & Toneladas) */}
+                  {/* 1.6 Pátio de Vidros (PDV & Leitor Direto) */}
+                  <button
+                    onClick={() => handleNavigate("pdv", "ferro_velho")}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer text-left ${
+                      notepadMode === "pdv" && pdvActiveSubTab === "ferro_velho"
+                        ? "bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 font-extrabold shadow-[0_0_15px_rgba(16,185,129,0.15)]"
+                        : "hover:bg-white/5 border border-transparent text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Wine className="w-5 h-5 text-emerald-400 shrink-0" />
+                      <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
+                        Pátio de Vidros 🍾
+                        <span className="text-[8px] bg-emerald-500 text-slate-950 font-black px-1.5 py-0.5 rounded">DIRETO</span>
+                      </span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 opacity-50" />
+                  </button>
+
+                  {/* 1.6b Centro de Reciclagem (Ferro Velho & Balança) */}
+                  <button
+                    onClick={() => handleNavigate("pdv", "ferro_velho_outros")}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer text-left ${
+                      notepadMode === "pdv" && pdvActiveSubTab === "ferro_velho_outros"
+                        ? "bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 font-extrabold shadow-[0_0_15px_rgba(6,182,212,0.15)]"
+                        : "hover:bg-white/5 border border-transparent text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Scale className="w-5 h-5 text-cyan-400 shrink-0" />
+                      <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
+                        Centro Reciclagem ♻️
+                        <span className="text-[8px] bg-cyan-500 text-slate-950 font-black px-1.5 py-0.5 rounded">BALANÇA</span>
+                      </span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 opacity-50" />
+                  </button>
+
+                  {/* 1.6c Sincronizar Pátios na Nuvem */}
+                  <button
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent("dw_request_yard_cloud_sync", { detail: { mode: "auto", openAfter: true } }));
+                      onClose();
+                    }}
+                    className="w-full flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer text-left bg-cyan-950/35 hover:bg-cyan-900/50 border border-cyan-500/30 text-cyan-200"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Cloud className="w-5 h-5 text-cyan-400 shrink-0" />
+                      <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
+                        Sincronizar Pátios ☁️
+                        <span className="text-[8px] bg-indigo-500 text-white font-black px-1.5 py-0.5 rounded">NUVEM</span>
+                      </span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 opacity-70" />
+                  </button>
+
+                  {/* 1.6d Vidros & Ferro-Velho (Calculadora de Lotes) */}
                   <button
                     onClick={() => {
                       try {
@@ -1684,10 +1742,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <Wine className="w-5 h-5 text-emerald-400 shrink-0" />
+                      <Wine className="w-5 h-5 text-teal-400 shrink-0" />
                       <span className="text-[12px] uppercase font-bold tracking-wide flex items-center gap-1.5">
-                        Vidros & Ferro Velho
-                        <span className="text-[8px] bg-teal-500 text-slate-950 font-black px-1.5 py-0.5 rounded">30D GRÁTIS</span>
+                        Calculadora de Lotes
+                        <span className="text-[8px] bg-teal-500 text-slate-950 font-black px-1.5 py-0.5 rounded">R$ 0,50</span>
                       </span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 opacity-50" />

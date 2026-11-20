@@ -1,6 +1,6 @@
 // Service Worker para a Calculadora Cérebro Inteligente (PWA)
-// Incrementado para cerebro-pdv-v19: atualização Play Store (Push Supermercados + Trial 30 dias)
-const CACHE_NAME = 'cerebro-pdv-v19';
+// Incrementado para cerebro-pdv-v20: sincronização global de pátios, contagem exata de garrafas/kg e atalhos PWA
+const CACHE_NAME = 'cerebro-pdv-v20';
 const ASSETS_TO_CACHE = [
   './manifest.json',
   './icon.svg',
