@@ -213,6 +213,7 @@ export interface CollaboratorAccount {
   isFounder?: boolean; // Coleta própria da equipe/proprietário!
   phone?: string;
   notes?: string;
+  agreedPaymentDate?: string; // Data ou regra combinada de acerto mensal (ex: "Dia 30 (Bolsa Família)", "NIS 9", "25/11/2026")
   createdAt: string;
   totalDeliveries: number;
   totalBottles: number;
@@ -274,6 +275,7 @@ export interface CompletedPurchaseTicket {
   expectedPlantRevenue: number;
   netProfit: number;
   paymentStatus: "pago_na_hora" | "pendente_caderninho" | "coleta_propria_empresa";
+  agreedPaymentDateSnapshot?: string;
   sellPricePerTonUsed?: number;
 }
 
@@ -568,6 +570,43 @@ export const SIMILAR_GLASS_PRESETS = [
   }
 ];
 
+const DEFAULT_CADERNINHO_PAYMENT_DATE = "Dia 30 / NIS 9 (Bolsa Família) ou Toneladas da Usina";
+
+const CADERNINHO_PAYMENT_DATE_PRESETS = [
+  "Dia 30 (Bolsa Família)",
+  "Calendário NIS 9",
+  "Dia 30 ou NIS 9 (Bolsa Família)",
+  "Ao fechar Toneladas da Usina",
+  "Todo dia 05",
+  "Todo dia 10"
+];
+
+const sanitizeGlassBuyerLabel = (raw?: string): string => {
+  const clean = (raw || "").trim();
+  if (!clean) return "Usina Parceira de Vidros (Carga Fechada)";
+  if (/victor|campo\s*grande/i.test(clean)) {
+    return "Usina Parceira de Vidros (Carga Fechada)";
+  }
+  return clean;
+};
+
+const maskBuyerPrivacyText = (raw?: string): string => {
+  if (!raw) return "";
+  return raw
+    .replace(/Victor\s*In[aá]cio\s*\([^)]*\)/gi, "Usina Parceira")
+    .replace(/Caminh[aã]o\s+do\s+Victor/gi, "Caminhão da Usina")
+    .replace(/\(\s*Victor\s*\)/gi, "(Usina)")
+    .replace(/\bVictor\s+Vidros\b/gi, "Usina Parceira")
+    .replace(/\bVictor\b/gi, "Usina Parceira")
+    .replace(/\bCampo\s+Grande\s*-?\s*RJ\b/gi, "Região Parceira");
+};
+
+const formatDateIsoToBr = (isoDate: string): string => {
+  const parts = isoDate.split("-");
+  if (parts.length !== 3) return isoDate;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+};
+
 // Colaborador padrão para lançamentos internos da própria equipe da empresa
 const INITIAL_COLLABORATORS: CollaboratorAccount[] = [
   {
@@ -590,6 +629,7 @@ const INITIAL_COLLABORATORS: CollaboratorAccount[] = [
     isFounder: false,
     phone: "",
     notes: "Entrega toda terça e quinta. Acerto mensal com Bolsa Família.",
+    agreedPaymentDate: "Dia 30 (Bolsa Família)",
     createdAt: "Novembro/2026",
     totalDeliveries: 0,
     totalBottles: 0,
@@ -603,7 +643,8 @@ const INITIAL_COLLABORATORS: CollaboratorAccount[] = [
     name: "Zé do Vidro (Colaborador)",
     isFounder: false,
     phone: "",
-    notes: "Traz garrafas de bares e restaurantes. Acerto no acerto do caminhão.",
+    notes: "Traz garrafas de bares e restaurantes. Acerto ao fechar toneladas da usina.",
+    agreedPaymentDate: "Ao fechar Toneladas da Usina",
     createdAt: "Novembro/2026",
     totalDeliveries: 0,
     totalBottles: 0,
@@ -618,6 +659,7 @@ const INITIAL_COLLABORATORS: CollaboratorAccount[] = [
     isFounder: false,
     phone: "",
     notes: "Parceira fiel da região.",
+    agreedPaymentDate: "Dia 30 ou NIS 9 (Bolsa Família)",
     createdAt: "Novembro/2026",
     totalDeliveries: 0,
     totalBottles: 0,
@@ -929,7 +971,12 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
             ${
               ticket.isScrapPurchase
                 ? `<div>MODALIDADE: FERRO VELHO &amp; RECICLAGEM</div>`
-                : `<div>COTAÇÃO VICTOR: R$ ${ticket.sellPricePerTonUsed || 150}/ton (R$ ${(((ticket.sellPricePerTonUsed || 150) / 1000)).toFixed(2).replace(".", ",")}/kg)</div>`
+                : `<div>BASE TABELA VIDROS: R$ ${ticket.sellPricePerTonUsed || 150}/ton (R$ ${(((ticket.sellPricePerTonUsed || 150) / 1000)).toFixed(2).replace(".", ",")}/kg)</div>`
+            }
+            ${
+              !ticket.isFounder && ticket.paymentStatus === "pendente_caderninho" && ticket.agreedPaymentDateSnapshot
+                ? `<div style="font-weight:900;border:1px solid #000;padding:2px 4px;margin-top:3px;">PREVISÃO PAGTO: ${ticket.agreedPaymentDateSnapshot.toUpperCase()}</div>`
+                : ""
             }
           </div>
           <table style="width:100%;border-collapse:collapse;margin:4px 0;">
@@ -1041,7 +1088,7 @@ export function GlassBarcodeScannerCart({
   userId,
   sellPricePerTon = 150,
   onSetSellPricePerTon,
-  buyerName = "Caminhão do Victor (Usina / Reciclagem)",
+  buyerName = "Usina Parceira de Vidros (Carga Fechada)",
   initialActiveTab,
   initialYardControlFilter,
   onAddItemsToYardStock,
@@ -1672,16 +1719,23 @@ export function GlassBarcodeScannerCart({
   const contrastLoopStopRef = useRef<(() => void) | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Modais
+  // Modais e Data Combinada de Pagamento no Caderninho
+  const [caderninhoDefaultPayDate, setCaderninhoDefaultPayDate] = useState<string>(() =>
+    loadPersistedString("pdv_dw_caderninho_default_pay_date_v1", DEFAULT_CADERNINHO_PAYMENT_DATE)
+  );
+  const [editingCollabPayDateId, setEditingCollabPayDateId] = useState<string | null>(null);
+  const [editingCollabPayDateDraft, setEditingCollabPayDateDraft] = useState<string>("");
+
   const [showAddCollabModal, setShowAddCollabModal] = useState<boolean>(false);
   const [newCollabName, setNewCollabName] = useState<string>("");
   const [newCollabPhone, setNewCollabPhone] = useState<string>("");
   const [newCollabNotes, setNewCollabNotes] = useState<string>("");
+  const [newCollabPayDate, setNewCollabPayDate] = useState<string>("");
 
   const [payingCollab, setPayingCollab] = useState<CollaboratorAccount | null>(null);
   const [payAmount, setPayAmount] = useState<number>(0);
   const [payMethod, setPayMethod] = useState<"bolsa_familia" | "caminhao_victor" | "dinheiro" | "pix">("bolsa_familia");
-  const [payNotes, setPayNotes] = useState<string>("Acerto mensal no dia do Bolsa Família");
+  const [payNotes, setPayNotes] = useState<string>("Acerto mensal: Bolsa Família (Dia 30 / NIS 9)");
 
   const savedBottleEditDraftRef = useRef<{ editingBottle: CatalogBottleItem; editingWeightGramsInput: string; isRegisteringNew: boolean } | null>(
     loadPersistedJson<{ editingBottle: CatalogBottleItem; editingWeightGramsInput: string; isRegisteringNew: boolean } | null>("pdv_dw_bottle_edit_draft_v1", null)
@@ -1854,6 +1908,10 @@ export function GlassBarcodeScannerCart({
   ]);
 
   useEffect(() => {
+    savePersistedString("pdv_dw_caderninho_default_pay_date_v1", caderninhoDefaultPayDate);
+  }, [caderninhoDefaultPayDate]);
+
+  useEffect(() => {
     savePersistedString("pdv_dw_yard_quick_notes_v1", yardQuickNotes);
   }, [yardQuickNotes]);
 
@@ -1885,6 +1943,7 @@ export function GlassBarcodeScannerCart({
     savePersistedString("pdv_dw_yard_control_filter_v1", yardControlFilter);
     savePersistedString("pdv_dw_yard_active_tab_v1", activeTab);
     savePersistedString("pdv_dw_selected_collab_id_v1", selectedCollabId);
+    savePersistedString("pdv_dw_caderninho_default_pay_date_v1", caderninhoDefaultPayDate);
     savePersistedJson("pdv_dw_bottle_input_qty_v1", bottleInputQty);
     savePersistedString("pdv_dw_yard_quick_notes_v1", yardQuickNotes);
     savePersistedString("pdv_dw_ref_notes_subtab_v1", refNotesSubTab);
@@ -2132,6 +2191,55 @@ export function GlassBarcodeScannerCart({
     } catch {}
   }, [catalog, otherScrapMaterials, scrapSalesHistory, collaborators, truckShipments, yardGoalKg, activeSellPricePerTon]);
 
+  // Helpers para resolver e atualizar a Data Combinada de Pagamento no Caderninho
+  const getCollaboratorAgreedPaymentDate = (collab?: CollaboratorAccount | null): string => {
+    if (!collab || collab.isFounder) return "";
+    return (collab.agreedPaymentDate || "").trim() || caderninhoDefaultPayDate.trim() || DEFAULT_CADERNINHO_PAYMENT_DATE;
+  };
+
+  const resolveTicketAgreedPaymentDate = (ticket: CompletedPurchaseTicket): string => {
+    if (ticket.isFounder || ticket.paymentStatus !== "pendente_caderninho") return "";
+    const matched = collaborators.find(
+      (c) =>
+        (ticket.collaboratorId && c.id === ticket.collaboratorId) ||
+        c.name.trim().toLowerCase() === ticket.collectorName.trim().toLowerCase()
+    );
+    if (matched) {
+      if (matched.isFounder) return "";
+      return (matched.agreedPaymentDate || "").trim() || (ticket.agreedPaymentDateSnapshot || "").trim() || caderninhoDefaultPayDate.trim();
+    }
+    return (ticket.agreedPaymentDateSnapshot || "").trim() || caderninhoDefaultPayDate.trim();
+  };
+
+  const handleSaveCollaboratorPayDate = (collabId: string, rawDateValue: string) => {
+    const cleanDate = rawDateValue.trim();
+    markLocalYardMutation();
+    setCollaborators((prev) =>
+      prev.map((c) => (c.id === collabId ? { ...c, agreedPaymentDate: cleanDate } : c))
+    );
+    setEditingCollabPayDateId(null);
+    setEditingCollabPayDateDraft("");
+    if (showNotification) {
+      const shown = cleanDate || caderninhoDefaultPayDate || DEFAULT_CADERNINHO_PAYMENT_DATE;
+      showNotification(
+        `Data combinada atualizada para "${shown}"! Ela já sai impressa nas notinhas do Caderninho. 📅✅`,
+        "success"
+      );
+    }
+  };
+
+  const handleApplyDefaultPayDateToAll = () => {
+    const cleanDefault = caderninhoDefaultPayDate.trim() || DEFAULT_CADERNINHO_PAYMENT_DATE;
+    markLocalYardMutation();
+    setCaderninhoDefaultPayDate(cleanDefault);
+    setCollaborators((prev) =>
+      prev.map((c) => (c.isFounder ? c : { ...c, agreedPaymentDate: cleanDefault }))
+    );
+    if (showNotification) {
+      showNotification(`Acordo "${cleanDefault}" aplicado a todos os colaboradores do Caderninho! 📅✅`, "success");
+    }
+  };
+
   // Helper para enviar snapshot do Pátio & Códigos para Firestore userData/{uid}
   const latestCloudPayloadRef = useRef<any>(null);
   latestCloudPayloadRef.current = {
@@ -2144,7 +2252,8 @@ export function GlassBarcodeScannerCart({
     scrapSalesHistory: scrapSalesHistory.slice(0, 150),
     yardGoalKg,
     sellPricePerTon: activeSellPricePerTon,
-    otherScrapMaterials
+    otherScrapMaterials,
+    caderninhoDefaultPayDate
   };
 
   const pushYardDataToCloud = async (explicitTs?: number, forceNotify = false) => {
@@ -2249,6 +2358,9 @@ export function GlassBarcodeScannerCart({
                   if (typeof cloudYard.sellPricePerTon === "number" && cloudYard.sellPricePerTon >= 50 && !onSetSellPricePerTon) {
                     setInternalSellPricePerTon(cloudYard.sellPricePerTon);
                   }
+                  if (typeof cloudYard.caderninhoDefaultPayDate === "string" && cloudYard.caderninhoDefaultPayDate.trim()) {
+                    setCaderninhoDefaultPayDate(cloudYard.caderninhoDefaultPayDate);
+                  }
                   if (Array.isArray(cloudYard.otherScrapMaterials) && cloudYard.otherScrapMaterials.length > 0) {
                     setOtherScrapMaterials(mergeScrapMaterialsWithDefaults(cloudYard.otherScrapMaterials, false));
                   }
@@ -2308,6 +2420,7 @@ export function GlassBarcodeScannerCart({
     activeSellPricePerTon,
     otherScrapMaterials,
     scrapSalesHistory,
+    caderninhoDefaultPayDate,
     activeAuthUid
   ]);
 
@@ -3021,6 +3134,10 @@ export function GlassBarcodeScannerCart({
         expectedPlantRevenue: 0,
         netProfit: 0,
         paymentStatus,
+        agreedPaymentDateSnapshot:
+          paymentStatus === "pendente_caderninho"
+            ? getCollaboratorAgreedPaymentDate(resolved.matchedCollab)
+            : undefined,
         sellPricePerTonUsed: activeSellPricePerTon
       };
 
@@ -4307,6 +4424,8 @@ export function GlassBarcodeScannerCart({
       expectedPlantRevenue: cartTotals.totalRevenue,
       netProfit: cartTotals.netProfit,
       paymentStatus,
+      agreedPaymentDateSnapshot:
+        paymentStatus === "pendente_caderninho" ? getCollaboratorAgreedPaymentDate(activeCollab) : undefined,
       sellPricePerTonUsed: activeSellPricePerTon
     };
 
@@ -4393,8 +4512,8 @@ export function GlassBarcodeScannerCart({
     );
 
     const methodLabels: Record<string, string> = {
-      bolsa_familia: "📅 Bolsa Família (Dia Fixo)",
-      caminhao_victor: "🚚 Acerto Caminhão do Victor (Pesagem)",
+      bolsa_familia: "📅 Bolsa Família (Dia 30 / NIS 9)",
+      caminhao_victor: "🚚 Fechamento Toneladas da Usina",
       dinheiro: "💵 Dinheiro em Mãos",
       pix: "💳 Pix"
     };
@@ -4453,7 +4572,7 @@ export function GlassBarcodeScannerCart({
     }
   };
 
-  // Despachar Carga para o Caminhão do Victor (Zera estoque para começar a próxima carga!)
+  // Despachar Carga para a Usina Parceira de Vidros (Zera estoque para começar a próxima carga!)
   const handleDispatchTruckCargo = () => {
     if (yardTotals.totalUnits === 0) {
       if (showNotification) showNotification("O pátio está vazio! Não há garrafas para despachar.", "warning");
@@ -4468,7 +4587,7 @@ export function GlassBarcodeScannerCart({
     const shipment: DispatchedTruckShipment = {
       id: `shipment_${Date.now()}`,
       timestamp: new Date().toLocaleString("pt-BR"),
-      buyerName: buyerName || "Caminhão do Victor (Empresa de Vidros)",
+      buyerName: sanitizeGlassBuyerLabel(buyerName),
       totalBottles: yardTotals.totalUnits,
       totalWeightKg: yardTotals.totalWeightKg,
       totalWeightTon: yardTotals.totalWeightTon,
@@ -4613,6 +4732,7 @@ export function GlassBarcodeScannerCart({
       name: cleanName,
       phone: newCollabPhone.trim(),
       notes: newCollabNotes.trim(),
+      agreedPaymentDate: newCollabPayDate.trim() || caderninhoDefaultPayDate.trim() || DEFAULT_CADERNINHO_PAYMENT_DATE,
       createdAt: new Date().toLocaleDateString("pt-BR"),
       isFounder: false,
       totalDeliveries: 0,
@@ -4629,6 +4749,7 @@ export function GlassBarcodeScannerCart({
     setNewCollabName("");
     setNewCollabPhone("");
     setNewCollabNotes("");
+    setNewCollabPayDate("");
     setShowAddCollabModal(false);
 
     if (showNotification) {
@@ -4643,6 +4764,8 @@ export function GlassBarcodeScannerCart({
     const storeTitle = cfg.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM";
     const storeCnpj = cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "";
     const ownerName = prof.ownerName?.trim() || "";
+    const matchedCollab = collaborators.find((c) => c.id === receipt.collaboratorId);
+    const agreedPayDate = matchedCollab ? getCollaboratorAgreedPaymentDate(matchedCollab) : "";
     let msg = `🧾 *${storeTitle}*\n`;
     if (storeCnpj || ownerName) {
       msg += `_${[storeCnpj ? `CNPJ/CPF: ${storeCnpj}` : "", ownerName].filter(Boolean).join(" • ")}_\n`;
@@ -4652,11 +4775,14 @@ export function GlassBarcodeScannerCart({
     msg += `👤 *Colaborador:* ${receipt.collaboratorName}\n`;
     msg += `📅 *Data/Hora:* ${receipt.timestamp}\n`;
     msg += `💰 *VALOR PAGO:* R$ ${receipt.amountPaid.toFixed(2)}\n`;
-    msg += `💳 *Forma de Pagamento:* ${receipt.methodLabel}\n`;
-    if (receipt.notes) msg += `📝 *Obs:* ${receipt.notes}\n`;
+    msg += `💳 *Forma de Pagamento:* ${maskBuyerPrivacyText(receipt.methodLabel)}\n`;
+    if (receipt.notes) msg += `📝 *Obs:* ${maskBuyerPrivacyText(receipt.notes)}\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `Saldo Restante no Caderninho: R$ ${receipt.remainingBalance.toFixed(2)}\n\n`;
-    msg += `_Obrigado pela parceria na reciclagem! ${storeTitle} 🌱_`;
+    msg += `Saldo Restante no Caderninho: R$ ${receipt.remainingBalance.toFixed(2)}\n`;
+    if (agreedPayDate && receipt.remainingBalance > 0) {
+      msg += `📆 *Data Combinada Próx. Acerto:* ${agreedPayDate}\n`;
+    }
+    msg += `\n_Obrigado pela parceria na reciclagem! ${storeTitle} 🌱_`;
 
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
     window.open(url, "_blank");
@@ -4710,6 +4836,7 @@ export function GlassBarcodeScannerCart({
   ): ThermalCanvasReceiptPayload => {
     const cfg = loadPrinterConfig();
     const prof = loadCompanyProfile();
+    const resolvedPayDate = resolveTicketAgreedPaymentDate(ticket);
     const statusLabel =
       String(ticket.paymentStatus || "").startsWith("coleta_propria")
         ? "COLETA PRÓPRIA (100% EMPRESA)"
@@ -4774,6 +4901,17 @@ export function GlassBarcodeScannerCart({
       strike: Boolean(ticket.isCancelled)
     });
 
+    const extraMeta: string[] = ticket.isScrapPurchase
+      ? ["MODALIDADE: FERRO VELHO & RECICLAGEM"]
+      : [
+          `BASE TABELA VIDROS: R$ ${ticket.sellPricePerTonUsed || 150}/t (R$ ${((ticket.sellPricePerTonUsed || 150) / 1000)
+            .toFixed(2)
+            .replace(".", ",")}/kg)`
+        ];
+    if (resolvedPayDate) {
+      extraMeta.push(`DATA PAGTO COMBINADA: ${resolvedPayDate.toUpperCase()}`);
+    }
+
     return {
       title: ticket.isScrapPurchase
         ? "RECIBO DE COMPRA - RECICLAGEM"
@@ -4784,20 +4922,16 @@ export function GlassBarcodeScannerCart({
       ticketId: ticket.id,
       collaboratorName: ticket.collectorName,
       statusLabel,
-      extraMeta: ticket.isScrapPurchase
-        ? ["MODALIDADE: FERRO VELHO & RECICLAGEM"]
-        : [
-            `COTAÇÃO VICTOR: R$ ${ticket.sellPricePerTonUsed || 150}/t (R$ ${((ticket.sellPricePerTonUsed || 150) / 1000)
-              .toFixed(2)
-              .replace(".", ",")}/kg)`
-          ],
+      extraMeta,
       isCancelled: ticket.isCancelled,
       cancelReason: ticket.cancelReason,
       cancelledAt: ticket.cancelledAt,
       lines,
       summaryLines,
       caderninhoBox: getTicketCollabSnapshot(ticket),
-      footerNote: "Pasta do colaborador atualizada! Confira os cálculos.",
+      footerNote: resolvedPayDate
+        ? `PREVISÃO PAGTO: ${resolvedPayDate}`
+        : "Pasta do colaborador atualizada! Confira os cálculos.",
       copies
     };
   };
@@ -4862,6 +4996,13 @@ export function GlassBarcodeScannerCart({
     const cfg = loadPrinterConfig();
     const prof = loadCompanyProfile();
     const matched = collaborators.find((c) => c.id === receipt.collaboratorId);
+    const cleanMethodLabel = maskBuyerPrivacyText(receipt.methodLabel);
+    const agreedPayDate = matched && !matched.isFounder ? getCollaboratorAgreedPaymentDate(matched) : "";
+    const extraMeta: string[] = [];
+    if (receipt.notes) extraMeta.push(`OBS: ${maskBuyerPrivacyText(receipt.notes)}`);
+    if (agreedPayDate && receipt.remainingBalance > 0) {
+      extraMeta.push(`PRÓX. ACERTO COMBINADO: ${agreedPayDate.toUpperCase()}`);
+    }
     return {
       title: "RECIBO DE PAGAMENTO / ACERTO",
       subtitle: "CADERNINHO DA RECICLAGEM",
@@ -4870,11 +5011,11 @@ export function GlassBarcodeScannerCart({
       dateStr: receipt.timestamp,
       ticketId: receipt.id,
       collaboratorName: receipt.collaboratorName,
-      statusLabel: `PAGO (${receipt.methodLabel.toUpperCase()})`,
-      extraMeta: receipt.notes ? [`OBS: ${receipt.notes}`] : undefined,
+      statusLabel: `PAGO (${cleanMethodLabel.toUpperCase()})`,
+      extraMeta: extraMeta.length > 0 ? extraMeta : undefined,
       lines: [
         {
-          left: `ACERTO RECEBIDO (${receipt.methodLabel})`,
+          left: `ACERTO RECEBIDO (${cleanMethodLabel})`,
           right: `R$ ${receipt.amountPaid.toFixed(2).replace(".", ",")}`,
           detail: `Saldo Anterior no Caderninho: R$ ${receipt.previousBalance.toFixed(2).replace(".", ",")}`,
           bold: true
@@ -4906,7 +5047,10 @@ export function GlassBarcodeScannerCart({
             totalDeliveries: matched.totalDeliveries
           }
         : undefined,
-      footerNote: "Recibo de pagamento conferido (Empresa + Reciclador).",
+      footerNote:
+        agreedPayDate && receipt.remainingBalance > 0
+          ? `PRÓXIMO ACERTO COMBINADO: ${agreedPayDate}`
+          : "Recibo de pagamento conferido (Empresa + Reciclador).",
       copies
     };
   };
@@ -5001,7 +5145,7 @@ export function GlassBarcodeScannerCart({
       ...folder.payments.slice(0, 10).map((pay) => ({
         left: `ACERTO (${pay.timestamp.split(",")[0] || pay.timestamp})`,
         right: `-R$ ${pay.amountPaid.toFixed(2).replace(".", ",")}`,
-        detail: `Pago via ${pay.methodLabel}`,
+        detail: `Pago via ${maskBuyerPrivacyText(pay.methodLabel)}`,
         bold: true
       }))
     ];
@@ -5016,6 +5160,7 @@ export function GlassBarcodeScannerCart({
         : " (VIDROS + FERRO VELHO SEPARADOS)";
     const totalPaid = folder.collaborator ? folder.collaborator.totalPaid : folder.totalPaidDirectAmount;
     const pending = folder.collaborator ? folder.collaborator.balancePending : 0;
+    const folderAgreedPayDate = folder.collaborator && !folder.isFounder ? getCollaboratorAgreedPaymentDate(folder.collaborator) : "";
 
     const summaryLines: ThermalCanvasReceiptPayload["summaryLines"] = [];
     if (sectorFilter === "todos") {
@@ -5054,6 +5199,14 @@ export function GlassBarcodeScannerCart({
       summaryLines.push({ label: "SALDO A ACERTAR:", value: `R$ ${pending.toFixed(2).replace(".", ",")}`, big: true, bold: true });
     }
 
+    const folderExtraMeta = [
+      `COMPRAS DO SETOR: ${filteredActiveTickets.length} | ACERTOS: ${folder.payments.length}`,
+      `PESO DO SETOR: ${filteredWeightKg.toFixed(2)} kg`
+    ];
+    if (folderAgreedPayDate) {
+      folderExtraMeta.push(`PREVISÃO PAGTO: ${folderAgreedPayDate.toUpperCase()}`);
+    }
+
     return {
       title: `EXTRATO DA PASTA${sectorTitleSuffix}`,
       subtitle: "CONFERÊNCIA DE CADERNINHO & RECIBOS",
@@ -5067,10 +5220,7 @@ export function GlassBarcodeScannerCart({
         : pending > 0
         ? `DEVENDO R$ ${pending.toFixed(2).replace(".", ",")}`
         : "CONTAS EM DIA",
-      extraMeta: [
-        `COMPRAS DO SETOR: ${filteredActiveTickets.length} | ACERTOS: ${folder.payments.length}`,
-        `PESO DO SETOR: ${filteredWeightKg.toFixed(2)} kg`
-      ],
+      extraMeta: folderExtraMeta,
       lines,
       summaryLines,
       caderninhoBox: folder.collaborator && !folder.isFounder
@@ -5082,7 +5232,9 @@ export function GlassBarcodeScannerCart({
             totalDeliveries: folder.collaborator.totalDeliveries
           }
         : undefined,
-      footerNote: "Grampear este extrato junto aos recibinhos da pasta!",
+      footerNote: folderAgreedPayDate
+        ? `PREVISÃO PAGTO: ${folderAgreedPayDate}`
+        : "Grampear este extrato junto aos recibinhos da pasta!",
       copies
     };
   };
@@ -5147,6 +5299,7 @@ export function GlassBarcodeScannerCart({
     const sectorValue = activeTickets.reduce((s, tk) => roundCurrencyBrl(s + getTicketEffectiveMonetaryValue(tk)), 0);
     const totalPaid = folder.collaborator ? folder.collaborator.totalPaid : folder.totalPaidDirectAmount;
     const pending = folder.collaborator ? folder.collaborator.balancePending : 0;
+    const agreedPayDate = folder.collaborator && !folder.isFounder ? getCollaboratorAgreedPaymentDate(folder.collaborator) : "";
     const cfg = loadPrinterConfig();
     const prof = loadCompanyProfile();
     const storeTitle = cfg.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM";
@@ -5159,6 +5312,9 @@ export function GlassBarcodeScannerCart({
     let msg = `📁 *PASTA DE RECIBOS — ${storeTitle}*\n`;
     msg += `🏷️ *Setor:* ${sectorHeaderLabel}\n`;
     msg += `👤 *Colaborador:* ${folder.name}\n`;
+    if (agreedPayDate) {
+      msg += `📆 *Data Combinada Pagto:* ${agreedPayDate}\n`;
+    }
     msg += `⚖️ *Peso do Setor:* ${sectorWeightKg.toFixed(2)} kg\n`;
     msg += `🛒 *Compras Registradas:* ${activeTickets.length}\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
@@ -5170,7 +5326,7 @@ export function GlassBarcodeScannerCart({
     if (folder.payments.length > 0) {
       msg += `\n🤝 *ACERTOS / PAGAMENTOS FEITOS:*\n`;
       folder.payments.slice(0, 8).forEach((p) => {
-        msg += `• ${p.timestamp.split(",")[0]} — R$ ${p.amountPaid.toFixed(2)} (${p.methodLabel})\n`;
+        msg += `• ${p.timestamp.split(",")[0]} — R$ ${p.amountPaid.toFixed(2)} (${maskBuyerPrivacyText(p.methodLabel)})\n`;
       });
     }
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
@@ -5518,11 +5674,15 @@ export function GlassBarcodeScannerCart({
       if (ticket.cancelReason) msg += `📝 *Motivo:* ${ticket.cancelReason}\n`;
       msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     }
+    const resolvedPayDate = resolveTicketAgreedPaymentDate(ticket);
     msg += `👤 *Parceiro:* ${ticket.collectorName}\n`;
     msg += `📅 *Data:* ${ticket.timestamp}\n`;
     msg += `📌 *Status:* ${statusLabel}\n`;
+    if (resolvedPayDate) {
+      msg += `📆 *Previsão de Pagto:* ${resolvedPayDate}\n`;
+    }
     if (!ticket.isScrapPurchase) {
-      msg += `📊 *Cotação Victor:* R$ ${ticket.sellPricePerTonUsed || activeSellPricePerTon}/t (R$ ${(((ticket.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2)}/kg)\n`;
+      msg += `📊 *Base Tabela Vidros:* R$ ${ticket.sellPricePerTonUsed || activeSellPricePerTon}/t (R$ ${(((ticket.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2)}/kg)\n`;
     }
     msg += `━━━━━━━━━━━━━━━━━━━━\n`;
     ticket.items.forEach((it) => {
@@ -5940,14 +6100,14 @@ export function GlassBarcodeScannerCart({
             <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
               <Scale className="w-6 h-6 text-emerald-400" />
               {activeSector === "vidros"
-                ? "🍾 Pátio de Vidros — Garrafas, Balança & Caminhão do Victor"
+                ? "🍾 Pátio de Vidros — Garrafas, Balança & Carga da Usina"
                 : "♻️ Centro de Reciclagem (Ferro Velho) — Compras, Revenda & Lucros"}
             </h2>
 
             <p className="text-xs sm:text-sm text-slate-300 max-w-3xl leading-relaxed">
               {activeSector === "vidros" ? (
                 <>
-                  Setor exclusivo de <strong>Vidros (Caminhão do Victor • Meta {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg)</strong>. Bipe garrafas misturadas, confira gramas e controle o pátio sem misturar com o Ferro Velho!
+                  Setor exclusivo de <strong>Vidros (Carga Fechada da Usina • Meta {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg)</strong>. Bipe garrafas misturadas, confira gramas e controle o pátio sem misturar com o Ferro Velho!
                 </>
               ) : (
                 <>
@@ -5965,7 +6125,7 @@ export function GlassBarcodeScannerCart({
                   type="button"
                   onClick={() => setShowStrategicGuideModal(true)}
                   className="min-h-[48px] px-3.5 py-2.5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 hover:text-white font-black text-xs uppercase rounded-xl border border-amber-500/40 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md"
-                  title="Ver análise completa de margens dos 8 itens e veredito do Victor"
+                  title="Ver análise completa de margens dos 8 itens e veredito da tabela de vidros"
                 >
                   <Sparkles className="w-4 h-4 text-amber-400" />
                   <span>Análise dos 8 Itens & Veredito 📋</span>
@@ -5977,7 +6137,7 @@ export function GlassBarcodeScannerCart({
                   className="min-h-[48px] px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/30 touch-manipulation"
                 >
                   <Truck className="w-4 h-4" />
-                  <span>Despachar Carga ao Victor 🚚</span>
+                  <span>Despachar Carga para Usina 🚚</span>
                 </button>
               </>
             ) : (
@@ -6077,7 +6237,7 @@ export function GlassBarcodeScannerCart({
               <span className="text-2xl p-2 rounded-xl bg-slate-900 border border-emerald-500/30 shrink-0">🍾</span>
               <div className="min-w-0">
                 <span className={`text-[10px] font-black uppercase tracking-wider block ${activeSector === "vidros" ? "text-emerald-300" : "text-slate-400"}`}>
-                  Setor 1 • Caminhão do Victor
+                  Setor 1 • Carga da Usina
                 </span>
                 <strong className="text-sm sm:text-base font-black text-white block truncate">
                   Pátio de Vidros
@@ -6174,7 +6334,7 @@ export function GlassBarcodeScannerCart({
             <div className="space-y-1.5 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                  🍾 PÁTIO DE VIDROS (KG) • CAMINHÃO DO VICTOR
+                  🍾 PÁTIO DE VIDROS (KG) • CARGA DA USINA
                 </span>
                 <button
                   type="button"
@@ -6245,7 +6405,7 @@ export function GlassBarcodeScannerCart({
               <p className="text-xs text-slate-300">
                 {yardTotals.kgMissingForMin > 0 ? (
                   <span>
-                    Faltam <strong className="text-amber-300 font-mono text-sm">{yardTotals.kgMissingForMin.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} kg</strong> para bater a meta configurada de {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg no caminhão do Victor!
+                    Faltam <strong className="text-amber-300 font-mono text-sm">{yardTotals.kgMissingForMin.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} kg</strong> para bater a meta configurada de {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg para coleta da Usina!
                   </span>
                 ) : (
                   <span className="text-emerald-300 font-black">
@@ -6425,7 +6585,7 @@ export function GlassBarcodeScannerCart({
               { id: "carrinho", label: "🛒 Bipar & Comprar Vidros", badge: cart.length > 0 ? `${cart.length}` : null },
               { id: "estoque", label: "🍾 Estoque de Vidros (Pátio)", badge: `${yardTotals.totalUnits}` },
               { id: "caderninho", label: "📖 Caderninho dos Colaboradores", badge: caderninhoTotals.totalPendingAll > 0 ? `R$ ${caderninhoTotals.totalPendingAll.toFixed(0)}` : null },
-              { id: "cargas", label: "📁 Pastas, Recibos & Cargas Victor", badge: purchaseHistory.filter((t) => !t.isCancelled).length > 0 ? `${purchaseHistory.filter((t) => !t.isCancelled).length}` : null }
+              { id: "cargas", label: "📁 Pastas, Recibos & Cargas Usina", badge: purchaseHistory.filter((t) => !t.isCancelled).length > 0 ? `${purchaseHistory.filter((t) => !t.isCancelled).length}` : null }
             ]
           : [
               { id: "estoque", label: "⚖️ Balança, Compras & Lucros (Ferro Velho)", badge: `${otherMaterialsTotalKg.toFixed(0)} kg` },
@@ -6494,7 +6654,7 @@ export function GlassBarcodeScannerCart({
                     </span>
                   </div>
                   <h3 className="text-base sm:text-lg font-black text-white mt-0.5 flex items-center gap-2">
-                    Tabela do Victor (Caminhão RJ) & Cotação Ativa
+                    Tabela da Usina Parceira & Cotação Ativa
                   </h3>
                 </div>
               </div>
@@ -6504,15 +6664,15 @@ export function GlassBarcodeScannerCart({
                 onClick={() => setShowVictorRules(!showVictorRules)}
                 className="px-3.5 py-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 active:scale-95 text-indigo-300 font-bold text-xs rounded-xl border border-indigo-500/30 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation self-start sm:self-auto"
               >
-                <span>{showVictorRules ? "Ocultar Regras WhatsApp ✕" : "📋 Ver Termos do WhatsApp"}</span>
+                <span>{showVictorRules ? "Ocultar Regras de Carga ✕" : "📋 Ver Regras de Carga"}</span>
               </button>
             </div>
 
-            {/* SELETOR DOS 4 NÍVEIS OFICIAIS DO VICTOR */}
+            {/* SELETOR DOS 4 NÍVEIS DA TABELA DA USINA */}
             <div className="space-y-2">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
                 <span className="text-slate-300 font-bold">
-                  Clique na cotação que o Victor vai pagar pela sua carga:
+                  Clique na cotação que será paga pela sua carga fechada:
                 </span>
                 <span className="font-mono text-emerald-400 font-black">
                   Ativo: R$ {activeSellPricePerTon}/ton (R$ {sellPricePerKg.toFixed(2)}/kg)
@@ -6573,11 +6733,11 @@ export function GlassBarcodeScannerCart({
               </div>
             </div>
 
-            {/* REGRAS OFICIAIS DO WHATSAPP DO VICTOR (EXPANSÍVEL) */}
+            {/* REGRAS COMERCIAIS DE COLETA DA USINA (EXPANSÍVEL) */}
             {showVictorRules && (
               <div className="p-4 bg-slate-950 rounded-2xl border border-indigo-500/30 text-xs space-y-3">
                 <div className="font-black text-amber-300 flex items-center gap-2">
-                  <span>📲 Termos Oficiais do WhatsApp de Victor Inácio (Victor Campo Grande RJ - VIDRO):</span>
+                  <span>📋 Regras Comerciais da Usina Parceira (Meta Carga Fechada):</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-300 text-[11px] leading-relaxed">
                   <div className="p-2.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
@@ -6586,15 +6746,15 @@ export function GlassBarcodeScannerCart({
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
                     <strong className="text-white block">👷 2. Ajudante & Carregamento:</strong>
-                    <span>Carregamento é por conta do cliente, <strong>mas o Victor fornece 1 ajudante</strong> para auxiliar no carregamento.</span>
+                    <span>Carregamento é organizado no pátio e a transportadora fornece <strong>1 ajudante</strong> para auxiliar no embarque da carga.</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
                     <strong className="text-white block">🚫 3. Proibido Contaminantes:</strong>
                     <span><strong>NÃO aceita porcelana, louças, pedras nem cerâmica</strong>! Se tiver na carga, há corte forte de preço (R$ 80/t) ou recusa.</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
-                    <strong className="text-white block">📍 4. Área de Atendimento:</strong>
-                    <span>Atendimento exclusivo em todo o <strong>Estado do Rio de Janeiro (RJ)</strong>. Não fornecem caçambas no momento.</span>
+                    <strong className="text-white block">📍 4. Agendamento Regional:</strong>
+                    <span>Coleta programada diretamente no pátio quando atingir a tonelagem mínima fechada.</span>
                   </div>
                 </div>
               </div>
@@ -6637,7 +6797,10 @@ export function GlassBarcodeScannerCart({
 
               <button
                 type="button"
-                onClick={() => setShowAddCollabModal(true)}
+                onClick={() => {
+                  setNewCollabPayDate((prev) => prev || caderninhoDefaultPayDate);
+                  setShowAddCollabModal(true);
+                }}
                 className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation"
               >
                 <UserPlus className="w-4 h-4" />
@@ -7289,7 +7452,7 @@ export function GlassBarcodeScannerCart({
                     </strong>
                   </div>
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-teal-400 block">Venda Victor (R$ 0,15/kg):</span>
+                    <span className="text-[10px] uppercase font-bold text-teal-400 block">Valor na Usina (R$ {sellPricePerKg.toFixed(2).replace(".", ",")}/kg):</span>
                     <strong className="text-xl font-mono text-teal-300 font-black">
                       R$ {cartTotals.totalRevenue.toFixed(2)}
                     </strong>
@@ -7313,7 +7476,7 @@ export function GlassBarcodeScannerCart({
                         <span className="flex items-center gap-1.5 text-emerald-400">
                           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                           <span>
-                            Converte automaticamente para <strong className="text-white font-mono">{cartTotals.totalWeightKg.toFixed(2)} kg</strong> no Pátio rumo à meta do Victor!
+                            Converte automaticamente para <strong className="text-white font-mono">{cartTotals.totalWeightKg.toFixed(2)} kg</strong> no Pátio rumo à meta de toneladas!
                           </span>
                         </span>
                         <span className="text-amber-300 font-mono">
@@ -7326,12 +7489,14 @@ export function GlassBarcodeScannerCart({
                           type="button"
                           onClick={() => handleFinalizeTicket("pendente_caderninho")}
                           className="w-full sm:flex-1 min-h-[52px] px-4 py-2.5 bg-slate-950 hover:bg-slate-800 active:scale-95 text-amber-300 font-black text-xs uppercase rounded-2xl border-2 border-amber-500/50 transition-all flex items-center justify-center gap-2.5 cursor-pointer touch-manipulation shadow-lg shadow-amber-950/40"
-                          title="Acumular para acertar no Bolsa Família ou no Caminhão do Victor (Caderninho do Colaborador)"
+                          title="Acumular no Caderninho com data combinada impressa na notinha"
                         >
                           <Calendar className="w-5 h-5 text-amber-400 shrink-0" />
                           <div className="text-left leading-tight">
                             <span className="block font-black text-xs">📓 Lançar no Caderninho</span>
-                            <span className="block text-[10px] text-amber-200/80 font-normal">Pagar depois (Bolsa Família / Caminhão)</span>
+                            <span className="block text-[10px] text-amber-200/85 font-normal">
+                              Pagto: {getCollaboratorAgreedPaymentDate(activeCollab)}
+                            </span>
                           </div>
                         </button>
 
@@ -7381,18 +7546,89 @@ export function GlassBarcodeScannerCart({
                   Caderninho de Cada Colaborador da Reciclagem
                 </h3>
                 <p className="text-xs text-slate-300 mt-1">
-                  Acompanhe quanto cada parceiro trouxe em garrafas e peso, quanto acumulou, quanto você já pagou e quanto ainda deve acertar com o <strong>Bolsa Família</strong> ou quando o <strong>Caminhão do Victor</strong> vier!
+                  Acompanhe quanto cada parceiro trouxe e defina a <strong>data combinada de pagamento</strong> (ex: <strong>Bolsa Família Dia 30 / NIS 9</strong> ou <strong>ao fechar Toneladas da Usina</strong>) — ela já sai impressa na notinha!
                 </p>
               </div>
 
               <button
                 type="button"
-                onClick={() => setShowAddCollabModal(true)}
+                onClick={() => {
+                  setNewCollabPayDate((prev) => prev || caderninhoDefaultPayDate);
+                  setShowAddCollabModal(true);
+                }}
                 className="min-h-[48px] px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md"
               >
                 <UserPlus className="w-4 h-4" />
                 <span>+ Novo Colaborador</span>
               </button>
+            </div>
+
+            {/* EDITOR GLOBAL DE DATA / ACORDO COMBINADO NO CADERNINHO */}
+            <div className="p-4 bg-amber-950/25 border-2 border-amber-500/40 rounded-2xl space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                    <span>📅 Data / Acordo de Pagamento Mensal (Sai Impressa nas Notinhas!)</span>
+                  </span>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    Edite a previsão padrão abaixo (ou personalize em cada colaborador) para que os parceiros vejam na notinha impressa quando será o acerto.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleApplyDefaultPayDateToAll}
+                  className="min-h-[40px] px-3 py-1.5 bg-amber-400 hover:bg-amber-300 active:scale-95 text-slate-950 font-black text-[11px] uppercase rounded-xl cursor-pointer touch-manipulation shrink-0 shadow-sm"
+                >
+                  Aplicar em Todos ✓
+                </button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <input
+                  type="text"
+                  value={caderninhoDefaultPayDate}
+                  onChange={(e) => {
+                    markLocalYardMutation();
+                    setCaderninhoDefaultPayDate(e.target.value);
+                  }}
+                  placeholder="Ex: Dia 30/11/2026 (Bolsa Família) ou NIS 9"
+                  className="flex-1 min-h-[44px] bg-slate-950 border border-amber-400/50 focus:border-amber-300 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none"
+                />
+                <label className="min-h-[44px] px-3 py-2 bg-slate-950 hover:bg-slate-800 border border-white/15 rounded-xl text-[11px] font-bold text-amber-200 flex items-center gap-1.5 cursor-pointer shrink-0">
+                  <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Escolher Data:</span>
+                  <input
+                    type="date"
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      markLocalYardMutation();
+                      setCaderninhoDefaultPayDate(`Dia ${formatDateIsoToBr(e.target.value)} (Acerto Mensal)`);
+                    }}
+                    className="bg-transparent text-white text-xs font-mono outline-none cursor-pointer"
+                  />
+                </label>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {CADERNINHO_PAYMENT_DATE_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => {
+                      markLocalYardMutation();
+                      setCaderninhoDefaultPayDate(preset);
+                    }}
+                    className={`min-h-[34px] px-2.5 py-1 rounded-xl text-[10.5px] font-bold border transition-all cursor-pointer touch-manipulation ${
+                      caderninhoDefaultPayDate.trim() === preset
+                        ? "bg-amber-400 text-slate-950 border-amber-300 font-black"
+                        : "bg-slate-950 text-slate-300 border-white/10 hover:border-amber-400/50"
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* RESUMO GERAL DAS DÍVIDAS E ECONOMIAS */}
@@ -7403,7 +7639,7 @@ export function GlassBarcodeScannerCart({
                   R$ {caderninhoTotals.totalPendingAll.toFixed(2)}
                 </strong>
                 <span className="text-[10px] text-slate-400 block">
-                  Para acertar no Bolsa Família ou na carga
+                  Acerto Dia 30 / NIS 9 ou ao fechar toneladas na Usina
                 </span>
               </div>
 
@@ -7439,7 +7675,7 @@ export function GlassBarcodeScannerCart({
                       ✅ Acerto Registrado — Imprima para Grampear ou Entregar!
                     </span>
                     <div className="text-sm font-black text-white mt-0.5">
-                      🤝 {latestSettledReceipt.collaboratorName} — Pago R$ {latestSettledReceipt.amountPaid.toFixed(2)} ({latestSettledReceipt.methodLabel})
+                      🤝 {latestSettledReceipt.collaboratorName} — Pago R$ {latestSettledReceipt.amountPaid.toFixed(2)} ({maskBuyerPrivacyText(latestSettledReceipt.methodLabel)})
                     </div>
                     <span className="text-[11px] text-slate-300 block">
                       Resta no Caderninho: R$ {latestSettledReceipt.remainingBalance.toFixed(2)}
@@ -7528,6 +7764,88 @@ export function GlassBarcodeScannerCart({
                       <span>⚖️ {collab.totalWeightKg.toFixed(1)} kg</span>
                       {collab.notes && <span className="text-slate-500">• {collab.notes}</span>}
                     </div>
+
+                    {!collab.isFounder && (
+                      <div className="pt-1.5 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-200 text-[11px] font-bold">
+                            <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span>Pagto combinado: <strong>{getCollaboratorAgreedPaymentDate(collab)}</strong></span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (editingCollabPayDateId === collab.id) {
+                                setEditingCollabPayDateId(null);
+                              } else {
+                                setEditingCollabPayDateId(collab.id);
+                                setEditingCollabPayDateDraft(getCollaboratorAgreedPaymentDate(collab));
+                              }
+                            }}
+                            className="min-h-[34px] px-2.5 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 border border-white/15 text-amber-300 text-[11px] font-black cursor-pointer touch-manipulation"
+                          >
+                            {editingCollabPayDateId === collab.id ? "Fechar ✕" : "✏️ Editar Data Pagto"}
+                          </button>
+                        </div>
+
+                        {editingCollabPayDateId === collab.id && (
+                          <div className="p-3 bg-slate-900 border border-amber-500/45 rounded-xl space-y-2 text-xs">
+                            <span className="text-[10px] font-black uppercase text-amber-300 block">
+                              Data / Regra Combinada com {collab.name} (sai na notinha):
+                            </span>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                              <input
+                                type="text"
+                                value={editingCollabPayDateDraft}
+                                onChange={(e) => setEditingCollabPayDateDraft(e.target.value)}
+                                placeholder="Ex: Dia 30/11/2026 ou NIS 9"
+                                className="flex-1 min-h-[42px] bg-slate-950 border border-amber-400/50 rounded-xl px-3 py-1.5 text-xs text-white font-bold outline-none"
+                              />
+                              <input
+                                type="date"
+                                onChange={(e) => {
+                                  if (!e.target.value) return;
+                                  setEditingCollabPayDateDraft(`Dia ${formatDateIsoToBr(e.target.value)} (Acerto Combinado)`);
+                                }}
+                                className="min-h-[42px] bg-slate-950 border border-white/15 rounded-xl px-2.5 py-1.5 text-xs text-amber-200 font-mono outline-none cursor-pointer"
+                                title="Selecionar data no calendário"
+                              />
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {CADERNINHO_PAYMENT_DATE_PRESETS.map((preset) => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  onClick={() => setEditingCollabPayDateDraft(preset)}
+                                  className="px-2 py-1 bg-slate-950 hover:bg-amber-400 hover:text-slate-950 text-slate-300 border border-white/10 rounded-lg text-[10px] font-bold cursor-pointer"
+                                >
+                                  {preset}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveCollaboratorPayDate(collab.id, editingCollabPayDateDraft)}
+                                className="min-h-[40px] px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation"
+                              >
+                                Salvar Data ✓
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCollabPayDateId(null);
+                                  setEditingCollabPayDateDraft("");
+                                }}
+                                className="min-h-[40px] px-3 py-1.5 bg-slate-800 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between md:justify-end gap-3 flex-wrap pt-3 md:pt-0 border-t md:border-t-0 border-white/5">
@@ -7540,7 +7858,7 @@ export function GlassBarcodeScannerCart({
                           <div className="text-lg font-mono font-black text-amber-300">
                             R$ {collab.totalEarned.toFixed(2)}
                           </div>
-                          <span className="text-[10px] text-emerald-400 block font-bold">100% de margem no caminhão</span>
+                          <span className="text-[10px] text-emerald-400 block font-bold">100% de margem na carga</span>
                         </div>
                         <button
                           type="button"
@@ -10078,7 +10396,7 @@ export function GlassBarcodeScannerCart({
                         </div>
 
                         <div className="space-y-0.5 text-right sm:text-left">
-                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Valor no Victor:</span>
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Valor na Usina:</span>
                           <strong className="text-sm font-mono text-white font-bold block">
                             R$ {totalValueVictor.toFixed(2)}
                           </strong>
@@ -10401,6 +10719,25 @@ export function GlassBarcodeScannerCart({
                               {openFolder.cancelledCount > 0 ? `${openFolder.cancelledCount} estornado(s) • ` : ""}
                               {filteredWeightKg.toFixed(2)} kg neste setor
                             </span>
+                            {openFolder.collaborator && !openFolder.isFounder && (
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/35 text-amber-200 text-[10.5px] font-bold">
+                                  <Calendar className="w-3 h-3 text-amber-400" />
+                                  <span>Pagto combinado: <strong>{getCollaboratorAgreedPaymentDate(openFolder.collaborator)}</strong></span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingCollabPayDateId(openFolder.collaborator!.id);
+                                    setEditingCollabPayDateDraft(getCollaboratorAgreedPaymentDate(openFolder.collaborator!));
+                                    setActiveTab("caderninho");
+                                  }}
+                                  className="text-[10.5px] font-black text-amber-300 hover:text-amber-200 underline cursor-pointer"
+                                >
+                                  ✏️ Editar Data
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -10578,7 +10915,7 @@ export function GlassBarcodeScannerCart({
                               <div className="text-slate-300 mt-0.5">
                                 {rec.isCancelled
                                   ? `Estornado em ${rec.cancelledAt || "—"}`
-                                  : `Forma: ${rec.methodLabel} • Restou: R$ ${rec.remainingBalance.toFixed(2)}${rec.notes ? ` • Obs: ${rec.notes}` : ""}`}
+                                  : `Forma: ${maskBuyerPrivacyText(rec.methodLabel)} • Restou: R$ ${rec.remainingBalance.toFixed(2)}${rec.notes ? ` • Obs: ${rec.notes}` : ""}`}
                               </div>
                             </div>
                             <div className="flex flex-wrap gap-1.5">
@@ -10708,7 +11045,7 @@ export function GlassBarcodeScannerCart({
                                       ? `👑 Coleta Própria (Equivalente R$ ${ticketMonetaryVal.toFixed(2).replace(".", ",")})`
                                       : ticket.paymentStatus === "pago_na_hora"
                                       ? "💵 Pago na Hora no Portão"
-                                      : "📓 Lançado no Caderninho (Acertar depois)"}
+                                      : `📓 Lançado no Caderninho • Pagto combinado: ${resolveTicketAgreedPaymentDate(ticket)}`}
                                   </div>
                                 </div>
 
@@ -11108,13 +11445,13 @@ export function GlassBarcodeScannerCart({
               </span>
               <h3 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
                 <Truck className="w-5 h-5 text-emerald-400" />
-                Histórico de Cargas Despachadas ao Caminhão do Victor
+                Histórico de Cargas Despachadas para a Usina de Vidros
               </h3>
             </div>
 
             {truckShipments.length === 0 ? (
               <div className="py-6 text-center text-slate-400 text-xs">
-                Nenhuma grande carga despachada ainda. Ao juntar as toneladas, clique em "Despachar Carga ao Victor" para arquivar o lote e zerar o pátio para o próximo ciclo!
+                Nenhuma grande carga despachada ainda. Ao juntar as toneladas, clique em "Despachar Carga para Usina" para arquivar o lote e zerar o pátio para o próximo ciclo!
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -11125,7 +11462,7 @@ export function GlassBarcodeScannerCart({
                   >
                     <div>
                       <div className="font-black text-white text-sm flex items-center gap-2">
-                        <span>🚚 {ship.buyerName}</span>
+                        <span>🚚 {sanitizeGlassBuyerLabel(ship.buyerName)}</span>
                         <span className="text-[10px] text-slate-400 font-normal">{ship.timestamp}</span>
                       </div>
                       <div className="text-slate-400 mt-1">
@@ -11176,7 +11513,7 @@ export function GlassBarcodeScannerCart({
                         <span className="text-[10px] text-slate-400 font-normal">{rec.timestamp}</span>
                       </div>
                       <div className="text-slate-400 mt-0.5">
-                        Forma: <strong className="text-amber-400">{rec.methodLabel}</strong>
+                        Forma: <strong className="text-amber-400">{maskBuyerPrivacyText(rec.methodLabel)}</strong>
                         {rec.notes && ` • Obs: ${rec.notes}`}
                       </div>
                     </div>
@@ -11681,7 +12018,7 @@ export function GlassBarcodeScannerCart({
                         </strong>
                       </div>
                       <div className="col-span-2 sm:col-span-1 text-emerald-400 font-bold">
-                        Valor no Victor: R$ {((g / 1000) * sellPricePerKg).toFixed(3)}
+                        Valor na Usina: R$ {((g / 1000) * sellPricePerKg).toFixed(3)}
                       </div>
                     </div>
                   );
@@ -11788,7 +12125,7 @@ export function GlassBarcodeScannerCart({
                       </div>
                       <div className="space-y-0.5 text-right">
                         <span className="text-[10px] font-black uppercase text-emerald-400 block">
-                          Valor na Usina do Victor:
+                          Valor na Usina Parceira:
                         </span>
                         <strong className="text-sm font-mono font-black text-emerald-400 block">
                           R$ {victorValue.toFixed(4)} / un
@@ -11962,7 +12299,7 @@ export function GlassBarcodeScannerCart({
                         <span className="text-cyan-300 font-bold">{g > 0 ? Math.ceil(1000000 / g).toLocaleString("pt-BR") : 0} garrafas</span>
                       </div>
                       <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/5">
-                        <span>Valor que o Victor paga por unidade (a R$ {sellPricePerKg.toFixed(2)}/kg):</span>
+                        <span>Valor na Usina por unidade (a R$ {sellPricePerKg.toFixed(2)}/kg):</span>
                         <strong className="text-emerald-400 font-bold">R$ {(kg * sellPricePerKg).toFixed(4)}</strong>
                       </div>
                     </div>
@@ -12082,8 +12419,8 @@ export function GlassBarcodeScannerCart({
                 </label>
                 <div className="grid grid-cols-2 gap-1.5">
                   {[
-                    { id: "bolsa_familia", label: "📅 Bolsa Família (Dia Único)" },
-                    { id: "caminhao_victor", label: "🚚 Acerto Caminhão Victor" },
+                    { id: "bolsa_familia", label: "📅 Bolsa Família (Dia 30 / NIS 9)" },
+                    { id: "caminhao_victor", label: "🚚 Fechar Toneladas da Usina" },
                     { id: "dinheiro", label: "💵 Dinheiro em Mãos" },
                     { id: "pix", label: "💳 Pix" }
                   ].map((m) => (
@@ -12111,7 +12448,7 @@ export function GlassBarcodeScannerCart({
                   type="text"
                   value={payNotes}
                   onChange={(e) => setPayNotes(e.target.value)}
-                  placeholder="Ex: Acerto mensal do Bolsa Família, Adiantamento, etc."
+                  placeholder="Ex: Dia 30 / NIS 9 (Bolsa Família) ou Fechamento Toneladas Usina"
                   className="w-full bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-xs text-white outline-none"
                 />
               </div>
@@ -12184,15 +12521,52 @@ export function GlassBarcodeScannerCart({
                 />
               </div>
 
+              <div className="space-y-1.5 p-3 bg-slate-950 rounded-2xl border border-amber-500/35">
+                <label className="text-[10px] font-black uppercase text-amber-300 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Data / Regra Combinada de Pagamento (Sai na Notinha):</span>
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={newCollabPayDate}
+                    onChange={(e) => setNewCollabPayDate(e.target.value)}
+                    placeholder={caderninhoDefaultPayDate || DEFAULT_CADERNINHO_PAYMENT_DATE}
+                    className="flex-1 min-h-[40px] bg-slate-900 border border-white/15 focus:border-amber-400 rounded-xl px-3 py-1.5 text-xs text-white font-bold outline-none"
+                  />
+                  <input
+                    type="date"
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      setNewCollabPayDate(`Dia ${formatDateIsoToBr(e.target.value)} (Acerto Combinado)`);
+                    }}
+                    className="min-h-[40px] bg-slate-900 border border-white/15 rounded-xl px-2.5 py-1.5 text-xs text-amber-200 font-mono outline-none cursor-pointer"
+                    title="Selecionar data no calendário"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {CADERNINHO_PAYMENT_DATE_PRESETS.slice(0, 4).map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setNewCollabPayDate(preset)}
+                      className="px-2 py-0.5 bg-slate-900 hover:bg-amber-400 hover:text-slate-950 text-slate-300 border border-white/10 rounded-lg text-[10px] font-bold cursor-pointer"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[10px] font-black uppercase text-slate-400 block">
-                  Observações (Ex: Acerto no Bolsa Família ou semanal):
+                  Observações:
                 </label>
                 <input
                   type="text"
                   value={newCollabNotes}
                   onChange={(e) => setNewCollabNotes(e.target.value)}
-                  placeholder="Ex: Paga todo dia 20 com o Bolsa Família"
+                  placeholder="Ex: Entrega toda semana, pago mensalmente..."
                   className="w-full bg-slate-950 border border-white/10 focus:border-emerald-400 rounded-xl px-3 py-2 text-xs text-white outline-none"
                 />
               </div>
@@ -12228,7 +12602,7 @@ export function GlassBarcodeScannerCart({
               <div className="flex items-center gap-2">
                 <Truck className="w-5 h-5 text-emerald-400" />
                 <h3 className="text-base font-black text-white">
-                  Despachar Carga ao Caminhão do Victor
+                  Despachar Carga para a Usina de Vidros
                 </h3>
               </div>
               <button
@@ -12904,9 +13278,14 @@ export function GlassBarcodeScannerCart({
                     ? "Pago Agora no Portão"
                     : "Lançado no Caderninho do Colaborador"}
                 </div>
+                {!lastPurchaseReceipt.isFounder && lastPurchaseReceipt.paymentStatus === "pendente_caderninho" && (
+                  <div className="mt-1 px-2 py-1 border border-slate-950 bg-amber-100 text-slate-950 font-black text-[10.5px] rounded">
+                    PREVISÃO PAGTO: {resolveTicketAgreedPaymentDate(lastPurchaseReceipt)}
+                  </div>
+                )}
                 {!lastPurchaseReceipt.isScrapPurchase ? (
                   <div>
-                    <strong>COTAÇÃO VICTOR:</strong>{" "}
+                    <strong>BASE TABELA VIDROS:</strong>{" "}
                     R$ {lastPurchaseReceipt.sellPricePerTonUsed || activeSellPricePerTon}/t (R${" "}
                     {(((lastPurchaseReceipt.sellPricePerTonUsed || activeSellPricePerTon) / 1000)).toFixed(2).replace(".", ",")}/kg)
                   </div>
@@ -13153,14 +13532,14 @@ export function GlassBarcodeScannerCart({
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-base sm:text-lg font-black text-white">
-                      Análise Estratégica dos 8 Itens & Veredito do Victor
+                      Análise Estratégica dos 8 Itens & Veredito da Tabela
                     </h3>
                     <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
                       {displayStoreName}
                     </span>
                   </div>
                   <p className="text-xs text-slate-300 mt-0.5">
-                    Compra no Portão conforme o Peso (R$ 0,50 a R$ 1,50) vs Venda na Usina do Victor (R$ {sellPricePerKg.toFixed(2)}/kg)
+                    Compra no Portão conforme o Peso (R$ 0,50 a R$ 1,50) vs Venda na Usina Parceira (R$ {sellPricePerKg.toFixed(2)}/kg)
                   </p>
                 </div>
               </div>
@@ -13196,7 +13575,7 @@ export function GlassBarcodeScannerCart({
                     <strong className="text-amber-400 font-mono">R$ 0,50</strong>
                   </div>
                   <div className="flex justify-between text-slate-300">
-                    <span>Você recebe do Victor (5 kg × R$ 0,15):</span>
+                    <span>Você recebe da Usina (5 kg × R$ 0,15):</span>
                     <strong className="text-emerald-400 font-mono">R$ 0,75</strong>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
@@ -13241,7 +13620,7 @@ export function GlassBarcodeScannerCart({
                     <strong className="text-amber-400 font-mono">R$ 0,50</strong>
                   </div>
                   <div className="flex justify-between text-slate-300">
-                    <span>Você recebe do Victor (5.5 kg × R$ 0,15):</span>
+                    <span>Você recebe da Usina (5.5 kg × R$ 0,15):</span>
                     <strong className="text-emerald-400 font-mono">R$ 0,82</strong>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
@@ -13288,7 +13667,7 @@ export function GlassBarcodeScannerCart({
                     <strong className="text-amber-400 font-mono">R$ 0,50 (lote)</strong>
                   </div>
                   <div className="flex justify-between text-slate-300">
-                    <span>Você recebe do Victor (por kg):</span>
+                    <span>Você recebe da Usina (por kg):</span>
                     <strong className="text-emerald-400 font-mono">
                       R$ {(((getVictorSafeLotUnits("cerveja600", sellPricePerKg, 450) * 450) / 1000) * sellPricePerKg).toFixed(2)}
                     </strong>
@@ -13338,7 +13717,7 @@ export function GlassBarcodeScannerCart({
                     <strong className="text-amber-400 font-mono">R$ 0,50 (lote)</strong>
                   </div>
                   <div className="flex justify-between text-slate-300">
-                    <span>Você recebe do Victor (por kg):</span>
+                    <span>Você recebe da Usina (por kg):</span>
                     <strong className="text-emerald-400 font-mono">
                       R$ {(((getVictorSafeLotUnits("litrao", sellPricePerKg, 700) * 700) / 1000) * sellPricePerKg).toFixed(2)}
                     </strong>
@@ -13386,7 +13765,7 @@ export function GlassBarcodeScannerCart({
                     <strong className="text-amber-400 font-mono">R$ 0,50</strong>
                   </div>
                   <div className="flex justify-between text-slate-300">
-                    <span>Você recebe do Victor (5.4 kg × R$ 0,15):</span>
+                    <span>Você recebe da Usina (5.4 kg × R$ 0,15):</span>
                     <strong className="text-emerald-400 font-mono">R$ 0,81</strong>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
@@ -13431,7 +13810,7 @@ export function GlassBarcodeScannerCart({
                     <strong className="text-amber-400 font-mono">R$ 0,50</strong>
                   </div>
                   <div className="flex justify-between text-slate-300">
-                    <span>Você recebe do Victor (5.0 kg × R$ 0,15):</span>
+                    <span>Você recebe da Usina (5.0 kg × R$ 0,15):</span>
                     <strong className="text-emerald-400 font-mono">R$ 0,75</strong>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
@@ -13476,7 +13855,7 @@ export function GlassBarcodeScannerCart({
                     <strong className="text-amber-400 font-mono">R$ 0,50</strong>
                   </div>
                   <div className="flex justify-between text-slate-300">
-                    <span>Você recebe do Victor (5.0 kg × R$ 0,15):</span>
+                    <span>Você recebe da Usina (5.0 kg × R$ 0,15):</span>
                     <strong className="text-emerald-400 font-mono">R$ 0,75</strong>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
@@ -13521,7 +13900,7 @@ export function GlassBarcodeScannerCart({
                     <strong className="text-amber-400 font-mono">R$ 1,50 (3 moedas de R$ 0,50)</strong>
                   </div>
                   <div className="flex justify-between text-slate-300">
-                    <span>Você recebe do Victor (16.0 kg × R$ 0,15):</span>
+                    <span>Você recebe da Usina (16.0 kg × R$ 0,15):</span>
                     <strong className="text-emerald-400 font-mono">R$ 2,40</strong>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-white/5 font-black text-emerald-300">
@@ -13555,7 +13934,7 @@ export function GlassBarcodeScannerCart({
               </span>
               <ul className="text-xs text-slate-200 space-y-1.5 list-disc list-inside">
                 <li>
-                  <strong className="text-emerald-300">Todas as Garrafas (600ml, Litrão, Longnecks, Potes, Vinhos, 51 / Dreher e Cacos):</strong> Os cálculos são feitos automaticamente conforme o peso real da garrafa na balança e a cotação ativa do Victor, garantindo ~38% de lucro com zero risco!
+                  <strong className="text-emerald-300">Todas as Garrafas (600ml, Litrão, Longnecks, Potes, Vinhos, 51 / Dreher e Cacos):</strong> Os cálculos são feitos automaticamente conforme o peso real da garrafa na balança e a cotação ativa da Usina, garantindo ~38% de lucro com zero risco!
                 </li>
               </ul>
             </div>
@@ -13563,7 +13942,7 @@ export function GlassBarcodeScannerCart({
             {/* Footer */}
             <div className="pt-2 flex items-center justify-between border-t border-white/10 flex-wrap gap-2">
               <span className="text-[10px] text-slate-400">
-                Base Victor: R$ 150,00/tonelada (R$ 0,15 por kg de caco de vidro)
+                Base Usina Parceira: R$ 150,00/tonelada (R$ 0,15 por kg de vidro)
               </span>
               <button
                 type="button"
@@ -13755,7 +14134,9 @@ export function GlassBarcodeScannerCart({
                       <Calendar className="w-5 h-5 text-amber-400 shrink-0" />
                       <div className="text-left leading-tight">
                         <span className="block font-black">📓 Lançar no Caderninho</span>
-                        <span className="block text-[10px] font-normal text-amber-200/80">Pagar depois + Soma no Pátio</span>
+                        <span className="block text-[10px] font-normal text-amber-200/85">
+                          Pagto: {getCollaboratorAgreedPaymentDate(activeCollab)}
+                        </span>
                       </div>
                     </button>
                   </div>

@@ -11506,7 +11506,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
             <div className="bg-slate-950/75 border border-emerald-500/30 rounded-2xl p-3.5 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-black uppercase text-emerald-300 tracking-wider">
-                  🍾 Setor 1: Pátio de Vidros (Victor)
+                  🍾 Setor 1: Pátio de Vidros (Carga Usina)
                 </span>
                 <span className="text-[10px] font-mono text-slate-400">
                   Meta: {ferroVelhoLiveSummary.goalKg} kg
@@ -20130,7 +20130,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border border-emerald-300 shadow-lg shadow-emerald-500/25"
                 : "bg-emerald-950/35 text-emerald-300 hover:text-white hover:bg-emerald-900/40 border border-emerald-500/25"
             }`}
-            title="Setor 1: Pátio de Vidros (Garrafas, Bipar Códigos e Caminhão do Victor 3.000 kg)"
+            title="Setor 1: Pátio de Vidros (Garrafas, Bipar Códigos e Carga da Usina 3.000 kg)"
           >
             <Recycle className="w-4 h-4 text-emerald-300 shrink-0" />
             <span>🍾 Pátio de Vidros</span>
@@ -20704,7 +20704,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   <h2 className="text-sm sm:text-base font-black text-white mt-0.5">
                     {ferroVelhoInitialFilter === "outros"
                       ? "♻️ Centro de Reciclagem (Ferro Velho) — Compras, Balança, Revenda e Lucros"
-                      : "🍾 Pátio de Vidros — Compra de Garrafas, Balança e Caminhão do Victor"}
+                      : "🍾 Pátio de Vidros — Compra de Garrafas, Balança e Carga da Usina"}
                   </h2>
                 </div>
               </div>
@@ -23504,7 +23504,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 onCancelSyncedFinancialEventFromPDV={handleCancelFerroVelhoEventFromPDV}
                 showNotification={showNotification}
                 onAddItemsToYardStock={(items) => {
-                  showNotification(`Entrada de ${items.length} lote(s) somada ao Pátio rumo à meta do Victor! 🍾⚖️`, "success");
+                  showNotification(`Entrada de ${items.length} lote(s) somada ao Pátio rumo à meta da Usina! 🍾⚖️`, "success");
                 }}
               />
             </div>

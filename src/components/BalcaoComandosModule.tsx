@@ -366,7 +366,7 @@ export const BalcaoComandosModule: React.FC<BalcaoComandosModuleProps> = ({
       icon: Recycle,
       badge: "Portão & Pátio ♻️",
       actionKey: "ferro_velho",
-      keywords: ["ferro velho", "reciclagem", "vidro", "garrafa", "patio", "bipar", "caderninho", "victor", "longneck", "caco"],
+      keywords: ["ferro velho", "reciclagem", "vidro", "garrafa", "patio", "bipar", "caderninho", "usina", "longneck", "caco"],
       gradient: "from-emerald-600/20 to-teal-950/40",
       borderColor: "border-emerald-500/40 hover:border-emerald-400",
       textColor: "text-emerald-300",

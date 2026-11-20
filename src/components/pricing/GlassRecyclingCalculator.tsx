@@ -225,7 +225,7 @@ export function GlassRecyclingCalculator({
   const [simLongneckDezenas, setSimLongneckDezenas] = useState<number>(3); // 3 dezenas = 30 garrafas (lote de R$ 0,50)
   const [simDreherPares, setSimDreherPares] = useState<number>(5); // 5 pares = 10 garrafas (lote de R$ 0,50)
 
-  // Cotação da tonelada de vidro negociada com a usina ou caminhão (ex: Victor)
+  // Cotação da tonelada de vidro negociada com a usina parceira
   // R$ 150/tonelada = R$ 0,15 por kg
   const [sellPricePerTon, setSellPricePerTon] = useState<number>(() => {
     try {
@@ -236,12 +236,19 @@ export function GlassRecyclingCalculator({
     }
   });
 
-  // Nome do comprador do ferro velho (ex: "Caminhão do Victor", "Usina Verallia", "Owens Illinois")
+  // Nome do comprador / destino (ex: "Usina Parceira de Vidros (Carga Fechada)")
   const [buyerName, setBuyerName] = useState<string>(() => {
+    const defaultLabel = "Usina Parceira de Vidros (Carga Fechada)";
     try {
-      return localStorage.getItem("pdv_glass_buyer_name") || "Caminhão do Victor (Usina / Reciclagem)";
+      const stored = localStorage.getItem("pdv_glass_buyer_name");
+      if (!stored) return defaultLabel;
+      if (/victor|campo\s*grande/i.test(stored)) {
+        localStorage.setItem("pdv_glass_buyer_name", defaultLabel);
+        return defaultLabel;
+      }
+      return stored;
     } catch {
-      return "Caminhão do Victor (Usina / Reciclagem)";
+      return defaultLabel;
     }
   });
 
@@ -1060,7 +1067,7 @@ export function GlassRecyclingCalculator({
             type="text"
             value={buyerName}
             onChange={(e) => setBuyerName(e.target.value)}
-            placeholder="Ex: Caminhão do Victor, Usina Verallia, Owens Illinois..."
+            placeholder="Ex: Usina Parceira de Vidros, Carga Fechada..."
             className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-amber-400"
           />
         </div>
@@ -1128,7 +1135,7 @@ export function GlassRecyclingCalculator({
 
           <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5">
             <div className="text-left sm:text-right">
-              <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Valor Bruto no Victor:</span>
+              <span className="text-[9.5px] uppercase font-bold text-slate-400 block">Valor Bruto na Usina:</span>
               <span className="text-lg font-black text-emerald-400 font-mono">
                 R$ {formatBrl(unifiedYard.grossRevenueTon)}
               </span>
@@ -1839,7 +1846,7 @@ export function GlassRecyclingCalculator({
                   Carga Abaixo da Coleta
                 </div>
                 <div className="text-xs text-rose-300 mt-1">
-                  Victor paga apenas <strong className="text-rose-400">R$ 80,00/ton</strong> (8¢/kg). Aguarde juntar 3t para chamar o caminhão!
+                  Cotação baixa <strong className="text-rose-400">R$ 80,00/ton</strong> (8¢/kg). Aguarde juntar 3t para chamar o caminhão!
                 </div>
 
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
@@ -1854,7 +1861,7 @@ export function GlassRecyclingCalculator({
                 </div>
               </div>
 
-              {/* Meta 2: Carga Mínima de Coleta do Victor (3 Toneladas) */}
+              {/* Meta 2: Carga Mínima de Coleta (3 Toneladas) */}
               <div className={`p-4 rounded-2xl border transition-all ${
                 unifiedYard.totalWeightKg >= 3000 && unifiedYard.totalWeightKg < 5000
                   ? "bg-emerald-950/50 border-emerald-400 shadow-xl shadow-emerald-950/50 ring-2 ring-emerald-500/30"
@@ -1864,7 +1871,7 @@ export function GlassRecyclingCalculator({
               }`}>
                 <div className="flex items-center justify-between mb-2">
                   <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase">
-                    Nível 2 • Mínimo do Victor (3 Ton)
+                    Nível 2 • Carga Mínima (3 Ton)
                   </span>
                   <span className="text-xs font-black text-white font-mono">3.000 kg (3 Ton)</span>
                 </div>
@@ -1872,7 +1879,7 @@ export function GlassRecyclingCalculator({
                   Caminhão Pode Coletar! 🚛
                 </div>
                 <div className="text-xs text-slate-300 mt-1">
-                  Victor paga <strong className="text-amber-400">R$ 100/t a R$ 150/t</strong>. Fornece <strong>1 ajudante</strong> para auxiliar!
+                  Tabela entre <strong className="text-amber-400">R$ 100/t a R$ 150/t</strong>. Transportadora fornece <strong>1 ajudante</strong>!
                 </div>
 
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
@@ -1921,20 +1928,20 @@ export function GlassRecyclingCalculator({
                   {unifiedYard.kgNeededFor5Ton > 0 ? (
                     <span className="text-cyan-300 font-bold">Faltam {unifiedYard.kgNeededFor5Ton.toFixed(0)} kg</span>
                   ) : (
-                    <span className="text-emerald-400 font-bold">Pronto para o Victor! 🚛🎉</span>
+                    <span className="text-emerald-400 font-bold">Pronto para Despachar! 🚛🎉</span>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* CHECKLIST OFICIAL DO WHATSAPP DO VICTOR ANTES DE CHAMAR O CAMINHÃO */}
+            {/* CHECKLIST DE CARGA ANTES DE CHAMAR O CAMINHÃO */}
             <div className="p-4 bg-slate-950 rounded-2xl border border-amber-500/30 space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-black text-amber-300 uppercase tracking-wider flex items-center gap-2">
-                  <span>📋 Checklist Oficial do Victor antes de Mandar o Caminhão</span>
+                  <span>📋 Checklist de Carga antes de Chamar o Caminhão</span>
                 </h4>
                 <span className="text-[10px] px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded font-bold">
-                  Exigências do WhatsApp
+                  Padrão de Coleta
                 </span>
               </div>
 
@@ -1942,13 +1949,13 @@ export function GlassRecyclingCalculator({
                 <div className="p-2.5 bg-slate-900 rounded-xl border border-white/5 space-y-1">
                   <span className="text-emerald-400 font-bold block">📸 1. Fotos e Vídeos</span>
                   <span className="text-slate-400 text-[11px] leading-tight block">
-                    Grave vídeo mostrando o monte no pátio para Victor avaliar o volume e liberar o caminhão.
+                    Grave vídeo mostrando o monte no pátio para validar o volume e liberar o caminhão.
                   </span>
                 </div>
                 <div className="p-2.5 bg-slate-900 rounded-xl border border-white/5 space-y-1">
                   <span className="text-amber-400 font-bold block">👷 2. Ajudante & Carregamento</span>
                   <span className="text-slate-400 text-[11px] leading-tight block">
-                    Victor manda 1 ajudante. Tenha pessoas no pátio prontas para agilizar o carregamento.
+                    Transportadora envia 1 ajudante. Tenha pessoas no pátio prontas para agilizar o carregamento.
                   </span>
                 </div>
                 <div className="p-2.5 bg-slate-900 rounded-xl border border-white/5 space-y-1">
