@@ -43,7 +43,10 @@ import {
   Save,
   HardDrive,
   Focus,
-  ZoomIn
+  ZoomIn,
+  Pin,
+  StickyNote,
+  Maximize2
 } from "lucide-react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { getScopedItem, setScopedItem } from "../utils/userScopedStorage";
@@ -56,6 +59,19 @@ import {
   startTransparentBottleContrastLoop,
   scanBarcodeFromPhotoFile
 } from "../utils/enhancedBarcodeScanner";
+import {
+  loadPersistedString,
+  savePersistedString,
+  loadPersistedJson,
+  savePersistedJson,
+  removePersistedKey,
+  readAppNotepadSnapshot,
+  loadPinnedReferencePhotos,
+  savePinnedReferencePhotos,
+  compressGalleryImageToReferenceDataUrl,
+  PinnedReferencePhoto,
+  AppNotepadSnapshot
+} from "../utils/workspaceDraftPersistence";
 
 export interface CustomProduct {
   id: string;
@@ -580,8 +596,18 @@ export function CadastroProdutosModule({
   foreignProductsCount = 0,
   foreignProductsSampleNames = []
 }: CadastroProdutosModuleProps) {
-  // Navigation tabs within Cadastro
-  const [activeTab, setActiveTab] = useState<"lista" | "novo" | "categorias" | "seguranca_backup">("lista");
+  // Navigation tabs within Cadastro (persistida ao alternar apps no celular)
+  const [activeTab, setActiveTab] = useState<"lista" | "novo" | "categorias" | "seguranca_backup">(() => {
+    const saved = loadPersistedString("pdv_reg_active_tab_v1", "");
+    if (saved === "lista" || saved === "novo" || saved === "categorias" || saved === "seguranca_backup") {
+      return saved;
+    }
+    return "lista";
+  });
+
+  useEffect(() => {
+    savePersistedString("pdv_reg_active_tab_v1", activeTab);
+  }, [activeTab]);
 
   // --- Backup & Stock Protection Helpers ---
   const handleExportStockBackup = () => {
@@ -796,35 +822,45 @@ export function CadastroProdutosModule({
     showNotification(`Categoria "${catToDelete}" excluída. ${count} itens movidos para "Outros". 🏷️`, "info");
   };
 
+  // Rascunho persistido do formulário de cadastro/edição de produtos
+  const savedProductDraftRef = useRef<any>(undefined);
+  if (savedProductDraftRef.current === undefined) {
+    savedProductDraftRef.current = loadPersistedJson<any>("pdv_reg_product_draft_v1", null);
+  }
+  const initialProdDraft = savedProductDraftRef.current || {};
+
   // Form States
-  const [isService, setIsService] = useState<boolean>(false);
-  const [prodName, setProdName] = useState("");
-  const [prodCategory, setProdCategory] = useState("");
-  const [prodBarcode, setProdBarcode] = useState("");
-  const [prodQuickCode, setProdQuickCode] = useState("");
-  const [prodUnit, setProdUnit] = useState("un");
-  const [prodDescription, setProdDescription] = useState("");
-  const [prodPrice, setProdPrice] = useState("");
-  const [prodCostPrice, setProdCostPrice] = useState("");
-  const [prodInitialStock, setProdInitialStock] = useState("");
-  const [prodMinStock, setProdMinStock] = useState("");
-  const [prodSize, setProdSize] = useState("");
-  const [prodColor, setProdColor] = useState("");
-  const [prodBrand, setProdBrand] = useState("");
-  const [prodValidity, setProdValidity] = useState("");
-  const [prodGender, setProdGender] = useState("");
-  const [prodMaterial, setProdMaterial] = useState("");
-  const [prodLocation, setProdLocation] = useState("");
-  const [prodSection, setProdSection] = useState("");
-  const [prodImageUrl, setProdImageUrl] = useState("");
-  const [selectedEmoji, setSelectedEmoji] = useState("🛍️");
-  const [prodDurationMinutes, setProdDurationMinutes] = useState<string>("60");
+  const [isService, setIsService] = useState<boolean>(() => Boolean(initialProdDraft.isService));
+  const [prodName, setProdName] = useState(() => (typeof initialProdDraft.prodName === "string" ? initialProdDraft.prodName : ""));
+  const [prodCategory, setProdCategory] = useState(() => (typeof initialProdDraft.prodCategory === "string" ? initialProdDraft.prodCategory : ""));
+  const [prodBarcode, setProdBarcode] = useState(() => (typeof initialProdDraft.prodBarcode === "string" ? initialProdDraft.prodBarcode : ""));
+  const [prodQuickCode, setProdQuickCode] = useState(() => (typeof initialProdDraft.prodQuickCode === "string" ? initialProdDraft.prodQuickCode : ""));
+  const [prodUnit, setProdUnit] = useState(() => (typeof initialProdDraft.prodUnit === "string" && initialProdDraft.prodUnit ? initialProdDraft.prodUnit : "un"));
+  const [prodDescription, setProdDescription] = useState(() => (typeof initialProdDraft.prodDescription === "string" ? initialProdDraft.prodDescription : ""));
+  const [prodPrice, setProdPrice] = useState(() => (typeof initialProdDraft.prodPrice === "string" ? initialProdDraft.prodPrice : ""));
+  const [prodCostPrice, setProdCostPrice] = useState(() => (typeof initialProdDraft.prodCostPrice === "string" ? initialProdDraft.prodCostPrice : ""));
+  const [prodInitialStock, setProdInitialStock] = useState(() => (typeof initialProdDraft.prodInitialStock === "string" ? initialProdDraft.prodInitialStock : ""));
+  const [prodMinStock, setProdMinStock] = useState(() => (typeof initialProdDraft.prodMinStock === "string" ? initialProdDraft.prodMinStock : ""));
+  const [prodSize, setProdSize] = useState(() => (typeof initialProdDraft.prodSize === "string" ? initialProdDraft.prodSize : ""));
+  const [prodColor, setProdColor] = useState(() => (typeof initialProdDraft.prodColor === "string" ? initialProdDraft.prodColor : ""));
+  const [prodBrand, setProdBrand] = useState(() => (typeof initialProdDraft.prodBrand === "string" ? initialProdDraft.prodBrand : ""));
+  const [prodValidity, setProdValidity] = useState(() => (typeof initialProdDraft.prodValidity === "string" ? initialProdDraft.prodValidity : ""));
+  const [prodGender, setProdGender] = useState(() => (typeof initialProdDraft.prodGender === "string" ? initialProdDraft.prodGender : ""));
+  const [prodMaterial, setProdMaterial] = useState(() => (typeof initialProdDraft.prodMaterial === "string" ? initialProdDraft.prodMaterial : ""));
+  const [prodLocation, setProdLocation] = useState(() => (typeof initialProdDraft.prodLocation === "string" ? initialProdDraft.prodLocation : ""));
+  const [prodSection, setProdSection] = useState(() => (typeof initialProdDraft.prodSection === "string" ? initialProdDraft.prodSection : ""));
+  const [prodImageUrl, setProdImageUrl] = useState(() => (typeof initialProdDraft.prodImageUrl === "string" ? initialProdDraft.prodImageUrl : ""));
+  const [selectedEmoji, setSelectedEmoji] = useState(() => (typeof initialProdDraft.selectedEmoji === "string" && initialProdDraft.selectedEmoji ? initialProdDraft.selectedEmoji : "🛍️"));
+  const [prodDurationMinutes, setProdDurationMinutes] = useState<string>(() => (typeof initialProdDraft.prodDurationMinutes === "string" && initialProdDraft.prodDurationMinutes ? initialProdDraft.prodDurationMinutes : "60"));
   const [scannerCameraError, setScannerCameraError] = useState<string | null>(null);
 
   // Clothing Size Category Tab and Multi-size Grid Generator
-  const [sizeCategoryTab, setSizeCategoryTab] = useState<"adulto" | "calcas" | "calcados" | "infantil" | "lingerie" | "volumes" | "pesos">("adulto");
-  const [isGridMode, setIsGridMode] = useState(false);
-  const [gridSelectedSizes, setGridSelectedSizes] = useState<string[]>([]);
+  const [sizeCategoryTab, setSizeCategoryTab] = useState<"adulto" | "calcas" | "calcados" | "infantil" | "lingerie" | "volumes" | "pesos">(() => {
+    const t = initialProdDraft.sizeCategoryTab;
+    return t === "adulto" || t === "calcas" || t === "calcados" || t === "infantil" || t === "lingerie" || t === "volumes" || t === "pesos" ? t : "adulto";
+  });
+  const [isGridMode, setIsGridMode] = useState(() => Boolean(initialProdDraft.isGridMode));
+  const [gridSelectedSizes, setGridSelectedSizes] = useState<string[]>(() => (Array.isArray(initialProdDraft.gridSelectedSizes) ? initialProdDraft.gridSelectedSizes : []));
 
   // Inline Quick Category Modal / Popover
   const [inlineCategoryModalOpen, setInlineCategoryModalOpen] = useState(false);
@@ -840,7 +876,204 @@ export function CadastroProdutosModule({
   const [stockFilter, setStockFilter] = useState<"all" | "low" | "out">("all");
 
   // Edit States
-  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editingProductId, setEditingProductId] = useState<string | null>(() => (typeof initialProdDraft.editingProductId === "string" ? initialProdDraft.editingProductId : null));
+
+  // Notas Rápidas & Fotos de Referência da Galeria (Sem Sair do Estoque)
+  const [showRefNotesPhotosModal, setShowRefNotesPhotosModal] = useState<boolean>(false);
+  const [refNotesSubTab, setRefNotesSubTab] = useState<"notas" | "fotos">("notas");
+  const [regQuickNotes, setRegQuickNotes] = useState<string>(
+    () => loadPersistedString("pdv_dw_yard_quick_notes_v1", "")
+  );
+  const [appNotepadSnap, setAppNotepadSnap] = useState<AppNotepadSnapshot>(() =>
+    readAppNotepadSnapshot(userId)
+  );
+  const [pinnedRefPhotos, setPinnedRefPhotos] = useState<PinnedReferencePhoto[]>(() =>
+    loadPinnedReferencePhotos()
+  );
+  const [isLoadingRefPhoto, setIsLoadingRefPhoto] = useState<boolean>(false);
+  const [refPhotoError, setRefPhotoError] = useState<string | null>(null);
+  const [zoomedRefPhoto, setZoomedRefPhoto] = useState<PinnedReferencePhoto | null>(null);
+  const refPhotoInputRef = useRef<HTMLInputElement | null>(null);
+
+  const hasProdDraftContent = Boolean(
+    editingProductId ||
+      prodName.trim() ||
+      prodBarcode.trim() ||
+      prodQuickCode.trim() ||
+      prodPrice.trim() ||
+      prodCostPrice.trim() ||
+      prodInitialStock.trim() ||
+      prodDescription.trim() ||
+      prodBrand.trim() ||
+      prodImageUrl.trim() ||
+      gridSelectedSizes.length > 0
+  );
+
+  useEffect(() => {
+    if (hasProdDraftContent) {
+      savePersistedJson("pdv_reg_product_draft_v1", {
+        editingProductId,
+        isService,
+        prodName,
+        prodCategory,
+        prodBarcode,
+        prodQuickCode,
+        prodUnit,
+        prodDescription,
+        prodPrice,
+        prodCostPrice,
+        prodInitialStock,
+        prodMinStock,
+        prodSize,
+        prodColor,
+        prodBrand,
+        prodValidity,
+        prodGender,
+        prodMaterial,
+        prodLocation,
+        prodSection,
+        prodImageUrl,
+        selectedEmoji,
+        prodDurationMinutes,
+        sizeCategoryTab,
+        isGridMode,
+        gridSelectedSizes
+      });
+    } else {
+      removePersistedKey("pdv_reg_product_draft_v1");
+    }
+  }, [
+    hasProdDraftContent,
+    editingProductId,
+    isService,
+    prodName,
+    prodCategory,
+    prodBarcode,
+    prodQuickCode,
+    prodUnit,
+    prodDescription,
+    prodPrice,
+    prodCostPrice,
+    prodInitialStock,
+    prodMinStock,
+    prodSize,
+    prodColor,
+    prodBrand,
+    prodValidity,
+    prodGender,
+    prodMaterial,
+    prodLocation,
+    prodSection,
+    prodImageUrl,
+    selectedEmoji,
+    prodDurationMinutes,
+    sizeCategoryTab,
+    isGridMode,
+    gridSelectedSizes
+  ]);
+
+  useEffect(() => {
+    savePersistedString("pdv_dw_yard_quick_notes_v1", regQuickNotes);
+  }, [regQuickNotes]);
+
+  const flushProdDraftRef = useRef<() => void>(() => {});
+  flushProdDraftRef.current = () => {
+    savePersistedString("pdv_reg_active_tab_v1", activeTab);
+    savePersistedString("pdv_dw_yard_quick_notes_v1", regQuickNotes);
+    if (hasProdDraftContent) {
+      savePersistedJson("pdv_reg_product_draft_v1", {
+        editingProductId,
+        isService,
+        prodName,
+        prodCategory,
+        prodBarcode,
+        prodQuickCode,
+        prodUnit,
+        prodDescription,
+        prodPrice,
+        prodCostPrice,
+        prodInitialStock,
+        prodMinStock,
+        prodSize,
+        prodColor,
+        prodBrand,
+        prodValidity,
+        prodGender,
+        prodMaterial,
+        prodLocation,
+        prodSection,
+        prodImageUrl,
+        selectedEmoji,
+        prodDurationMinutes,
+        sizeCategoryTab,
+        isGridMode,
+        gridSelectedSizes
+      });
+    }
+  };
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        flushProdDraftRef.current();
+      }
+    };
+    const handleImmediate = () => flushProdDraftRef.current();
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pagehide", handleImmediate);
+    window.addEventListener("beforeunload", handleImmediate);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pagehide", handleImmediate);
+      window.removeEventListener("beforeunload", handleImmediate);
+    };
+  }, []);
+
+  const handleOpenRefNotesModal = () => {
+    flushProdDraftRef.current();
+    setAppNotepadSnap(readAppNotepadSnapshot(userId));
+    setRefPhotoError(null);
+    setShowRefNotesPhotosModal(true);
+  };
+
+  const handleAddGalleryRefPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files: File[] = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = "";
+    if (files.length === 0) return;
+    setIsLoadingRefPhoto(true);
+    setRefPhotoError(null);
+    try {
+      const created: PinnedReferencePhoto[] = [];
+      for (const file of files.slice(0, 4)) {
+        const dataUrl = await compressGalleryImageToReferenceDataUrl(file, 820, 0.74);
+        const rawName = (file.name || "Foto").replace(/\.[^.]+$/, "").slice(0, 40);
+        created.push({
+          id: `ref_photo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          label: rawName || "Foto de Referência",
+          dataUrl,
+          addedAt: new Date().toLocaleString("pt-BR")
+        });
+      }
+      const next = [...created, ...pinnedRefPhotos].slice(0, 8);
+      if (savePinnedReferencePhotos(next)) {
+        setPinnedRefPhotos(next);
+        showNotification(`${created.length} foto(s) fixada(s) para consultar sem sair! 🖼️📌`, "success");
+      } else {
+        setRefPhotoError("Espaço do aparelho cheio. Remova alguma foto antiga para fixar novas imagens.");
+      }
+    } catch {
+      setRefPhotoError("Não foi possível carregar uma das fotos selecionadas.");
+    } finally {
+      setIsLoadingRefPhoto(false);
+    }
+  };
+
+  const handleRemovePinnedRefPhoto = (photoId: string) => {
+    const next = pinnedRefPhotos.filter((p) => p.id !== photoId);
+    setPinnedRefPhotos(next);
+    savePinnedReferencePhotos(next);
+    if (zoomedRefPhoto?.id === photoId) setZoomedRefPhoto(null);
+  };
 
   // Check if current barcode belongs to another registered product
   const existingProductWithBarcode = useMemo(() => {
@@ -1775,6 +2008,7 @@ export function CadastroProdutosModule({
   };
 
   const handleResetForm = () => {
+    removePersistedKey("pdv_reg_product_draft_v1");
     setProdName("");
     setProdPrice("");
     setProdCostPrice("");
@@ -2065,6 +2299,18 @@ export function CadastroProdutosModule({
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-500/10 border border-purple-500/20 text-purple-300 rounded-lg text-[10px] font-medium">
               <span>🔒 Banco de dados 100% exclusivo e isolado (LGPD)</span>
             </div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-sky-500/15 border border-sky-400/30 text-sky-300 rounded-lg text-[10px] font-black">
+              <Pin className="w-3 h-3" />
+              <span>Tela &amp; Rascunho Fixados</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenRefNotesModal}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-500/20 hover:bg-indigo-500/35 border border-indigo-400/40 text-indigo-200 rounded-lg text-[10.5px] font-black cursor-pointer touch-manipulation"
+            >
+              <StickyNote className="w-3.5 h-3.5 text-amber-300" />
+              <span>Notas &amp; Fotos ({pinnedRefPhotos.length})</span>
+            </button>
           </div>
         </div>
 
@@ -4665,6 +4911,176 @@ export function CadastroProdutosModule({
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* MODAL RÁPIDO: NOTAS & FOTOS DA GALERIA (SEM SAIR DO CADASTRO) */}
+      {showRefNotesPhotosModal && (
+        <div className="fixed inset-0 z-[620] bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border-2 border-indigo-400/50 rounded-3xl p-4 sm:p-6 max-w-2xl w-full space-y-4 shadow-2xl text-left my-auto max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <StickyNote className="w-5 h-5 text-amber-300 shrink-0" />
+                <div className="min-w-0">
+                  <h4 className="text-base font-black text-white truncate">📝 Notas &amp; Fotos (Sem Sair)</h4>
+                  <span className="text-[11px] text-emerald-300 font-bold block">
+                    Consulte medidas, preços e fotos da galeria sem perder seu cadastro!
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRefNotesPhotosModal(false)}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-xl cursor-pointer touch-manipulation"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setRefNotesSubTab("notas")}
+                className={`min-h-[44px] px-3 py-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 border cursor-pointer ${
+                  refNotesSubTab === "notas"
+                    ? "bg-amber-400 text-slate-950 border-amber-300"
+                    : "bg-slate-950 text-slate-300 border-white/10"
+                }`}
+              >
+                <StickyNote className="w-4 h-4" />
+                <span>Minhas Notas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRefNotesSubTab("fotos")}
+                className={`min-h-[44px] px-3 py-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 border cursor-pointer ${
+                  refNotesSubTab === "fotos"
+                    ? "bg-indigo-500 text-white border-indigo-400"
+                    : "bg-slate-950 text-slate-300 border-white/10"
+                }`}
+              >
+                <ImageIcon className="w-4 h-4" />
+                <span>Fotos ({pinnedRefPhotos.length})</span>
+              </button>
+            </div>
+
+            {refNotesSubTab === "notas" ? (
+              <div className="space-y-3 text-xs">
+                <textarea
+                  rows={5}
+                  value={regQuickNotes}
+                  onChange={(e) => setRegQuickNotes(e.target.value)}
+                  placeholder="Anote ou cole aqui preços, códigos, pesos e quantidades..."
+                  className="w-full bg-slate-950 border border-amber-400/40 focus:border-amber-400 rounded-xl p-3 text-sm text-white placeholder-slate-500 outline-none"
+                />
+                {(appNotepadSnap.freeNotes.trim() || appNotepadSnap.draftCalc.trim() || appNotepadSnap.savedNotes.length > 0) && (
+                  <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                    {appNotepadSnap.freeNotes.trim() && (
+                      <div className="p-2.5 bg-slate-950 rounded-xl border border-white/10">
+                        <span className="text-[10px] font-black uppercase text-amber-300 block mb-1">Bloco de Notas:</span>
+                        <pre className="text-xs text-slate-100 whitespace-pre-wrap font-sans">{appNotepadSnap.freeNotes}</pre>
+                      </div>
+                    )}
+                    {appNotepadSnap.savedNotes.map((n, idx) => (
+                      <div key={n.id || idx} className="p-2.5 bg-slate-950 rounded-xl border border-white/10">
+                        <span className="text-[10px] font-bold text-indigo-300 block mb-1">{n.folder || "Nota Salva"}</span>
+                        <pre className="text-xs text-slate-100 whitespace-pre-wrap font-sans">{n.text}</pre>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3 text-xs">
+                <input
+                  ref={refPhotoInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleAddGalleryRefPhotos}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  disabled={isLoadingRefPhoto}
+                  onClick={() => {
+                    flushProdDraftRef.current();
+                    refPhotoInputRef.current?.click();
+                  }}
+                  className="w-full min-h-[46px] px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white font-black text-xs uppercase rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  <span>{isLoadingRefPhoto ? "Carregando foto..." : "+ Importar Fotos da Galeria"}</span>
+                </button>
+                {refPhotoError && (
+                  <div className="p-2 bg-rose-950/60 border border-rose-500/40 rounded-xl text-rose-200">{refPhotoError}</div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[340px] overflow-y-auto">
+                  {pinnedRefPhotos.map((photo) => (
+                    <div key={photo.id} className="p-2 bg-slate-950 rounded-2xl border border-white/10 space-y-2">
+                      <div className="relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3]">
+                        <img
+                          src={photo.dataUrl}
+                          alt={photo.label}
+                          onClick={() => setZoomedRefPhoto(photo)}
+                          className="w-full h-full object-contain cursor-pointer"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setZoomedRefPhoto(photo)}
+                          className="absolute bottom-2 right-2 px-2 py-1 bg-slate-950/85 text-white text-[10px] font-bold rounded-lg flex items-center gap-1 cursor-pointer"
+                        >
+                          <Maximize2 className="w-3 h-3" />
+                          <span>Ampliar</span>
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold text-slate-200 truncate">{photo.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePinnedRefPhoto(photo.id)}
+                          className="p-1.5 bg-rose-500/15 text-rose-300 rounded-lg cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-white/10 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowRefNotesPhotosModal(false)}
+                className="min-h-[44px] px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer"
+              >
+                Voltar para o Cadastro ✓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {zoomedRefPhoto && (
+        <div
+          className="fixed inset-0 z-[630] bg-black/95 flex flex-col items-center justify-center p-4"
+          onClick={() => setZoomedRefPhoto(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setZoomedRefPhoto(null)}
+            className="mb-3 px-4 py-2 bg-slate-800 text-white font-black text-xs uppercase rounded-xl cursor-pointer"
+          >
+            Fechar Zoom ✕
+          </button>
+          <img
+            src={zoomedRefPhoto.dataUrl}
+            alt={zoomedRefPhoto.label}
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[82vh] max-w-full object-contain rounded-2xl"
+          />
         </div>
       )}
 

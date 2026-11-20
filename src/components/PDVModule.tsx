@@ -1501,12 +1501,34 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const [ferroVelhoInitialTab, setFerroVelhoInitialTab] = useState<"carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos">(() => {
     if (activeSubTab === "ferro_velho_guia" || activeSubTab === "guia_plasticos") return "guia_plasticos";
     if (activeSubTab === "ferro_velho_outros" || activeSubTab === "balanca_reciclagem") return "estoque";
+    try {
+      const saved = localStorage.getItem("pdv_fv_initial_tab_v1");
+      if (saved === "carrinho" || saved === "caderninho" || saved === "estoque" || saved === "cargas" || saved === "guia_plasticos") {
+        return saved;
+      }
+    } catch {}
     return "carrinho";
   });
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_fv_initial_tab_v1", ferroVelhoInitialTab);
+    } catch {}
+  }, [ferroVelhoInitialTab]);
+
   const [ferroVelhoInitialFilter, setFerroVelhoInitialFilter] = useState<"vidro" | "outros">(() => {
     if (activeSubTab === "ferro_velho_outros" || activeSubTab === "balanca_reciclagem") return "outros";
+    try {
+      const saved = localStorage.getItem("pdv_fv_initial_filter_v1");
+      if (saved === "vidro" || saved === "outros") return saved;
+    } catch {}
     return "vidro";
   });
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_fv_initial_filter_v1", ferroVelhoInitialFilter);
+    } catch {}
+  }, [ferroVelhoInitialFilter]);
+
   const [opMode, setOpMode] = useState<"venda" | "manual" | "estoque" | "relatorios" | "cadastro_produtos" | "ficha_tecnica" | "clientes" | "proprietario" | "fiado" | "taxas" | "impressoras" | "orcamentos" | "cupons" | "ferro_velho">(() => {
     if (onlyCheckout) return "venda";
     if (
@@ -1566,8 +1588,20 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     ) {
       return "relatorios";
     }
+    try {
+      const savedMode = localStorage.getItem("pdv_op_mode_v1");
+      if (savedMode) return savedMode as any;
+    } catch {}
     return "venda";
   });
+
+  useEffect(() => {
+    if (!onlyCheckout) {
+      try {
+        localStorage.setItem("pdv_op_mode_v1", opMode);
+      } catch {}
+    }
+  }, [opMode, onlyCheckout]);
 
   useEffect(() => {
     if (onlyCheckout) {
@@ -2918,7 +2952,18 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   // --- Barcode Scanner States ---
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [isGlassPurchaseModalOpen, setIsGlassPurchaseModalOpen] = useState(false);
+  const [isGlassPurchaseModalOpen, setIsGlassPurchaseModalOpen] = useState(() => {
+    try {
+      return localStorage.getItem("pdv_glass_purchase_modal_open_v1") === "true";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_glass_purchase_modal_open_v1", isGlassPurchaseModalOpen ? "true" : "false");
+    } catch {}
+  }, [isGlassPurchaseModalOpen]);
   const [scannerContinuousMode, setScannerContinuousMode] = useState(true);
   const [scannerTorchOn, setScannerTorchOn] = useState(false);
   const [scannerZoom, setScannerZoom] = useState(1.5);

@@ -57,7 +57,11 @@ import {
   FlaskConical,
   Flashlight,
   Focus,
-  ZoomIn
+  ZoomIn,
+  Pin,
+  StickyNote,
+  Image as ImageIcon,
+  Maximize2
 } from "lucide-react";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
@@ -115,6 +119,19 @@ import {
   scanBarcodeFromPhotoFile
 } from "../../utils/enhancedBarcodeScanner";
 import { loadCompanyProfile } from "../../utils/companyProfile";
+import {
+  loadPersistedString,
+  savePersistedString,
+  loadPersistedJson,
+  savePersistedJson,
+  removePersistedKey,
+  readAppNotepadSnapshot,
+  loadPinnedReferencePhotos,
+  savePinnedReferencePhotos,
+  compressGalleryImageToReferenceDataUrl,
+  PinnedReferencePhoto,
+  AppNotepadSnapshot
+} from "../../utils/workspaceDraftPersistence";
 
 export interface CatalogBottleItem {
   id: string;
@@ -1146,14 +1163,26 @@ export function GlassBarcodeScannerCart({
   });
 
   // Setor separado: "vidros" (Pátio de Vidros 3.000 kg / Victor) vs "reciclagem" (Centro de Reciclagem / Ferro Velho)
-  const [activeSector, setActiveSector] = useState<"vidros" | "reciclagem">(
-    initialYardControlFilter === "outros" || initialActiveTab === "guia_plasticos" ? "reciclagem" : "vidros"
-  );
+  const [activeSector, setActiveSector] = useState<"vidros" | "reciclagem">(() => {
+    const saved = loadPersistedString("pdv_dw_yard_active_sector_v1", "");
+    if (saved === "vidros" || saved === "reciclagem") return saved;
+    return initialYardControlFilter === "outros" || initialActiveTab === "guia_plasticos" ? "reciclagem" : "vidros";
+  });
 
   // Painel ativo no controle de materiais do Pátio ("vidro" vs "outros")
-  const [yardControlFilter, setYardControlFilter] = useState<"vidro" | "outros">(
-    initialYardControlFilter || (initialActiveTab === "guia_plasticos" ? "outros" : "vidro")
-  );
+  const [yardControlFilter, setYardControlFilter] = useState<"vidro" | "outros">(() => {
+    const saved = loadPersistedString("pdv_dw_yard_control_filter_v1", "");
+    if (saved === "vidro" || saved === "outros") return saved;
+    return initialYardControlFilter || (initialActiveTab === "guia_plasticos" ? "outros" : "vidro");
+  });
+
+  useEffect(() => {
+    savePersistedString("pdv_dw_yard_active_sector_v1", activeSector);
+  }, [activeSector]);
+
+  useEffect(() => {
+    savePersistedString("pdv_dw_yard_control_filter_v1", yardControlFilter);
+  }, [yardControlFilter]);
 
   // Histórico de vendas/baixas realizadas do Centro de Reciclagem (Ferro Velho) para cálculo real de lucros
   const [scrapSalesHistory, setScrapSalesHistory] = useState<ScrapSaleRecord[]>(() => {
@@ -1190,12 +1219,23 @@ export function GlassBarcodeScannerCart({
   const [scrapSaleBuyerDraft, setScrapSaleBuyerDraft] = useState<string>("");
   const [scrapSaleMethod, setScrapSaleMethod] = useState<"dinheiro" | "pix" | "cartao_debito" | "cartao_credito">("pix");
 
+  // Rascunho persistido da Balança Digital & Cesta Multi-Materiais do Ferro Velho
+  const savedScrapDraftRef = useRef<any>(undefined);
+  if (savedScrapDraftRef.current === undefined) {
+    savedScrapDraftRef.current = loadPersistedJson<any>("pdv_dw_scrap_draft_v1", null);
+  }
+  const initialScrapDraft = savedScrapDraftRef.current || {};
+
   // Estados da Balança Digital & Filtro de Outros Materiais do Ferro Velho
   const [scrapCategoryFilter, setScrapCategoryFilter] = useState<"todos" | ScrapCategoryGroup>("todos");
   const [scrapSearchQuery, setScrapSearchQuery] = useState<string>("");
-  const [scaleSelectedMaterialId, setScaleSelectedMaterialId] = useState<string>("scrap_pet");
+  const [scaleSelectedMaterialId, setScaleSelectedMaterialId] = useState<string>(
+    () => (typeof initialScrapDraft.scaleSelectedMaterialId === "string" && initialScrapDraft.scaleSelectedMaterialId) || "scrap_pet"
+  );
   const [scaleUnitMode, setScaleUnitMode] = useState<"kg" | "g">("kg");
-  const [scaleGrossInput, setScaleGrossInput] = useState<string>("");
+  const [scaleGrossInput, setScaleGrossInput] = useState<string>(
+    () => (typeof initialScrapDraft.scaleGrossInput === "string" ? initialScrapDraft.scaleGrossInput : "")
+  );
   const [savedFixedTareKg, setSavedFixedTareKg] = useState<number>(() => {
     try {
       const v = Number(localStorage.getItem("pdv_dw_saved_scale_tare_kg_v1"));
@@ -1205,6 +1245,9 @@ export function GlassBarcodeScannerCart({
     }
   });
   const [scaleTareInput, setScaleTareInput] = useState<string>(() => {
+    if (typeof initialScrapDraft.scaleTareInput === "string" && initialScrapDraft.scaleTareInput !== "") {
+      return initialScrapDraft.scaleTareInput;
+    }
     try {
       const v = Number(localStorage.getItem("pdv_dw_saved_scale_tare_kg_v1"));
       return Number.isFinite(v) && v > 0 ? String(v) : "";
@@ -1224,11 +1267,22 @@ export function GlassBarcodeScannerCart({
       localStorage.setItem("pdv_dw_scale_subtract_tare_v1", scaleSubtractTare ? "true" : "false");
     } catch {}
   }, [scaleSubtractTare]);
-  const [scaleUnitsInput, setScaleUnitsInput] = useState<string>("");
-  const [scalePricePerKgInput, setScalePricePerKgInput] = useState<string>("");
-  const [scaleSellPricePerKgInput, setScaleSellPricePerKgInput] = useState<string>("");
-  const [scaleSettlementMode, setScaleSettlementMode] = useState<"pago_dinheiro" | "pago_pix" | "caderninho" | "so_estoque">("pago_dinheiro");
-  const [scrapWeightDrafts, setScrapWeightDrafts] = useState<Record<string, string>>({});
+  const [scaleUnitsInput, setScaleUnitsInput] = useState<string>(
+    () => (typeof initialScrapDraft.scaleUnitsInput === "string" ? initialScrapDraft.scaleUnitsInput : "")
+  );
+  const [scalePricePerKgInput, setScalePricePerKgInput] = useState<string>(
+    () => (typeof initialScrapDraft.scalePricePerKgInput === "string" ? initialScrapDraft.scalePricePerKgInput : "")
+  );
+  const [scaleSellPricePerKgInput, setScaleSellPricePerKgInput] = useState<string>(
+    () => (typeof initialScrapDraft.scaleSellPricePerKgInput === "string" ? initialScrapDraft.scaleSellPricePerKgInput : "")
+  );
+  const [scaleSettlementMode, setScaleSettlementMode] = useState<"pago_dinheiro" | "pago_pix" | "caderninho" | "so_estoque">(() => {
+    const m = initialScrapDraft.scaleSettlementMode;
+    return m === "pago_dinheiro" || m === "pago_pix" || m === "caderninho" || m === "so_estoque" ? m : "pago_dinheiro";
+  });
+  const [scrapWeightDrafts, setScrapWeightDrafts] = useState<Record<string, string>>(
+    () => (initialScrapDraft.scrapWeightDrafts && typeof initialScrapDraft.scrapWeightDrafts === "object" ? initialScrapDraft.scrapWeightDrafts : {})
+  );
   const [cardPayMatId, setCardPayMatId] = useState<string | null>(null);
   const [cardPayKgDraft, setCardPayKgDraft] = useState<string>("");
   const [cardPayPriceDraft, setCardPayPriceDraft] = useState<string>("");
@@ -1237,8 +1291,13 @@ export function GlassBarcodeScannerCart({
   const [cardPayAddToStock, setCardPayAddToStock] = useState<boolean>(true);
 
   // Opção de nome no recibo (cadastrado | sem_nome | nome_avulso) + ajustes (acréscimo / desconto) + Cesta Multi-Materiais do Dia
-  const [scrapCollabMode, setScrapCollabMode] = useState<"cadastrado" | "sem_nome" | "nome_avulso">("cadastrado");
-  const [scrapCustomCollabName, setScrapCustomCollabName] = useState<string>("");
+  const [scrapCollabMode, setScrapCollabMode] = useState<"cadastrado" | "sem_nome" | "nome_avulso">(() => {
+    const m = initialScrapDraft.scrapCollabMode;
+    return m === "cadastrado" || m === "sem_nome" || m === "nome_avulso" ? m : "cadastrado";
+  });
+  const [scrapCustomCollabName, setScrapCustomCollabName] = useState<string>(
+    () => (typeof initialScrapDraft.scrapCustomCollabName === "string" ? initialScrapDraft.scrapCustomCollabName : "")
+  );
   const [scrapBasket, setScrapBasket] = useState<
     {
       id: string;
@@ -1250,16 +1309,34 @@ export function GlassBarcodeScannerCart({
       pricePerKg: number;
       addToStock: boolean;
     }[]
-  >([]);
-  const [scrapBasketWeightDrafts, setScrapBasketWeightDrafts] = useState<Record<string, string>>({});
-  const [scrapBasketPriceDrafts, setScrapBasketPriceDrafts] = useState<Record<string, string>>({});
-  const [scrapBasketBonusInput, setScrapBasketBonusInput] = useState<string>("");
-  const [scrapBasketBonusReason, setScrapBasketBonusReason] = useState<string>("");
-  const [scrapBasketDiscountInput, setScrapBasketDiscountInput] = useState<string>("");
-  const [scrapBasketDiscountReason, setScrapBasketDiscountReason] = useState<string>("");
-  const [scrapBasketQuickMatId, setScrapBasketQuickMatId] = useState<string>("scrap_pet");
-  const [scrapBasketQuickKg, setScrapBasketQuickKg] = useState<string>("");
-  const [scrapBasketQuickPrice, setScrapBasketQuickPrice] = useState<string>("");
+  >(() => (Array.isArray(initialScrapDraft.scrapBasket) ? initialScrapDraft.scrapBasket : []));
+  const [scrapBasketWeightDrafts, setScrapBasketWeightDrafts] = useState<Record<string, string>>(
+    () => (initialScrapDraft.scrapBasketWeightDrafts && typeof initialScrapDraft.scrapBasketWeightDrafts === "object" ? initialScrapDraft.scrapBasketWeightDrafts : {})
+  );
+  const [scrapBasketPriceDrafts, setScrapBasketPriceDrafts] = useState<Record<string, string>>(
+    () => (initialScrapDraft.scrapBasketPriceDrafts && typeof initialScrapDraft.scrapBasketPriceDrafts === "object" ? initialScrapDraft.scrapBasketPriceDrafts : {})
+  );
+  const [scrapBasketBonusInput, setScrapBasketBonusInput] = useState<string>(
+    () => (typeof initialScrapDraft.scrapBasketBonusInput === "string" ? initialScrapDraft.scrapBasketBonusInput : "")
+  );
+  const [scrapBasketBonusReason, setScrapBasketBonusReason] = useState<string>(
+    () => (typeof initialScrapDraft.scrapBasketBonusReason === "string" ? initialScrapDraft.scrapBasketBonusReason : "")
+  );
+  const [scrapBasketDiscountInput, setScrapBasketDiscountInput] = useState<string>(
+    () => (typeof initialScrapDraft.scrapBasketDiscountInput === "string" ? initialScrapDraft.scrapBasketDiscountInput : "")
+  );
+  const [scrapBasketDiscountReason, setScrapBasketDiscountReason] = useState<string>(
+    () => (typeof initialScrapDraft.scrapBasketDiscountReason === "string" ? initialScrapDraft.scrapBasketDiscountReason : "")
+  );
+  const [scrapBasketQuickMatId, setScrapBasketQuickMatId] = useState<string>(
+    () => (typeof initialScrapDraft.scrapBasketQuickMatId === "string" && initialScrapDraft.scrapBasketQuickMatId) || "scrap_pet"
+  );
+  const [scrapBasketQuickKg, setScrapBasketQuickKg] = useState<string>(
+    () => (typeof initialScrapDraft.scrapBasketQuickKg === "string" ? initialScrapDraft.scrapBasketQuickKg : "")
+  );
+  const [scrapBasketQuickPrice, setScrapBasketQuickPrice] = useState<string>(
+    () => (typeof initialScrapDraft.scrapBasketQuickPrice === "string" ? initialScrapDraft.scrapBasketQuickPrice : "")
+  );
   const scrapBasketPanelRef = useRef<HTMLDivElement | null>(null);
 
   const [scaleQueueReadings, setScaleQueueReadings] = useState<
@@ -1286,8 +1363,16 @@ export function GlassBarcodeScannerCart({
   const [confirmClearAllScrapPrices, setConfirmClearAllScrapPrices] = useState<boolean>(false);
 
   // Modal de Confirmação Rápida após Bipar (Permite digitar ex: 55 direto no teclado antes de jogar no carrinho)
-  const [scannedPrompt, setScannedPrompt] = useState<{ bottle: CatalogBottleItem; matchedCode: string } | null>(null);
-  const [scannedPromptQtyStr, setScannedPromptQtyStr] = useState<string>("1");
+  const savedScannedPromptRef = useRef<{ bottle: CatalogBottleItem; matchedCode: string; qtyStr?: string } | null>(
+    loadPersistedJson<{ bottle: CatalogBottleItem; matchedCode: string; qtyStr?: string } | null>("pdv_dw_scanned_prompt_v1", null)
+  );
+  const [scannedPrompt, setScannedPrompt] = useState<{ bottle: CatalogBottleItem; matchedCode: string } | null>(() => {
+    const s = savedScannedPromptRef.current;
+    return s && s.bottle ? { bottle: s.bottle, matchedCode: s.matchedCode } : null;
+  });
+  const [scannedPromptQtyStr, setScannedPromptQtyStr] = useState<string>(
+    () => savedScannedPromptRef.current?.qtyStr || "1"
+  );
 
   // Modal inteligente para código ainda não vinculado -> "Vincular a uma garrafa já cadastrada (1-5 códs)" ou "Cadastrar nova"
   const [unmatchedBarcodePrompt, setUnmatchedBarcodePrompt] = useState<{ code: string } | null>(null);
@@ -1487,10 +1572,16 @@ export function GlassBarcodeScannerCart({
     return INITIAL_COLLABORATORS;
   });
 
-  // Colaborador atualmente selecionado
+  // Colaborador atualmente selecionado (persistido para não resetar ao alternar apps)
   const [selectedCollabId, setSelectedCollabId] = useState<string>(() => {
+    const saved = loadPersistedString("pdv_dw_selected_collab_id_v1", "");
+    if (saved && collaborators.some((c) => c.id === saved)) return saved;
     return INITIAL_COLLABORATORS[0].id;
   });
+
+  useEffect(() => {
+    savePersistedString("pdv_dw_selected_collab_id_v1", selectedCollabId);
+  }, [selectedCollabId]);
 
   // Histórico de tíquetes de compras
   const [purchaseHistory, setPurchaseHistory] = useState<CompletedPurchaseTicket[]>(() => {
@@ -1529,12 +1620,23 @@ export function GlassBarcodeScannerCart({
   });
 
   // Aba ativa: "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos"
-  const [activeTab, setActiveTab] = useState<"carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos">(
-    initialActiveTab || "carrinho"
-  );
+  const [activeTab, setActiveTab] = useState<"carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos">(() => {
+    const saved = loadPersistedString("pdv_dw_yard_active_tab_v1", "");
+    if (saved === "carrinho" || saved === "caderninho" || saved === "estoque" || saved === "cargas" || saved === "guia_plasticos") {
+      return saved;
+    }
+    return initialActiveTab || "carrinho";
+  });
 
   useEffect(() => {
-    if (initialActiveTab) {
+    savePersistedString("pdv_dw_yard_active_tab_v1", activeTab);
+  }, [activeTab]);
+
+  // Só aplica prop externa quando ela REALMENTE mudar após a montagem inicial (evita sobrescrever a aba fixada)
+  const prevInitialActiveTabRef = useRef(initialActiveTab);
+  useEffect(() => {
+    if (initialActiveTab && initialActiveTab !== prevInitialActiveTabRef.current) {
+      prevInitialActiveTabRef.current = initialActiveTab;
       setActiveTab(initialActiveTab);
       if (initialActiveTab === "guia_plasticos") {
         setActiveSector("reciclagem");
@@ -1545,8 +1647,10 @@ export function GlassBarcodeScannerCart({
     }
   }, [initialActiveTab]);
 
+  const prevInitialFilterRef = useRef(initialYardControlFilter);
   useEffect(() => {
-    if (initialYardControlFilter) {
+    if (initialYardControlFilter && initialYardControlFilter !== prevInitialFilterRef.current) {
+      prevInitialFilterRef.current = initialYardControlFilter;
       setYardControlFilter(initialYardControlFilter);
       setActiveSector(initialYardControlFilter === "outros" ? "reciclagem" : "vidros");
     }
@@ -1579,11 +1683,51 @@ export function GlassBarcodeScannerCart({
   const [payMethod, setPayMethod] = useState<"bolsa_familia" | "caminhao_victor" | "dinheiro" | "pix">("bolsa_familia");
   const [payNotes, setPayNotes] = useState<string>("Acerto mensal no dia do Bolsa Família");
 
-  const [editingBottle, setEditingBottle] = useState<CatalogBottleItem | null>(null);
-  const [editingWeightGramsInput, setEditingWeightGramsInput] = useState<string>("185");
-  const [isRegisteringNew, setIsRegisteringNew] = useState<boolean>(false);
-  const [calibratingBottle, setCalibratingBottle] = useState<CatalogBottleItem | null>(null);
-  const [calibratedGramsInput, setCalibratedGramsInput] = useState<string>("185");
+  const savedBottleEditDraftRef = useRef<{ editingBottle: CatalogBottleItem; editingWeightGramsInput: string; isRegisteringNew: boolean } | null>(
+    loadPersistedJson<{ editingBottle: CatalogBottleItem; editingWeightGramsInput: string; isRegisteringNew: boolean } | null>("pdv_dw_bottle_edit_draft_v1", null)
+  );
+  const [editingBottle, setEditingBottle] = useState<CatalogBottleItem | null>(
+    () => savedBottleEditDraftRef.current?.editingBottle || null
+  );
+  const [editingWeightGramsInput, setEditingWeightGramsInput] = useState<string>(
+    () => savedBottleEditDraftRef.current?.editingWeightGramsInput || "185"
+  );
+  const [isRegisteringNew, setIsRegisteringNew] = useState<boolean>(
+    () => Boolean(savedBottleEditDraftRef.current?.isRegisteringNew)
+  );
+
+  const savedCalibratingDraftRef = useRef<{ calibratingBottle: CatalogBottleItem; calibratedGramsInput: string } | null>(
+    loadPersistedJson<{ calibratingBottle: CatalogBottleItem; calibratedGramsInput: string } | null>("pdv_dw_calibrating_draft_v1", null)
+  );
+  const [calibratingBottle, setCalibratingBottle] = useState<CatalogBottleItem | null>(
+    () => savedCalibratingDraftRef.current?.calibratingBottle || null
+  );
+  const [calibratedGramsInput, setCalibratedGramsInput] = useState<string>(
+    () => savedCalibratingDraftRef.current?.calibratedGramsInput || "185"
+  );
+
+  // Visualizador Interno: Bloco de Notas & Fotos da Galeria (Sem Sair da Tela de Estoque/Compras)
+  const [showRefNotesPhotosModal, setShowRefNotesPhotosModal] = useState<boolean>(
+    () => loadPersistedString("pdv_dw_ref_notes_modal_open_v1", "") === "1"
+  );
+  const [refNotesSubTab, setRefNotesSubTab] = useState<"notas" | "fotos">(() => {
+    const saved = loadPersistedString("pdv_dw_ref_notes_subtab_v1", "");
+    return saved === "fotos" ? "fotos" : "notas";
+  });
+  const [yardQuickNotes, setYardQuickNotes] = useState<string>(
+    () => loadPersistedString("pdv_dw_yard_quick_notes_v1", "")
+  );
+  const [appNotepadSnap, setAppNotepadSnap] = useState<AppNotepadSnapshot>(() =>
+    readAppNotepadSnapshot(activeAuthUid || userId)
+  );
+  const [pinnedRefPhotos, setPinnedRefPhotos] = useState<PinnedReferencePhoto[]>(() =>
+    loadPinnedReferencePhotos()
+  );
+  const [isLoadingRefPhoto, setIsLoadingRefPhoto] = useState<boolean>(false);
+  const [refPhotoError, setRefPhotoError] = useState<string | null>(null);
+  const [zoomedRefPhoto, setZoomedRefPhoto] = useState<PinnedReferencePhoto | null>(null);
+  const refPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const [restoredDraftBannerDismissed, setRestoredDraftBannerDismissed] = useState<boolean>(false);
 
   // Abertura centralizada com valor em texto limpo para permitir digitação no celular
   const openCalibrateBottleModal = (bottle: CatalogBottleItem) => {
@@ -1607,10 +1751,270 @@ export function GlassBarcodeScannerCart({
   const [showZeroConfirmModal, setShowZeroConfirmModal] = useState<boolean>(false);
   const [showStrategicGuideModal, setShowStrategicGuideModal] = useState<boolean>(false);
   const [showVictorRules, setShowVictorRules] = useState<boolean>(false);
-  const [showCheckoutModal, setShowCheckoutModal] = useState<boolean>(false);
+  const [showCheckoutModal, setShowCheckoutModal] = useState<boolean>(() => {
+    const wantsOpen = loadPersistedString("pdv_dw_show_checkout_modal_v1", "") === "1";
+    if (!wantsOpen) return false;
+    const savedCart = loadPersistedJson<any[]>("pdv_dw_cart_items_v3", []);
+    return Array.isArray(savedCart) && savedCart.length > 0;
+  });
 
   // Digitação direta no teclado para quantidade de garrafas no pátio / compra (ex: 55 garrafas)
-  const [bottleInputQty, setBottleInputQty] = useState<Record<string, string>>({});
+  const [bottleInputQty, setBottleInputQty] = useState<Record<string, string>>(
+    () => loadPersistedJson<Record<string, string>>("pdv_dw_bottle_input_qty_v1", {})
+  );
+
+  // Sincronização contínua dos rascunhos e modais abertos no localStorage
+  useEffect(() => {
+    savePersistedJson("pdv_dw_bottle_input_qty_v1", bottleInputQty);
+  }, [bottleInputQty]);
+
+  useEffect(() => {
+    if (editingBottle) {
+      savePersistedJson("pdv_dw_bottle_edit_draft_v1", {
+        editingBottle,
+        editingWeightGramsInput,
+        isRegisteringNew
+      });
+    } else {
+      removePersistedKey("pdv_dw_bottle_edit_draft_v1");
+    }
+  }, [editingBottle, editingWeightGramsInput, isRegisteringNew]);
+
+  useEffect(() => {
+    if (calibratingBottle) {
+      savePersistedJson("pdv_dw_calibrating_draft_v1", {
+        calibratingBottle,
+        calibratedGramsInput
+      });
+    } else {
+      removePersistedKey("pdv_dw_calibrating_draft_v1");
+    }
+  }, [calibratingBottle, calibratedGramsInput]);
+
+  useEffect(() => {
+    if (scannedPrompt) {
+      savePersistedJson("pdv_dw_scanned_prompt_v1", {
+        bottle: scannedPrompt.bottle,
+        matchedCode: scannedPrompt.matchedCode,
+        qtyStr: scannedPromptQtyStr
+      });
+    } else {
+      removePersistedKey("pdv_dw_scanned_prompt_v1");
+    }
+  }, [scannedPrompt, scannedPromptQtyStr]);
+
+  useEffect(() => {
+    savePersistedString("pdv_dw_show_checkout_modal_v1", showCheckoutModal && cart.length > 0 ? "1" : "");
+  }, [showCheckoutModal, cart.length]);
+
+  useEffect(() => {
+    savePersistedJson("pdv_dw_scrap_draft_v1", {
+      scaleSelectedMaterialId,
+      scaleGrossInput,
+      scaleTareInput,
+      scaleUnitsInput,
+      scalePricePerKgInput,
+      scaleSellPricePerKgInput,
+      scaleSettlementMode,
+      scrapWeightDrafts,
+      scrapCollabMode,
+      scrapCustomCollabName,
+      scrapBasket,
+      scrapBasketWeightDrafts,
+      scrapBasketPriceDrafts,
+      scrapBasketBonusInput,
+      scrapBasketBonusReason,
+      scrapBasketDiscountInput,
+      scrapBasketDiscountReason,
+      scrapBasketQuickMatId,
+      scrapBasketQuickKg,
+      scrapBasketQuickPrice
+    });
+  }, [
+    scaleSelectedMaterialId,
+    scaleGrossInput,
+    scaleTareInput,
+    scaleUnitsInput,
+    scalePricePerKgInput,
+    scaleSellPricePerKgInput,
+    scaleSettlementMode,
+    scrapWeightDrafts,
+    scrapCollabMode,
+    scrapCustomCollabName,
+    scrapBasket,
+    scrapBasketWeightDrafts,
+    scrapBasketPriceDrafts,
+    scrapBasketBonusInput,
+    scrapBasketBonusReason,
+    scrapBasketDiscountInput,
+    scrapBasketDiscountReason,
+    scrapBasketQuickMatId,
+    scrapBasketQuickKg,
+    scrapBasketQuickPrice
+  ]);
+
+  useEffect(() => {
+    savePersistedString("pdv_dw_yard_quick_notes_v1", yardQuickNotes);
+  }, [yardQuickNotes]);
+
+  useEffect(() => {
+    savePersistedString("pdv_dw_ref_notes_subtab_v1", refNotesSubTab);
+  }, [refNotesSubTab]);
+
+  useEffect(() => {
+    savePersistedString("pdv_dw_ref_notes_modal_open_v1", showRefNotesPhotosModal ? "1" : "");
+    if (showRefNotesPhotosModal) {
+      setAppNotepadSnap(readAppNotepadSnapshot(activeAuthUid || userId));
+    }
+  }, [showRefNotesPhotosModal, activeAuthUid, userId]);
+
+  const hasRestoredWorkspaceDraft = useMemo(() => {
+    return Boolean(
+      savedBottleEditDraftRef.current?.editingBottle ||
+        savedCalibratingDraftRef.current?.calibratingBottle ||
+        savedScannedPromptRef.current?.bottle ||
+        (Array.isArray(initialScrapDraft.scrapBasket) && initialScrapDraft.scrapBasket.length > 0) ||
+        (typeof initialScrapDraft.scaleGrossInput === "string" && initialScrapDraft.scaleGrossInput.trim().length > 0)
+    );
+  }, []);
+
+  // Flush imediato ao sair do app / abrir Galeria / minimizar Chrome no Android
+  const flushAllDraftsRef = useRef<() => void>(() => {});
+  flushAllDraftsRef.current = () => {
+    savePersistedString("pdv_dw_yard_active_sector_v1", activeSector);
+    savePersistedString("pdv_dw_yard_control_filter_v1", yardControlFilter);
+    savePersistedString("pdv_dw_yard_active_tab_v1", activeTab);
+    savePersistedString("pdv_dw_selected_collab_id_v1", selectedCollabId);
+    savePersistedJson("pdv_dw_bottle_input_qty_v1", bottleInputQty);
+    savePersistedString("pdv_dw_yard_quick_notes_v1", yardQuickNotes);
+    savePersistedString("pdv_dw_ref_notes_subtab_v1", refNotesSubTab);
+    savePersistedString("pdv_dw_ref_notes_modal_open_v1", showRefNotesPhotosModal ? "1" : "");
+    savePersistedString("pdv_dw_show_checkout_modal_v1", showCheckoutModal && cart.length > 0 ? "1" : "");
+    if (editingBottle) {
+      savePersistedJson("pdv_dw_bottle_edit_draft_v1", {
+        editingBottle,
+        editingWeightGramsInput,
+        isRegisteringNew
+      });
+    }
+    if (calibratingBottle) {
+      savePersistedJson("pdv_dw_calibrating_draft_v1", {
+        calibratingBottle,
+        calibratedGramsInput
+      });
+    }
+    if (scannedPrompt) {
+      savePersistedJson("pdv_dw_scanned_prompt_v1", {
+        bottle: scannedPrompt.bottle,
+        matchedCode: scannedPrompt.matchedCode,
+        qtyStr: scannedPromptQtyStr
+      });
+    }
+    savePersistedJson("pdv_dw_scrap_draft_v1", {
+      scaleSelectedMaterialId,
+      scaleGrossInput,
+      scaleTareInput,
+      scaleUnitsInput,
+      scalePricePerKgInput,
+      scaleSellPricePerKgInput,
+      scaleSettlementMode,
+      scrapWeightDrafts,
+      scrapCollabMode,
+      scrapCustomCollabName,
+      scrapBasket,
+      scrapBasketWeightDrafts,
+      scrapBasketPriceDrafts,
+      scrapBasketBonusInput,
+      scrapBasketBonusReason,
+      scrapBasketDiscountInput,
+      scrapBasketDiscountReason,
+      scrapBasketQuickMatId,
+      scrapBasketQuickKg,
+      scrapBasketQuickPrice
+    });
+    try {
+      localStorage.setItem("pdv_dw_cart_items_v3", JSON.stringify(cart));
+      localStorage.setItem("pdv_dw_glass_catalog_v10", JSON.stringify(catalog));
+    } catch {}
+  };
+
+  useEffect(() => {
+    const handleBackgroundFlush = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        flushAllDraftsRef.current();
+      }
+    };
+    const handleImmediateFlush = () => {
+      flushAllDraftsRef.current();
+    };
+    document.addEventListener("visibilitychange", handleBackgroundFlush);
+    window.addEventListener("pagehide", handleImmediateFlush);
+    window.addEventListener("beforeunload", handleImmediateFlush);
+    return () => {
+      document.removeEventListener("visibilitychange", handleBackgroundFlush);
+      window.removeEventListener("pagehide", handleImmediateFlush);
+      window.removeEventListener("beforeunload", handleImmediateFlush);
+    };
+  }, []);
+
+  const handleOpenRefNotesPhotosModal = (initialSubTab?: "notas" | "fotos") => {
+    flushAllDraftsRef.current();
+    setAppNotepadSnap(readAppNotepadSnapshot(activeAuthUid || userId));
+    if (initialSubTab) setRefNotesSubTab(initialSubTab);
+    setRefPhotoError(null);
+    setShowRefNotesPhotosModal(true);
+  };
+
+  const handleAddGalleryRefPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files: File[] = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = "";
+    if (files.length === 0) return;
+
+    setIsLoadingRefPhoto(true);
+    setRefPhotoError(null);
+    try {
+      const created: PinnedReferencePhoto[] = [];
+      for (const file of files.slice(0, 4)) {
+        const dataUrl = await compressGalleryImageToReferenceDataUrl(file, 820, 0.74);
+        const rawName = (file.name || "Foto").replace(/\.[^.]+$/, "").slice(0, 40);
+        created.push({
+          id: `ref_photo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          label: rawName || "Foto de Referência",
+          dataUrl,
+          addedAt: new Date().toLocaleString("pt-BR")
+        });
+      }
+      const next = [...created, ...pinnedRefPhotos].slice(0, 8);
+      const savedOk = savePinnedReferencePhotos(next);
+      if (!savedOk) {
+        setRefPhotoError("Espaço do aparelho quase cheio. Apague alguma foto antiga para fixar novas imagens.");
+      } else {
+        setPinnedRefPhotos(next);
+        if (showNotification) {
+          showNotification(`${created.length} foto(s) fixada(s) aqui na tela sem precisar sair! 🖼️📌`, "success");
+        }
+      }
+    } catch {
+      setRefPhotoError("Não foi possível carregar uma das fotos selecionadas. Tente outra imagem da galeria.");
+    } finally {
+      setIsLoadingRefPhoto(false);
+    }
+  };
+
+  const handleRemovePinnedRefPhoto = (photoId: string) => {
+    const next = pinnedRefPhotos.filter((p) => p.id !== photoId);
+    setPinnedRefPhotos(next);
+    savePinnedReferencePhotos(next);
+    if (zoomedRefPhoto?.id === photoId) {
+      setZoomedRefPhoto(null);
+    }
+  };
+
+  const handleUpdatePinnedRefPhotoLabel = (photoId: string, nextLabel: string) => {
+    const next = pinnedRefPhotos.map((p) => (p.id === photoId ? { ...p, label: nextLabel } : p));
+    setPinnedRefPhotos(next);
+    savePinnedReferencePhotos(next);
+  };
 
   const handleAddDirectQuantity = (bottle: CatalogBottleItem, autoOpenCheckout = false) => {
     const raw = bottleInputQty[bottle.id];
@@ -3741,6 +4145,7 @@ export function GlassBarcodeScannerCart({
       window.dispatchEvent(new CustomEvent("dw_glass_catalog_updated", { detail: nextCatalog }));
     }
 
+    removePersistedKey("pdv_dw_bottle_edit_draft_v1");
     setEditingBottle(null);
     setIsRegisteringNew(false);
     setLastMatchedBottleId(saved.id);
@@ -5523,6 +5928,13 @@ export function GlassBarcodeScannerCart({
                   📱 Salvo neste aparelho (Entre na sua conta para sincronizar o Pátio no app instalado)
                 </span>
               )}
+              <span
+                className="text-[10.5px] bg-emerald-500/15 text-emerald-300 font-black px-2.5 py-1 rounded-lg border border-emerald-500/35 inline-flex items-center gap-1"
+                title="Sua tela, modais e rascunhos em digitação ficam fixados automaticamente mesmo ao trocar de aplicativo"
+              >
+                <Pin className="w-3 h-3 text-emerald-400" />
+                <span>Tela &amp; Rascunhos Fixados</span>
+              </span>
             </div>
 
             <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
@@ -5587,6 +5999,21 @@ export function GlassBarcodeScannerCart({
 
             <button
               type="button"
+              onClick={() => handleOpenRefNotesPhotosModal()}
+              className="min-h-[48px] px-3.5 py-2.5 bg-gradient-to-r from-indigo-500/25 to-purple-500/25 hover:from-indigo-500/35 hover:to-purple-500/35 text-indigo-200 hover:text-white font-black text-xs uppercase rounded-xl border border-indigo-400/50 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shadow-md"
+              title="Ver suas anotações e fotos da galeria aqui dentro sem sair do Estoque ou Compras"
+            >
+              <StickyNote className="w-4 h-4 text-amber-300" />
+              <span>Notas &amp; Fotos</span>
+              {(pinnedRefPhotos.length > 0 || yardQuickNotes.trim().length > 0) && (
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px]">
+                  {pinnedRefPhotos.length > 0 ? pinnedRefPhotos.length : "1"}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={() => setShowZeroConfirmModal(true)}
               className="min-h-[48px] px-3.5 py-2.5 bg-slate-950 hover:bg-slate-800 text-rose-300 hover:text-white font-bold text-xs uppercase rounded-xl border border-rose-500/30 hover:border-rose-400 transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation"
               title="Zerar dados de teste e começar contagem real do zero"
@@ -5596,6 +6023,36 @@ export function GlassBarcodeScannerCart({
             </button>
           </div>
         </div>
+
+        {hasRestoredWorkspaceDraft && !restoredDraftBannerDismissed && (
+          <div className="mt-3 p-3 bg-emerald-950/75 border border-emerald-400/50 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+            <div className="flex items-start gap-2 text-emerald-100">
+              <Pin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-black text-emerald-300">Sua tela e rascunhos em aberto foram restaurados!</strong>
+                <span className="block text-[11px] text-slate-200 mt-0.5">
+                  Use o botão <strong>Notas &amp; Fotos</strong> aqui dentro para consultar pesos, quantidades e imagens da galeria sem sair do Estoque/Compras.
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => handleOpenRefNotesPhotosModal()}
+                className="min-h-[38px] px-3 py-1.5 bg-indigo-500 hover:bg-indigo-400 text-white font-black text-[11px] rounded-xl cursor-pointer touch-manipulation"
+              >
+                📝 Abrir Notas &amp; Fotos
+              </button>
+              <button
+                type="button"
+                onClick={() => setRestoredDraftBannerDismissed(true)}
+                className="min-h-[38px] px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-[11px] rounded-xl border border-white/10 cursor-pointer touch-manipulation"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ========================================================= */}
         {/* SELETOR PRINCIPAL: PÁTIO DE VIDROS VS CENTRO DE RECICLAGEM */}
@@ -10937,16 +11394,28 @@ export function GlassBarcodeScannerCart({
                   </span>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingBottle(null);
-                  setIsRegisteringNew(false);
-                }}
-                className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all cursor-pointer touch-manipulation select-none active:scale-95"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleOpenRefNotesPhotosModal()}
+                  className="min-h-[44px] px-3 py-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 hover:text-white border border-indigo-400/40 rounded-xl text-[11px] font-black flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95"
+                  title="Ver Notas e Fotos da Galeria sem fechar este cadastro"
+                >
+                  <StickyNote className="w-4 h-4 text-amber-300" />
+                  <span>Notas &amp; Fotos</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    removePersistedKey("pdv_dw_bottle_edit_draft_v1");
+                    setEditingBottle(null);
+                    setIsRegisteringNew(false);
+                  }}
+                  className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all cursor-pointer touch-manipulation select-none active:scale-95"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* SEÇÃO RÁPIDA: COPIAR DE GARRAFA OU POTE PARECIDO */}
@@ -13382,6 +13851,264 @@ export function GlassBarcodeScannerCart({
             </div>
           </div>
         )}
+
+      {/* ========================================================= */}
+      {/* MODAL RÁPIDO: NOTAS & FOTOS DA GALERIA (SEM SAIR DA TELA) */}
+      {/* ========================================================= */}
+      {showRefNotesPhotosModal && (
+        <div className="fixed inset-0 z-[90] bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border-2 border-indigo-400/50 rounded-3xl p-4 sm:p-6 max-w-2xl w-full space-y-4 shadow-2xl text-left my-auto max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center shrink-0">
+                  <StickyNote className="w-5 h-5 text-amber-300" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base sm:text-lg font-black text-white truncate">
+                    📝 Notas &amp; Fotos (Sem Sair da Tela)
+                  </h3>
+                  <span className="text-[11px] text-emerald-300 font-bold block">
+                    Consulte pesos, quantidades e fotos sem fechar seu Estoque ou Carrinho!
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRefNotesPhotosModal(false)}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-xl cursor-pointer touch-manipulation select-none active:scale-95 shrink-0"
+                title="Voltar exatamente para a tela anterior"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Sub-abas */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setRefNotesSubTab("notas")}
+                className={`min-h-[46px] px-3 py-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 border cursor-pointer touch-manipulation transition-all ${
+                  refNotesSubTab === "notas"
+                    ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md"
+                    : "bg-slate-950 text-slate-300 border-white/10 hover:text-white"
+                }`}
+              >
+                <StickyNote className="w-4 h-4" />
+                <span>Minhas Notas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRefNotesSubTab("fotos")}
+                className={`min-h-[46px] px-3 py-2 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 border cursor-pointer touch-manipulation transition-all ${
+                  refNotesSubTab === "fotos"
+                    ? "bg-indigo-500 text-white border-indigo-400 shadow-md"
+                    : "bg-slate-950 text-slate-300 border-white/10 hover:text-white"
+                }`}
+              >
+                <ImageIcon className="w-4 h-4" />
+                <span>Fotos da Galeria ({pinnedRefPhotos.length})</span>
+              </button>
+            </div>
+
+            {refNotesSubTab === "notas" ? (
+              <div className="space-y-3.5 text-xs">
+                <div className="p-3.5 bg-slate-950 rounded-2xl border border-amber-400/35 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-[11px] font-black uppercase text-amber-300">
+                      ✏️ Bloco Rápido de Pesos &amp; Quantidades (Salvo Automático):
+                    </label>
+                    {yardQuickNotes && (
+                      <button
+                        type="button"
+                        onClick={() => setYardQuickNotes("")}
+                        className="text-[10px] text-rose-300 hover:text-rose-200 font-bold cursor-pointer"
+                      >
+                        Limpar
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    rows={5}
+                    value={yardQuickNotes}
+                    onChange={(e) => setYardQuickNotes(e.target.value)}
+                    placeholder="Anote ou cole aqui pesos da balança, quantidades de garrafas ou códigos para consultar rápido enquanto cadastra e compra..."
+                    className="w-full bg-slate-900 border border-white/15 focus:border-amber-400 rounded-xl p-3 text-sm text-white placeholder-slate-500 outline-none leading-relaxed"
+                  />
+                </div>
+
+                {/* Leitura automática do Bloco de Notas do App */}
+                <div className="p-3.5 bg-slate-950 rounded-2xl border border-white/10 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <strong className="text-[11px] font-black uppercase text-cyan-300">
+                      📒 Anotações do Bloco de Notas do App:
+                    </strong>
+                    <button
+                      type="button"
+                      onClick={() => setAppNotepadSnap(readAppNotepadSnapshot(activeAuthUid || userId))}
+                      className="min-h-[34px] px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 rounded-lg text-[10.5px] font-bold flex items-center gap-1 cursor-pointer touch-manipulation"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Atualizar</span>
+                    </button>
+                  </div>
+
+                  {!appNotepadSnap.freeNotes.trim() &&
+                  !appNotepadSnap.draftCalc.trim() &&
+                  appNotepadSnap.savedNotes.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Nenhuma nota encontrada no Bloco de Notas principal ainda. Você pode colar ou digitar suas medidas no quadro amarelo acima!
+                    </p>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {appNotepadSnap.freeNotes.trim() && (
+                        <div className="p-2.5 bg-slate-900 rounded-xl border border-white/10 space-y-1">
+                          <span className="text-[10px] font-black uppercase text-amber-300 block">Notas Livres:</span>
+                          <pre className="text-xs text-slate-100 whitespace-pre-wrap font-sans leading-relaxed">
+                            {appNotepadSnap.freeNotes}
+                          </pre>
+                        </div>
+                      )}
+                      {appNotepadSnap.draftCalc.trim() && (
+                        <div className="p-2.5 bg-slate-900 rounded-xl border border-white/10 space-y-1">
+                          <span className="text-[10px] font-black uppercase text-emerald-300 block">Rascunho de Cálculo:</span>
+                          <pre className="text-xs text-slate-100 whitespace-pre-wrap font-mono leading-relaxed">
+                            {appNotepadSnap.draftCalc}
+                          </pre>
+                        </div>
+                      )}
+                      {appNotepadSnap.savedNotes.map((note, idx) => (
+                        <div key={note.id || idx} className="p-2.5 bg-slate-900 rounded-xl border border-white/10 space-y-1">
+                          <div className="flex items-center justify-between text-[10px] text-slate-400">
+                            <span className="font-bold text-indigo-300">{note.folder || "Pasta Salva"}</span>
+                            {note.date && <span>{note.date}</span>}
+                          </div>
+                          <pre className="text-xs text-slate-100 whitespace-pre-wrap font-sans leading-relaxed">
+                            {note.text}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3.5 text-xs">
+                <div className="p-3.5 bg-slate-950 rounded-2xl border border-indigo-400/35 space-y-2.5">
+                  <p className="text-slate-200 leading-relaxed">
+                    Fixe aqui até <strong>8 fotos da sua galeria</strong> (peso na balança, garrafas, anotações no caderno). Depois elas ficam guardadas aqui dentro para consultar com 1 toque sem sair do app!
+                  </p>
+                  <input
+                    ref={refPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleAddGalleryRefPhotos}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    disabled={isLoadingRefPhoto}
+                    onClick={() => {
+                      flushAllDraftsRef.current();
+                      refPhotoInputRef.current?.click();
+                    }}
+                    className="w-full min-h-[48px] px-4 py-2.5 bg-indigo-500 hover:bg-indigo-400 disabled:opacity-60 text-white font-black text-xs uppercase rounded-xl flex items-center justify-center gap-2 cursor-pointer touch-manipulation shadow-lg"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    <span>{isLoadingRefPhoto ? "Preparando foto..." : "+ Importar Fotos da Galeria do Celular"}</span>
+                  </button>
+                  {refPhotoError && (
+                    <div className="p-2.5 bg-rose-950/60 border border-rose-500/40 rounded-xl text-rose-200 text-[11px]">
+                      {refPhotoError}
+                    </div>
+                  )}
+                </div>
+
+                {pinnedRefPhotos.length === 0 ? (
+                  <div className="p-6 bg-slate-950/70 rounded-2xl border border-white/10 text-center text-slate-400">
+                    Nenhuma foto fixada ainda. Toque no botão acima para trazer suas fotos de referência da galeria!
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[360px] overflow-y-auto pr-1">
+                    {pinnedRefPhotos.map((photo) => (
+                      <div key={photo.id} className="p-2.5 bg-slate-950 rounded-2xl border border-white/10 space-y-2">
+                        <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-white/5 aspect-[4/3]">
+                          <img
+                            src={photo.dataUrl}
+                            alt={photo.label}
+                            onClick={() => setZoomedRefPhoto(photo)}
+                            className="w-full h-full object-contain cursor-pointer"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setZoomedRefPhoto(photo)}
+                            className="absolute bottom-2 right-2 min-h-[34px] px-2.5 py-1 bg-slate-950/85 hover:bg-slate-900 text-white text-[10.5px] font-bold rounded-lg border border-white/20 flex items-center gap-1 cursor-pointer touch-manipulation"
+                          >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                            <span>Ampliar</span>
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={photo.label}
+                            onChange={(e) => handleUpdatePinnedRefPhotoLabel(photo.id, e.target.value)}
+                            placeholder="Nome da foto (ex: Longneck 200g)"
+                            className="flex-1 min-h-[38px] bg-slate-900 border border-white/10 focus:border-indigo-400 rounded-lg px-2.5 text-xs font-bold text-white outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePinnedRefPhoto(photo.id)}
+                            className="min-w-[38px] min-h-[38px] flex items-center justify-center bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer touch-manipulation"
+                            title="Remover foto fixada"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-white/10 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowRefNotesPhotosModal(false)}
+                className="min-h-[46px] px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation shadow-md"
+              >
+                Voltar para Onde Eu Estava ✓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VISUALIZAÇÃO AMPLIADA DE FOTO FIXADA */}
+      {zoomedRefPhoto && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center p-3 sm:p-6"
+          onClick={() => setZoomedRefPhoto(null)}
+        >
+          <div className="w-full max-w-3xl flex items-center justify-between gap-2 pb-3" onClick={(e) => e.stopPropagation()}>
+            <strong className="text-sm font-black text-white truncate">{zoomedRefPhoto.label}</strong>
+            <button
+              type="button"
+              onClick={() => setZoomedRefPhoto(null)}
+              className="min-h-[44px] px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation"
+            >
+              Fechar Zoom ✕
+            </button>
+          </div>
+          <img
+            src={zoomedRefPhoto.dataUrl}
+            alt={zoomedRefPhoto.label}
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[82vh] max-w-full object-contain rounded-2xl border border-white/15"
+          />
+        </div>
+      )}
     </div>
   );
 }

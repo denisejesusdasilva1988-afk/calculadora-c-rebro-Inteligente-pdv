@@ -1658,7 +1658,23 @@ export default function App() {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showAllTabs, setShowAllTabs] = useState(false);
-  const [pdvActiveSubTab, setPdvActiveSubTab] = useState<string | null>(null);
+  const [pdvActiveSubTab, setPdvActiveSubTab] = useState<string | null>(() => {
+    try {
+      const saved = localStorage.getItem("app_pdv_active_subtab_v1");
+      return saved || null;
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    try {
+      if (pdvActiveSubTab) {
+        localStorage.setItem("app_pdv_active_subtab_v1", pdvActiveSubTab);
+      } else {
+        localStorage.removeItem("app_pdv_active_subtab_v1");
+      }
+    } catch {}
+  }, [pdvActiveSubTab]);
   const [contabilidadeActiveTab, setContabilidadeActiveTab] = useState<"tributos" | "funcionarios" | "tempo_dinheiro" | "bar_doses" | "livro_caixa">(() => {
     try {
       return (localStorage.getItem("contabilidade_active_tab") as any) || "tributos";
@@ -3164,9 +3180,20 @@ export default function App() {
   const [history, setHistory] = useState<SavedList[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"calc" | "profile" | "admin" | "help">(
-    "calc",
-  );
+  const [activeTab, setActiveTab] = useState<"calc" | "profile" | "admin" | "help">(() => {
+    try {
+      const saved = localStorage.getItem("app_active_main_tab_v1");
+      if (saved === "calc" || saved === "profile" || saved === "admin" || saved === "help") {
+        return saved;
+      }
+    } catch {}
+    return "calc";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("app_active_main_tab_v1", activeTab);
+    } catch {}
+  }, [activeTab]);
   const [showAppSlidesModal, setShowAppSlidesModal] = useState(false);
   const [showWhatsAppBusinessModal, setShowWhatsAppBusinessModal] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);

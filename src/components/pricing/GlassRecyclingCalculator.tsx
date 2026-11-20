@@ -184,8 +184,29 @@ export function GlassRecyclingCalculator({
 }: {
   showNotification?: (msg: string, type: "success" | "error" | "info" | "warning") => void;
 }) {
-  // Aba padrão abre direto no Carrinho & Leitor de Código de Barras
-  const [activeTab, setActiveTab] = useState<"bipar_carrinho" | "lotes_50centavos" | "contagem" | "cargas" | "retornaveis" | "dicas_ferro_velho">("bipar_carrinho");
+  // Aba padrão abre direto no Carrinho & Leitor de Código de Barras (e permanece fixada!)
+  const [activeTab, setActiveTab] = useState<"bipar_carrinho" | "lotes_50centavos" | "contagem" | "cargas" | "retornaveis" | "dicas_ferro_velho">(() => {
+    try {
+      const saved = localStorage.getItem("pdv_glass_calc_active_tab_v1");
+      if (
+        saved === "bipar_carrinho" ||
+        saved === "lotes_50centavos" ||
+        saved === "contagem" ||
+        saved === "cargas" ||
+        saved === "retornaveis" ||
+        saved === "dicas_ferro_velho"
+      ) {
+        return saved;
+      }
+    } catch {}
+    return "bipar_carrinho";
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("pdv_glass_calc_active_tab_v1", activeTab);
+    } catch {}
+  }, [activeTab]);
 
   // Valor da moeda padrão para pagamento no portão (default R$ 0,50)
   const [targetCoinPayout, setTargetCoinPayout] = useState<number>(() => {
