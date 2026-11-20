@@ -147,7 +147,10 @@ import {
   buildThermalReceiptHtml, 
   executeThermalPrint,
   isBluetoothPrintSupported,
-  printViaBluetoothEscPos 
+  printViaBluetoothEscPos,
+  buildPdvTransactionThermalPayload,
+  generateMiniPrint57mmPngBlob,
+  downloadReceiptPngDirect
 } from "../utils/thermalPrinterHelper";
 import { cleanUndefinedForFirestore } from "../utils/cleanFirestore";
 import {
@@ -24568,6 +24571,28 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   >
                     <Download className="w-4 h-4 text-emerald-400" />
                     <span>Gerar PDF / Imprimir</span>
+                  </button>
+
+                  {/* Baixar Imagem PNG Inteira (iBleem / Fun Print) */}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const resolvedStore = storeCustomName || storeName || "MEU ESTABELECIMENTO";
+                        const resolvedCnpj = storeCustomCnpjCpf || storeCnpjCpf || "";
+                        const payload = buildPdvTransactionThermalPayload(receiptToShow, resolvedStore, resolvedCnpj, 1);
+                        const blob = await generateMiniPrint57mmPngBlob(payload);
+                        const shortId = receiptToShow.id.slice(-6).toUpperCase();
+                        downloadReceiptPngDirect(blob, `notinha_pdv_${shortId}_57mm.png`);
+                        showNotification(`Imagem inteira #${shortId} baixada! Abra no iBleem ou Fun Print -> Imprimir Imagem. 🖼️📥`, "success");
+                      } catch {
+                        showNotification("Erro ao gerar imagem PNG da notinha.", "error");
+                      }
+                    }}
+                    className="col-span-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black p-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Baixar Imagem PNG Inteira (iBleem / Fun Print)</span>
                   </button>
 
                   {/* Share WhatsApp */}

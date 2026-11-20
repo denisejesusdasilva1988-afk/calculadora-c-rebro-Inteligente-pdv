@@ -33,7 +33,10 @@ import {
   buildThermalReceiptHtml,
   executeThermalPrint,
   PrinterConfig,
-  loadPrinterConfig
+  loadPrinterConfig,
+  buildPdvTransactionThermalPayload,
+  generateMiniPrint57mmPngBlob,
+  downloadReceiptPngDirect
 } from "../utils/thermalPrinterHelper";
 
 interface PastaCuponsModuleProps {
@@ -287,6 +290,20 @@ export function PastaCuponsModule({
     const txt = generateReceiptText(tx);
     navigator.clipboard.writeText(txt);
     showNotification("Texto da notinha copiado para a área de transferência! 📋", "success");
+  };
+
+  // Baixar imagem inteira 57mm PNG (para apps iBleem / Fun Print)
+  const handleDownloadPng57mm = async (tx: PDVTransaction) => {
+    try {
+      const payload = buildPdvTransactionThermalPayload(tx, storeName, storeCnpjCpf, 1);
+      const blob = await generateMiniPrint57mmPngBlob(payload);
+      const shortId = tx.id.slice(-6).toUpperCase();
+      downloadReceiptPngDirect(blob, `notinha_pdv_${shortId}_57mm.png`);
+      showNotification(`Imagem PNG inteira da notinha #${shortId} baixada! Abra no iBleem ou Fun Print -> Imprimir Imagem. 🖼️📥`, "success");
+    } catch (err) {
+      console.error("Erro ao gerar PNG 57mm:", err);
+      showNotification("Erro ao gerar imagem PNG da notinha.", "error");
+    }
   };
 
   return (
@@ -586,6 +603,17 @@ export function PastaCuponsModule({
                       <span>80mm</span>
                     </button>
 
+                    {/* Download PNG Inteira (iBleem / Fun Print) */}
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadPng57mm(rc)}
+                      className="px-2.5 py-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-black rounded-xl transition-all flex items-center gap-1 cursor-pointer"
+                      title="Baixar imagem PNG inteira para iBleem / Fun Print"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>PNG</span>
+                    </button>
+
                     {/* Print 58mm */}
                     <button
                       type="button"
@@ -759,7 +787,16 @@ export function PastaCuponsModule({
 
             {/* Modal Actions */}
             <div className="p-4 sm:p-5 border-t border-white/10 bg-slate-950/80 flex flex-wrap items-center justify-between gap-2.5">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadPng57mm(viewingReceipt)}
+                  className="px-3.5 py-2.5 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Baixar PNG (iBleem/Fun Print)</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => handlePrintReceipt(viewingReceipt, "80mm")}

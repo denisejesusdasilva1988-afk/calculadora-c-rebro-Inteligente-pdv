@@ -778,6 +778,7 @@ export interface ThermalCanvasReceiptPayload {
     isFounder?: boolean;
   };
   footerNote?: string;
+  singleViaBanner?: string;
   copies: 1 | 2;
 }
 
@@ -1032,7 +1033,26 @@ export async function generateMiniPrint57mmPngBlob(
 
   const wrapText = (text: string, font: string, maxWidth: number): string[] => {
     ctx.font = font;
-    const words = String(text || "").split(/\s+/);
+    const rawTokens = String(text || "").split(/\s+/);
+    const words: string[] = [];
+    for (const token of rawTokens) {
+      if (!token || ctx.measureText(token).width <= maxWidth) {
+        words.push(token);
+      } else {
+        // Quebra palavras/códigos longos sem espaço para nunca cortar na borda de 57mm
+        let slice = "";
+        for (const ch of token) {
+          const nextSlice = slice + ch;
+          if (ctx.measureText(nextSlice).width > maxWidth && slice) {
+            words.push(slice);
+            slice = ch;
+          } else {
+            slice = nextSlice;
+          }
+        }
+        if (slice) words.push(slice);
+      }
+    }
     const out: string[] = [];
     let current = "";
     for (const w of words) {
@@ -1306,7 +1326,7 @@ export async function generateMiniPrint57mmPngBlob(
     y += 10;
     drawSingleVia("2ª VIA - VIA DO RECICLADOR (CONFERÊNCIA)");
   } else {
-    drawSingleVia("VIA ÚNICA - CONTROLE RECICLAGEM");
+    drawSingleVia(payload.singleViaBanner || "VIA ÚNICA - CONTROLE RECICLAGEM");
   }
 
   y += 28;
@@ -1333,38 +1353,112 @@ export async function generateMiniPrint57mmPngBlob(
   });
 }
 
-export async function shareOrDownloadReceiptPng(
-  blob: Blob,
-  filename: string,
-  title: string
-): Promise<"shared" | "downloaded"> {
+export function downloadReceiptPngDirect(blob: Blob, filename: string): string {
   const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-  try {
-    const nav: any = typeof navigator !== "undefined" ? navigator : null;
-    if (nav && typeof nav.share === "function") {
-      const file = new File([blob], safeName, { type: "image/png" });
-      if (!nav.canShare || nav.canShare({ files: [file] })) {
-        await nav.share({
-          files: [file],
-          title
-        });
-        return "shared";
-      }
-    }
-  } catch (err: any) {
-    // Se usuário cancelou o share ou dispositivo bloqueou share com arquivo, faz download abaixo
-    if (err?.name === "AbortError") {
-      return "shared";
-    }
-  }
-
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = safeName;
+  a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  setTimeout(() => URL.revokeObjectURL(url), 8000);
+  return safeName;
+}
+
+export function buildPdvTransactionThermalPayload(
+  tx: PDVTransaction,
+  storeName?: string,
+  storeCnpjCpf?: string,
+  copies: 1 | 2 = 1
+): ThermalCanvasReceiptPayload {
+  const cfg = loadPrinterConfig();
+  const prof = loadCompanyProfile();
+  const resolvedStore = (storeName || cfg.storeName || prof.name || "MEU ESTABELECIMENTO").trim();
+  const resolvedCnpj = (storeCnpjCpf || cfg.storeCnpjCpf || prof.cnpjCpf || "").trim();
+
+  const lines: ThermalCanvasReceiptPayload["lines"] =
+    tx.items && tx.items.length > 0
+      ? tx.items.map((it) => ({
+          left: `${it.quantity}${it.unit || "un"} × ${String(it.name || "").toUpperCase()}`,
+          right: `R$ ${(Number(it.price || 0) * Number(it.quantity || 1)).toFixed(2).replace(".", ",")}`,
+          detail: `Unitário: R$ ${Number(it.price || 0).toFixed(2).replace(".", ",")}`,
+          bold: true
+        }))
+      : [
+          {
+            left: String(tx.description || "VENDA BALCÃO").toUpperCase(),
+            right: `R$ ${Number(tx.amount || 0).toFixed(2).replace(".", ",")}`,
+            bold: true
+          }
+        ];
+
+  const summaryLines: ThermalCanvasReceiptPayload["summaryLines"] = [
+    {
+      label: "TOTAL DA VENDA:",
+      value: `R$ ${Number(tx.amount || 0).toFixed(2).replace(".", ",")}`,
+      big: true,
+      bold: true
+    }
+  ];
+
+  if (tx.paymentMethod === "dinheiro" && tx.amountPaid && tx.amountPaid > 0) {
+    summaryLines.push({
+      label: "VALOR RECEBIDO:",
+      value: `R$ ${Number(tx.amountPaid).toFixed(2).replace(".", ",")}`
+    });
+    summaryLines.push({
+      label: "TROCO:",
+      value: `R$ ${Number(tx.changeAmount || 0).toFixed(2).replace(".", ",")}`,
+      bold: true
+    });
+  }
+
+  return {
+    title: "COMPROVANTE DE VENDA - PDV",
+    subtitle: "DOCUMENTO SEM VALOR FISCAL",
+    storeName: resolvedStore,
+    storeCnpj: resolvedCnpj,
+    dateStr: tx.date || new Date().toLocaleString("pt-BR"),
+    ticketId: tx.id,
+    collaboratorName: tx.clientName?.trim() || "Consumidor Balcão",
+    statusLabel: `PAGAMENTO: ${String(tx.paymentMethod || "dinheiro").toUpperCase().replace("_", " ")}`,
+    lines,
+    summaryLines,
+    footerNote: cfg.receiptFooterMsg || "Obrigado pela preferência! Volte sempre!",
+    singleViaBanner: "VIA ÚNICA - COMPROVANTE PDV",
+    copies
+  };
+}
+
+export async function shareOrDownloadReceiptPng(
+  blob: Blob,
+  filename: string,
+  title: string,
+  forceDownload = false
+): Promise<"shared" | "downloaded"> {
+  const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  if (!forceDownload) {
+    try {
+      const nav: any = typeof navigator !== "undefined" ? navigator : null;
+      if (nav && typeof nav.share === "function") {
+        const file = new File([blob], safeName, { type: "image/png" });
+        if (!nav.canShare || nav.canShare({ files: [file] })) {
+          await nav.share({
+            files: [file],
+            title
+          });
+          return "shared";
+        }
+      }
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        return "shared";
+      }
+    }
+  }
+
+  downloadReceiptPngDirect(blob, safeName);
   return "downloaded";
 }

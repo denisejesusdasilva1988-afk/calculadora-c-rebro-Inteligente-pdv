@@ -89,6 +89,7 @@ import {
   ThermalCanvasReceiptPayload,
   buildThermalDocumentHtmlFromPayload,
   generateMiniPrint57mmPngBlob,
+  downloadReceiptPngDirect,
   shareOrDownloadReceiptPng,
   isBluetoothPrintSupported,
   printViaBluetoothEscPos
@@ -1593,6 +1594,15 @@ export function GlassBarcodeScannerCart({
       : "todos"
   );
   const [isGeneratingFunPrint, setIsGeneratingFunPrint] = useState<boolean>(false);
+  const [fullReceiptPngModal, setFullReceiptPngModal] = useState<{
+    url: string;
+    blob: Blob;
+    filename: string;
+    title: string;
+    subtitle: string;
+    copies: 1 | 2;
+    buildForCopies: (copies: 1 | 2) => Promise<{ blob: Blob; filename: string }>;
+  } | null>(null);
 
   // Hardware Real no Portão: Locutor IA (Caixa de Som Bluetooth), Balança de Gancho (BLE / Voz) & Painel Testar Tudo
   const [voiceAnnouncerEnabled, setVoiceAnnouncerEnabledState] = useState<boolean>(() =>
@@ -5321,6 +5331,7 @@ export function GlassBarcodeScannerCart({
         agreedPayDate && receipt.remainingBalance > 0
           ? `PRÓXIMO ACERTO COMBINADO: ${agreedPayDate}`
           : "Recibo de pagamento conferido (Empresa + Reciclador).",
+      singleViaBanner: "VIA ÚNICA - RECIBO DE PAGAMENTO",
       copies
     };
   };
@@ -5339,7 +5350,7 @@ export function GlassBarcodeScannerCart({
       },
       () => {
         if (showNotification) {
-          showNotification("Use o botão Fun Print (PNG 57mm) para enviar direto à impressora.", "warning");
+          showNotification("Use o botão Baixar PNG / Fun Print (57mm) para imprimir pelo app iBleem ou Fun Print.", "warning");
         }
       }
     );
@@ -5360,8 +5371,8 @@ export function GlassBarcodeScannerCart({
       if (showNotification) {
         showNotification(
           res === "shared"
-            ? `Recibo de acerto 57mm (${copies} ${copies === 1 ? "Via" : "Vias"}) pronto para o app Fun Print! 🐱🖨️`
-            : `Recibo de acerto 57mm salvo (${copies} ${copies === 1 ? "Via" : "Vias"}) para abrir no Fun Print! 🐱📥`,
+            ? `Recibo de acerto 57mm (${copies} ${copies === 1 ? "Via" : "Vias"}) pronto para Fun Print / iBleem! 🐱🖨️`
+            : `Recibo de acerto 57mm salvo nos Downloads (${copies} ${copies === 1 ? "Via" : "Vias"})! Abra no app iBleem ou Fun Print -> Imprimir Imagem. 🐱📥`,
           "success"
         );
       }
@@ -5555,8 +5566,8 @@ export function GlassBarcodeScannerCart({
       if (showNotification) {
         showNotification(
           res === "shared"
-            ? `Extrato da pasta 57mm (${copies} ${copies === 1 ? "Via" : "Vias"}) enviado ao compartilhamento para o Fun Print! 🐱🖨️`
-            : `Extrato da pasta 57mm salvo! Abra no app Fun Print para imprimir. 🐱📥`,
+            ? `Extrato da pasta 57mm (${copies} ${copies === 1 ? "Via" : "Vias"}) enviado ao compartilhamento para Fun Print / iBleem! 🐱🖨️`
+            : `Extrato da pasta 57mm salvo! Abra no app iBleem ou Fun Print para imprimir. 🐱📥`,
           "success"
         );
       }
@@ -5565,6 +5576,89 @@ export function GlassBarcodeScannerCart({
     } finally {
       setIsGeneratingFunPrint(false);
     }
+  };
+
+  const openFullReceiptPngPreviewAndDownload = async (opts: {
+    title: string;
+    subtitle: string;
+    copies: 1 | 2;
+    buildForCopies: (copies: 1 | 2) => Promise<{ blob: Blob; filename: string }>;
+  }) => {
+    setIsGeneratingFunPrint(true);
+    try {
+      const { blob, filename } = await opts.buildForCopies(opts.copies);
+      downloadReceiptPngDirect(blob, filename);
+      const url = URL.createObjectURL(blob);
+      setFullReceiptPngModal((prev) => {
+        if (prev?.url) URL.revokeObjectURL(prev.url);
+        return {
+          url,
+          blob,
+          filename,
+          title: opts.title,
+          subtitle: opts.subtitle,
+          copies: opts.copies,
+          buildForCopies: opts.buildForCopies
+        };
+      });
+      if (showNotification) {
+        showNotification(
+          `Imagem inteira baixada (${filename})! Abra no app iBleem ou Fun Print -> Imprimir Imagem. 🖼️📥`,
+          "success"
+        );
+      }
+    } catch (err: any) {
+      if (showNotification) {
+        showNotification(err?.message || "Erro ao gerar imagem PNG inteira da notinha.", "error");
+      }
+    } finally {
+      setIsGeneratingFunPrint(false);
+    }
+  };
+
+  const handleDownloadTicketPng = (ticket: CompletedPurchaseTicket, copiesOverride?: 1 | 2) => {
+    const copies: 1 | 2 = copiesOverride || receiptCopiesMode || 1;
+    const safeCollab = ticket.collectorName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 18);
+    void openFullReceiptPngPreviewAndDownload({
+      title: `Notinha Inteira — ${ticket.collectorName}`,
+      subtitle: `${ticket.isScrapPurchase ? "Ferro Velho" : "Pátio de Vidros"} • ${ticket.timestamp}`,
+      copies,
+      buildForCopies: async (c) => {
+        const payload = buildTicketReceiptPayload(ticket, c);
+        const blob = await generateMiniPrint57mmPngBlob(payload);
+        return { blob, filename: `notinha_${safeCollab}_${c}vias_57mm.png` };
+      }
+    });
+  };
+
+  const handleDownloadPaymentPng = (receipt: CollaboratorPaymentReceipt, copiesOverride?: 1 | 2) => {
+    const copies: 1 | 2 = copiesOverride || receiptCopiesMode || 1;
+    const safeCollab = receipt.collaboratorName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 18);
+    void openFullReceiptPngPreviewAndDownload({
+      title: `Recibo de Pagamento — ${receipt.collaboratorName}`,
+      subtitle: `Acerto R$ ${receipt.amountPaid.toFixed(2).replace(".", ",")} • ${receipt.timestamp}`,
+      copies,
+      buildForCopies: async (c) => {
+        const payload = buildPaymentReceiptPayload(receipt, c);
+        const blob = await generateMiniPrint57mmPngBlob(payload);
+        return { blob, filename: `recibo_pagamento_${safeCollab}_${c}vias_57mm.png` };
+      }
+    });
+  };
+
+  const handleDownloadFolderPng = (folder: (typeof collaboratorFolders)[number], copiesOverride?: 1 | 2) => {
+    const copies: 1 | 2 = copiesOverride || receiptCopiesMode || 1;
+    const safeName = folder.name.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 18);
+    void openFullReceiptPngPreviewAndDownload({
+      title: `Extrato da Pasta — ${folder.name}`,
+      subtitle: `Conferência completa • ${copies} ${copies === 1 ? "Via" : "Vias"}`,
+      copies,
+      buildForCopies: async (c) => {
+        const payload = buildFolderSummaryPayload(folder, c, folderSectorFilter);
+        const blob = await generateMiniPrint57mmPngBlob(payload);
+        return { blob, filename: `extrato_pasta_${safeName}_${c}vias_57mm.png` };
+      }
+    });
   };
 
   const handleShareFolderWhatsApp = (folder: (typeof collaboratorFolders)[number]) => {
@@ -6220,23 +6314,62 @@ export function GlassBarcodeScannerCart({
             </div>
           </div>
 
-          {/* Bloco 3: Impressora Fun Print 57mm */}
+          {/* Bloco 3: Impressora Fun Print / iBleem 57mm */}
           <div className="p-3.5 bg-slate-950/90 border border-pink-500/35 rounded-2xl space-y-2.5">
             <div className="font-black text-pink-300 flex items-center gap-1.5">
               <Printer className="w-4 h-4" />
-              <span>3. Impressora Fun Print 57mm</span>
+              <span>3. Impressora Fun Print / iBleem 57mm</span>
             </div>
             <p className="text-[11px] text-slate-300 leading-relaxed">
-              Gere o cupom 57×30mm agora, confira na tela e clique em Enviar para abrir direto no app <strong>Fun Print</strong> do celular.
+              Baixe a imagem inteira em PNG para abrir no <strong>iBleem</strong> ou envie direto ao app <strong>Fun Print</strong> do celular.
             </p>
             <div className="flex flex-col gap-1.5">
               <button
                 type="button"
+                onClick={async () => {
+                  await handleGenerateFunPrintTestReceipt(false);
+                  const cfg = loadPrinterConfig();
+                  const prof = loadCompanyProfile();
+                  const blob = await generateMiniPrint57mmPngBlob({
+                    title: "TESTE PORTAO - IBLEEM / FUN PRINT",
+                    subtitle: "BALANCA GANCHO + LOCUTOR + IMPRESSORA",
+                    storeName: cfg.storeName?.trim() || prof.name?.trim() || "FERRO VELHO & RECICLAGEM",
+                    storeCnpj: cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "",
+                    dateStr: new Date().toLocaleString("pt-BR"),
+                    ticketId: "TESTE_57MM",
+                    collaboratorName: "TESTE OPERACIONAL PORTAO",
+                    statusLabel: "IMPRESSORA 57MM OK",
+                    extraMeta: ["SETOR: FERRO VELHO & RECICLAGEM", "CONFERENCIA CENTAVO A CENTAVO"],
+                    lines: [
+                      { left: "PET (3.20 kg x R$ 2,20)", right: "R$ 7,04", detail: "Peso Liquido Balanca Gancho", bold: true },
+                      { left: "PLASTICO DURO (3.40 kg x R$ 0,90)", right: "R$ 3,06", bold: true },
+                      { left: "LATINHA ALUMINIO (0.50 kg x R$ 9,00)", right: "R$ 4,50", bold: true }
+                    ],
+                    summaryLines: [
+                      { label: "PESO TOTAL TESTADO:", value: "7.10 kg", bold: true },
+                      { label: "TOTAL EXATO:", value: "R$ 14,60", big: true, bold: true }
+                    ],
+                    footerNote: "Se saiu legivel na bobina 57x30mm, iBleem e Fun Print prontas!",
+                    copies: receiptCopiesMode
+                  });
+                  downloadReceiptPngDirect(blob, `teste_ibleem_funprint_57mm_${receiptCopiesMode}vias.png`);
+                  if (showNotification) {
+                    showNotification("Imagem teste 57mm baixada nos Downloads! Abra no iBleem -> Imprimir Imagem. 📥", "success");
+                  }
+                }}
+                disabled={isGeneratingFunPrint}
+                className="min-h-[42px] px-3 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl cursor-pointer touch-manipulation active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <Download className="w-4 h-4" />
+                <span>Baixar Imagem Teste PNG (iBleem / Fun Print)</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => handleGenerateFunPrintTestReceipt(true)}
                 disabled={isGeneratingFunPrint}
-                className="min-h-[42px] px-3 py-2 bg-pink-500 hover:bg-pink-400 text-slate-950 font-black text-xs rounded-xl cursor-pointer touch-manipulation active:scale-95"
+                className="min-h-[40px] px-3 py-2 bg-pink-500 hover:bg-pink-400 text-slate-950 font-black text-xs rounded-xl cursor-pointer touch-manipulation active:scale-95"
               >
-                🐱 Testar Impressão Fun Print
+                🐱 Enviar Direto (Fun Print)
               </button>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
@@ -8034,6 +8167,15 @@ export function GlassBarcodeScannerCart({
                   >
                     <Scissors className="w-3.5 h-3.5" />
                     <span>Imprimir 2 Vias (Empresa + Reciclador)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadPaymentPng(latestSettledReceipt, receiptCopiesMode)}
+                    disabled={isGeneratingFunPrint}
+                    className="min-h-[42px] px-3 py-1.5 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Baixar Imagem PNG Inteira (iBleem)</span>
                   </button>
                   <button
                     type="button"
@@ -11197,6 +11339,15 @@ export function GlassBarcodeScannerCart({
                         </button>
                         <button
                           type="button"
+                          onClick={() => handleDownloadFolderPng(openFolder, receiptCopiesMode)}
+                          disabled={isGeneratingFunPrint}
+                          className="min-h-[42px] px-3 py-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>Baixar Extrato PNG (iBleem)</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleShareFolderFunPrint(openFolder, receiptCopiesMode)}
                           disabled={isGeneratingFunPrint}
                           className="min-h-[42px] px-3 py-2 bg-pink-500 hover:bg-pink-400 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
@@ -11261,6 +11412,15 @@ export function GlassBarcodeScannerCart({
                                 className="min-h-[40px] px-2.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
                               >
                                 ✂️ 2 Vias
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadPaymentPng(rec, receiptCopiesMode)}
+                                disabled={isGeneratingFunPrint}
+                                className="min-h-[40px] px-2.5 py-1.5 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-[11px] rounded-xl flex items-center gap-1 cursor-pointer"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>PNG Inteira</span>
                               </button>
                               <button
                                 type="button"
@@ -11392,6 +11552,15 @@ export function GlassBarcodeScannerCart({
                                     className="min-h-[40px] px-2.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
                                   >
                                     ✂️ 2 Vias
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadTicketPng(ticket, receiptCopiesMode)}
+                                    disabled={isGeneratingFunPrint}
+                                    className="min-h-[40px] px-2.5 py-1.5 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-[11px] rounded-xl flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                    <span>PNG Inteira</span>
                                   </button>
                                   <button
                                     type="button"
@@ -11687,6 +11856,15 @@ export function GlassBarcodeScannerCart({
                           </button>
                           <button
                             type="button"
+                            onClick={() => handleDownloadTicketPng(ticket, receiptCopiesMode)}
+                            disabled={isGeneratingFunPrint}
+                            className="min-h-[42px] px-3 py-2 bg-cyan-400 hover:bg-cyan-300 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                          >
+                            <Download className="w-4 h-4" />
+                            <span>PNG Inteira</span>
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleShareTicketFunPrint(ticket, receiptCopiesMode)}
                             disabled={isGeneratingFunPrint}
                             className="min-h-[42px] px-3 py-2 bg-pink-500 hover:bg-pink-400 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
@@ -11870,6 +12048,15 @@ export function GlassBarcodeScannerCart({
                         className="min-h-[38px] px-2.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
                       >
                         ✂️ 2 Vias
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadPaymentPng(rec, receiptCopiesMode)}
+                        disabled={isGeneratingFunPrint}
+                        className="min-h-[38px] px-2.5 py-1.5 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-[11px] rounded-xl flex items-center gap-1 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>PNG Inteira</span>
                       </button>
                       <button
                         type="button"
@@ -13868,6 +14055,16 @@ export function GlassBarcodeScannerCart({
               </div>
             </div>
 
+            <button
+              type="button"
+              onClick={() => handleDownloadTicketPng(lastPurchaseReceipt, receiptCopiesMode)}
+              disabled={isGeneratingFunPrint}
+              className="w-full min-h-[50px] px-4 py-2.5 bg-cyan-400 hover:bg-cyan-300 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-2 cursor-pointer touch-manipulation select-none shadow-lg"
+            >
+              <Download className="w-4 h-4 shrink-0" />
+              <span>Baixar Imagem Inteira PNG (iBleem / Fun Print • {receiptCopiesMode} {receiptCopiesMode === 1 ? "Via" : "Vias"})</span>
+            </button>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
                 type="button"
@@ -14922,6 +15119,141 @@ export function GlassBarcodeScannerCart({
             onClick={(e) => e.stopPropagation()}
             className="max-h-[82vh] max-w-full object-contain rounded-2xl border border-white/15"
           />
+        </div>
+      )}
+
+      {/* MODAL: IMAGEM PNG INTEIRA PARA IBLEEM / FUN PRINT */}
+      {fullReceiptPngModal && (
+        <div
+          className="fixed inset-0 z-[110] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
+          onClick={() => {
+            if (fullReceiptPngModal.url) URL.revokeObjectURL(fullReceiptPngModal.url);
+            setFullReceiptPngModal(null);
+          }}
+        >
+          <div
+            className="bg-slate-900 border-2 border-cyan-400/50 rounded-3xl p-4 sm:p-5 max-w-md w-full space-y-3 shadow-2xl my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-2.5">
+              <div className="min-w-0">
+                <span className="text-[10px] font-black uppercase text-cyan-300 block">
+                  🖼️ Imagem Inteira 57mm — App iBleem &amp; Fun Print
+                </span>
+                <h3 className="text-sm sm:text-base font-black text-white truncate">
+                  {fullReceiptPngModal.title}
+                </h3>
+                <span className="text-[11px] text-slate-400 block truncate">
+                  {fullReceiptPngModal.subtitle}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (fullReceiptPngModal.url) URL.revokeObjectURL(fullReceiptPngModal.url);
+                  setFullReceiptPngModal(null);
+                }}
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-slate-800 text-slate-200 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-2.5 bg-emerald-950/50 border border-emerald-500/40 rounded-xl text-[11px] text-emerald-200 leading-relaxed">
+              ✅ <strong>Imagem inteira baixada!</strong> No aplicativo <strong>iBleem</strong> ou <strong>Fun Print</strong>, toque em <strong>Imprimir Imagem / Foto / Galeria</strong> e escolha este arquivo. (Você também pode segurar o dedo na imagem abaixo para salvar direto na Galeria.)
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsGeneratingFunPrint(true);
+                  try {
+                    const { blob, filename } = await fullReceiptPngModal.buildForCopies(1);
+                    const nextUrl = URL.createObjectURL(blob);
+                    if (fullReceiptPngModal.url) URL.revokeObjectURL(fullReceiptPngModal.url);
+                    setFullReceiptPngModal((prev) =>
+                      prev ? { ...prev, url: nextUrl, blob, filename, copies: 1 } : null
+                    );
+                    handleSetReceiptCopiesMode(1);
+                  } finally {
+                    setIsGeneratingFunPrint(false);
+                  }
+                }}
+                disabled={isGeneratingFunPrint}
+                className={`min-h-[38px] px-2.5 py-1.5 rounded-xl font-black text-[11px] border cursor-pointer ${
+                  fullReceiptPngModal.copies === 1
+                    ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                    : "bg-slate-950 text-slate-300 border-white/15"
+                }`}
+              >
+                📄 1 Via Inteira
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsGeneratingFunPrint(true);
+                  try {
+                    const { blob, filename } = await fullReceiptPngModal.buildForCopies(2);
+                    const nextUrl = URL.createObjectURL(blob);
+                    if (fullReceiptPngModal.url) URL.revokeObjectURL(fullReceiptPngModal.url);
+                    setFullReceiptPngModal((prev) =>
+                      prev ? { ...prev, url: nextUrl, blob, filename, copies: 2 } : null
+                    );
+                    handleSetReceiptCopiesMode(2);
+                  } finally {
+                    setIsGeneratingFunPrint(false);
+                  }
+                }}
+                disabled={isGeneratingFunPrint}
+                className={`min-h-[38px] px-2.5 py-1.5 rounded-xl font-black text-[11px] border cursor-pointer ${
+                  fullReceiptPngModal.copies === 2
+                    ? "bg-amber-400 text-slate-950 border-amber-300"
+                    : "bg-slate-950 text-slate-300 border-white/15"
+                }`}
+              >
+                ✂️ 2 Vias Inteiras
+              </button>
+            </div>
+
+            <div className="max-h-[48vh] overflow-y-auto rounded-2xl bg-slate-950 border border-white/15 p-3 flex justify-center">
+              <img
+                src={fullReceiptPngModal.url}
+                alt={fullReceiptPngModal.title}
+                className="w-full max-w-[300px] h-auto rounded-lg bg-white border-2 border-white shadow-xl"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  downloadReceiptPngDirect(fullReceiptPngModal.blob, fullReceiptPngModal.filename);
+                  if (showNotification) {
+                    showNotification(`Imagem salva novamente (${fullReceiptPngModal.filename})! 📥`, "success");
+                  }
+                }}
+                className="min-h-[46px] px-3 py-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation"
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                <span>Baixar PNG Novamente</span>
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await shareOrDownloadReceiptPng(
+                    fullReceiptPngModal.blob,
+                    fullReceiptPngModal.filename,
+                    fullReceiptPngModal.title
+                  );
+                }}
+                className="min-h-[46px] px-3 py-2 bg-pink-500 hover:bg-pink-400 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation"
+              >
+                <Share2 className="w-4 h-4 shrink-0" />
+                <span>Enviar p/ App / WhatsApp</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
