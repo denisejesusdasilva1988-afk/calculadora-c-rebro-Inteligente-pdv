@@ -5103,102 +5103,109 @@ export function GlassBarcodeScannerCart({
     const cfg = loadPrinterConfig();
     const prof = loadCompanyProfile();
     const resolvedPayDate = resolveTicketAgreedPaymentDate(ticket);
+    const compactDateStr = String(ticket.timestamp || "").replace(/:\d{2}$/, "");
     const statusLabel =
       String(ticket.paymentStatus || "").startsWith("coleta_propria")
-        ? "COLETA PRÓPRIA (100% EMPRESA)"
+        ? "COLETA PRÓPRIA"
         : ticket.paymentStatus === "pago_na_hora"
-        ? "PAGO NA HORA (PORTÃO / CAIXA)"
-        : "LANÇADO NO CADERNINHO (A ACERTAR)";
+        ? "PAGO NA HORA"
+        : "CADERNINHO (A RECEBER)";
 
-    const math = getGlassTicketMathSummary(ticket, activeSellPricePerTon);
     const ticketBottlesCount = !ticket.isScrapPurchase
       ? ticket.totalBottles > 0
         ? ticket.totalBottles
         : ticket.items.reduce((s, it) => s + Math.max(0, Math.round(it.quantity || 0)), 0)
       : 0;
-    const lines = ticket.items.map((it) => ({
-      left: `${it.name.toUpperCase()}${it.volumeMl > 0 ? ` (${it.volumeMl}ml)` : ""}`,
-      right: `R$ ${it.costPaid.toFixed(2).replace(".", ",")}`,
-      detail:
-        it.volumeMl > 0
-          ? `${it.quantity} un × ${it.unitWeightGrams}g = ${it.totalWeightKg.toFixed(2).replace(".", ",")} kg (R$ ${math.buyPerKg.toFixed(3).replace(".", ",")}/kg)`
-          : `Peso Líquido: ${it.totalWeightKg.toFixed(2).replace(".", ",")} kg`,
-      bold: true
-    }));
+
+    const lines = ticket.items.map((it) => {
+      if (ticket.isScrapPurchase || it.volumeMl <= 0) {
+        const unitRate = it.totalWeightKg > 0 ? it.costPaid / it.totalWeightKg : 0;
+        return {
+          left: `${it.totalWeightKg.toFixed(2).replace(".", ",")} KG ${it.name.toUpperCase()} (R$ ${unitRate
+            .toFixed(2)
+            .replace(".", ",")})`,
+          right: `R$ ${it.costPaid.toFixed(2).replace(".", ",")}`,
+          bold: true
+        };
+      }
+      return {
+        left: `${it.quantity} UN ${it.name.toUpperCase()} (${it.totalWeightKg
+          .toFixed(2)
+          .replace(".", ",")} KG)`,
+        right: `R$ ${it.costPaid.toFixed(2).replace(".", ",")}`,
+        bold: true
+      };
+    });
 
     const summaryLines: ThermalCanvasReceiptPayload["summaryLines"] = [];
     if (!ticket.isScrapPurchase && ticketBottlesCount > 0) {
-      summaryLines.push({ label: "QTD TOTAL GARRAFAS:", value: `${ticketBottlesCount} un`, bold: true });
+      summaryLines.push({ label: "QTD GARRAFAS:", value: `${ticketBottlesCount} UN`, bold: true });
     }
     summaryLines.push({
-      label: ticket.isScrapPurchase ? "PESO COMPRADO:" : "PESO SOMADO PÁTIO:",
-      value: `+${ticket.totalWeightKg.toFixed(2).replace(".", ",")} kg`,
+      label: "PESO TOTAL:",
+      value: `${ticket.totalWeightKg.toFixed(2).replace(".", ",")} KG`,
       bold: true
     });
-    if (
-      typeof ticket.subtotalAmount === "number" &&
-      ((ticket.bonusAmount || 0) > 0 || (ticket.discountAmount || 0) > 0)
-    ) {
-      summaryLines.push({
-        label: "SUBTOTAL MATERIAIS:",
-        value: `R$ ${ticket.subtotalAmount.toFixed(2).replace(".", ",")}`
-      });
-    }
     if ((ticket.bonusAmount || 0) > 0) {
       summaryLines.push({
-        label: `(+) ACRÉSCIMO${ticket.bonusReason ? ` (${ticket.bonusReason})` : ""}:`,
+        label: "(+) ACRÉSCIMO:",
         value: `+R$ ${(ticket.bonusAmount || 0).toFixed(2).replace(".", ",")}`,
         bold: true
       });
     }
     if ((ticket.discountAmount || 0) > 0) {
       summaryLines.push({
-        label: `(-) DESCONTO/VALE${ticket.discountReason ? ` (${ticket.discountReason})` : ""}:`,
+        label: "(-) DESCONTO:",
         value: `-R$ ${(ticket.discountAmount || 0).toFixed(2).replace(".", ",")}`,
         bold: true
       });
     }
-    if (ticket.isFounder) {
-      summaryLines.push({
-        label: ticket.isScrapPurchase ? "ECONOMIA PRÓPRIA:" : "ECONOMIA PORTÃO (62%):",
-        value: `R$ ${math.itemsSum.toFixed(2).replace(".", ",")}`,
-        bold: true
-      });
-      if (!ticket.isScrapPurchase) {
-        summaryLines.push({
-          label: "VALOR BRUTO USINA (100%):",
-          value: `R$ ${math.plantGrossValue.toFixed(2).replace(".", ",")}`,
-          bold: true
-        });
-      }
-    }
     summaryLines.push({
-      label: ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL LÍQUIDO:",
+      label: ticket.isFounder
+        ? "COLETA PRÓPRIA:"
+        : ticket.paymentStatus === "pago_na_hora"
+        ? "TOTAL PAGO:"
+        : "TOTAL A PAGAR:",
       value: `R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2).replace(".", ",")}`,
       big: true,
       bold: true,
       strike: Boolean(ticket.isCancelled)
     });
 
-    const extraMeta: string[] = ticket.isScrapPurchase
-      ? ["MODALIDADE: FERRO VELHO & RECICLAGEM"]
-      : ticket.isFounder
-      ? [
-          `TARIFA PORTÃO (62%): R$ ${math.buyPerKg.toFixed(3).replace(".", ",")}/kg`,
-          `COTAÇÃO USINA (100%): R$ ${math.sellPerTon}/t (R$ ${math.sellPerKg.toFixed(2).replace(".", ",")}/kg)`
-        ]
-      : [`TARIFA COMPRA PORTÃO: R$ ${math.buyPerKg.toFixed(3).replace(".", ",")}/kg`];
-    if (resolvedPayDate) {
-      extraMeta.push(`DATA PAGTO COMBINADA: ${resolvedPayDate.toUpperCase()}`);
+    const snap = getTicketCollabSnapshot(ticket);
+    if (!ticket.isFounder && ticket.paymentStatus === "pendente_caderninho" && snap && snap.balancePending > 0) {
+      summaryLines.push({
+        label: "ACUM. A RECEBER:",
+        value: `R$ ${snap.balancePending.toFixed(2).replace(".", ",")}`,
+        bold: true
+      });
+    } else if (ticket.isFounder && snap) {
+      summaryLines.push({
+        label: "ACUM. COLETA:",
+        value: `${!ticket.isScrapPurchase && snap.totalBottles > 0 ? `${snap.totalBottles} UN / ` : ""}${snap.totalWeightKg
+          .toFixed(2)
+          .replace(".", ",")} KG`,
+        bold: true
+      });
+    }
+
+    const extraMeta: string[] = [];
+    if (ticket.isFounder) {
+      extraMeta.push("MODALIDADE: COLETA PRÓPRIA");
+    } else if (ticket.paymentStatus === "pago_na_hora") {
+      extraMeta.push("PAGTO: PAGO NA HORA");
+    } else {
+      extraMeta.push("PAGTO: CADERNINHO (A RECEBER)");
+      if (resolvedPayDate) {
+        extraMeta.push(`PREVISÃO: ${resolvedPayDate.toUpperCase()}`);
+      }
     }
 
     return {
-      title: ticket.isScrapPurchase
-        ? "RECIBO DE COMPRA - RECICLAGEM"
-        : "COMPROVANTE DE COMPRA - VIDROS",
-      storeName: cfg.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM",
-      storeCnpj: cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "",
-      dateStr: ticket.timestamp,
+      title: ticket.isScrapPurchase ? "FERRO VELHO / RECICLAGEM" : "VIDROS E RECICLAGEM",
+      storeName: cfg.storeName?.trim() || prof.name?.trim() || "FERRO VELHO DW",
+      storeCnpj: "",
+      dateStr: compactDateStr,
       ticketId: ticket.id,
       collaboratorName: ticket.collectorName,
       statusLabel,
@@ -5208,10 +5215,11 @@ export function GlassBarcodeScannerCart({
       cancelledAt: ticket.cancelledAt,
       lines,
       summaryLines,
-      caderninhoBox: getTicketCollabSnapshot(ticket),
+      compactCleanMode: true,
+      singleViaBanner: "VIA ÚNICA",
       footerNote: resolvedPayDate
         ? `PREVISÃO PAGTO: ${resolvedPayDate}`
-        : "Pasta do colaborador atualizada! Confira os cálculos.",
+        : "Pasta do colaborador atualizada com sucesso!",
       copies
     };
   };
@@ -5278,60 +5286,47 @@ export function GlassBarcodeScannerCart({
     const matched = collaborators.find((c) => c.id === receipt.collaboratorId);
     const cleanMethodLabel = maskBuyerPrivacyText(receipt.methodLabel);
     const agreedPayDate = matched && !matched.isFounder ? getCollaboratorAgreedPaymentDate(matched) : "";
-    const extraMeta: string[] = [];
+    const compactDateStr = String(receipt.timestamp || "").replace(/:\d{2}$/, "");
+    const extraMeta: string[] = [`FORMA: ${cleanMethodLabel.toUpperCase()}`];
     if (receipt.notes) extraMeta.push(`OBS: ${maskBuyerPrivacyText(receipt.notes)}`);
     if (agreedPayDate && receipt.remainingBalance > 0) {
-      extraMeta.push(`PRÓX. ACERTO COMBINADO: ${agreedPayDate.toUpperCase()}`);
+      extraMeta.push(`PRÓX. PAGTO: ${agreedPayDate.toUpperCase()}`);
     }
     return {
-      title: "RECIBO DE PAGAMENTO / ACERTO",
-      subtitle: "CADERNINHO DA RECICLAGEM",
-      storeName: cfg.storeName?.trim() || prof.name?.trim() || "PÁTIO & RECICLAGEM",
-      storeCnpj: cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "",
-      dateStr: receipt.timestamp,
+      title: "RECIBO DE PAGAMENTO",
+      storeName: cfg.storeName?.trim() || prof.name?.trim() || "FERRO VELHO DW",
+      storeCnpj: "",
+      dateStr: compactDateStr,
       ticketId: receipt.id,
       collaboratorName: receipt.collaboratorName,
       statusLabel: `PAGO (${cleanMethodLabel.toUpperCase()})`,
-      extraMeta: extraMeta.length > 0 ? extraMeta : undefined,
-      lines: [
-        {
-          left: `ACERTO RECEBIDO (${cleanMethodLabel})`,
-          right: `R$ ${receipt.amountPaid.toFixed(2).replace(".", ",")}`,
-          detail: `Saldo Anterior no Caderninho: R$ ${receipt.previousBalance.toFixed(2).replace(".", ",")}`,
-          bold: true
-        }
-      ],
+      extraMeta,
+      lines: [],
       summaryLines: [
         {
           label: "SALDO ANTERIOR:",
-          value: `R$ ${receipt.previousBalance.toFixed(2).replace(".", ",")}`
+          value: `R$ ${receipt.previousBalance.toFixed(2).replace(".", ",")}`,
+          bold: true
         },
         {
-          label: "VALOR PAGO AGORA:",
+          label: "VALOR PAGO:",
           value: `R$ ${receipt.amountPaid.toFixed(2).replace(".", ",")}`,
           big: true,
           bold: true
         },
         {
-          label: "RESTANTE A ACERTAR:",
+          label: "RESTA A RECEBER:",
           value: `R$ ${receipt.remainingBalance.toFixed(2).replace(".", ",")}`,
           bold: true
         }
       ],
-      caderninhoBox: matched
-        ? {
-            totalEarned: matched.totalEarned,
-            totalPaid: matched.totalPaid,
-            balancePending: matched.balancePending,
-            totalWeightKg: matched.totalWeightKg,
-            totalDeliveries: matched.totalDeliveries
-          }
-        : undefined,
+      compactCleanMode: true,
+      hideItemHeader: true,
       footerNote:
         agreedPayDate && receipt.remainingBalance > 0
-          ? `PRÓXIMO ACERTO COMBINADO: ${agreedPayDate}`
-          : "Recibo de pagamento conferido (Empresa + Reciclador).",
-      singleViaBanner: "VIA ÚNICA - RECIBO DE PAGAMENTO",
+          ? `PRÓX. PAGTO: ${agreedPayDate}`
+          : "Pasta do colaborador atualizada com sucesso!",
+      singleViaBanner: "VIA ÚNICA",
       copies
     };
   };
@@ -6167,25 +6162,25 @@ export function GlassBarcodeScannerCart({
       const cfg = loadPrinterConfig();
       const prof = loadCompanyProfile();
       const testPayload: ThermalCanvasReceiptPayload = {
-        title: "TESTE PORTAO - FUN PRINT 57MM",
-        subtitle: "BALANCA GANCHO + LOCUTOR + IMPRESSORA",
-        storeName: cfg.storeName?.trim() || prof.name?.trim() || "FERRO VELHO & RECICLAGEM",
-        storeCnpj: cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "",
-        dateStr: new Date().toLocaleString("pt-BR"),
+        title: "VIDROS E RECICLAGEM",
+        storeName: cfg.storeName?.trim() || prof.name?.trim() || "FERRO VELHO DW",
+        storeCnpj: "",
+        dateStr: new Date().toLocaleString("pt-BR").replace(/:\d{2}$/, ""),
         ticketId: "TESTE_57MM",
-        collaboratorName: "TESTE OPERACIONAL PORTAO",
-        statusLabel: "IMPRESSORA FUN PRINT OK",
-        extraMeta: ["SETOR: FERRO VELHO & RECICLAGEM", "CONFERENCIA CENTAVO A CENTAVO"],
+        collaboratorName: "COLETOR (TESTE)",
+        statusLabel: "PAGO NA HORA",
         lines: [
-          { left: "PET (3.20 kg x R$ 2,20)", right: "R$ 7,04", detail: "Peso Liquido Balanca Gancho", bold: true },
-          { left: "PLASTICO DURO (3.40 kg x R$ 0,90)", right: "R$ 3,06", bold: true },
-          { left: "LATINHA ALUMINIO (0.50 kg x R$ 9,00)", right: "R$ 4,50", bold: true }
+          { left: "3,20 KG PET (R$ 2,20)", right: "R$ 7,04", bold: true },
+          { left: "3,40 KG PLAS.DURO (R$ 0,90)", right: "R$ 3,06", bold: true },
+          { left: "0,50 KG LATINHA (R$ 9,00)", right: "R$ 4,50", bold: true }
         ],
         summaryLines: [
-          { label: "PESO TOTAL TESTADO:", value: "7.10 kg", bold: true },
-          { label: "TOTAL EXATO:", value: "R$ 14,60", big: true, bold: true }
+          { label: "PESO TOTAL:", value: "7,10 KG", bold: true },
+          { label: "TOTAL A PAGAR:", value: "R$ 14,60", big: true, bold: true }
         ],
-        footerNote: "Se saiu legivel na bobina 57x30mm, Fun Print esta pronta!",
+        compactCleanMode: true,
+        singleViaBanner: "VIA ÚNICA",
+        footerNote: "Pasta do colaborador atualizada com sucesso!",
         copies: receiptCopiesMode
       };
 
@@ -6331,25 +6326,25 @@ export function GlassBarcodeScannerCart({
                   const cfg = loadPrinterConfig();
                   const prof = loadCompanyProfile();
                   const blob = await generateMiniPrint57mmPngBlob({
-                    title: "TESTE PORTAO - IBLEEM / FUN PRINT",
-                    subtitle: "BALANCA GANCHO + LOCUTOR + IMPRESSORA",
-                    storeName: cfg.storeName?.trim() || prof.name?.trim() || "FERRO VELHO & RECICLAGEM",
-                    storeCnpj: cfg.storeCnpjCpf?.trim() || prof.cnpjCpf?.trim() || "",
-                    dateStr: new Date().toLocaleString("pt-BR"),
+                    title: "VIDROS E RECICLAGEM",
+                    storeName: cfg.storeName?.trim() || prof.name?.trim() || "FERRO VELHO DW",
+                    storeCnpj: "",
+                    dateStr: new Date().toLocaleString("pt-BR").replace(/:\d{2}$/, ""),
                     ticketId: "TESTE_57MM",
-                    collaboratorName: "TESTE OPERACIONAL PORTAO",
-                    statusLabel: "IMPRESSORA 57MM OK",
-                    extraMeta: ["SETOR: FERRO VELHO & RECICLAGEM", "CONFERENCIA CENTAVO A CENTAVO"],
+                    collaboratorName: "COLETOR (TESTE)",
+                    statusLabel: "PAGO NA HORA",
                     lines: [
-                      { left: "PET (3.20 kg x R$ 2,20)", right: "R$ 7,04", detail: "Peso Liquido Balanca Gancho", bold: true },
-                      { left: "PLASTICO DURO (3.40 kg x R$ 0,90)", right: "R$ 3,06", bold: true },
-                      { left: "LATINHA ALUMINIO (0.50 kg x R$ 9,00)", right: "R$ 4,50", bold: true }
+                      { left: "3,20 KG PET (R$ 2,20)", right: "R$ 7,04", bold: true },
+                      { left: "3,40 KG PLAS.DURO (R$ 0,90)", right: "R$ 3,06", bold: true },
+                      { left: "0,50 KG LATINHA (R$ 9,00)", right: "R$ 4,50", bold: true }
                     ],
                     summaryLines: [
-                      { label: "PESO TOTAL TESTADO:", value: "7.10 kg", bold: true },
-                      { label: "TOTAL EXATO:", value: "R$ 14,60", big: true, bold: true }
+                      { label: "PESO TOTAL:", value: "7,10 KG", bold: true },
+                      { label: "TOTAL A PAGAR:", value: "R$ 14,60", big: true, bold: true }
                     ],
-                    footerNote: "Se saiu legivel na bobina 57x30mm, iBleem e Fun Print prontas!",
+                    compactCleanMode: true,
+                    singleViaBanner: "VIA ÚNICA",
+                    footerNote: "Pasta do colaborador atualizada com sucesso!",
                     copies: receiptCopiesMode
                   });
                   downloadReceiptPngDirect(blob, `teste_ibleem_funprint_57mm_${receiptCopiesMode}vias.png`);
@@ -13777,62 +13772,51 @@ export function GlassBarcodeScannerCart({
               </button>
             </div>
 
-            <div className="p-4 bg-white text-slate-950 rounded-2xl font-mono text-xs space-y-2 shadow-inner">
-              <div className="text-center border-b border-dashed border-slate-400 pb-2">
-                <div className="font-black text-sm">{displayStoreName}</div>
-                {displayStoreCnpj && <div className="text-[10px]">CNPJ/CPF: {displayStoreCnpj}</div>}
-                <div className="text-[10px] font-black mt-1">COMPROVANTE DE COMPRA (PORTÃO)</div>
+            <div className="p-4 bg-white text-slate-950 rounded-2xl font-mono text-sm space-y-2 shadow-inner">
+              <div className="text-center border-2 border-slate-950 p-1.5">
+                <div className="font-black text-xs uppercase">VIA ÚNICA</div>
+                <div className="font-black text-base uppercase">{displayStoreName}</div>
+                <div className="font-black text-xs uppercase">
+                  {lastPurchaseReceipt.isScrapPurchase ? "FERRO VELHO / RECICLAGEM" : "VIDROS E RECICLAGEM"}
+                </div>
               </div>
-              <div className="text-[11px] space-y-0.5 border-b border-dashed border-slate-400 pb-2">
-                <div><strong>DATA:</strong> {lastPurchaseReceipt.timestamp}</div>
-                <div><strong>PARCEIRO:</strong> {lastPurchaseReceipt.collectorName}</div>
+              <div className="text-xs space-y-0.5 border-b border-dashed border-slate-400 pb-2 font-bold">
+                <div>DATA: {String(lastPurchaseReceipt.timestamp || "").replace(/:\d{2}$/, "")}</div>
+                <div>NOME: {lastPurchaseReceipt.collectorName}</div>
                 <div>
-                  <strong>STATUS:</strong>{" "}
+                  PAGTO:{" "}
                   {String(lastPurchaseReceipt.paymentStatus || "").startsWith("coleta_propria")
-                    ? "Coleta Própria (Empresa)"
+                    ? "COLETA PRÓPRIA"
                     : lastPurchaseReceipt.paymentStatus === "pago_na_hora"
-                    ? "Pago Agora no Portão"
-                    : "Lançado no Caderninho do Colaborador"}
+                    ? "PAGO NA HORA"
+                    : "CADERNINHO (A RECEBER)"}
                 </div>
                 {!lastPurchaseReceipt.isFounder && lastPurchaseReceipt.paymentStatus === "pendente_caderninho" && (
-                  <div className="mt-1 px-2 py-1 border border-slate-950 bg-amber-100 text-slate-950 font-black text-[10.5px] rounded">
+                  <div className="mt-1 px-2 py-1 border border-slate-950 bg-amber-100 text-slate-950 font-black text-[11px] rounded">
                     PREVISÃO PAGTO: {resolveTicketAgreedPaymentDate(lastPurchaseReceipt)}
                   </div>
                 )}
-                {!lastPurchaseReceipt.isScrapPurchase ? (
-                  (() => {
-                    const m = getGlassTicketMathSummary(lastPurchaseReceipt, activeSellPricePerTon);
-                    return (
-                      <div className="space-y-0.5">
-                        <div>
-                          <strong>TARIFA PORTÃO (62%):</strong>{" "}
-                          R$ {m.buyPerKg.toFixed(3).replace(".", ",")}/kg
-                        </div>
-                        {lastPurchaseReceipt.isFounder && (
-                          <div>
-                            <strong>COTAÇÃO USINA (100%):</strong>{" "}
-                            R$ {m.sellPerTon}/t (R$ {m.sellPerKg.toFixed(2).replace(".", ",")}/kg)
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()
-                ) : (
-                  <div>
-                    <strong>MODALIDADE:</strong> Ferro Velho &amp; Reciclagem ({lastPurchaseReceipt.items.length}{" "}
-                    {lastPurchaseReceipt.items.length === 1 ? "material" : "materiais"})
-                  </div>
-                )}
               </div>
-              <div className="space-y-1 border-b border-dashed border-slate-400 pb-2">
-                {lastPurchaseReceipt.items.map((it, idx) => (
-                  <div key={idx} className="flex justify-between gap-2 text-[11px]">
-                    <span>
-                      <strong>{it.quantity}×</strong> {it.name} ({it.totalWeightKg.toFixed(2).replace(".", ",")} kg)
-                    </span>
-                    <span className="font-black shrink-0">R$ {it.costPaid.toFixed(2).replace(".", ",")}</span>
-                  </div>
-                ))}
+              <div className="text-center text-[11px] font-black border-b border-dashed border-slate-400 pb-1">
+                MATERIAL | PESO | VALOR
+              </div>
+              <div className="space-y-2 border-b border-dashed border-slate-400 pb-2">
+                {lastPurchaseReceipt.items.map((it, idx) => {
+                  const isScrapIt = lastPurchaseReceipt.isScrapPurchase || it.volumeMl <= 0;
+                  const unitRate = it.totalWeightKg > 0 ? it.costPaid / it.totalWeightKg : 0;
+                  return (
+                    <div key={idx} className="text-xs border-b border-dotted border-slate-300 pb-1 last:border-b-0 last:pb-0">
+                      <div className="font-black">
+                        {isScrapIt
+                          ? `${it.totalWeightKg.toFixed(2).replace(".", ",")} KG ${it.name.toUpperCase()} (R$ ${unitRate.toFixed(2).replace(".", ",")})`
+                          : `${it.quantity} UN ${it.name.toUpperCase()} (${it.totalWeightKg.toFixed(2).replace(".", ",")} KG)`}
+                      </div>
+                      <div className="font-black text-sm">
+                        = R$ {it.costPaid.toFixed(2).replace(".", ",")}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
               <div className="space-y-1 text-xs">
                 {(() => {
@@ -13847,110 +13831,54 @@ export function GlassBarcodeScannerCart({
                   if (lastPurchaseReceipt.isScrapPurchase || receiptBottlesCount <= 0) return null;
                   return (
                     <div className="flex justify-between font-black">
-                      <span>QTD TOTAL GARRAFAS:</span>
-                      <span>{receiptBottlesCount} un</span>
+                      <span>QTD GARRAFAS:</span>
+                      <span>{receiptBottlesCount} UN</span>
                     </div>
                   );
                 })()}
                 <div className="flex justify-between font-black">
-                  <span>{lastPurchaseReceipt.isScrapPurchase ? "PESO TOTAL:" : "PESO SOMADO NO PÁTIO:"}</span>
-                  <span className="text-emerald-700">+{lastPurchaseReceipt.totalWeightKg.toFixed(2).replace(".", ",")} kg</span>
+                  <span>PESO TOTAL:</span>
+                  <span>{lastPurchaseReceipt.totalWeightKg.toFixed(2).replace(".", ",")} KG</span>
                 </div>
-                {((lastPurchaseReceipt.bonusAmount || 0) > 0 || (lastPurchaseReceipt.discountAmount || 0) > 0) &&
-                  typeof lastPurchaseReceipt.subtotalAmount === "number" && (
-                    <div className="flex justify-between text-[11px] font-bold text-slate-700">
-                      <span>SUBTOTAL MATERIAIS:</span>
-                      <span>R$ {lastPurchaseReceipt.subtotalAmount.toFixed(2).replace(".", ",")}</span>
-                    </div>
-                  )}
                 {(lastPurchaseReceipt.bonusAmount || 0) > 0 && (
-                  <div className="flex justify-between text-[11px] font-bold text-emerald-700">
-                    <span>
-                      + ACRÉSCIMO{lastPurchaseReceipt.bonusReason ? ` (${lastPurchaseReceipt.bonusReason})` : ""}:
-                    </span>
+                  <div className="flex justify-between text-xs font-bold text-emerald-700">
+                    <span>+ ACRÉSCIMO:</span>
                     <span>+R$ {(lastPurchaseReceipt.bonusAmount || 0).toFixed(2).replace(".", ",")}</span>
                   </div>
                 )}
                 {(lastPurchaseReceipt.discountAmount || 0) > 0 && (
-                  <div className="flex justify-between text-[11px] font-bold text-rose-700">
-                    <span>
-                      - DESCONTO{lastPurchaseReceipt.discountReason ? ` (${lastPurchaseReceipt.discountReason})` : ""}:
-                    </span>
+                  <div className="flex justify-between text-xs font-bold text-rose-700">
+                    <span>- DESCONTO:</span>
                     <span>-R$ {(lastPurchaseReceipt.discountAmount || 0).toFixed(2).replace(".", ",")}</span>
                   </div>
                 )}
-                {lastPurchaseReceipt.isFounder && (() => {
-                  const m = getGlassTicketMathSummary(lastPurchaseReceipt, activeSellPricePerTon);
-                  return (
-                    <>
-                      <div className="flex justify-between text-[11px] font-bold text-slate-700">
-                        <span>ECONOMIA PORTÃO ({lastPurchaseReceipt.isScrapPurchase ? "COMPRA" : "62%"}):</span>
-                        <span>R$ {m.itemsSum.toFixed(2).replace(".", ",")}</span>
-                      </div>
-                      {!lastPurchaseReceipt.isScrapPurchase && (
-                        <div className="flex justify-between text-[11px] font-black text-emerald-800">
-                          <span>VALOR BRUTO USINA (100%):</span>
-                          <span>R$ {m.plantGrossValue.toFixed(2).replace(".", ",")}</span>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-                <div className="flex justify-between font-black text-sm border-t border-slate-300 pt-1">
-                  <span>{lastPurchaseReceipt.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL LÍQUIDO:"}</span>
+                <div className="flex justify-between font-black text-base border-y-2 border-slate-950 py-1 my-1">
+                  <span>
+                    {lastPurchaseReceipt.isFounder
+                      ? "COLETA PRÓPRIA:"
+                      : lastPurchaseReceipt.paymentStatus === "pago_na_hora"
+                      ? "TOTAL PAGO:"
+                      : "TOTAL A PAGAR:"}
+                  </span>
                   <span>
                     R$ {lastPurchaseReceipt.isFounder ? "0,00" : lastPurchaseReceipt.totalPaid.toFixed(2).replace(".", ",")}
                   </span>
                 </div>
                 {(() => {
                   const snap = getTicketCollabSnapshot(lastPurchaseReceipt);
-                  if (!snap) return null;
+                  if (!snap || snap.isFounder) return null;
+                  if (lastPurchaseReceipt.paymentStatus !== "pendente_caderninho" || snap.balancePending <= 0) return null;
                   return (
-                    <div className="mt-2 p-2 border border-slate-900 rounded-lg bg-slate-100 text-[10.5px] space-y-0.5">
-                      <div className="text-center font-black border-b border-dashed border-slate-400 pb-0.5 mb-1">
-                        {snap.isFounder
-                          ? `ACUMULADO COLETA PRÓPRIA (${lastPurchaseReceipt.isScrapPurchase ? "FERRO VELHO" : "VIDROS"})`
-                          : `ACUMULADO DO COLABORADOR (${lastPurchaseReceipt.isScrapPurchase ? "FERRO VELHO" : "VIDROS"})`}
-                      </div>
-                      {!lastPurchaseReceipt.isScrapPurchase && snap.totalBottles > 0 && (
-                        <div className="flex justify-between font-black">
-                          <span>GARRAFAS ACUMULADAS:</span>
-                          <span>{snap.totalBottles} un</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between font-bold">
-                        <span>PESO ACUMULADO ({snap.totalDeliveries} ent.):</span>
-                        <span>{snap.totalWeightKg.toFixed(2).replace(".", ",")} kg</span>
-                      </div>
-                      {snap.isFounder ? (
-                        <div className="flex justify-between font-black text-emerald-800 border-t border-dashed border-slate-300 pt-0.5">
-                          <span>ECONOMIA ACUMULADA:</span>
-                          <span>R$ {snap.totalEarned.toFixed(2).replace(".", ",")}</span>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex justify-between">
-                            <span>TOTAL COMPRADO:</span>
-                            <span className="font-black">R$ {snap.totalEarned.toFixed(2).replace(".", ",")}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>TOTAL JÁ PAGO:</span>
-                            <span className="font-black">R$ {snap.totalPaid.toFixed(2).replace(".", ",")}</span>
-                          </div>
-                          <div className="flex justify-between font-black border-t border-dashed border-slate-300 pt-0.5">
-                            <span>SALDO A ACERTAR:</span>
-                            <span>R$ {snap.balancePending.toFixed(2).replace(".", ",")}</span>
-                          </div>
-                        </>
-                      )}
+                    <div className="flex justify-between font-black text-xs pt-0.5">
+                      <span>ACUM. A RECEBER:</span>
+                      <span>R$ {snap.balancePending.toFixed(2).replace(".", ",")}</span>
                     </div>
                   );
                 })()}
-                {!lastPurchaseReceipt.isScrapPurchase && (
-                  <div className="text-center text-[10px] text-slate-600 pt-1">
-                    Pátio Atual: {yardTotals.totalWeightKg.toFixed(2).replace(".", ",")} kg / {yardTotals.minTonTargetKg.toLocaleString("pt-BR")} kg
-                  </div>
-                )}
+                <div className="text-center text-[11px] font-bold pt-1 border-t border-dashed border-slate-400">
+                  <div>OBRIGADO PELA PREFERÊNCIA!</div>
+                  <div className="font-normal">Pasta do colaborador atualizada com sucesso!</div>
+                </div>
               </div>
             </div>
 

@@ -779,6 +779,8 @@ export interface ThermalCanvasReceiptPayload {
   };
   footerNote?: string;
   singleViaBanner?: string;
+  compactCleanMode?: boolean;
+  hideItemHeader?: boolean;
   copies: 1 | 2;
 }
 
@@ -817,10 +819,28 @@ export function buildThermalDocumentHtmlFromPayload(
   const storeTitle = payload.storeName?.trim() || config.storeName?.trim() || "MINHA EMPRESA";
   const storeCnpj = payload.storeCnpj?.trim() || config.storeCnpjCpf?.trim() || "";
 
+  const isCompact = Boolean(payload.compactCleanMode);
+  const effectiveBasePx = isCompact ? (is58mm ? 12 : isA4 ? 13 : 13) : fontBasePx;
+  const effectiveHeaderPx = isCompact ? effectiveBasePx + 2.5 : fontHeaderPx;
+  const effectiveSmallPx = isCompact ? effectiveBasePx - 1 : fontSmallPx;
+
   const renderCopy = (viaLabel?: string) => {
     const itemRows = payload.lines
-      .map(
-        (ln) => `
+      .map((ln) =>
+        isCompact
+          ? `
+      <tr>
+        <td colspan="3" style="padding-top:5px;font-weight:900;font-size:${effectiveBasePx}px;word-break:break-word;">
+          ${escapeHtml(ln.left)}
+        </td>
+      </tr>
+      <tr style="border-bottom:1px dashed #666;">
+        <td colspan="3" style="padding-bottom:5px;font-weight:900;font-size:${effectiveHeaderPx}px;font-family:monospace;">
+          = ${escapeHtml(ln.right)}
+        </td>
+      </tr>
+    `
+          : `
       <tr>
         <td colspan="2" style="padding-top:3px;font-weight:${ln.bold !== false ? boldWeight : bodyWeight};font-size:${fontBasePx}px;word-break:break-word;">
           ${escapeHtml(ln.left)}
@@ -842,25 +862,26 @@ export function buildThermalDocumentHtmlFromPayload(
     const summaryRows = payload.summaryLines
       .map((s) => {
         if (s.big) {
-          return `<div style="display:flex;justify-content:space-between;font-size:${fontHeaderPx}px;font-weight:900;border-top:1.5px solid #000;border-bottom:1.5px solid #000;padding:3px 0;margin:4px 0;${
+          return `<div style="display:flex;justify-content:space-between;font-size:${effectiveHeaderPx}px;font-weight:900;border-top:1.5px solid #000;border-bottom:1.5px solid #000;padding:4px 0;margin:4px 0;${
             s.strike ? "text-decoration:line-through;" : ""
           }">
             <span>${escapeHtml(s.label)}</span>
             <span>${escapeHtml(s.value)}</span>
           </div>`;
         }
-        return `<div style="display:flex;justify-content:space-between;font-size:${fontSmallPx}px;font-weight:${
-          s.bold ? "900" : bodyWeight
-        };margin-top:2px;">
+        return `<div style="display:flex;justify-content:space-between;font-size:${
+          isCompact ? effectiveBasePx : fontSmallPx
+        }px;font-weight:${s.bold ? "900" : bodyWeight};margin-top:3px;">
           <span>${escapeHtml(s.label)}</span>
           <span>${escapeHtml(s.value)}</span>
         </div>`;
       })
       .join("");
 
-    const caderninhoHtml = payload.caderninhoBox
-      ? payload.caderninhoBox.isFounder
-        ? `<div style="border:1.5px solid #000;padding:4px;margin-top:6px;font-size:${fontSmallPx}px;">
+    const caderninhoHtml =
+      !isCompact && payload.caderninhoBox
+        ? payload.caderninhoBox.isFounder
+          ? `<div style="border:1.5px solid #000;padding:4px;margin-top:6px;font-size:${fontSmallPx}px;">
           <div style="text-align:center;font-weight:900;border-bottom:1px dashed #000;padding-bottom:2px;margin-bottom:3px;">
             ACUMULADO - COLETA PRÓPRIA
           </div>
@@ -885,7 +906,7 @@ export function buildThermalDocumentHtmlFromPayload(
             <span>R$ ${payload.caderninhoBox.totalEarned.toFixed(2).replace(".", ",")}</span>
           </div>
         </div>`
-        : `<div style="border:1.5px solid #000;padding:4px;margin-top:6px;font-size:${fontSmallPx}px;">
+          : `<div style="border:1.5px solid #000;padding:4px;margin-top:6px;font-size:${fontSmallPx}px;">
           <div style="text-align:center;font-weight:900;border-bottom:1px dashed #000;padding-bottom:2px;margin-bottom:3px;">
             CADERNINHO - CONFERÊNCIA
           </div>
@@ -915,23 +936,26 @@ export function buildThermalDocumentHtmlFromPayload(
             [ ] Grampeado Empresa &nbsp; [ ] Conferido Reciclador
           </div>
         </div>`
-      : "";
+        : "";
 
-    return `
-      <div style="padding:3px 1px;">
+    const headerHtml = isCompact
+      ? `
+        <div style="border-top:2.5px solid #000;border-bottom:2.5px solid #000;border-left:2px solid #000;border-right:2px solid #000;text-align:center;padding:5px 4px;margin-bottom:5px;">
+          ${viaLabel ? `<div style="font-size:${effectiveBasePx}px;font-weight:900;text-transform:uppercase;">${escapeHtml(viaLabel)}</div>` : ""}
+          <div style="font-size:${effectiveHeaderPx}px;font-weight:900;text-transform:uppercase;">${escapeHtml(storeTitle)}</div>
+          <div style="font-size:${effectiveBasePx}px;font-weight:900;text-transform:uppercase;">${escapeHtml(payload.title)}</div>
+        </div>
+        <div style="border-bottom:1.5px dashed #000;padding-bottom:4px;margin-bottom:4px;font-size:${effectiveBasePx}px;font-weight:900;">
+          <div>DATA: ${escapeHtml(payload.dateStr)}</div>
+          <div>NOME: ${escapeHtml(payload.collaboratorName.toUpperCase())}</div>
+          ${(payload.extraMeta || []).map((m) => `<div>${escapeHtml(m)}</div>`).join("")}
+        </div>
+      `
+      : `
         ${
           viaLabel
             ? `<div style="border:1.5px solid #000;text-align:center;font-weight:900;font-size:${fontSmallPx}px;padding:2px 4px;margin-bottom:4px;text-transform:uppercase;">
                 ${escapeHtml(viaLabel)}
-              </div>`
-            : ""
-        }
-        ${
-          payload.isCancelled
-            ? `<div style="border:2px solid #000;background:#000;color:#fff;text-align:center;font-weight:900;font-size:${fontHeaderPx}px;padding:4px;margin-bottom:5px;">
-                *** CANCELADA / ESTORNADA ***
-                ${payload.cancelledAt ? `<div style="font-size:${fontSmallPx}px;font-weight:700;">EM: ${escapeHtml(payload.cancelledAt)}</div>` : ""}
-                ${payload.cancelReason ? `<div style="font-size:${fontSmallPx}px;font-weight:700;">MOTIVO: ${escapeHtml(payload.cancelReason.toUpperCase())}</div>` : ""}
               </div>`
             : ""
         }
@@ -950,22 +974,53 @@ export function buildThermalDocumentHtmlFromPayload(
           <div style="font-weight:900;">STATUS: ${escapeHtml(payload.isCancelled ? "CANCELADA / ESTORNADA" : payload.statusLabel)}</div>
           ${(payload.extraMeta || []).map((m) => `<div>${escapeHtml(m)}</div>`).join("")}
         </div>
-        <table style="width:100%;border-collapse:collapse;margin:4px 0;">
-          <thead>
-            <tr style="border-bottom:1px dashed #000;font-size:${fontSmallPx}px;font-weight:900;">
-              <th colspan="2" style="text-align:left;">DESCRIÇÃO / PESO</th>
-              <th style="text-align:right;">VALOR</th>
-            </tr>
-          </thead>
-          <tbody>${itemRows}</tbody>
-        </table>
-        <div style="border-top:1px dashed #000;padding-top:4px;margin-top:4px;">
+      `;
+
+    return `
+      <div style="padding:3px 1px;">
+        ${
+          payload.isCancelled
+            ? `<div style="border:2px solid #000;background:#000;color:#fff;text-align:center;font-weight:900;font-size:${effectiveHeaderPx}px;padding:4px;margin-bottom:5px;">
+                *** CANCELADA / ESTORNADA ***
+                ${payload.cancelledAt ? `<div style="font-size:${effectiveSmallPx}px;font-weight:700;">EM: ${escapeHtml(payload.cancelledAt)}</div>` : ""}
+                ${payload.cancelReason ? `<div style="font-size:${effectiveSmallPx}px;font-weight:700;">MOTIVO: ${escapeHtml(payload.cancelReason.toUpperCase())}</div>` : ""}
+              </div>`
+            : ""
+        }
+        ${headerHtml}
+        ${
+          payload.lines.length > 0
+            ? `<table style="width:100%;border-collapse:collapse;margin:4px 0;">
+                ${
+                  !payload.hideItemHeader
+                    ? `<thead>
+                        <tr style="border-bottom:1.5px dashed #000;font-size:${isCompact ? effectiveBasePx : fontSmallPx}px;font-weight:900;">
+                          ${
+                            isCompact
+                              ? `<th colspan="3" style="text-align:center;padding-bottom:3px;">MATERIAL | PESO | VALOR</th>`
+                              : `<th colspan="2" style="text-align:left;">DESCRIÇÃO / PESO</th><th style="text-align:right;">VALOR</th>`
+                          }
+                        </tr>
+                      </thead>`
+                    : ""
+                }
+                <tbody>${itemRows}</tbody>
+              </table>`
+            : ""
+        }
+        <div style="${payload.lines.length > 0 ? "border-top:1.5px dashed #000;" : ""}padding-top:4px;margin-top:4px;">
           ${summaryRows}
           ${caderninhoHtml}
         </div>
-        <div style="text-align:center;margin-top:6px;border-top:1px dashed #000;padding-top:4px;font-size:${fontSmallPx}px;">
-          <div style="font-weight:900;">${escapeHtml(storeTitle)}</div>
-          <div>${escapeHtml(payload.isCancelled ? "DOCUMENTO ESTORNADO - SEM VALOR" : payload.footerNote || "Conferido e somado na pasta do colaborador!")}</div>
+        <div style="text-align:center;margin-top:6px;border-top:1.5px dashed #000;padding-top:5px;font-size:${
+          isCompact ? effectiveBasePx : fontSmallPx
+        }px;font-weight:900;">
+          ${!isCompact ? `<div>${escapeHtml(storeTitle)}</div>` : "<div>OBRIGADO PELA PREFERÊNCIA!</div>"}
+          <div style="font-weight:700;font-size:${effectiveSmallPx}px;">${escapeHtml(
+      payload.isCancelled
+        ? "DOCUMENTO ESTORNADO - SEM VALOR"
+        : payload.footerNote || "Pasta do colaborador atualizada!"
+    )}</div>
         </div>
       </div>
     `;
@@ -1188,13 +1243,112 @@ export async function generateMiniPrint57mmPngBlob(
     y += wrappedLeft.length * lineH + 4;
   };
 
-  const FONT_TITLE = "900 28px 'Courier New', monospace";
-  const FONT_BIG = "900 26px 'Courier New', monospace";
-  const FONT_BOLD = "900 21px 'Courier New', monospace";
-  const FONT_BODY = "700 20px 'Courier New', monospace";
-  const FONT_SMALL = "700 18px 'Courier New', monospace";
+  const stripThermalEmojis = (raw: string) =>
+    String(raw || "")
+      .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F]/gu, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
+  const isCompact = Boolean(payload.compactCleanMode);
+  const FONT_TITLE = isCompact
+    ? "900 31px 'Courier New', monospace"
+    : "900 28px 'Courier New', monospace";
+  const FONT_BIG = isCompact
+    ? "900 29px 'Courier New', monospace"
+    : "900 26px 'Courier New', monospace";
+  const FONT_BOLD = isCompact
+    ? "900 26px 'Courier New', monospace"
+    : "900 22px 'Courier New', monospace";
+  const FONT_BODY = isCompact
+    ? "700 24px 'Courier New', monospace"
+    : "700 20px 'Courier New', monospace";
+  const FONT_SMALL = isCompact
+    ? "700 22px 'Courier New', monospace"
+    : "700 18px 'Courier New', monospace";
+
+  const addDoubleBoxBanner = (headerLines: string[], font: string, lineH = 34) => {
+    const cleanLines: string[] = [];
+    headerLines.forEach((raw) => {
+      const cleaned = stripThermalEmojis(raw);
+      if (cleaned) {
+        cleanLines.push(...wrapText(cleaned, font, INNER_W - 28));
+      }
+    });
+    const boxH = cleanLines.length * lineH + 20;
+    const startY = y;
+    cmds.push((c) => {
+      c.strokeStyle = "#000000";
+      c.lineWidth = 4;
+      c.strokeRect(PAD, startY, INNER_W, boxH);
+      c.lineWidth = 2;
+      c.strokeRect(PAD + 6, startY + 6, INNER_W - 12, boxH - 12);
+      c.fillStyle = "#000000";
+      c.font = font;
+      c.textAlign = "center";
+      c.textBaseline = "top";
+      cleanLines.forEach((line, idx) => {
+        c.fillText(line, W / 2, startY + 12 + idx * lineH);
+      });
+    });
+    y += boxH + 12;
+  };
 
   const drawSingleVia = (viaLabel: string) => {
+    const storeTitle = stripThermalEmojis(payload.storeName?.trim() || "FERRO VELHO DW");
+    const storeCnpj = stripThermalEmojis(payload.storeCnpj?.trim() || "");
+    const cleanTitle = stripThermalEmojis(payload.title);
+
+    if (isCompact) {
+      addDoubleBoxBanner([viaLabel, storeTitle.toUpperCase(), cleanTitle.toUpperCase()], FONT_BOLD, 34);
+      if (payload.isCancelled) {
+        addCenteredText("*** COMPRA CANCELADA / ESTORNADA ***", FONT_BIG, 34, true);
+        if (payload.cancelledAt) addCenteredText(`EM: ${payload.cancelledAt}`, FONT_SMALL, 28);
+        if (payload.cancelReason) addCenteredText(`MOTIVO: ${stripThermalEmojis(payload.cancelReason.toUpperCase())}`, FONT_SMALL, 28);
+      }
+
+      addLeftText(`DATA: ${stripThermalEmojis(payload.dateStr)}`, FONT_BODY, 31);
+      addLeftText(`NOME: ${stripThermalEmojis(payload.collaboratorName.toUpperCase())}`, FONT_BOLD, 33);
+      (payload.extraMeta || []).forEach((m) => addLeftText(stripThermalEmojis(m), FONT_BODY, 30));
+
+      if (payload.lines.length > 0) {
+        addDashedRule();
+        if (!payload.hideItemHeader) {
+          addCenteredText("MATERIAL | PESO | VALOR", FONT_BOLD, 32);
+          addDashedRule();
+        }
+        payload.lines.forEach((ln) => {
+          addLeftText(stripThermalEmojis(ln.left), FONT_BOLD, 32);
+          addLeftText(`= ${stripThermalEmojis(ln.right)}`, FONT_BIG, 34);
+          y += 2;
+        });
+      }
+
+      addDashedRule();
+      payload.summaryLines.forEach((s) => {
+        const cleanLabel = stripThermalEmojis(s.label);
+        const cleanVal = stripThermalEmojis(s.value);
+        if (s.big) {
+          addSolidRule();
+          addKeyValueRow(cleanLabel, cleanVal, FONT_TITLE, 38, Boolean(s.strike));
+          addSolidRule();
+        } else {
+          addKeyValueRow(cleanLabel, cleanVal, s.bold ? FONT_BOLD : FONT_BODY, 32);
+        }
+      });
+
+      addDashedRule();
+      addCenteredText("OBRIGADO PELA PREFERÊNCIA!", FONT_BOLD, 32);
+      addCenteredText(
+        payload.isCancelled
+          ? "DOCUMENTO ESTORNADO - SEM VALOR"
+          : stripThermalEmojis(payload.footerNote || "Pasta do colaborador atualizada!"),
+        FONT_BODY,
+        29
+      );
+      y += 14;
+      return;
+    }
+
     addBoxedBanner(viaLabel, FONT_BOLD);
     if (payload.isCancelled) {
       addCenteredText("*** COMPRA CANCELADA / ESTORNADA ***", FONT_BIG, 30, true);
@@ -1202,8 +1356,6 @@ export async function generateMiniPrint57mmPngBlob(
       if (payload.cancelReason) addCenteredText(`MOTIVO: ${payload.cancelReason.toUpperCase()}`, FONT_SMALL, 22);
     }
 
-    const storeTitle = payload.storeName?.trim() || "MINHA EMPRESA";
-    const storeCnpj = payload.storeCnpj?.trim() || "";
     addCenteredText(storeTitle.toUpperCase(), FONT_TITLE, 32);
     if (storeCnpj) addCenteredText(`CNPJ/CPF: ${storeCnpj}`, FONT_SMALL, 22);
     addBoxedBanner(payload.title, FONT_BOLD);
@@ -1221,8 +1373,10 @@ export async function generateMiniPrint57mmPngBlob(
     (payload.extraMeta || []).forEach((m) => addLeftText(m, FONT_SMALL, 23));
 
     addDashedRule();
-    addKeyValueRow("MATERIAL / PESO", "VALOR", FONT_BOLD, 26);
-    addDashedRule();
+    if (!payload.hideItemHeader) {
+      addKeyValueRow("MATERIAL / PESO", "VALOR", FONT_BOLD, 26);
+      addDashedRule();
+    }
 
     payload.lines.forEach((ln) => {
       addKeyValueRow(ln.left, ln.right, ln.bold !== false ? FONT_BOLD : FONT_BODY, 25);
@@ -1318,15 +1472,15 @@ export async function generateMiniPrint57mmPngBlob(
   };
 
   if (payload.copies === 2) {
-    drawSingleVia("1ª VIA - CONTROLE EMPRESA / CADERNINHO (GRAMPEAR)");
+    drawSingleVia(isCompact ? "1ª VIA - EMPRESA" : "1ª VIA - CONTROLE EMPRESA / CADERNINHO (GRAMPEAR)");
     y += 6;
     addDashedRule();
-    addCenteredText("✂  CORTAR / DESTACAR / GRAMPEAR AQUI  ✂", FONT_BOLD, 26);
+    addCenteredText(isCompact ? "CORTAR AQUI" : "✂  CORTAR / DESTACAR / GRAMPEAR AQUI  ✂", FONT_BOLD, 28);
     addDashedRule();
     y += 10;
-    drawSingleVia("2ª VIA - VIA DO RECICLADOR (CONFERÊNCIA)");
+    drawSingleVia(isCompact ? "2ª VIA - COLABORADOR" : "2ª VIA - VIA DO RECICLADOR (CONFERÊNCIA)");
   } else {
-    drawSingleVia(payload.singleViaBanner || "VIA ÚNICA - CONTROLE RECICLAGEM");
+    drawSingleVia(payload.singleViaBanner || (isCompact ? "VIA ÚNICA" : "VIA ÚNICA - CONTROLE RECICLAGEM"));
   }
 
   y += 28;
