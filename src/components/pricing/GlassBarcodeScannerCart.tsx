@@ -63,7 +63,8 @@ import {
   Image as ImageIcon,
   Maximize2,
   Download,
-  Upload
+  Upload,
+  BarChart3
 } from "lucide-react";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
@@ -75,6 +76,8 @@ import {
 } from "../../utils/glassYardCloudSync";
 import { SmartNumericInput } from "./SmartNumericInput";
 import { PlasticRecyclingGuidePanel } from "./PlasticRecyclingGuidePanel";
+import { RecyclingReportsPanel } from "./RecyclingReportsPanel";
+import { CarrocinhaConfirmedLine, CarrocinhaDailySaleModal } from "./CarrocinhaDailySaleModal";
 import {
   getIsFirestoreQuotaPaused,
   isQuotaExhaustedError,
@@ -189,6 +192,8 @@ export interface ScrapSaleRecord {
   profitAmount: number;
   buyerName: string;
   paymentMethod: "dinheiro" | "pix" | "cartao_debito" | "cartao_credito";
+  originType?: "misto" | "compra" | "coleta_propria";
+  batchId?: string;
   syncedPdvEventId?: string;
   isCancelled?: boolean;
   cancelledAt?: string;
@@ -210,6 +215,7 @@ export interface GlassCartItem {
   totalWeightKg: number; // Peso total desta garrafa no carrinho
   buyPricePerUnit: number;
   totalBuyCost: number; // Valor a pagar ao colaborador por este lote
+  isCustomCost?: boolean; // Se Denise editou manualmente o valor R$ desse item no carrinho
   sellPriceUnitOrWeight: number; // Valor bruto na usina ou retorno
   totalRevenue: number;
   profit: number;
@@ -1106,8 +1112,8 @@ function buildGlassPurchaseThermalHtml(ticket: CompletedPurchaseTicket, config: 
               `;
             })()}
             <div style="display:flex;justify-content:space-between;font-size:${fontHeaderPx}px;font-weight:900;border-top:1px solid #000;border-bottom:1px solid #000;padding:3px 0;margin:4px 0;${ticket.isCancelled ? "text-decoration:line-through;" : ""}">
-              <span>${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA):" : "TOTAL LÍQUIDO:"}</span>
-              <span>R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2).replace(".", ",")}</span>
+              <span>${ticket.isFounder ? "VALOR TOTAL:" : "TOTAL LÍQUIDO:"}</span>
+              <span>R$ ${(ticket.isFounder ? getTicketEffectiveMonetaryValue(ticket) : ticket.totalPaid).toFixed(2).replace(".", ",")}</span>
             </div>
             ${
               ticket.isScrapPurchase
@@ -1145,7 +1151,7 @@ interface Props {
   sellPricePerTon?: number; // Preço pago pela usina (ex: R$ 150/ton = R$ 0,15/kg)
   onSetSellPricePerTon?: (price: number) => void;
   buyerName?: string;
-  initialActiveTab?: "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos";
+  initialActiveTab?: "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos" | "relatorios";
   initialYardControlFilter?: "vidro" | "outros";
   onAddItemsToYardStock?: (itemsToAdd: { name: string; quantity: number; weightKg: number; costPaid: number }[]) => void;
   onYardSummaryChange?: (summary: GlassYardSummary) => void;
@@ -1362,13 +1368,15 @@ export function GlassBarcodeScannerCart({
     } catch {}
   }, [syncToPdvCash]);
 
-  // Modal de venda / baixa de lote de Outros Materiais do Ferro Velho integrado ao PDV
+  // Modal de venda / baixa de lote de Outros Materiais do Ferro Velho + Baixa do Dia da Carrocinha
   const [sellingScrapMaterial, setSellingScrapMaterial] = useState<OtherScrapMaterial | null>(null);
   const [scrapSaleKgDraft, setScrapSaleKgDraft] = useState<string>("");
   const [scrapSaleUnitsDraft, setScrapSaleUnitsDraft] = useState<string>("");
   const [scrapSaleTotalValueDraft, setScrapSaleTotalValueDraft] = useState<string>("");
   const [scrapSaleBuyerDraft, setScrapSaleBuyerDraft] = useState<string>("");
   const [scrapSaleMethod, setScrapSaleMethod] = useState<"dinheiro" | "pix" | "cartao_debito" | "cartao_credito">("pix");
+  const [scrapSaleOriginType, setScrapSaleOriginType] = useState<"compra" | "coleta_propria">("compra");
+  const [showCarrocinhaSaleModal, setShowCarrocinhaSaleModal] = useState<boolean>(false);
 
   // Rascunho persistido da Balança Digital & Cesta Multi-Materiais do Ferro Velho
   const savedScrapDraftRef = useRef<any>(undefined);
@@ -1444,7 +1452,7 @@ export function GlassBarcodeScannerCart({
   // Opção de nome no recibo (cadastrado | sem_nome | nome_avulso) + ajustes (acréscimo / desconto) + Cesta Multi-Materiais do Dia
   const [scrapCollabMode, setScrapCollabMode] = useState<"cadastrado" | "sem_nome" | "nome_avulso">(() => {
     const m = initialScrapDraft.scrapCollabMode;
-    return m === "cadastrado" || m === "sem_nome" || m === "nome_avulso" ? m : "cadastrado";
+    return m === "cadastrado" || m === "sem_nome" || m === "nome_avulso" ? m : "sem_nome";
   });
   const [scrapCustomCollabName, setScrapCustomCollabName] = useState<string>(
     () => (typeof initialScrapDraft.scrapCustomCollabName === "string" ? initialScrapDraft.scrapCustomCollabName : "")
@@ -1574,6 +1582,16 @@ export function GlassBarcodeScannerCart({
   const [cancellingScrapSaleId, setCancellingScrapSaleId] = useState<string | null>(null);
   const [showZeroOnlyScrapConfirm, setShowZeroOnlyScrapConfirm] = useState<boolean>(false);
   const [printerConfigState, setPrinterConfigState] = useState<PrinterConfig>(() => loadPrinterConfig());
+
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const custom = ev as CustomEvent<PrinterConfig>;
+      setPrinterConfigState(custom.detail || loadPrinterConfig());
+    };
+    window.addEventListener("pdv_printer_config_changed", handler);
+    return () => window.removeEventListener("pdv_printer_config_changed", handler);
+  }, []);
+
   const [receiptCopiesMode, setReceiptCopiesMode] = useState<1 | 2>(() => {
     try {
       const saved = localStorage.getItem("pdv_dw_receipt_copies_mode");
@@ -1732,11 +1750,11 @@ export function GlassBarcodeScannerCart({
     return INITIAL_COLLABORATORS;
   });
 
-  // Colaborador atualmente selecionado (persistido para não resetar ao alternar apps)
+  // Colaborador atualmente selecionado (nunca inicia em Coleta Própria por acidente ao abrir do zero)
   const [selectedCollabId, setSelectedCollabId] = useState<string>(() => {
     const saved = loadPersistedString("pdv_dw_selected_collab_id_v1", "");
     if (saved && collaborators.some((c) => c.id === saved)) return saved;
-    return INITIAL_COLLABORATORS[0].id;
+    return collaborators.find((c) => !c.isFounder)?.id || INITIAL_COLLABORATORS[0].id;
   });
 
   useEffect(() => {
@@ -1779,10 +1797,17 @@ export function GlassBarcodeScannerCart({
     return [];
   });
 
-  // Aba ativa: "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos"
-  const [activeTab, setActiveTab] = useState<"carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos">(() => {
+  // Aba ativa: "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos" | "relatorios"
+  const [activeTab, setActiveTab] = useState<"carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos" | "relatorios">(() => {
     const saved = loadPersistedString("pdv_dw_yard_active_tab_v1", "");
-    if (saved === "carrinho" || saved === "caderninho" || saved === "estoque" || saved === "cargas" || saved === "guia_plasticos") {
+    if (
+      saved === "carrinho" ||
+      saved === "caderninho" ||
+      saved === "estoque" ||
+      saved === "cargas" ||
+      saved === "guia_plasticos" ||
+      saved === "relatorios"
+    ) {
       return saved;
     }
     return initialActiveTab || "carrinho";
@@ -2217,13 +2242,15 @@ export function GlassBarcodeScannerCart({
       if (prev.length === 0) return prev;
       return prev.map((c) => {
         const totalWeightKg = roundWeightKg((c.quantity * c.unitWeightGrams) / 1000);
-        const totalBuyCost = calculateGlassBuyCost(
-          c.category,
-          c.quantity,
-          c.buyPricePerUnit,
-          sellPricePerKg,
-          c.unitWeightGrams
-        );
+        const totalBuyCost = c.isCustomCost
+          ? roundCurrencyBrl(c.totalBuyCost)
+          : calculateGlassBuyCost(
+              c.category,
+              c.quantity,
+              c.buyPricePerUnit,
+              sellPricePerKg,
+              c.unitWeightGrams
+            );
         const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
         return {
           ...c,
@@ -2274,10 +2301,20 @@ export function GlassBarcodeScannerCart({
     } catch {}
   }, [truckShipments]);
 
-  // Colaborador atual selecionado
+  // Colaborador atual selecionado (prefere não-fundador como fallback seguro)
+  const firstNonFounderCollab = useMemo(() => {
+    return collaborators.find((c) => !c.isFounder) || collaborators[0];
+  }, [collaborators]);
+
+  const founderCollab = useMemo(() => {
+    return collaborators.find((c) => c.isFounder) || null;
+  }, [collaborators]);
+
   const activeCollab = useMemo(() => {
-    return collaborators.find((c) => c.id === selectedCollabId) || collaborators[0];
-  }, [collaborators, selectedCollabId]);
+    return collaborators.find((c) => c.id === selectedCollabId) || firstNonFounderCollab;
+  }, [collaborators, selectedCollabId, firstNonFounderCollab]);
+
+  const isScrapFounderActive = scrapCollabMode === "cadastrado" && Boolean(activeCollab?.isFounder);
 
   // Persistência de meta e materiais separados
   useEffect(() => {
@@ -2732,11 +2769,12 @@ export function GlassBarcodeScannerCart({
   }, [otherScrapMaterials, scaleSelectedMaterialId]);
 
   useEffect(() => {
-    const p = selectedScaleMaterial?.buyPricePerKg || 0;
-    const sp = selectedScaleMaterial?.sellPricePerKg || 0;
-    setScalePricePerKgInput(p > 0 ? String(p).replace(".", ",") : "");
-    setScaleSellPricePerKgInput(sp > 0 ? String(sp).replace(".", ",") : "");
-  }, [selectedScaleMaterial?.id]);
+    const buyP = selectedScaleMaterial?.buyPricePerKg || 0;
+    const sellP = selectedScaleMaterial?.sellPricePerKg || 0;
+    const targetInputP = isScrapFounderActive ? (sellP > 0 ? sellP : buyP) : buyP;
+    setScalePricePerKgInput(targetInputP > 0 ? String(targetInputP).replace(".", ",") : "");
+    setScaleSellPricePerKgInput(sellP > 0 ? String(sellP).replace(".", ",") : "");
+  }, [selectedScaleMaterial?.id, isScrapFounderActive]);
 
   const handleUpdateScrapPricePerKg = (materialId: string, newPrice: number) => {
     const cleanPrice = Math.max(0, Number.isFinite(newPrice) ? newPrice : 0);
@@ -2788,9 +2826,19 @@ export function GlassBarcodeScannerCart({
 
   const scaleEffectivePricePerKg = useMemo(() => {
     const parsed = parseFloat(scalePricePerKgInput.replace(",", "."));
-    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    if (Number.isFinite(parsed) && parsed >= 0 && scalePricePerKgInput.trim() !== "") return parsed;
+    if (isScrapFounderActive) {
+      return (selectedScaleMaterial?.sellPricePerKg || 0) > 0
+        ? selectedScaleMaterial?.sellPricePerKg || 0
+        : selectedScaleMaterial?.buyPricePerKg || 0;
+    }
     return selectedScaleMaterial?.buyPricePerKg || 0;
-  }, [scalePricePerKgInput, selectedScaleMaterial?.buyPricePerKg]);
+  }, [
+    scalePricePerKgInput,
+    isScrapFounderActive,
+    selectedScaleMaterial?.buyPricePerKg,
+    selectedScaleMaterial?.sellPricePerKg
+  ]);
 
   const scaleCombinedWeightKg = roundWeightKg(scaleQueueTotalNetKg + scaleCurrentNetKg);
   const scaleCurrentPayable = computeScrapLineTotal(scaleCurrentNetKg, scaleEffectivePricePerKg);
@@ -3036,9 +3084,14 @@ export function GlassBarcodeScannerCart({
   useEffect(() => {
     const mat = otherScrapMaterials.find((m) => m.id === scrapBasketQuickMatId);
     if (mat) {
-      setScrapBasketQuickPrice(mat.buyPricePerKg > 0 ? String(mat.buyPricePerKg).replace(".", ",") : "");
+      const targetP = isScrapFounderActive
+        ? (mat.sellPricePerKg || 0) > 0
+          ? mat.sellPricePerKg || 0
+          : mat.buyPricePerKg
+        : mat.buyPricePerKg;
+      setScrapBasketQuickPrice(targetP > 0 ? String(targetP).replace(".", ",") : "");
     }
-  }, [scrapBasketQuickMatId]);
+  }, [scrapBasketQuickMatId, isScrapFounderActive]);
 
   const handleAddItemToScrapBasket = ({
     material,
@@ -3059,10 +3112,6 @@ export function GlassBarcodeScannerCart({
     if (cleanW <= 0 && cleanU <= 0) {
       if (showNotification) showNotification("Informe o peso (kg) antes de somar no recibo.", "warning");
       return;
-    }
-
-    if (cleanP > 0 && cleanP !== material.buyPricePerKg) {
-      handleUpdateScrapPricePerKg(material.id, cleanP);
     }
 
     const rowValue = computeScrapLineTotal(cleanW, cleanP);
@@ -3321,7 +3370,7 @@ export function GlassBarcodeScannerCart({
         isScrapPurchase: true,
         syncedPdvEventId: pdvEventId,
         items: validEntries.map((e) => {
-          const itemCost = Number((Math.max(0, e.weightKg) * Math.max(0, e.pricePerKg)).toFixed(2));
+          const itemCost = computeScrapLineTotal(e.weightKg, e.pricePerKg);
           return {
             name: `${e.material.emoji} ${e.material.name} (R$ ${e.pricePerKg.toFixed(2).replace(".", ",")}/kg)`,
             volumeMl: 0,
@@ -3466,6 +3515,8 @@ export function GlassBarcodeScannerCart({
       units: unitsToAdd,
       pricePerKg: scaleEffectivePricePerKg,
       collabId: activeCollab?.id || selectedCollabId,
+      collabMode: scrapCollabMode,
+      customName: scrapCustomCollabName,
       mode: scaleSettlementMode,
       addWeightToStock: true
     });
@@ -3496,9 +3547,13 @@ export function GlassBarcodeScannerCart({
       return;
     }
 
-    const buyPerKg = Math.max(0, Number(sellingScrapMaterial.buyPricePerKg) || 0);
-    const estimatedCost = Number((kgToDeduct * buyPerKg).toFixed(2));
-    const sellPerKgActual = kgToDeduct > 0 && saleAmount > 0 ? Number((saleAmount / kgToDeduct).toFixed(2)) : Number(sellingScrapMaterial.sellPricePerKg || 0);
+    const isOwn100 = scrapSaleOriginType === "coleta_propria";
+    const buyPerKg = isOwn100 ? 0 : Math.max(0, Number(sellingScrapMaterial.buyPricePerKg) || 0);
+    const estimatedCost = isOwn100 ? 0 : Number((kgToDeduct * buyPerKg).toFixed(2));
+    const sellPerKgActual =
+      kgToDeduct > 0 && saleAmount > 0
+        ? Number((saleAmount / kgToDeduct).toFixed(2))
+        : Number(sellingScrapMaterial.sellPricePerKg || 0);
     const profitAmount = saleAmount > 0 ? Number((saleAmount - estimatedCost).toFixed(2)) : 0;
 
     markLocalYardMutation();
@@ -3514,7 +3569,7 @@ export function GlassBarcodeScannerCart({
       )
     );
 
-    const buyerLabel = scrapSaleBuyerDraft.trim() || "Comprador Reciclagem";
+    const buyerLabel = scrapSaleBuyerDraft.trim() || (isOwn100 ? "Revenda Coleta Própria (100%)" : "Comprador Reciclagem");
     const saleId = `scrap_sale_${Date.now()}`;
     const pdvSaleEventId = saleAmount > 0 ? `pdv_fv_sale_${saleId}` : undefined;
     if (saleAmount > 0 || kgToDeduct > 0) {
@@ -3533,6 +3588,7 @@ export function GlassBarcodeScannerCart({
         profitAmount,
         buyerName: buyerLabel,
         paymentMethod: scrapSaleMethod,
+        originType: scrapSaleOriginType,
         syncedPdvEventId: pdvSaleEventId
       };
       setScrapSalesHistory((prev) => [saleRecord, ...prev.slice(0, 149)]);
@@ -3564,15 +3620,127 @@ export function GlassBarcodeScannerCart({
     setScrapSaleUnitsDraft("");
     setScrapSaleTotalValueDraft("");
     setScrapSaleBuyerDraft("");
+    setScrapSaleOriginType("compra");
     playScannerBeep(2100, 0.12);
 
     if (showNotification) {
       const profitText =
-        saleAmount > 0 && buyPerKg > 0
+        saleAmount > 0 && (buyPerKg > 0 || isOwn100)
           ? ` • Lucro: ${profitAmount >= 0 ? "+" : ""}R$ ${profitAmount.toFixed(2).replace(".", ",")}`
           : "";
       showNotification(
         `Venda/Baixa em ${soldName} (-${kgToDeduct.toFixed(1)} kg)${saleAmount > 0 ? ` • Recebido R$ ${saleAmount.toFixed(2).replace(".", ",")}` : ""}${profitText} 🚚✅`,
+        "success"
+      );
+    }
+  };
+
+  const handleConfirmCarrocinhaBatchSale = ({
+    lines,
+    buyerName: batchBuyer,
+    paymentMethod,
+    originType
+  }: {
+    lines: CarrocinhaConfirmedLine[];
+    buyerName: string;
+    paymentMethod: "dinheiro" | "pix" | "cartao_debito" | "cartao_credito";
+    originType: "compra" | "coleta_propria";
+  }) => {
+    if (!lines || lines.length === 0) return;
+    const nowTs = new Date().toLocaleString("pt-BR");
+    const batchId = `carrocinha_${Date.now()}`;
+    const isOwn100 = originType === "coleta_propria";
+
+    markLocalYardMutation();
+
+    // 1. Deduzir todos os materiais vendidos do estoque atual
+    const lineByMatId = new Map(lines.map((l) => [l.material.id, l]));
+    setOtherScrapMaterials((prev) =>
+      prev.map((m) => {
+        const soldLine = lineByMatId.get(m.id);
+        if (!soldLine) return m;
+        return {
+          ...m,
+          stockKg: Math.max(0, Number((m.stockKg - soldLine.weightKg).toFixed(3))),
+          stockUnits: Math.max(0, (m.stockUnits || 0) - soldLine.units)
+        };
+      })
+    );
+
+    // 2. Gerar registros de venda para os relatórios diários e acumulados
+    let totalBatchKg = 0;
+    let totalBatchRevenue = 0;
+    let totalBatchProfit = 0;
+
+    const newSaleRecords: ScrapSaleRecord[] = lines.map((ln, idx) => {
+      const buyPerKg = isOwn100 ? 0 : Math.max(0, Number(ln.material.buyPricePerKg) || 0);
+      const estCost = isOwn100 ? 0 : roundCurrencyBrl(ln.weightKg * buyPerKg);
+      const rev = roundCurrencyBrl(ln.revenueReceived);
+      const profit = isOwn100 ? rev : Number((rev - estCost).toFixed(2));
+      const sellPerKgActual =
+        ln.weightKg > 0 && rev > 0
+          ? Number((rev / ln.weightKg).toFixed(2))
+          : Number(ln.material.sellPricePerKg || 0);
+      const saleId = `scrap_sale_${Date.now()}_${idx}`;
+      const pdvSaleEventId = rev > 0 ? `pdv_fv_sale_${saleId}` : undefined;
+
+      totalBatchKg = roundWeightKg(totalBatchKg + ln.weightKg);
+      totalBatchRevenue = roundCurrencyBrl(totalBatchRevenue + rev);
+      totalBatchProfit = Number((totalBatchProfit + profit).toFixed(2));
+
+      if (syncToPdvCash && onSyncFinancialEventToPDV && pdvSaleEventId && rev > 0) {
+        onSyncFinancialEventToPDV({
+          id: pdvSaleEventId,
+          type: "entrada",
+          amount: rev,
+          description: `CARROCINHA / BAIXA DO DIA: ${ln.material.name.toUpperCase()} (${ln.weightKg.toFixed(1)} kg)`,
+          paymentMethod,
+          category: "venda",
+          clientName: batchBuyer,
+          items: [
+            {
+              name: `${ln.material.emoji} ${ln.material.name} (${ln.weightKg.toFixed(1)} kg)`,
+              price: rev,
+              quantity: 1,
+              unit: "lote"
+            }
+          ]
+        });
+      }
+
+      return {
+        id: saleId,
+        timestamp: nowTs,
+        materialId: ln.material.id,
+        materialName: ln.material.name,
+        emoji: ln.material.emoji,
+        weightKg: roundWeightKg(ln.weightKg),
+        units: ln.units,
+        buyPricePerKgAtSale: buyPerKg,
+        estimatedBuyCost: estCost,
+        sellPricePerKgActual: sellPerKgActual,
+        revenueReceived: rev,
+        profitAmount: profit,
+        buyerName: batchBuyer,
+        paymentMethod,
+        originType,
+        batchId,
+        syncedPdvEventId: pdvSaleEventId
+      };
+    });
+
+    setScrapSalesHistory((prev) => [...newSaleRecords, ...prev].slice(0, 150));
+    setShowCarrocinhaSaleModal(false);
+    playScannerBeep(2300, 0.14);
+
+    if (voiceAnnouncerEnabled) {
+      speakYardAnnouncement(
+        `Baixa do dia registrada na carrocinha. ${formatWeightKgForSpeech(totalBatchKg)}. Total recebido: ${formatCurrencyPtBrForSpeech(totalBatchRevenue)}.`
+      );
+    }
+    if (showNotification) {
+      showNotification(
+        `Baixa da Carrocinha salva! ${lines.length} material(is) · -${totalBatchKg.toFixed(2)} kg · Entrou R$ ${formatBrl(totalBatchRevenue)} (Lucro: R$ ${formatBrl(totalBatchProfit)}) 🚚✅`,
         "success"
       );
     }
@@ -4235,13 +4403,17 @@ export function GlassBarcodeScannerCart({
         const existing = updated[idx];
         const newQty = existing.quantity + qty;
         const totalWeightKg = roundWeightKg((newQty * bottle.unitWeightGrams) / 1000);
-        const totalBuyCost = calculateGlassBuyCost(
-          bottle.category,
-          newQty,
-          bottle.buyPricePerUnit,
-          sellPricePerKg,
-          bottle.unitWeightGrams
-        );
+        const totalBuyCost = existing.isCustomCost
+          ? roundCurrencyBrl(
+              existing.quantity > 0 ? (newQty / existing.quantity) * existing.totalBuyCost : existing.totalBuyCost
+            )
+          : calculateGlassBuyCost(
+              bottle.category,
+              newQty,
+              bottle.buyPricePerUnit,
+              sellPricePerKg,
+              bottle.unitWeightGrams
+            );
         const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
         const profit = roundCurrencyBrl(totalRevenue - totalBuyCost);
 
@@ -4301,13 +4473,15 @@ export function GlassBarcodeScannerCart({
       prev.map((c) => {
         if (c.id === cartId) {
           const totalWeightKg = roundWeightKg((newQty * c.unitWeightGrams) / 1000);
-          const totalBuyCost = calculateGlassBuyCost(
-            c.category,
-            newQty,
-            c.buyPricePerUnit,
-            sellPricePerKg,
-            c.unitWeightGrams
-          );
+          const totalBuyCost = c.isCustomCost
+            ? roundCurrencyBrl(c.quantity > 0 ? (newQty / c.quantity) * c.totalBuyCost : c.totalBuyCost)
+            : calculateGlassBuyCost(
+                c.category,
+                newQty,
+                c.buyPricePerUnit,
+                sellPricePerKg,
+                c.unitWeightGrams
+              );
           const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
           const profit = roundCurrencyBrl(totalRevenue - totalBuyCost);
 
@@ -4322,6 +4496,39 @@ export function GlassBarcodeScannerCart({
           };
         }
         return c;
+      })
+    );
+  };
+
+  // Ajustar manualmente o valor R$ pago por um item no Carrinho de Vidros (valores diferentes por colaborador)
+  const handleUpdateCartItemCustomCost = (cartId: string, rawCost: number | null) => {
+    setCart((prev) =>
+      prev.map((c) => {
+        if (c.id !== cartId) return c;
+        const totalWeightKg = roundWeightKg((c.quantity * c.unitWeightGrams) / 1000);
+        const totalRevenue = roundCurrencyBrl(totalWeightKg * sellPricePerKg);
+        if (rawCost === null) {
+          const autoCost = calculateGlassBuyCost(
+            c.category,
+            c.quantity,
+            c.buyPricePerUnit,
+            sellPricePerKg,
+            c.unitWeightGrams
+          );
+          return {
+            ...c,
+            isCustomCost: false,
+            totalBuyCost: autoCost,
+            profit: roundCurrencyBrl(totalRevenue - autoCost)
+          };
+        }
+        const customCost = roundCurrencyBrl(rawCost);
+        return {
+          ...c,
+          isCustomCost: true,
+          totalBuyCost: customCost,
+          profit: roundCurrencyBrl(totalRevenue - customCost)
+        };
       })
     );
   };
@@ -4555,10 +4762,11 @@ export function GlassBarcodeScannerCart({
           const newDeliveries = collab.totalDeliveries + 1;
           const newBottles = collab.totalBottles + cartTotals.totalBottles;
           const newWeight = roundWeightKg(collab.totalWeightKg + cartTotals.totalWeightKg);
-          const newEarned = roundCurrencyBrl(collab.totalEarned + cartTotals.totalBuyCost);
+          const earnedDelta = collab.isFounder ? cartTotals.totalRevenue : cartTotals.totalBuyCost;
+          const newEarned = roundCurrencyBrl(collab.totalEarned + earnedDelta);
 
           if (collab.isFounder) {
-            // Coleta própria: não há pagamento a terceiros nem dívida, é pura economia da empresa!
+            // Coleta própria: valor 100% da Usina, sem dívida a terceiros!
             return {
               ...collab,
               totalDeliveries: newDeliveries,
@@ -4609,14 +4817,14 @@ export function GlassBarcodeScannerCart({
         quantity: c.quantity,
         unitWeightGrams: c.unitWeightGrams,
         totalWeightKg: roundWeightKg(c.totalWeightKg),
-        costPaid: roundCurrencyBrl(c.totalBuyCost)
+        costPaid: roundCurrencyBrl(isFounder ? c.totalRevenue : c.totalBuyCost)
       })),
       totalBottles: cartTotals.totalBottles,
       totalWeightKg: cartTotals.totalWeightKg,
-      subtotalAmount: cartTotals.totalBuyCost,
+      subtotalAmount: isFounder ? cartTotals.totalRevenue : cartTotals.totalBuyCost,
       totalPaid: isFounder ? 0 : cartTotals.totalBuyCost,
       expectedPlantRevenue: cartTotals.totalRevenue,
-      netProfit: cartTotals.netProfit,
+      netProfit: isFounder ? cartTotals.totalRevenue : cartTotals.netProfit,
       paymentStatus,
       agreedPaymentDateSnapshot:
         paymentStatus === "pendente_caderninho" ? getCollaboratorAgreedPaymentDate(activeCollab) : undefined,
@@ -5119,11 +5327,15 @@ export function GlassBarcodeScannerCart({
 
     const lines = ticket.items.map((it) => {
       if (ticket.isScrapPurchase || it.volumeMl <= 0) {
+        const cleanName = it.name.trim();
+        const hasEmbeddedUnitRate = /\(\s*R\$\s*[\d.,]+/i.test(cleanName);
         const unitRate = it.totalWeightKg > 0 ? it.costPaid / it.totalWeightKg : 0;
         return {
-          left: `${it.totalWeightKg.toFixed(2).replace(".", ",")} KG ${it.name.toUpperCase()} (R$ ${unitRate
-            .toFixed(2)
-            .replace(".", ",")})`,
+          left: hasEmbeddedUnitRate
+            ? `${it.totalWeightKg.toFixed(2).replace(".", ",")} KG ${cleanName.toUpperCase()}`
+            : `${it.totalWeightKg.toFixed(2).replace(".", ",")} KG ${cleanName.toUpperCase()} (R$ ${unitRate
+                .toFixed(2)
+                .replace(".", ",")}/KG)`,
           right: `R$ ${it.costPaid.toFixed(2).replace(".", ",")}`,
           bold: true
         };
@@ -5136,6 +5348,10 @@ export function GlassBarcodeScannerCart({
         bold: true
       };
     });
+
+    const receiptTotalValue = ticket.isFounder
+      ? getTicketEffectiveMonetaryValue(ticket)
+      : roundCurrencyBrl(ticket.totalPaid || 0);
 
     const summaryLines: ThermalCanvasReceiptPayload["summaryLines"] = [];
     if (!ticket.isScrapPurchase && ticketBottlesCount > 0) {
@@ -5162,11 +5378,11 @@ export function GlassBarcodeScannerCart({
     }
     summaryLines.push({
       label: ticket.isFounder
-        ? "COLETA PRÓPRIA:"
+        ? "TOTAL A RECEBER:"
         : ticket.paymentStatus === "pago_na_hora"
         ? "TOTAL PAGO:"
         : "TOTAL A PAGAR:",
-      value: `R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2).replace(".", ",")}`,
+      value: `R$ ${receiptTotalValue.toFixed(2).replace(".", ",")}`,
       big: true,
       bold: true,
       strike: Boolean(ticket.isCancelled)
@@ -5177,14 +5393,6 @@ export function GlassBarcodeScannerCart({
       summaryLines.push({
         label: "ACUM. A RECEBER:",
         value: `R$ ${snap.balancePending.toFixed(2).replace(".", ",")}`,
-        bold: true
-      });
-    } else if (ticket.isFounder && snap) {
-      summaryLines.push({
-        label: "ACUM. COLETA:",
-        value: `${!ticket.isScrapPurchase && snap.totalBottles > 0 ? `${snap.totalBottles} UN / ` : ""}${snap.totalWeightKg
-          .toFixed(2)
-          .replace(".", ",")} KG`,
         bold: true
       });
     }
@@ -5219,6 +5427,8 @@ export function GlassBarcodeScannerCart({
       singleViaBanner: "VIA ÚNICA",
       footerNote: resolvedPayDate
         ? `PREVISÃO PAGTO: ${resolvedPayDate}`
+        : ticket.isFounder
+        ? "Coleta própria salva na pasta!"
         : "Pasta do colaborador atualizada com sucesso!",
       copies
     };
@@ -6087,7 +6297,7 @@ export function GlassBarcodeScannerCart({
         msg += `🏭 *Valor Bruto Usina (100%):* R$ ${math.plantGrossValue.toFixed(2).replace(".", ",")}\n`;
       }
     }
-    msg += `💰 *${ticket.isFounder ? "TOTAL A PAGAR (PRÓPRIA)" : "TOTAL LÍQUIDO"}:* R$ ${ticket.isFounder ? "0,00" : ticket.totalPaid.toFixed(2).replace(".", ",")}\n`;
+    msg += `💰 *${ticket.isFounder ? "VALOR TOTAL DA COLETA" : "TOTAL LÍQUIDO"}:* R$ ${(ticket.isFounder ? getTicketEffectiveMonetaryValue(ticket) : ticket.totalPaid).toFixed(2).replace(".", ",")}\n`;
     const snap = getTicketCollabSnapshot(ticket);
     if (snap) {
       msg += `━━━━━━━━━━━━━━━━━━━━\n`;
@@ -6598,20 +6808,30 @@ export function GlassBarcodeScannerCart({
                 </button>
               </>
             ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setYardControlFilter("outros");
-                  setActiveTab("estoque");
-                  setTimeout(() => {
-                    digitalScalePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }, 60);
-                }}
-                className="min-h-[48px] px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/25 touch-manipulation"
-              >
-                <Scale className="w-4 h-4" />
-                <span>Pesar na Balança & Lucros ⚖️</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setYardControlFilter("outros");
+                    setActiveTab("estoque");
+                    setTimeout(() => {
+                      digitalScalePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }, 60);
+                  }}
+                  className="min-h-[48px] px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/25 touch-manipulation"
+                >
+                  <Scale className="w-4 h-4" />
+                  <span>Pesar na Balança &amp; Lucros ⚖️</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCarrocinhaSaleModal(true)}
+                  className="min-h-[48px] px-4 py-2.5 bg-gradient-to-r from-amber-400 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20 touch-manipulation"
+                >
+                  <Truck className="w-4 h-4" />
+                  <span>Baixa / Venda do Dia (Carrocinha)</span>
+                </button>
+              </>
             )}
 
             <button
@@ -6928,10 +7148,20 @@ export function GlassBarcodeScannerCart({
                 </p>
               </div>
               <div className="text-right shrink-0 space-y-1">
-                <span className="text-[10px] uppercase font-bold text-cyan-300 block">Peso no Ferro Velho:</span>
+                <span className="text-[10px] uppercase font-bold text-cyan-300 block">Estoque no Ferro Velho:</span>
                 <strong className="text-xl sm:text-2xl font-mono font-black text-white block">
                   {recyclingProfitAccounting.totals.stockKg.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 })} kg
                 </strong>
+                <span className="text-[11px] font-bold text-emerald-300 block">
+                  Peso Acumulado (Compras/Coletas):{" "}
+                  <strong className="font-mono">
+                    {Math.max(
+                      recyclingProfitAccounting.totals.stockKg,
+                      recyclingProfitAccounting.totals.realizedBoughtKg
+                    ).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
+                    kg
+                  </strong>
+                </span>
                 {otherMaterialsTotalUnits > 0 && (
                   <span className="text-[11px] font-bold text-amber-300 block">
                     + {otherMaterialsTotalUnits} aparelhos / un
@@ -7042,10 +7272,12 @@ export function GlassBarcodeScannerCart({
               { id: "carrinho", label: "🛒 Bipar & Comprar Vidros", badge: cart.length > 0 ? `${cart.length}` : null },
               { id: "estoque", label: "🍾 Estoque de Vidros (Pátio)", badge: `${yardTotals.totalUnits}` },
               { id: "caderninho", label: "📖 Caderninho dos Colaboradores", badge: caderninhoTotals.totalPendingAll > 0 ? `R$ ${caderninhoTotals.totalPendingAll.toFixed(0)}` : null },
-              { id: "cargas", label: "📁 Pastas, Recibos & Cargas Usina", badge: purchaseHistory.filter((t) => !t.isCancelled).length > 0 ? `${purchaseHistory.filter((t) => !t.isCancelled).length}` : null }
+              { id: "cargas", label: "📁 Pastas, Recibos & Cargas Usina", badge: purchaseHistory.filter((t) => !t.isCancelled).length > 0 ? `${purchaseHistory.filter((t) => !t.isCancelled).length}` : null },
+              { id: "relatorios", label: "📊 Relatórios & Baixa do Dia", badge: null }
             ]
           : [
               { id: "estoque", label: "⚖️ Balança, Compras & Lucros (Ferro Velho)", badge: `${otherMaterialsTotalKg.toFixed(0)} kg` },
+              { id: "relatorios", label: "📊 Relatórios & Baixa do Dia", badge: scrapSalesHistory.filter((s) => !s.isCancelled).length > 0 ? `${scrapSalesHistory.filter((s) => !s.isCancelled).length}` : null },
               { id: "caderninho", label: "📖 Caderninho dos Colaboradores", badge: caderninhoTotals.totalPendingAll > 0 ? `R$ ${caderninhoTotals.totalPendingAll.toFixed(0)}` : null },
               { id: "cargas", label: "📁 Pastas & Recibos Salvos", badge: purchaseHistory.filter((t) => !t.isCancelled).length > 0 ? `${purchaseHistory.filter((t) => !t.isCancelled).length}` : null },
               { id: "guia_plasticos", label: "📘 Guia Plásticos (PET / Duro / PS)", badge: "Tabela" }
@@ -7055,7 +7287,7 @@ export function GlassBarcodeScannerCart({
             key={tab.id}
             type="button"
             onClick={() => {
-              const targetTab = tab.id as "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos";
+              const targetTab = tab.id as "carrinho" | "caderninho" | "estoque" | "cargas" | "guia_plasticos" | "relatorios";
               setActiveTab(targetTab);
               if (targetTab === "estoque") {
                 setYardControlFilter(activeSector === "reciclagem" ? "outros" : "vidro");
@@ -7265,9 +7497,9 @@ export function GlassBarcodeScannerCart({
               </button>
             </div>
 
-            {/* CHIPS DE SELEÇÃO RÁPIDA DE COLABORADOR */}
+            {/* CHIPS DE SELEÇÃO RÁPIDA DE COLABORADOR (COLABORADORES PRIMEIRO, COLETA PRÓPRIA SEPARADA) */}
             <div className="flex flex-wrap items-center gap-2">
-              {collaborators.map((collab) => {
+              {[...collaborators.filter((c) => !c.isFounder), ...collaborators.filter((c) => c.isFounder)].map((collab) => {
                 const isSelected = selectedCollabId === collab.id;
                 return (
                   <button
@@ -7280,12 +7512,12 @@ export function GlassBarcodeScannerCart({
                           ? "bg-amber-400 text-slate-950 border-amber-300 font-black shadow-lg shadow-amber-400/30 scale-105"
                           : "bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-lg shadow-emerald-500/30 scale-105"
                         : collab.isFounder
-                        ? "bg-amber-950/40 text-amber-200 border-amber-500/30 hover:border-amber-400"
+                        ? "bg-amber-950/40 text-amber-200 border-amber-500/40 hover:border-amber-400"
                         : "bg-slate-950 text-slate-300 border-white/10 hover:border-white/30"
                     }`}
                   >
                     {collab.isFounder ? <Crown className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
-                    <span>{collab.name}</span>
+                    <span>{collab.isFounder ? "Minha Coleta Própria (100%)" : collab.name}</span>
                     {collab.balancePending > 0 && !collab.isFounder && (
                       <span className="text-[10px] px-1.5 py-0.5 bg-rose-500/20 text-rose-300 rounded font-black">
                         Devo R$ {collab.balancePending.toFixed(2)}
@@ -7296,16 +7528,30 @@ export function GlassBarcodeScannerCart({
               })}
             </div>
 
-            {/* BANNER SE FOR COLETA PRÓPRIA DA EMPRESA */}
+            {/* BANNER DE AVISO SE FOR COLETA PRÓPRIA (EVITAR USAR PARA TERCEIROS POR ENGANO) */}
             {activeCollab.isFounder && (
-              <div className="p-3.5 bg-amber-950/40 border border-amber-500/40 rounded-2xl flex items-center gap-3 text-xs text-amber-200">
-                <Crown className="w-5 h-5 text-amber-400 shrink-0" />
-                <div>
-                  <strong className="text-white block font-black">
-                    👑 {activeCollab.name}
-                  </strong>
-                  As garrafas adicionadas agora entram no estoque para somar nas <strong>toneladas do caminhão</strong>, sem gerar dívida a terceiros! O valor é pura <strong>economia e faturamento 100% da sua empresa</strong>!
+              <div className="p-3.5 bg-amber-950/50 border-2 border-amber-400/60 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
+                <div className="flex items-start gap-2.5">
+                  <Crown className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="text-white block font-black">
+                      ⚠️ Modo COLETA PRÓPRIA Ativo (Você recebe 100% na Usina)
+                    </strong>
+                    <span>
+                      Não use este modo se estiver comprando de outro reciclador! Neste modo cada garrafa é calculada com{" "}
+                      <strong className="text-amber-300">100% do valor da Usina</strong>.
+                    </span>
+                  </div>
                 </div>
+                {firstNonFounderCollab && !firstNonFounderCollab.isFounder && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCollabId(firstNonFounderCollab.id)}
+                    className="min-h-[40px] px-3 py-1.5 bg-slate-950 hover:bg-emerald-500 hover:text-slate-950 text-emerald-300 font-black text-[11px] rounded-xl border border-emerald-500/40 shrink-0 cursor-pointer touch-manipulation"
+                  >
+                    Trocar p/ Colaborador
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -7862,17 +8108,52 @@ export function GlassBarcodeScannerCart({
                         </div>
                       </div>
 
-                      {/* Valores */}
-                      <div className="text-right min-w-[110px]">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                          {activeCollab.isFounder ? "Economia Própria:" : "Pagar ao Colaborador:"}
-                        </span>
-                        <div className="text-sm font-mono font-black text-amber-400">
-                          R$ {item.totalBuyCost.toFixed(2)}
-                        </div>
-                        <span className="text-[10px] text-emerald-400 block font-mono">
-                          Usina: R$ {item.totalRevenue.toFixed(2)}
-                        </span>
+                      {/* Valores (100% Usina se Coleta Própria; Editável por Colaborador se Terceiro) */}
+                      <div className="text-right min-w-[130px] space-y-1">
+                        {activeCollab.isFounder ? (
+                          <>
+                            <span className="text-[10px] uppercase font-bold text-amber-300 block">
+                              Recebo 100% (Usina):
+                            </span>
+                            <div className="text-sm font-mono font-black text-amber-300">
+                              R$ {item.totalRevenue.toFixed(2).replace(".", ",")}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                              Pagar ao Colaborador:
+                            </span>
+                            <div className="flex items-center justify-end gap-1">
+                              <span className="text-[10px] font-bold text-amber-400">R$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={Number(item.totalBuyCost.toFixed(2))}
+                                onChange={(e) => {
+                                  const v = parseFloat(e.target.value);
+                                  handleUpdateCartItemCustomCost(item.id, Number.isFinite(v) && v >= 0 ? v : 0);
+                                }}
+                                className="w-20 min-h-[32px] bg-slate-900 border border-amber-500/40 rounded-lg px-1.5 text-right font-mono font-black text-xs text-amber-300 outline-none"
+                                title="Ajustar valor R$ pago por este item para o colaborador"
+                              />
+                              {item.isCustomCost && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateCartItemCustomCost(item.id, null)}
+                                  className="px-1.5 py-1 text-[9px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 rounded cursor-pointer"
+                                  title="Voltar para preço automático 62%"
+                                >
+                                  Auto
+                                </button>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-emerald-400 block font-mono">
+                              Usina (100%): R$ {item.totalRevenue.toFixed(2).replace(".", ",")}
+                            </span>
+                          </>
+                        )}
                       </div>
 
                       {/* Remover */}
@@ -7902,16 +8183,16 @@ export function GlassBarcodeScannerCart({
                   </div>
                   <div>
                     <span className="text-[10px] uppercase font-bold text-amber-400 block">
-                      {activeCollab.isFounder ? "Economia Própria:" : "Valor a Pagar:"}
+                      {activeCollab.isFounder ? "Minha Coleta (100%):" : "Valor a Pagar:"}
                     </span>
                     <strong className="text-xl font-mono text-amber-400 font-black">
-                      R$ {cartTotals.totalBuyCost.toFixed(2)}
+                      R$ {(activeCollab.isFounder ? cartTotals.totalRevenue : cartTotals.totalBuyCost).toFixed(2).replace(".", ",")}
                     </strong>
                   </div>
                   <div>
                     <span className="text-[10px] uppercase font-bold text-teal-400 block">Valor na Usina (R$ {sellPricePerKg.toFixed(2).replace(".", ",")}/kg):</span>
                     <strong className="text-xl font-mono text-teal-300 font-black">
-                      R$ {cartTotals.totalRevenue.toFixed(2)}
+                      R$ {cartTotals.totalRevenue.toFixed(2).replace(".", ",")}
                     </strong>
                   </div>
                 </div>
@@ -7925,7 +8206,7 @@ export function GlassBarcodeScannerCart({
                       className="w-full sm:w-auto min-h-[50px] px-6 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-400/30 touch-manipulation"
                     >
                       <Crown className="w-5 h-5" />
-                      <span>Lançar Coleta Própria (Economia de R$ {cartTotals.totalBuyCost.toFixed(2)}) 👑</span>
+                      <span>Lançar Coleta Própria (100% Usina: R$ {cartTotals.totalRevenue.toFixed(2).replace(".", ",")}) 👑</span>
                     </button>
                   ) : (
                     <div className="w-full space-y-2">
@@ -8469,6 +8750,22 @@ export function GlassBarcodeScannerCart({
                     </button>
                     <button
                       type="button"
+                      onClick={() => setShowCarrocinhaSaleModal(true)}
+                      className="min-h-[40px] px-3.5 py-1.5 bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black text-xs rounded-xl inline-flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
+                    >
+                      <Truck className="w-3.5 h-3.5" />
+                      <span>Baixa / Venda do Dia (Carrocinha)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("relatorios")}
+                      className="min-h-[40px] px-3.5 py-1.5 bg-indigo-500/20 hover:bg-indigo-500 hover:text-white text-indigo-200 font-black text-xs rounded-xl border border-indigo-400/40 inline-flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      <span>Relatórios do Dia &amp; Lucros</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setActiveTab("guia_plasticos")}
                       className="min-h-[40px] px-3.5 py-1.5 bg-sky-500/15 hover:bg-sky-500 hover:text-slate-950 text-sky-300 font-black text-xs rounded-xl border border-sky-500/35 inline-flex items-center gap-1.5 cursor-pointer touch-manipulation select-none active:scale-95 transition-all"
                     >
@@ -8487,11 +8784,19 @@ export function GlassBarcodeScannerCart({
                     )}
                   </div>
                 </div>
-                <div className="px-4 py-2.5 bg-slate-950 rounded-2xl border border-cyan-500/30 text-right shrink-0">
-                  <span className="text-[10px] uppercase font-bold text-cyan-400 block">Acumulado Reciclagem:</span>
-                  <strong className="text-xl font-mono font-black text-white">
+                <div className="px-4 py-2.5 bg-slate-950 rounded-2xl border border-cyan-500/30 text-right shrink-0 space-y-0.5">
+                  <span className="text-[10px] uppercase font-bold text-cyan-400 block">Estoque Ferro Velho:</span>
+                  <strong className="text-xl font-mono font-black text-white block">
                     {otherMaterialsTotalKg.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg
                   </strong>
+                  <span className="text-[10.5px] font-bold text-emerald-300 block">
+                    Peso Acumulado:{" "}
+                    {Math.max(
+                      otherMaterialsTotalKg,
+                      recyclingProfitAccounting.totals.realizedBoughtKg
+                    ).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
+                    kg
+                  </span>
                   {otherMaterialsTotalUnits > 0 && (
                     <span className="text-[11px] font-bold text-amber-300 block">
                       + {otherMaterialsTotalUnits} aparelhos / unidades
@@ -8803,19 +9108,33 @@ export function GlassBarcodeScannerCart({
                       </button>
                     </div>
 
-                    {/* Preço por kg direto na Balança Digital */}
-                    <div className="p-2.5 bg-slate-900/90 border border-emerald-500/35 rounded-xl space-y-1">
+                    {/* Preço por kg direto na Balança Digital (100% Revenda em Coleta Própria ou Valor Compra p/ Colaborador) */}
+                    <div
+                      className={`p-2.5 bg-slate-900/90 border rounded-xl space-y-1 ${
+                        isScrapFounderActive ? "border-amber-400/50" : "border-emerald-500/35"
+                      }`}
+                    >
                       <div className="flex items-center justify-between gap-2">
-                        <label className="text-[11px] font-black uppercase text-emerald-300">
-                          💲 Preço Pago por kg (R$/kg):
+                        <label
+                          className={`text-[11px] font-black uppercase ${
+                            isScrapFounderActive ? "text-amber-300" : "text-emerald-300"
+                          }`}
+                        >
+                          {isScrapFounderActive
+                            ? "👑 Meu Preço Revenda 100% (R$/kg):"
+                            : "💲 Preço Pago ao Colaborador (R$/kg):"}
                         </label>
                         {scaleEffectivePricePerKg > 0 ? (
-                          <span className="text-[10.5px] font-mono font-black text-emerald-300">
+                          <span
+                            className={`text-[10.5px] font-mono font-black ${
+                              isScrapFounderActive ? "text-amber-300" : "text-emerald-300"
+                            }`}
+                          >
                             R$ {scaleEffectivePricePerKg.toFixed(2).replace(".", ",")}/kg
                           </span>
                         ) : (
                           <span className="text-[10px] font-bold text-amber-300">
-                            Opcional (para pagar)
+                            {isScrapFounderActive ? "Defina valor 100% revenda" : "Opcional (para pagar)"}
                           </span>
                         )}
                       </div>
@@ -8830,15 +9149,42 @@ export function GlassBarcodeScannerCart({
                             setScalePricePerKgInput(raw);
                             if (selectedScaleMaterial) {
                               const parsed = parseFloat(raw.replace(",", "."));
-                              const cleanPrice = raw.trim() === "" ? 0 : Number.isFinite(parsed) && parsed >= 0 ? parsed : selectedScaleMaterial.buyPricePerKg;
-                              markLocalYardMutation();
-                              setOtherScrapMaterials((prev) =>
-                                prev.map((m) => (m.id === selectedScaleMaterial.id ? { ...m, buyPricePerKg: cleanPrice } : m))
-                              );
+                              if (isScrapFounderActive) {
+                                const cleanSell =
+                                  raw.trim() === ""
+                                    ? 0
+                                    : Number.isFinite(parsed) && parsed >= 0
+                                    ? parsed
+                                    : selectedScaleMaterial.sellPricePerKg || 0;
+                                setScaleSellPricePerKgInput(raw);
+                                markLocalYardMutation();
+                                setOtherScrapMaterials((prev) =>
+                                  prev.map((m) =>
+                                    m.id === selectedScaleMaterial.id ? { ...m, sellPricePerKg: cleanSell } : m
+                                  )
+                                );
+                              } else {
+                                const cleanPrice =
+                                  raw.trim() === ""
+                                    ? 0
+                                    : Number.isFinite(parsed) && parsed >= 0
+                                    ? parsed
+                                    : selectedScaleMaterial.buyPricePerKg;
+                                markLocalYardMutation();
+                                setOtherScrapMaterials((prev) =>
+                                  prev.map((m) =>
+                                    m.id === selectedScaleMaterial.id ? { ...m, buyPricePerKg: cleanPrice } : m
+                                  )
+                                );
+                              }
                             }
                           }}
-                          placeholder="Ex: 3,00"
-                          className="flex-1 min-h-[44px] bg-slate-950 border border-emerald-500/40 rounded-xl px-3 text-center text-emerald-300 font-mono font-black text-base outline-none focus:border-emerald-400"
+                          placeholder={isScrapFounderActive ? "Ex: 3,50 (100%)" : "Ex: 3,00"}
+                          className={`flex-1 min-h-[44px] bg-slate-950 border rounded-xl px-3 text-center font-mono font-black text-base outline-none ${
+                            isScrapFounderActive
+                              ? "border-amber-400/50 text-amber-200 focus:border-amber-300"
+                              : "border-emerald-500/40 text-emerald-300 focus:border-emerald-400"
+                          }`}
                         />
                         {scalePricePerKgInput !== "" && (
                           <button
@@ -8846,7 +9192,16 @@ export function GlassBarcodeScannerCart({
                             onClick={() => {
                               setScalePricePerKgInput("");
                               if (selectedScaleMaterial) {
-                                handleUpdateScrapPricePerKg(selectedScaleMaterial.id, 0);
+                                if (isScrapFounderActive) {
+                                  setScaleSellPricePerKgInput("");
+                                  handleUpdateScrapPrices(
+                                    selectedScaleMaterial.id,
+                                    selectedScaleMaterial.buyPricePerKg,
+                                    0
+                                  );
+                                } else {
+                                  handleUpdateScrapPricePerKg(selectedScaleMaterial.id, 0);
+                                }
                               }
                             }}
                             className="min-h-[44px] px-2.5 bg-slate-950 hover:bg-slate-800 border border-white/10 rounded-xl text-[10px] font-bold text-slate-300 cursor-pointer"
@@ -9216,14 +9571,19 @@ export function GlassBarcodeScannerCart({
                         <div className="flex items-center gap-1 flex-wrap">
                           <button
                             type="button"
-                            onClick={() => setScrapCollabMode("cadastrado")}
+                            onClick={() => {
+                              setScrapCollabMode("cadastrado");
+                              if (activeCollab?.isFounder && firstNonFounderCollab && !firstNonFounderCollab.isFounder) {
+                                setSelectedCollabId(firstNonFounderCollab.id);
+                              }
+                            }}
                             className={`min-h-[30px] px-2 rounded-lg text-[10px] font-black border cursor-pointer touch-manipulation ${
-                              scrapCollabMode === "cadastrado"
+                              scrapCollabMode === "cadastrado" && !activeCollab?.isFounder
                                 ? "bg-emerald-500 text-slate-950 border-emerald-400"
                                 : "bg-slate-950 text-slate-300 border-white/10"
                             }`}
                           >
-                            👤 Cadastrado
+                            👤 Colaborador
                           </button>
                           <button
                             type="button"
@@ -9250,10 +9610,26 @@ export function GlassBarcodeScannerCart({
                           >
                             ✍️ Digitar Nome
                           </button>
+                          {founderCollab && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedCollabId(founderCollab.id);
+                                setScrapCollabMode("cadastrado");
+                              }}
+                              className={`min-h-[30px] px-2 rounded-lg text-[10px] font-black border cursor-pointer touch-manipulation ${
+                                isScrapFounderActive
+                                  ? "bg-amber-400 text-slate-950 border-amber-300 shadow-sm shadow-amber-400/30"
+                                  : "bg-amber-950/50 text-amber-200 border-amber-500/35 hover:border-amber-400"
+                              }`}
+                            >
+                              👑 Minha Coleta (100%)
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      {scrapCollabMode === "cadastrado" && (
+                      {scrapCollabMode === "cadastrado" && !isScrapFounderActive && (
                         <div className="flex items-center gap-2">
                           <select
                             value={activeCollab?.id || selectedCollabId}
@@ -9272,13 +9648,14 @@ export function GlassBarcodeScannerCart({
                           >
                             <option value="__sem_nome__">🪪 Sem Nome no Recibo (Avulso / Direto)</option>
                             <option value="__digitar_nome__">✍️ Digitar Outro Nome na Hora...</option>
-                            {collaborators.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.isFounder ? "👑 " : "👤 "}
-                                {c.name}
-                                {!c.isFounder && c.balancePending > 0 ? ` (Devo R$ ${c.balancePending.toFixed(2)})` : ""}
-                              </option>
-                            ))}
+                            {collaborators
+                              .filter((c) => !c.isFounder)
+                              .map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  👤 {c.name}
+                                  {c.balancePending > 0 ? ` (Devo R$ ${c.balancePending.toFixed(2)})` : ""}
+                                </option>
+                              ))}
                           </select>
                           <button
                             type="button"
@@ -9291,6 +9668,26 @@ export function GlassBarcodeScannerCart({
                         </div>
                       )}
 
+                      {isScrapFounderActive && (
+                        <div className="p-2.5 bg-amber-950/50 border-2 border-amber-400/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                          <span className="text-amber-100 font-bold">
+                            ⚠️ <strong className="text-amber-300">MODO COLETA PRÓPRIA (100% REVENDA)</strong> — Usando seus preços de revenda (100%). Não use para compras de terceiros!
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setScrapCollabMode("sem_nome");
+                              if (firstNonFounderCollab && !firstNonFounderCollab.isFounder) {
+                                setSelectedCollabId(firstNonFounderCollab.id);
+                              }
+                            }}
+                            className="min-h-[34px] px-2.5 py-1 bg-slate-950 hover:bg-cyan-500 hover:text-slate-950 text-cyan-300 font-black text-[10.5px] rounded-lg border border-cyan-500/40 shrink-0 cursor-pointer"
+                          >
+                            Trocar p/ Reciclador
+                          </button>
+                        </div>
+                      )}
+
                       {scrapCollabMode === "sem_nome" && (
                         <div className="p-2.5 bg-slate-950 border border-cyan-500/35 rounded-xl flex items-center justify-between gap-2 text-xs">
                           <span className="text-cyan-200 font-bold">
@@ -9298,10 +9695,15 @@ export function GlassBarcodeScannerCart({
                           </span>
                           <button
                             type="button"
-                            onClick={() => setScrapCollabMode("cadastrado")}
+                            onClick={() => {
+                              setScrapCollabMode("cadastrado");
+                              if (activeCollab?.isFounder && firstNonFounderCollab && !firstNonFounderCollab.isFounder) {
+                                setSelectedCollabId(firstNonFounderCollab.id);
+                              }
+                            }}
                             className="text-[10.5px] font-black text-emerald-300 underline shrink-0 cursor-pointer"
                           >
-                            Trocar
+                            Escolher Colaborador
                           </button>
                         </div>
                       )}
@@ -9317,7 +9719,12 @@ export function GlassBarcodeScannerCart({
                           />
                           <button
                             type="button"
-                            onClick={() => setScrapCollabMode("cadastrado")}
+                            onClick={() => {
+                              setScrapCollabMode("cadastrado");
+                              if (activeCollab?.isFounder && firstNonFounderCollab && !firstNonFounderCollab.isFounder) {
+                                setSelectedCollabId(firstNonFounderCollab.id);
+                              }
+                            }}
                             className="min-h-[44px] px-3 bg-slate-950 border border-white/15 text-slate-300 font-bold text-xs rounded-xl cursor-pointer shrink-0"
                           >
                             Lista
@@ -9329,7 +9736,7 @@ export function GlassBarcodeScannerCart({
                     {scaleCombinedWeightKg > 0 && scaleEffectivePricePerKg > 0 && (
                       <div className="px-3.5 py-2 bg-slate-950 border border-amber-500/35 rounded-xl text-right shrink-0">
                         <span className="text-[10px] font-bold uppercase text-amber-300 block">
-                          {scrapCollabMode === "cadastrado" && activeCollab?.isFounder ? "Economia Própria:" : "Total Só Este Item:"}
+                          {isScrapFounderActive ? "Meu Total 100% (Revenda):" : "Total Só Este Item:"}
                         </span>
                         <strong className="text-lg font-mono font-black text-amber-300">
                           R$ {scaleTotalPayable.toFixed(2).replace(".", ",")}
@@ -9338,7 +9745,7 @@ export function GlassBarcodeScannerCart({
                     )}
                   </div>
 
-                  {!(scrapCollabMode === "cadastrado" && activeCollab?.isFounder) && (
+                  {!isScrapFounderActive && (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                       {(
                         [
@@ -9418,7 +9825,11 @@ export function GlassBarcodeScannerCart({
                   >
                     <Check className="w-4 h-4 shrink-0" />
                     <span>
-                      {!(scrapCollabMode === "cadastrado" && activeCollab?.isFounder) && scaleTotalPayable > 0 && scaleSettlementMode !== "so_estoque"
+                      {isScrapFounderActive
+                        ? scaleTotalPayable > 0
+                          ? `Minha Coleta 100% (R$ ${scaleTotalPayable.toFixed(2).replace(".", ",")})`
+                          : `Minha Coleta (${scaleCombinedWeightKg.toFixed(2)} kg)`
+                        : scaleTotalPayable > 0 && scaleSettlementMode !== "so_estoque"
                         ? scaleSettlementMode === "caderninho"
                           ? `Anotar Só Este (R$ ${scaleTotalPayable.toFixed(2).replace(".", ",")})`
                           : `Pagar Só Este (R$ ${scaleTotalPayable.toFixed(2).replace(".", ",")})`
@@ -9448,25 +9859,64 @@ export function GlassBarcodeScannerCart({
                       <span>🧺 Recibo Único Multi-Materiais ({scrapBasket.length} {scrapBasket.length === 1 ? "item" : "itens"})</span>
                     </h4>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      Junte PET + Plástico Duro + Latinha + Ferro tudo na mesma soma, aplique Acréscimo (+) ou Desconto/Dívida (−) e pague com 1 recibo só!
+                      Junte PET + Plástico Duro + Latinha + Ferro tudo na mesma soma, com os valores que você definir por material!
                     </p>
                   </div>
 
                   {scrapBasket.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setScrapBasket([])}
-                      className="min-h-[38px] px-3 bg-rose-950/60 hover:bg-rose-900 text-rose-200 font-bold text-xs rounded-xl border border-rose-500/30 cursor-pointer self-start sm:self-center shrink-0"
-                    >
-                      Limpar Lista
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap self-start sm:self-center shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScrapBasket((prev) =>
+                            prev.map((item) => {
+                              const mat = otherScrapMaterials.find((m) => m.id === item.materialId);
+                              if (!mat) return item;
+                              const nextPrice = isScrapFounderActive
+                                ? (mat.sellPricePerKg || 0) > 0
+                                  ? mat.sellPricePerKg || 0
+                                  : item.pricePerKg
+                                : mat.buyPricePerKg > 0
+                                ? mat.buyPricePerKg
+                                : item.pricePerKg;
+                              return { ...item, pricePerKg: nextPrice };
+                            })
+                          );
+                          setScrapBasketPriceDrafts({});
+                          if (showNotification) {
+                            showNotification(
+                              isScrapFounderActive
+                                ? "Preços da soma atualizados para seus valores 100% Revenda! 👑"
+                                : "Preços da soma atualizados para os valores de Compra (Colaborador)! 👤",
+                              "success"
+                            );
+                          }
+                        }}
+                        className={`min-h-[38px] px-3 font-black text-xs rounded-xl border cursor-pointer ${
+                          isScrapFounderActive
+                            ? "bg-amber-400/20 hover:bg-amber-400 hover:text-slate-950 text-amber-200 border-amber-400/50"
+                            : "bg-cyan-500/15 hover:bg-cyan-500 hover:text-slate-950 text-cyan-200 border-cyan-500/40"
+                        }`}
+                      >
+                        {isScrapFounderActive ? "👑 Aplicar Preços 100% Revenda" : "👤 Aplicar Preços Compra"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScrapBasket([])}
+                        className="min-h-[38px] px-3 bg-rose-950/60 hover:bg-rose-900 text-rose-200 font-bold text-xs rounded-xl border border-rose-500/30 cursor-pointer"
+                      >
+                        Limpar Lista
+                      </button>
+                    </div>
                   )}
                 </div>
 
                 {/* Adicionar material direto aqui dentro do Recibo Único */}
                 <div className="p-3 bg-slate-900/90 border border-white/10 rounded-xl space-y-2">
                   <span className="text-[10.5px] font-black uppercase text-cyan-300 block">
-                    + Adicionar Material na Soma do Recibo:
+                    {isScrapFounderActive
+                      ? "👑 + Adicionar Material na Soma (Usando Preço 100% Revenda):"
+                      : "+ Adicionar Material na Soma do Recibo (Digite Peso & Preço p/ Colaborador):"}
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
                     <select
@@ -9474,11 +9924,18 @@ export function GlassBarcodeScannerCart({
                       onChange={(e) => setScrapBasketQuickMatId(e.target.value)}
                       className="sm:col-span-5 min-h-[44px] bg-slate-950 border border-white/15 rounded-xl px-2.5 text-white font-bold text-xs outline-none"
                     >
-                      {otherScrapMaterials.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.emoji} {m.name} {m.buyPricePerKg > 0 ? `(R$ ${m.buyPricePerKg.toFixed(2).replace(".", ",")}/kg)` : ""}
-                        </option>
-                      ))}
+                      {otherScrapMaterials.map((m) => {
+                        const shownRate = isScrapFounderActive
+                          ? (m.sellPricePerKg || 0) > 0
+                            ? m.sellPricePerKg || 0
+                            : m.buyPricePerKg
+                          : m.buyPricePerKg;
+                        return (
+                          <option key={m.id} value={m.id}>
+                            {m.emoji} {m.name} {shownRate > 0 ? `(R$ ${shownRate.toFixed(2).replace(".", ",")}/kg)` : ""}
+                          </option>
+                        );
+                      })}
                     </select>
                     <input
                       type="text"
@@ -9528,7 +9985,7 @@ export function GlassBarcodeScannerCart({
                   <div className="space-y-2.5">
                     <div className="space-y-2">
                       {scrapBasket.map((item, idx) => {
-                        const rowTotal = Number((Math.max(0, item.weightKg) * Math.max(0, item.pricePerKg)).toFixed(2));
+                        const rowTotal = computeScrapLineTotal(item.weightKg, item.pricePerKg);
                         return (
                           <div
                             key={item.id}
@@ -10525,7 +10982,11 @@ export function GlassBarcodeScannerCart({
                               setCardPayMatId(mat.id);
                               setCardPayKgDraft(mat.stockKg > 0 ? String(mat.stockKg) : "");
                               setCardPayPriceDraft(mat.buyPricePerKg > 0 ? String(mat.buyPricePerKg) : "");
-                              setCardPayCollabId(activeCollab?.id || selectedCollabId);
+                              setCardPayCollabId(
+                                activeCollab?.isFounder
+                                  ? firstNonFounderCollab?.id || selectedCollabId
+                                  : activeCollab?.id || selectedCollabId
+                              );
                               setCardPayAddToStock(mat.stockKg <= 0);
                             }
                           }}
@@ -10543,11 +11004,13 @@ export function GlassBarcodeScannerCart({
                           <button
                             type="button"
                             onClick={() => {
+                              const pickedPrice =
+                                isScrapFounderActive && sellPrice > 0 ? sellPrice : mat.buyPricePerKg || 0;
                               handleAddItemToScrapBasket({
                                 material: mat,
                                 weightKg: mat.stockKg,
                                 units: mat.stockUnits || 0,
-                                pricePerKg: mat.buyPricePerKg || 0,
+                                pricePerKg: pickedPrice,
                                 addToStock: false
                               });
                               setTimeout(() => {
@@ -12087,6 +12550,76 @@ export function GlassBarcodeScannerCart({
         />
       )}
 
+      {/* ========================================================= */}
+      {/* ABA 6: RELATÓRIOS DIÁRIOS, ACUMULADOS & BAIXA CARROCINHA  */}
+      {/* ========================================================= */}
+      {activeTab === "relatorios" && (
+        <RecyclingReportsPanel
+          purchaseHistory={purchaseHistory}
+          scrapSalesHistory={scrapSalesHistory}
+          paymentHistory={paymentHistory}
+          truckShipments={truckShipments}
+          catalog={catalog}
+          otherScrapMaterials={otherScrapMaterials}
+          sellPricePerKg={sellPricePerKg}
+          storeName={loadPrinterConfig().storeName?.trim() || loadCompanyProfile().name?.trim() || "FERRO VELHO DW"}
+          storeCnpj={loadPrinterConfig().storeCnpjCpf?.trim() || loadCompanyProfile().cnpjCpf?.trim() || ""}
+          isGeneratingFunPrint={isGeneratingFunPrint}
+          onOpenCarrocinhaBatchSaleModal={() => setShowCarrocinhaSaleModal(true)}
+          onOpenSingleScrapSaleModal={(matId) => {
+            const mat = otherScrapMaterials.find((m) => m.id === matId);
+            if (!mat) return;
+            const sellP = Math.max(0, Number(mat.sellPricePerKg) || 0);
+            setSellingScrapMaterial(mat);
+            setScrapSaleKgDraft(mat.stockKg > 0 ? String(mat.stockKg) : "");
+            setScrapSaleUnitsDraft((mat.stockUnits || 0) > 0 ? String(mat.stockUnits) : "");
+            setScrapSaleTotalValueDraft(mat.stockKg > 0 && sellP > 0 ? (mat.stockKg * sellP).toFixed(2) : "");
+            setScrapSaleBuyerDraft("");
+            setScrapSaleOriginType("compra");
+          }}
+          onOpenGlassDispatchModal={() => setShowTruckDispatchModal(true)}
+          onPrintReport57mm={(payload) => {
+            const config = { ...loadPrinterConfig(), ...printerConfigState };
+            const html = buildThermalDocumentHtmlFromPayload(payload, config);
+            executeThermalPrint(
+              html,
+              () => {
+                if (showNotification) showNotification("Relatório do dia enviado para impressão 57mm! 🖨️", "success");
+              },
+              () => {
+                if (showNotification) showNotification("Use o botão PNG Inteira para abrir no app iBleem / Fun Print.", "warning");
+              }
+            );
+          }}
+          onDownloadReportPng={async (payload, dateTag) => {
+            setIsGeneratingFunPrint(true);
+            try {
+              const blob = await generateMiniPrint57mmPngBlob(payload);
+              await downloadReceiptPngDirect(blob, `relatorio_reciclagem_${dateTag}_57mm.png`);
+              if (showNotification) {
+                showNotification("Imagem inteira do relatório 57mm baixada! Abra no iBleem ou Fun Print. 📥", "success");
+              }
+            } catch (err: any) {
+              if (showNotification) showNotification(err?.message || "Erro ao gerar imagem 57mm do relatório.", "error");
+            } finally {
+              setIsGeneratingFunPrint(false);
+            }
+          }}
+          onShareReportWhatsApp={(text) => {
+            const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+            window.open(url, "_blank");
+          }}
+        />
+      )}
+
+      {/* MODAL: BAIXA / VENDA DIÁRIA DA CARROCINHA AMBULANTE (VÁRIOS MATERIAIS) */}
+      <CarrocinhaDailySaleModal
+        isOpen={showCarrocinhaSaleModal}
+        materials={otherScrapMaterials}
+        onClose={() => setShowCarrocinhaSaleModal(false)}
+        onConfirmBatchSale={handleConfirmCarrocinhaBatchSale}
+      />
+
       {/* MODAL: VENDER / DAR BAIXA DE LOTE DE OUTROS MATERIAIS (INTEGRADO AO PDV) */}
       {sellingScrapMaterial && (
         <div className="fixed inset-0 z-[75] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
@@ -12152,17 +12685,45 @@ export function GlassBarcodeScannerCart({
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setScrapSaleOriginType("compra")}
+                className={`min-h-[40px] px-3 py-1.5 rounded-xl font-black text-[11px] border cursor-pointer transition-colors ${
+                  scrapSaleOriginType === "compra"
+                    ? "bg-emerald-500 text-slate-950 border-emerald-400"
+                    : "bg-slate-950 text-slate-300 border-white/15"
+                }`}
+              >
+                Material Comprado
+              </button>
+              <button
+                type="button"
+                onClick={() => setScrapSaleOriginType("coleta_propria")}
+                className={`min-h-[40px] px-3 py-1.5 rounded-xl font-black text-[11px] border cursor-pointer transition-colors ${
+                  scrapSaleOriginType === "coleta_propria"
+                    ? "bg-amber-400 text-slate-950 border-amber-300"
+                    : "bg-slate-950 text-amber-200 border-amber-500/35"
+                }`}
+              >
+                👑 Coleta Própria (100% Lucro)
+              </button>
+            </div>
+
             {(() => {
               const kgSale = Math.max(0, parseFloat(scrapSaleKgDraft.replace(",", ".")) || 0);
               const valSale = Math.max(0, parseFloat(scrapSaleTotalValueDraft.replace(",", ".")) || 0);
-              const buyPrice = Math.max(0, Number(sellingScrapMaterial.buyPricePerKg) || 0);
-              const estCost = Number((kgSale * buyPrice).toFixed(2));
+              const isOwn100 = scrapSaleOriginType === "coleta_propria";
+              const buyPrice = isOwn100 ? 0 : Math.max(0, Number(sellingScrapMaterial.buyPricePerKg) || 0);
+              const estCost = isOwn100 ? 0 : Number((kgSale * buyPrice).toFixed(2));
               const profit = Number((valSale - estCost).toFixed(2));
               if (kgSale <= 0 && valSale <= 0) return null;
               return (
                 <div className="p-3 bg-slate-950 border border-white/10 rounded-xl space-y-1 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Quanto paguei (aprox.):</span>
+                    <span className="text-slate-400">
+                      {isOwn100 ? "Custo (Coleta Própria):" : "Quanto paguei (aprox.):"}
+                    </span>
                     <strong className="font-mono text-amber-300">R$ {estCost.toFixed(2).replace(".", ",")}</strong>
                   </div>
                   <div className="flex items-center justify-between">
@@ -12171,7 +12732,9 @@ export function GlassBarcodeScannerCart({
                   </div>
                   {valSale > 0 && (
                     <div className="flex items-center justify-between pt-1 border-t border-white/10">
-                      <span className="font-black text-emerald-300">Meu Lucro nesta Venda:</span>
+                      <span className="font-black text-emerald-300">
+                        {isOwn100 ? "Lucro 100% Nesta Venda:" : "Meu Lucro nesta Venda:"}
+                      </span>
                       <strong className={`font-mono font-black ${profit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         {profit >= 0 ? "+" : ""}R$ {profit.toFixed(2).replace(".", ",")}
                       </strong>
@@ -13803,13 +14366,17 @@ export function GlassBarcodeScannerCart({
               <div className="space-y-2 border-b border-dashed border-slate-400 pb-2">
                 {lastPurchaseReceipt.items.map((it, idx) => {
                   const isScrapIt = lastPurchaseReceipt.isScrapPurchase || it.volumeMl <= 0;
+                  const cleanName = it.name.trim();
+                  const hasEmbeddedUnitRate = /\(\s*R\$\s*[\d.,]+/i.test(cleanName);
                   const unitRate = it.totalWeightKg > 0 ? it.costPaid / it.totalWeightKg : 0;
                   return (
                     <div key={idx} className="text-xs border-b border-dotted border-slate-300 pb-1 last:border-b-0 last:pb-0">
                       <div className="font-black">
                         {isScrapIt
-                          ? `${it.totalWeightKg.toFixed(2).replace(".", ",")} KG ${it.name.toUpperCase()} (R$ ${unitRate.toFixed(2).replace(".", ",")})`
-                          : `${it.quantity} UN ${it.name.toUpperCase()} (${it.totalWeightKg.toFixed(2).replace(".", ",")} KG)`}
+                          ? hasEmbeddedUnitRate
+                            ? `${it.totalWeightKg.toFixed(2).replace(".", ",")} KG ${cleanName.toUpperCase()}`
+                            : `${it.totalWeightKg.toFixed(2).replace(".", ",")} KG ${cleanName.toUpperCase()} (R$ ${unitRate.toFixed(2).replace(".", ",")}/KG)`
+                          : `${it.quantity} UN ${cleanName.toUpperCase()} (${it.totalWeightKg.toFixed(2).replace(".", ",")} KG)`}
                       </div>
                       <div className="font-black text-sm">
                         = R$ {it.costPaid.toFixed(2).replace(".", ",")}
@@ -13855,13 +14422,19 @@ export function GlassBarcodeScannerCart({
                 <div className="flex justify-between font-black text-base border-y-2 border-slate-950 py-1 my-1">
                   <span>
                     {lastPurchaseReceipt.isFounder
-                      ? "COLETA PRÓPRIA:"
+                      ? "TOTAL A RECEBER:"
                       : lastPurchaseReceipt.paymentStatus === "pago_na_hora"
                       ? "TOTAL PAGO:"
                       : "TOTAL A PAGAR:"}
                   </span>
                   <span>
-                    R$ {lastPurchaseReceipt.isFounder ? "0,00" : lastPurchaseReceipt.totalPaid.toFixed(2).replace(".", ",")}
+                    R${" "}
+                    {(lastPurchaseReceipt.isFounder
+                      ? getTicketEffectiveMonetaryValue(lastPurchaseReceipt)
+                      : lastPurchaseReceipt.totalPaid
+                    )
+                      .toFixed(2)
+                      .replace(".", ",")}
                   </span>
                 </div>
                 {(() => {
@@ -13877,7 +14450,11 @@ export function GlassBarcodeScannerCart({
                 })()}
                 <div className="text-center text-[11px] font-bold pt-1 border-t border-dashed border-slate-400">
                   <div>OBRIGADO PELA PREFERÊNCIA!</div>
-                  <div className="font-normal">Pasta do colaborador atualizada com sucesso!</div>
+                  <div className="font-normal">
+                    {lastPurchaseReceipt.isFounder
+                      ? "Coleta própria salva na pasta!"
+                      : "Pasta do colaborador atualizada com sucesso!"}
+                  </div>
                 </div>
               </div>
             </div>
@@ -14555,7 +15132,7 @@ export function GlassBarcodeScannerCart({
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {collaborators.map((collab) => {
+                {[...collaborators.filter((c) => !c.isFounder), ...collaborators.filter((c) => c.isFounder)].map((collab) => {
                   const isSel = selectedCollabId === collab.id;
                   return (
                     <button
@@ -14567,18 +15144,38 @@ export function GlassBarcodeScannerCart({
                           ? collab.isFounder
                             ? "bg-amber-400 text-slate-950 border-amber-300 font-black"
                             : "bg-emerald-500 text-slate-950 border-emerald-400 font-black"
+                          : collab.isFounder
+                          ? "bg-amber-950/40 text-amber-200 border-amber-500/40 hover:border-amber-400"
                           : "bg-slate-950 text-slate-300 border-white/10 hover:border-white/25"
                       }`}
                     >
                       {collab.isFounder ? <Crown className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
-                      <span className="truncate max-w-[180px]">{collab.name}</span>
+                      <span className="truncate max-w-[180px]">
+                        {collab.isFounder ? "Minha Coleta Própria (100%)" : collab.name}
+                      </span>
                     </button>
                   );
                 })}
               </div>
+              {activeCollab.isFounder && (
+                <div className="p-2.5 bg-amber-950/50 border border-amber-400/60 rounded-xl flex items-center justify-between gap-2 text-[11px] text-amber-200">
+                  <span>
+                    ⚠️ <strong className="text-amber-300">Coleta Própria (100% Usina)</strong> — Não use se for compra de terceiro!
+                  </span>
+                  {firstNonFounderCollab && !firstNonFounderCollab.isFounder && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCollabId(firstNonFounderCollab.id)}
+                      className="px-2.5 py-1 bg-slate-950 text-emerald-300 font-black rounded-lg border border-emerald-500/40 shrink-0 cursor-pointer"
+                    >
+                      Trocar
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Itens no Carrinho com Ajuste Rápido */}
+            {/* Itens no Carrinho com Ajuste Rápido de Quantidade & Valor R$ */}
             {cart.length === 0 ? (
               <div className="p-6 text-center text-slate-400 text-xs bg-slate-950 rounded-2xl border border-white/10">
                 O carrinho está vazio. Adicione garrafas para fechar a compra.
@@ -14588,17 +15185,48 @@ export function GlassBarcodeScannerCart({
                 {cart.map((item) => (
                   <div
                     key={item.id}
-                    className="p-3 bg-slate-950 rounded-2xl border border-white/10 flex items-center justify-between gap-2 text-xs"
+                    className="p-3 bg-slate-950 rounded-2xl border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="font-black text-white truncate">
                         {item.emoji} {item.name}
                       </div>
-                      <div className="text-[11px] text-emerald-400 font-mono font-bold mt-0.5">
-                        {item.totalWeightKg.toFixed(2)} kg • R$ {item.totalBuyCost.toFixed(2)}
+                      <div className="text-[11px] text-emerald-400 font-mono font-bold mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>{item.totalWeightKg.toFixed(2)} kg •</span>
+                        {activeCollab.isFounder ? (
+                          <span className="text-amber-300">
+                            100% Usina: R$ {item.totalRevenue.toFixed(2).replace(".", ",")}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1">
+                            <span className="text-amber-300">R$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={Number(item.totalBuyCost.toFixed(2))}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                handleUpdateCartItemCustomCost(item.id, Number.isFinite(v) && v >= 0 ? v : 0);
+                              }}
+                              className="w-16 min-h-[28px] bg-slate-900 border border-amber-500/40 rounded-md px-1 text-right font-mono font-black text-[11px] text-amber-300 outline-none"
+                              title="Editar valor R$ pago por este item"
+                            />
+                            {item.isCustomCost && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateCartItemCustomCost(item.id, null)}
+                                className="px-1 py-0.5 text-[9px] bg-slate-800 text-slate-300 rounded cursor-pointer"
+                                title="Voltar para 62%"
+                              >
+                                Auto
+                              </button>
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                       <button
                         type="button"
                         onClick={() => handleUpdateCartQuantity(item.id, item.quantity - 1)}
@@ -14651,10 +15279,12 @@ export function GlassBarcodeScannerCart({
               </div>
               <div className="flex items-center justify-between border-t border-white/10 pt-2">
                 <span className="text-amber-300 font-black uppercase text-[11px]">
-                  {activeCollab.isFounder ? "Economia Própria (Coleta Empresa):" : `Total a Pagar (${activeCollab.name}):`}
+                  {activeCollab.isFounder
+                    ? "Total a Receber (100% Usina):"
+                    : `Total a Pagar (${activeCollab.name}):`}
                 </span>
                 <strong className="text-xl font-mono font-black text-amber-400">
-                  R$ {cartTotals.totalBuyCost.toFixed(2)}
+                  R$ {(activeCollab.isFounder ? cartTotals.totalRevenue : cartTotals.totalBuyCost).toFixed(2).replace(".", ",")}
                 </strong>
               </div>
             </div>
@@ -14669,7 +15299,9 @@ export function GlassBarcodeScannerCart({
                     className="w-full min-h-[54px] px-5 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 active:scale-95 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-400/30 touch-manipulation select-none"
                   >
                     <Crown className="w-5 h-5 shrink-0" />
-                    <span>CONFIRMAR &amp; SOMAR +{cartTotals.totalWeightKg.toFixed(2)} KG NO PÁTIO 👑</span>
+                    <span>
+                      CONFIRMAR COLETA 100% (R$ {cartTotals.totalRevenue.toFixed(2).replace(".", ",")} • +{cartTotals.totalWeightKg.toFixed(2)} KG) 👑
+                    </span>
                   </button>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -14747,16 +15379,18 @@ export function GlassBarcodeScannerCart({
                       </span>
                     </div>
                     <p className="text-[10.5px] text-slate-300 truncate max-w-[240px] sm:max-w-[340px]">
-                      {activeCollab.isFounder ? "👑 Coleta Própria" : `👤 ${activeCollab.name}`} •{" "}
+                      {activeCollab.isFounder ? "👑 Coleta Própria (100%)" : `👤 ${activeCollab.name}`} •{" "}
                       {cart.map((c) => `${c.quantity}× ${c.name}`).join(", ")}
                     </p>
                   </div>
                 </div>
 
                 <div className="text-right sm:hidden shrink-0">
-                  <span className="text-[9px] uppercase font-bold text-slate-400 block">Total</span>
+                  <span className="text-[9px] uppercase font-bold text-slate-400 block">
+                    {activeCollab.isFounder ? "100% Usina" : "Total"}
+                  </span>
                   <strong className="text-base font-mono font-black text-amber-400">
-                    R$ {cartTotals.totalBuyCost.toFixed(2)}
+                    R$ {(activeCollab.isFounder ? cartTotals.totalRevenue : cartTotals.totalBuyCost).toFixed(2).replace(".", ",")}
                   </strong>
                 </div>
               </div>
@@ -14764,10 +15398,10 @@ export function GlassBarcodeScannerCart({
               <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
                 <div className="hidden sm:block text-right mr-2">
                   <span className="text-[9px] uppercase font-black text-slate-400 block">
-                    {activeCollab.isFounder ? "Economia" : "Total Pagar"}
+                    {activeCollab.isFounder ? "Recebo 100%" : "Total Pagar"}
                   </span>
                   <strong className="text-lg font-mono font-black text-amber-400 leading-none">
-                    R$ {cartTotals.totalBuyCost.toFixed(2)}
+                    R$ {(activeCollab.isFounder ? cartTotals.totalRevenue : cartTotals.totalBuyCost).toFixed(2).replace(".", ",")}
                   </strong>
                 </div>
 

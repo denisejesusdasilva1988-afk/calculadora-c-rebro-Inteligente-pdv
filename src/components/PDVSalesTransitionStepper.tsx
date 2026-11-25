@@ -43,9 +43,19 @@ import {
   Check,
   Package,
   Grid,
-  List
+  List,
+  Download,
+  Bluetooth
 } from "lucide-react";
 import { PDVTransaction, CartItem } from "./PDVModule";
+import {
+  loadPrinterConfig,
+  buildPdvTransactionThermalPayload,
+  generateMiniPrint57mmPngBlob,
+  downloadReceiptPngDirect,
+  isBluetoothPrintSupported,
+  printViaBluetoothEscPos
+} from "../utils/thermalPrinterHelper";
 
 export const CLOTHING_SIZES_LETTER = ["PP", "P", "M", "G", "GG", "XG", "EXG", "G1", "G2", "G3", "ÚNICO"];
 export const CLOTHING_SIZES_NUMBER = ["34", "36", "38", "40", "42", "44", "46", "48", "50", "52", "54"];
@@ -2172,6 +2182,64 @@ export function PDVSalesTransitionStepper({
                       <span>Imprimir Cupom Fiscal Agora 🖨️</span>
                     </button>
 
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!activeReceipt) {
+                          showNotification("Nenhum cupom ativo para gerar PNG.", "warning");
+                          return;
+                        }
+                        try {
+                          const cfg = loadPrinterConfig();
+                          const payload = buildPdvTransactionThermalPayload(
+                            activeReceipt,
+                            storeCustomName || cfg.storeName || "MEU ESTABELECIMENTO",
+                            storeCustomCnpjCpf || cfg.storeCnpjCpf || "",
+                            cfg.printTwoCopies ? 2 : 1
+                          );
+                          const blob = await generateMiniPrint57mmPngBlob(payload);
+                          const shortId = activeReceipt.id.slice(-6).toUpperCase();
+                          downloadReceiptPngDirect(blob, `notinha_pdv_${shortId}_57mm.png`);
+                          showNotification(`Imagem inteira #${shortId} baixada! Abra no iBleem ou Fun Print -> Imprimir Imagem. 🖼️📥`, "success");
+                        } catch {
+                          showNotification("Erro ao gerar imagem PNG da notinha.", "error");
+                        }
+                      }}
+                      className="w-full py-2.5 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                    >
+                      <Download className="w-4 h-4 text-slate-950" />
+                      <span>Baixar Imagem PNG Inteira (iBleem / Fun Print)</span>
+                    </button>
+
+                    {isBluetoothPrintSupported() && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!activeReceipt) {
+                            showNotification("Nenhum cupom ativo para imprimir.", "warning");
+                            return;
+                          }
+                          try {
+                            const cfg = loadPrinterConfig();
+                            await printViaBluetoothEscPos(activeReceipt, {
+                              ...cfg,
+                              printerType,
+                              storeName: storeCustomName || cfg.storeName,
+                              storeCnpjCpf: storeCustomCnpjCpf || cfg.storeCnpjCpf,
+                              receiptFooterMsg: receiptFooterMsg || cfg.receiptFooterMsg
+                            });
+                            showNotification("Cupom enviado direto via Bluetooth! 📶🖨️", "success");
+                          } catch (err: any) {
+                            showNotification(err?.message || "Erro ao conectar na impressora Bluetooth.", "warning");
+                          }
+                        }}
+                        className="w-full py-2 bg-slate-900 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-bold text-[11px] uppercase rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                      >
+                        <Bluetooth className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Imprimir Direto via Bluetooth (ESC/POS)</span>
+                      </button>
+                    )}
+
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
@@ -2256,7 +2324,7 @@ export function PDVSalesTransitionStepper({
               {/* Right Column: Realistic Fiscal Thermal Receipt Display */}
               <div className="lg:col-span-6 flex justify-center">
                 <div 
-                  className={`bg-white text-slate-950 p-6 rounded-2xl shadow-2xl font-mono text-[11px] leading-relaxed border-t-8 border-b-8 border-slate-300 w-full ${
+                  className={`bg-white text-black p-6 rounded-2xl shadow-2xl font-sans font-bold text-[11px] leading-relaxed border-t-8 border-b-8 border-slate-300 w-full ${
                     printerType === "58mm" ? "max-w-[320px]" : printerType === "80mm" ? "max-w-[400px]" : "max-w-full"
                   }`}
                   style={{ backgroundImage: "repeating-linear-gradient(0deg, #fafafa, #fafafa 1px, #fff 1px, #fff 24px)" }}

@@ -3056,12 +3056,45 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     return null;
   });
   const [printerType, setPrinterType] = useState<"58mm" | "80mm" | "A4">(() => {
-    return (localStorage.getItem("pdv_printer_type") as any) || "80mm";
+    return loadPrinterConfig().printerType || (localStorage.getItem("pdv_printer_type") as any) || "80mm";
   });
   const [isSimulatingPrinter, setIsSimulatingPrinter] = useState(false);
   const [printerStep, setPrinterStep] = useState<"scanning" | "connecting" | "sending" | "done">("scanning");
   const [printerProgress, setPrinterProgress] = useState(0);
+  const [btPrintStatusText, setBtPrintStatusText] = useState<string>("");
   const [showReceiptQrCode, setShowReceiptQrCode] = useState(false);
+
+  const applySavedPrinterConfig = useCallback((nextCfg: PrinterConfig) => {
+    setPrinterConfig(nextCfg);
+    setPrinterType(nextCfg.printerType);
+    if (nextCfg.storeName !== undefined) setStoreCustomName(nextCfg.storeName);
+    if (nextCfg.storeCnpjCpf !== undefined) setStoreCustomCnpjCpf(nextCfg.storeCnpjCpf);
+    if (nextCfg.receiptFooterMsg !== undefined) setReceiptFooterMsg(nextCfg.receiptFooterMsg);
+  }, []);
+
+  const handleChangePrinterType = useCallback((nextType: "58mm" | "80mm" | "A4") => {
+    setPrinterType(nextType);
+    setPrinterConfig((prev) => {
+      const nextCfg: PrinterConfig = {
+        ...prev,
+        printerType: nextType,
+        miniPrintPocketMode: nextType === "58mm" ? prev.miniPrintPocketMode : false,
+      };
+      savePrinterConfig(nextCfg);
+      return nextCfg;
+    });
+  }, []);
+
+  useEffect(() => {
+    const onPrinterChanged = (ev: Event) => {
+      const custom = ev as CustomEvent<PrinterConfig>;
+      const latest = custom.detail || loadPrinterConfig();
+      setPrinterConfig(latest);
+      setPrinterType(latest.printerType);
+    };
+    window.addEventListener("pdv_printer_config_changed", onPrinterChanged);
+    return () => window.removeEventListener("pdv_printer_config_changed", onPrinterChanged);
+  }, []);
 
   useEffect(() => {
     if (!lastCompletedTransaction && transactions.length > 0) {
@@ -3642,67 +3675,89 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
 
   const handlePrintReceipt = () => {
     try {
-      let iframe = document.getElementById("receipt-print-frame") as HTMLIFrameElement;
-      if (!iframe) {
-        iframe = document.createElement("iframe");
-        iframe.id = "receipt-print-frame";
-        iframe.style.position = "absolute";
-        iframe.style.width = "0px";
-        iframe.style.height = "0px";
-        iframe.style.border = "none";
-        document.body.appendChild(iframe);
-      }
-
-      const iframeDoc = iframe.contentWindow?.document || iframe.contentDocument;
-      if (!iframeDoc) {
-        showNotification("Erro ao acessar frame de impressão", "error");
-        return;
-      }
+      const cfg = loadPrinterConfig();
+      const is58mm = cfg.printerType === "58mm" || Boolean(cfg.miniPrintPocketMode);
+      const isA4 = cfg.printerType === "A4" && !cfg.miniPrintPocketMode;
+      const printableWidth = is58mm ? "48mm" : isA4 ? "100%" : "72mm";
+      const maxContainerWidth = is58mm ? "48mm" : isA4 ? "640px" : "72mm";
+      const pageSize = is58mm ? "58mm auto" : isA4 ? "A4 portrait" : "80mm auto";
+      const fontBasePx =
+        cfg.fontSize === "pequena"
+          ? is58mm ? 9.5 : 10.5
+          : cfg.fontSize === "grande"
+          ? is58mm ? 12 : 13.5
+          : is58mm ? 10.5 : 11.5;
+      const fontSmallPx = Math.max(8.5, fontBasePx - 1.5);
+      const fontHeaderPx = fontBasePx + 2.5;
+      const bodyWeight = cfg.highContrast !== false ? "900" : "700";
+      const esc = (s: string) =>
+        String(s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      const resolvedStore = (cfg.storeName || storeName || "PDV CÉREBRO INTELIGENTE").trim();
 
       const itemsHtml = cart.map(item => `
-        <tr style="border-bottom: 1px dashed #ddd; font-family: monospace;">
-          <td style="padding: 4px 0; font-size: 11px;">${item.name.toUpperCase()}</td>
-          <td style="padding: 4px 0; text-align: center; font-size: 11px;">${item.quantity}</td>
-          <td style="padding: 4px 0; text-align: right; font-size: 11px;">R$ ${item.price.toFixed(2)}</td>
-          <td style="padding: 4px 0; text-align: right; font-size: 11px;">R$ ${(item.price * item.quantity).toFixed(2)}</td>
+        <tr style="border-bottom: 1.5px dashed #000;">
+          <td style="padding: 4px 0; font-size: ${fontSmallPx}px; font-weight: 900;">${esc(item.name.toUpperCase())}</td>
+          <td style="padding: 4px 0; text-align: center; font-size: ${fontSmallPx}px; font-weight: 900;">${item.quantity}</td>
+          <td style="padding: 4px 0; text-align: right; font-size: ${fontSmallPx}px; font-family: monospace;">R$ ${item.price.toFixed(2).replace(".", ",")}</td>
+          <td style="padding: 4px 0; text-align: right; font-size: ${fontSmallPx}px; font-family: monospace; font-weight: 900;">R$ ${(item.price * item.quantity).toFixed(2).replace(".", ",")}</td>
         </tr>
       `).join("");
 
       const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(mpPixQrCode)}`;
+      const feedHeightPx = (cfg.feedLines || 4) * 9;
 
-      iframeDoc.open();
-      iframeDoc.write(`
-        <html>
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html lang="pt-BR">
           <head>
-            <title>Comprovante de Venda</title>
+            <meta charset="utf-8" />
+            <title>Comprovante Pix / QR</title>
             <style>
-              body { font-family: 'Courier New', Courier, monospace; color: #000; padding: 10px; width: 280px; margin: 0; }
-              .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 10px; }
-              .title { font-size: 14px; font-weight: bold; margin: 0; }
-              .subtitle { font-size: 10px; margin: 2px 0 0 0; }
-              .details { font-size: 10px; margin-bottom: 10px; line-height: 1.3; }
-              .table-items { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-              .totals { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 8px 0; font-size: 11px; font-weight: bold; margin-bottom: 10px; }
-              .qr-container { text-align: center; margin: 15px 0; }
-              .qr-image { width: 160px; height: 160px; }
-              .pix-code { font-size: 7px; word-break: break-all; border: 1px solid #ccc; padding: 4px; background: #f9f9f9; text-align: left; max-height: 40px; overflow: hidden; margin-top: 5px; }
-              .footer { text-align: center; font-size: 9px; margin-top: 15px; border-top: 1px dashed #000; padding-top: 8px; }
+              @page { size: ${pageSize}; margin: ${isA4 ? "14mm" : "0mm"}; }
+              * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+              html, body {
+                font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
+                color: #000 !important;
+                background: #fff !important;
+                padding: 6px 3px !important;
+                width: ${printableWidth};
+                max-width: ${maxContainerWidth};
+                margin: 0 auto !important;
+                font-size: ${fontBasePx}px;
+                font-weight: ${bodyWeight};
+                line-height: 1.25;
+              }
+              .header { text-align: center; border-bottom: 1.5px dashed #000; padding-bottom: 6px; margin-bottom: 8px; }
+              .title { font-size: ${fontHeaderPx}px; font-weight: 900; margin: 0; }
+              .subtitle { font-size: ${fontSmallPx}px; margin: 2px 0 0 0; font-weight: 900; }
+              .details { font-size: ${fontSmallPx}px; margin-bottom: 8px; line-height: 1.3; }
+              .table-items { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+              .totals { border-top: 1.5px dashed #000; border-bottom: 1.5px dashed #000; padding: 6px 0; font-size: ${fontBasePx}px; font-weight: 900; margin-bottom: 8px; }
+              .qr-container { text-align: center; margin: 10px 0; }
+              .qr-image { width: ${is58mm ? "135px" : "165px"}; height: ${is58mm ? "135px" : "165px"}; display: block; margin: 0 auto; }
+              .pix-code { font-size: 8px; font-family: monospace; word-break: break-all; border: 1.5px solid #000; padding: 4px; background: #fff; text-align: left; max-height: 44px; overflow: hidden; margin-top: 5px; }
+              .footer { text-align: center; font-size: ${fontSmallPx}px; margin-top: 10px; border-top: 1.5px dashed #000; padding-top: 6px; font-weight: 900; }
             </style>
           </head>
           <body>
             <div class="header">
-              <h1 class="title">PDV CÉREBRO INTELIGENTE</h1>
-              <p class="subtitle">SISTEMA DE AUTO-ATENDIMENTO</p>
+              <h1 class="title">${esc(resolvedStore.toUpperCase())}</h1>
+              ${cfg.showCnpjOnReceipt !== false && cfg.storeCnpjCpf ? `<div style="font-size:${fontSmallPx}px;">CNPJ/CPF: ${esc(cfg.storeCnpjCpf)}</div>` : ""}
+              <p class="subtitle">PEDIDO &amp; PAGAMENTO PIX QR CODE</p>
             </div>
             <div class="details">
               <b>DATA:</b> ${new Date().toLocaleString("pt-BR")}<br>
-              <b>REF VENDA:</b> ${mpPixPaymentId || "SIM_PIX"}<br>
-              <b>CAIXA:</b> ${selectedMpPosId || "Caixa 01"}<br>
-              <b>OPERADOR:</b> ${getAuth().currentUser?.email || "Operador do Caixa"}
+              <b>REF VENDA:</b> ${esc(mpPixPaymentId || "SIM_PIX")}<br>
+              <b>CAIXA:</b> ${esc(selectedMpPosId || "Caixa 01")}<br>
+              <b>OPERADOR:</b> ${esc(getAuth().currentUser?.email || "Operador do Caixa")}
             </div>
             <table class="table-items">
               <thead>
-                <tr style="border-bottom: 1px dashed #000; text-align: left; font-size: 10px; font-weight: bold;">
+                <tr style="border-bottom: 1.5px solid #000; text-align: left; font-size: ${fontSmallPx}px; font-weight: 900;">
                   <th style="padding-bottom: 4px;">ITEM</th>
                   <th style="padding-bottom: 4px; text-align: center;">QTD</th>
                   <th style="padding-bottom: 4px; text-align: right;">UNIT</th>
@@ -3716,38 +3771,37 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
             <div class="totals">
               <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
                 <span>SUBTOTAL:</span>
-                <span>R$ ${cartSubtotal.toFixed(2)}</span>
+                <span style="font-family:monospace;">R$ ${cartSubtotal.toFixed(2).replace(".", ",")}</span>
               </div>
               ${finalDiscount > 0 ? `
-              <div style="display: flex; justify-content: space-between; margin-bottom: 2px; color: red;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
                 <span>DESCONTO:</span>
-                <span>- R$ ${finalDiscount.toFixed(2)}</span>
+                <span style="font-family:monospace;">- R$ ${finalDiscount.toFixed(2).replace(".", ",")}</span>
               </div>` : ""}
-              <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 4px; font-weight: 900;">
+              <div style="display: flex; justify-content: space-between; font-size: ${fontHeaderPx}px; margin-top: 4px; font-weight: 900; border-top: 1.5px solid #000; padding-top: 3px;">
                 <span>FINAL (PIX):</span>
-                <span>R$ ${cartTotal.toFixed(2)}</span>
+                <span style="font-family:monospace;">R$ ${cartTotal.toFixed(2).replace(".", ",")}</span>
               </div>
             </div>
             <div class="qr-container">
-              <div style="font-size: 10px; font-weight: bold; margin-bottom: 4px;">ESCANEIE PARA PAGAR VIA PIX:</div>
+              <div style="font-size: ${fontSmallPx}px; font-weight: 900; margin-bottom: 4px;">ESCANEIE PARA PAGAR VIA PIX:</div>
               <img class="qr-image" src="${qrUrl}" alt="QR Code Pix" />
-              <div class="pix-code">${mpPixQrCode}</div>
+              <div class="pix-code">${esc(mpPixQrCode)}</div>
             </div>
             <div class="footer">
-              <p>OBRIGADO PELA PREFERÊNCIA!</p>
-              <p>VOLTE SEMPRE!</p>
+              <div>${esc(cfg.receiptFooterMsg || "OBRIGADO PELA PREFERÊNCIA! VOLTE SEMPRE!")}</div>
             </div>
+            <div style="height: ${feedHeightPx}px;"></div>
+            ${cfg.autoCut ? `<span style="font-size: 0px; color: transparent; user-select: none;">&#29;&#86;&#0;</span>` : ""}
           </body>
         </html>
-      `);
-      iframeDoc.close();
+      `;
 
-      setTimeout(() => {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-        showNotification("Enviado para a fila de impressão! 🖨️", "success");
-      }, 500);
-
+      executeThermalPrint(
+        htmlContent,
+        () => showNotification("Comprovante Pix QR enviado para a impressora! 🖨️", "success"),
+        (err) => showNotification(typeof err === "string" ? err : "Erro ao imprimir cupom Pix.", "error")
+      );
     } catch (e: any) {
       console.error(e);
       showNotification("Erro ao imprimir cupom: " + e.message, "error");
@@ -8470,6 +8524,114 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
     }
   };
 
+  // --- Direct Thermal / A4 Cash Balance Print (respecting loadPrinterConfig) ---
+  const handlePrintBalanceThermal = () => {
+    try {
+      const cfg = loadPrinterConfig();
+      const is58mm = cfg.printerType === "58mm" || Boolean(cfg.miniPrintPocketMode);
+      const isA4 = cfg.printerType === "A4" && !cfg.miniPrintPocketMode;
+      const printableWidth = is58mm ? "48mm" : isA4 ? "100%" : "72mm";
+      const maxContainerWidth = is58mm ? "48mm" : isA4 ? "760px" : "72mm";
+      const pageSize = is58mm ? "58mm auto" : isA4 ? "A4 portrait" : "80mm auto";
+      const fontBasePx =
+        cfg.fontSize === "pequena"
+          ? is58mm ? 9.5 : 10.5
+          : cfg.fontSize === "grande"
+          ? is58mm ? 12 : 13.5
+          : is58mm ? 10.5 : 11.5;
+      const fontSmallPx = Math.max(8.5, fontBasePx - 1.5);
+      const fontHeaderPx = fontBasePx + 2.5;
+      const bodyWeight = cfg.highContrast !== false ? "900" : "700";
+      const esc = (s: string) =>
+        String(s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      const resolvedStore = (cfg.storeName || storeName || "PDV CÉREBRO").trim();
+      const profitStats = getDailyProfitStats();
+
+      const txRows = filteredTransactions.slice(0, 60).map((tx) => {
+        const sign = tx.type === "entrada" ? "+" : "-";
+        return `
+          <tr style="border-bottom:1px dashed #666;">
+            <td style="padding:3px 0;font-size:${fontSmallPx}px;font-weight:900;">${esc(tx.description)}<br/><span style="font-size:${Math.max(8, fontSmallPx - 1)}px;">${esc(tx.date)} • ${esc(tx.paymentMethod.toUpperCase())}</span></td>
+            <td style="padding:3px 0;text-align:right;font-family:monospace;font-weight:900;white-space:nowrap;">${sign}${formatCurrency(tx.amount)}</td>
+          </tr>
+        `;
+      }).join("");
+
+      const fullHtml = `
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <title>Fechamento de Caixa</title>
+          <style>
+            @page { size: ${pageSize}; margin: ${isA4 ? "14mm" : "0mm"}; }
+            * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            html, body {
+              font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
+              color: #000 !important;
+              background: #fff !important;
+              width: ${printableWidth};
+              max-width: ${maxContainerWidth};
+              margin: 0 auto !important;
+              padding: 6px 3px !important;
+              font-size: ${fontBasePx}px;
+              font-weight: ${bodyWeight};
+              line-height: 1.3;
+            }
+            .row { display: flex; justify-content: space-between; gap: 4px; margin-bottom: 2px; }
+            .rule { border-bottom: 1.5px dashed #000; margin: 6px 0; }
+            .solid { border-bottom: 2px solid #000; margin: 6px 0; }
+          </style>
+        </head>
+        <body>
+          <div style="text-align:center;">
+            <div style="font-size:${fontHeaderPx}px;font-weight:900;">${esc(resolvedStore.toUpperCase())}</div>
+            <div style="font-size:${fontSmallPx}px;font-weight:900;border:1.5px solid #000;padding:2px 4px;margin-top:3px;">FECHAMENTO &amp; BALANÇO DE CAIXA</div>
+            <div style="font-size:${fontSmallPx}px;margin-top:3px;">${new Date().toLocaleString("pt-BR")}</div>
+          </div>
+          <div class="rule"></div>
+          <div class="row"><span>Abertura Caixa:</span><span style="font-family:monospace;">${formatCurrency(initialCash)}</span></div>
+          <div class="row"><span>(+) Entradas:</span><span style="font-family:monospace;">+${formatCurrency(stats.totalInflow)}</span></div>
+          <div class="row"><span>(-) Saídas:</span><span style="font-family:monospace;">-${formatCurrency(stats.totalOutflow)}</span></div>
+          <div class="solid"></div>
+          <div class="row" style="font-size:${fontHeaderPx}px;font-weight:900;"><span>SALDO LÍQUIDO:</span><span style="font-family:monospace;">${formatCurrency(stats.netBalance)}</span></div>
+          <div class="rule"></div>
+          <div style="font-weight:900;margin-bottom:3px;">POR FORMA DE PAGAMENTO:</div>
+          <div class="row"><span>Dinheiro (c/ Fundo):</span><span style="font-family:monospace;">${formatCurrency(stats.currentDrawerCash)}</span></div>
+          <div class="row"><span>PIX:</span><span style="font-family:monospace;">${formatCurrency(stats.methods.pix)}</span></div>
+          <div class="row"><span>Cartão Débito:</span><span style="font-family:monospace;">${formatCurrency(stats.methods.cartao_debito)}</span></div>
+          <div class="row"><span>Cartão Crédito:</span><span style="font-family:monospace;">${formatCurrency(stats.methods.cartao_credito)}</span></div>
+          <div class="rule"></div>
+          <div style="font-weight:900;margin-bottom:3px;">MARGEM &amp; LUCRO HOJE:</div>
+          <div class="row"><span>Vendas Hoje (${profitStats.salesCount}):</span><span style="font-family:monospace;">${formatCurrency(profitStats.faturamentoBruto)}</span></div>
+          <div class="row"><span>Lucro Bruto Real:</span><span style="font-family:monospace;font-weight:900;">${formatCurrency(profitStats.lucroLiquidoReal)} (${profitStats.margemLucroPercent.toFixed(1)}%)</span></div>
+          ${txRows ? `<div class="rule"></div><div style="font-weight:900;margin-bottom:3px;">ÚLTIMOS LANÇAMENTOS:</div><table style="width:100%;border-collapse:collapse;"><tbody>${txRows}</tbody></table>` : ""}
+          <div class="rule"></div>
+          <div style="text-align:center;font-size:${fontSmallPx}px;font-weight:900;margin-top:6px;">
+            <div style="border-top:1.5px solid #000;width:85%;margin:24px auto 4px auto;"></div>
+            Conferência / Fechamento de Turno
+          </div>
+          <div style="height:${(cfg.feedLines || 4) * 9}px;"></div>
+          ${cfg.autoCut ? `<span style="font-size: 0px; color: transparent; user-select: none;">&#29;&#86;&#0;</span>` : ""}
+        </body>
+        </html>
+      `;
+
+      executeThermalPrint(
+        fullHtml,
+        () => showNotification("Fechamento enviado para a impressora configurada! 🖨️", "success"),
+        (err) => showNotification(typeof err === "string" ? err : "Erro ao imprimir balanço.", "error")
+      );
+    } catch (err) {
+      console.error(err);
+      showNotification("Erro ao imprimir balanço térmico.", "error");
+    }
+  };
+
   // --- Share WhatsApp formatted profit summary text ---
   const handleShareDailyProfitWhatsApp = () => {
     const stats = getDailyProfitStats();
@@ -12536,12 +12698,23 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               <>
                 <button 
                   type="button"
+                  id="btn-print-balance-thermal"
+                  onClick={handlePrintBalanceThermal}
+                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-emerald-500/30 text-emerald-300 hover:text-white font-bold text-[9px] uppercase tracking-wider rounded-xl transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                  title="Imprimir Fechamento & Balanço direto na impressora configurada (58mm/80mm/A4)"
+                >
+                  <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                  Imprimir Balanço 🖨️
+                </button>
+
+                <button 
+                  type="button"
                   id="btn-export-pdf"
                   onClick={() => handleExportPDF(false)}
                   className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-white/5 hover:border-emerald-500/20 text-slate-300 hover:text-white font-bold text-[9px] uppercase tracking-wider rounded-xl transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5 text-emerald-400" />
-                  Imprimir Balanço (PDF)
+                  Baixar Balanço (PDF)
                 </button>
 
                 <button 
@@ -16132,10 +16305,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   <PDVPrinterConfigView
                     config={printerConfig}
                     onSaveConfig={(newCfg) => {
-                      setPrinterConfig(newCfg);
-                      setPrinterType(newCfg.printerType);
                       savePrinterConfig(newCfg);
-                      showNotification("Configurações da impressora salvas com sucesso! 🖨️💾", "success");
+                      applySavedPrinterConfig(newCfg);
                     }}
                     showNotification={showNotification}
                     onBackToSales={() => {
@@ -19695,10 +19866,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     <PDVPrinterConfigView
                       config={printerConfig}
                       onSaveConfig={(newCfg) => {
-                        setPrinterConfig(newCfg);
-                        setPrinterType(newCfg.printerType);
                         savePrinterConfig(newCfg);
-                        showNotification("Configurações da impressora salvas com sucesso! 🖨️💾", "success");
+                        applySavedPrinterConfig(newCfg);
                       }}
                       showNotification={showNotification}
                       onBackToSales={() => {
@@ -20697,10 +20866,8 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
             <PDVPrinterConfigView
               config={printerConfig}
               onSaveConfig={(newCfg) => {
-                setPrinterConfig(newCfg);
-                setPrinterType(newCfg.printerType);
                 savePrinterConfig(newCfg);
-                showNotification("Configurações da impressora salvas com sucesso! 🖨️💾", "success");
+                applySavedPrinterConfig(newCfg);
               }}
               showNotification={showNotification}
               onBackToSales={() => {
@@ -20841,7 +21008,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
               setReceiptToShow={setReceiptToShow}
               lastCompletedTransaction={lastCompletedTransaction}
               printerType={printerType}
-              setPrinterType={setPrinterType}
+              setPrinterType={handleChangePrinterType}
               storeCustomName={storeCustomName}
               setStoreCustomName={setStoreCustomName}
               storeCustomCnpjCpf={storeCustomCnpjCpf}
@@ -24357,21 +24524,21 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 <div className="bg-slate-950 p-2.5 rounded-xl border border-white/5 grid grid-cols-3 gap-1">
                   <button
                     type="button"
-                    onClick={() => setPrinterType("58mm")}
+                    onClick={() => handleChangePrinterType("58mm")}
                     className={`py-1 rounded text-[9.5px] font-black uppercase transition-all cursor-pointer ${printerType === "58mm" ? "bg-emerald-500 text-slate-950" : "text-slate-400 hover:text-white"}`}
                   >
                     Bobina 58mm
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPrinterType("80mm")}
+                    onClick={() => handleChangePrinterType("80mm")}
                     className={`py-1 rounded text-[9.5px] font-black uppercase transition-all cursor-pointer ${printerType === "80mm" ? "bg-emerald-500 text-slate-950" : "text-slate-400 hover:text-white"}`}
                   >
                     Bobina 80mm
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPrinterType("A4")}
+                    onClick={() => handleChangePrinterType("A4")}
                     className={`py-1 rounded text-[9.5px] font-black uppercase transition-all cursor-pointer ${printerType === "A4" ? "bg-emerald-500 text-slate-950" : "text-slate-400 hover:text-white"}`}
                   >
                     Padrão A4
@@ -24381,7 +24548,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                 {/* Simulated Thermal Printer View */}
                 <div className="flex justify-center py-2 bg-slate-950/40 rounded-2xl border border-white/[0.03]">
                   <div
-                    className={`bg-white text-slate-950 p-5 shadow-2xl text-left font-mono relative transition-all duration-300 ${printerType === "58mm" ? "w-[240px] text-[10px]" : printerType === "80mm" ? "w-[300px] text-[11px]" : "w-[340px] text-xs"}`}
+                    className={`bg-white text-black p-5 shadow-2xl text-left font-sans font-bold relative transition-all duration-300 ${printerType === "58mm" ? "w-[240px] text-[10px]" : printerType === "80mm" ? "w-[300px] text-[11px]" : "w-[340px] text-xs"}`}
                     style={{ minHeight: "260px" }}
                   >
                     {/* Thermal cut lines decoration */}
@@ -24389,13 +24556,11 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                     
                     {/* Logo/Header */}
                     <div className="text-center space-y-1">
-                      <h4 className="font-extrabold text-[12px] uppercase leading-none">{storeName || selectedNiche.toUpperCase().replace("_", " ")}</h4>
+                      <h4 className="font-extrabold text-[12px] uppercase leading-none">{storeCustomName || storeName || selectedNiche.toUpperCase().replace("_", " ")}</h4>
                       <p className="text-[8px] text-slate-500 uppercase">Frente de Caixa Protegida 🛡️</p>
-                      {storeCnpjCpf ? (
-                        <p className="text-[8.5px] font-bold text-slate-700">CNPJ/CPF: {storeCnpjCpf}</p>
-                      ) : (
-                        <p className="text-[7.5px] text-slate-500">CNPJ: 00.000.000/0001-00</p>
-                      )}
+                      {(storeCustomCnpjCpf || storeCnpjCpf) ? (
+                        <p className="text-[8.5px] font-bold text-slate-700">CNPJ/CPF: {storeCustomCnpjCpf || storeCnpjCpf}</p>
+                      ) : null}
                     </div>
 
                     <div className="border-t border-dashed border-slate-900 my-2.5" />
@@ -24473,7 +24638,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                     {/* Footer barcode decoration */}
                     <div className="text-center space-y-1.5">
-                      <p className="text-[7.5px] text-slate-600">Obrigado pela preferência! Volte sempre.</p>
+                      <p className="text-[7.5px] text-slate-600">{receiptFooterMsg || printerConfig.receiptFooterMsg || "Obrigado pela preferência! Volte sempre."}</p>
                       <div className="flex justify-center items-center opacity-85 py-1">
                         <div className="h-6 w-3/4 bg-slate-950 flex items-center justify-between px-2 text-white font-sans text-[6px]">
                           <span>| |||| | | ||||| | || | |||</span>
@@ -24485,24 +24650,23 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                   </div>
                 </div>
 
-                {/* Bluetooth Printer Simulator */}
+                {/* Status Real da Impressora Bluetooth ESC/POS */}
                 {isSimulatingPrinter && (
-                  <div className="bg-slate-950 p-3 rounded-2xl border border-emerald-500/20 text-center space-y-2 animate-pulse">
+                  <div className="bg-slate-950 p-3 rounded-2xl border border-emerald-500/20 text-center space-y-2">
                     <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest block">
-                      {printerStep === "scanning" ? "🔍 PROCURANDO IMPRESSORAS BLUETOOTH..." :
-                       printerStep === "connecting" ? "🔌 CONECTANDO COM IMPRESSORA TÉRMICA..." :
-                       printerStep === "sending" ? "📤 ENVIANDO DADOS DE IMPRESSÃO (ESC/POS)..." :
-                       "✅ IMPRESSO COM SUCESSO!"}
+                      {btPrintStatusText || (
+                        printerStep === "scanning" ? "🔍 PROCURANDO IMPRESSORAS BLUETOOTH..." :
+                        printerStep === "connecting" ? "🔌 CONECTANDO COM IMPRESSORA TÉRMICA..." :
+                        printerStep === "sending" ? "📤 ENVIANDO DADOS ESC/POS..." :
+                        "✅ IMPRESSO COM SUCESSO!"
+                      )}
                     </span>
                     <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className="bg-emerald-500 h-full transition-all duration-305"
+                        className="bg-emerald-500 h-full transition-all duration-300"
                         style={{ width: `${printerProgress}%` }}
                       />
                     </div>
-                    <p className="text-[8.5px] text-slate-400">
-                      Dispositivo simulado: <span className="text-white font-bold">POS-Thermal-Bluetooth-80</span>
-                    </p>
                   </div>
                 )}
 
@@ -24535,27 +24699,48 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
 
                 {/* Actions Toolbar Grid */}
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  {/* Bluetooth print simulation */}
+                  {/* Impressão Direta Bluetooth ESC/POS (ou fallback para diálogo do sistema) */}
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
+                      if (!isBluetoothPrintSupported()) {
+                        showNotification("Seu navegador não suporta Bluetooth direto (Web Bluetooth). Abrindo impressão padrão do sistema...", "info");
+                        handlePrintReceiptWindow(receiptToShow);
+                        return;
+                      }
                       setIsSimulatingPrinter(true);
                       setPrinterStep("scanning");
-                      setPrinterProgress(10);
-                      setTimeout(() => {
-                        setPrinterStep("connecting");
-                        setPrinterProgress(45);
-                        setTimeout(() => {
-                          setPrinterStep("sending");
-                          setPrinterProgress(80);
-                          setTimeout(() => {
+                      setPrinterProgress(20);
+                      setBtPrintStatusText("Selecione sua impressora Bluetooth...");
+                      try {
+                        const effectiveConfig: PrinterConfig = {
+                          ...printerConfig,
+                          printerType,
+                          storeName: storeCustomName || storeName || "ESTABELECIMENTO",
+                          storeCnpjCpf: storeCustomCnpjCpf || storeCnpjCpf || "",
+                          receiptFooterMsg: receiptFooterMsg || printerConfig.receiptFooterMsg || "Obrigado pela preferência!"
+                        };
+                        await printViaBluetoothEscPos(receiptToShow, effectiveConfig, (msg) => {
+                          setBtPrintStatusText(msg);
+                          if (msg.toLowerCase().includes("conectando")) {
+                            setPrinterStep("connecting");
+                            setPrinterProgress(50);
+                          } else if (msg.toLowerCase().includes("transmitindo") || msg.toLowerCase().includes("formatando")) {
+                            setPrinterStep("sending");
+                            setPrinterProgress(80);
+                          } else if (msg.toLowerCase().includes("concluída")) {
                             setPrinterStep("done");
                             setPrinterProgress(100);
-                            showNotification("Impressão térmica bluetooth enviada com sucesso!", "success");
-                            handlePrintReceiptWindow(receiptToShow);
-                          }, 1000);
-                        }, 1000);
-                      }, 1000);
+                          }
+                        });
+                        setPrinterStep("done");
+                        setPrinterProgress(100);
+                        showNotification("Cupom enviado diretamente para a impressora Bluetooth! 📶🖨️", "success");
+                      } catch (err: any) {
+                        setIsSimulatingPrinter(false);
+                        setBtPrintStatusText("");
+                        showNotification(err?.message || "Não foi possível conectar via Bluetooth. Use 'Gerar PDF / Imprimir' ou 'Baixar PNG'.", "warning");
+                      }
                     }}
                     className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black p-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
                   >
@@ -24580,7 +24765,12 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
                       try {
                         const resolvedStore = storeCustomName || storeName || "MEU ESTABELECIMENTO";
                         const resolvedCnpj = storeCustomCnpjCpf || storeCnpjCpf || "";
-                        const payload = buildPdvTransactionThermalPayload(receiptToShow, resolvedStore, resolvedCnpj, 1);
+                        const payload = buildPdvTransactionThermalPayload(
+                          receiptToShow,
+                          resolvedStore,
+                          resolvedCnpj,
+                          printerConfig.printTwoCopies ? 2 : 1
+                        );
                         const blob = await generateMiniPrint57mmPngBlob(payload);
                         const shortId = receiptToShow.id.slice(-6).toUpperCase();
                         downloadReceiptPngDirect(blob, `notinha_pdv_${shortId}_57mm.png`);
@@ -25399,11 +25589,7 @@ Formate o resultado com cabeçalhos atraentes, listas fáceis de ler, negritos e
         onClose={() => setIsPrinterConfigModalOpen(false)}
         config={printerConfig}
         onSaveConfig={(newConfig) => {
-          setPrinterConfig(newConfig);
-          setPrinterType(newConfig.printerType);
-          setStoreCustomName(newConfig.storeName);
-          setStoreCustomCnpjCpf(newConfig.storeCnpjCpf);
-          setReceiptFooterMsg(newConfig.receiptFooterMsg);
+          applySavedPrinterConfig(newConfig);
         }}
         showNotification={showNotification}
       />

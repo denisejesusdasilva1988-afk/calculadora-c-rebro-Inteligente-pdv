@@ -43,6 +43,13 @@ import {
   Award
 } from "lucide-react";
 import { CustomProduct, Orcamento, OrcamentoItem } from "../types";
+import {
+  loadPrinterConfig,
+  executeThermalPrint,
+  generateMiniPrint57mmPngBlob,
+  shareOrDownloadReceiptPng,
+  ThermalCanvasReceiptPayload
+} from "../utils/thermalPrinterHelper";
 
 interface OrcamentosModuleProps {
   customProducts: CustomProduct[];
@@ -74,11 +81,12 @@ export function OrcamentosModule({
   initialClientName,
   userId
 }: OrcamentosModuleProps) {
-  // Store details with sensible defaults
-  const storeName = storeInfo.name || getScopedItem("pdv_store_custom_name", userId) || "MEU ESTABELECIMENTO";
-  const storePhone = storeInfo.phone || getScopedItem("pdv_store_custom_phone", userId) || "";
-  const storeAddress = storeInfo.address || getScopedItem("pdv_store_custom_address", userId) || "";
-  const storeCnpj = storeInfo.cnpj || getScopedItem("pdv_store_custom_cnpj", userId) || "";
+  // Store details synced with saved printer/company config
+  const savedPrinterCfg = loadPrinterConfig();
+  const storeName = storeInfo.name || getScopedItem("pdv_store_custom_name", userId) || savedPrinterCfg.storeName || "MEU ESTABELECIMENTO";
+  const storePhone = storeInfo.phone || getScopedItem("pdv_store_custom_phone", userId) || savedPrinterCfg.storePhone || "";
+  const storeAddress = storeInfo.address || getScopedItem("pdv_store_custom_address", userId) || savedPrinterCfg.storeAddress || "";
+  const storeCnpj = storeInfo.cnpj || getScopedItem("pdv_store_custom_cnpj", userId) || getScopedItem("pdv_store_cnpj_cpf", userId) || savedPrinterCfg.storeCnpjCpf || "";
 
   // List of quotes
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>(() => {
@@ -584,111 +592,63 @@ export function OrcamentosModule({
     showNotification("Texto da proposta copiado para a área de transferência! 📋", "success");
   };
 
-  // Safe Printing Helper (tries hidden iframe first to bypass iframe popup restrictions, falls back to window.open)
-  const printHtmlDocument = (htmlContent: string) => {
-    try {
-      const frame = document.createElement("iframe");
-      frame.style.position = "fixed";
-      frame.style.right = "0";
-      frame.style.bottom = "0";
-      frame.style.width = "0";
-      frame.style.height = "0";
-      frame.style.border = "none";
-      document.body.appendChild(frame);
+  const escapeHtml = (str: string) =>
+    String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
 
-      const frameDoc = frame.contentWindow?.document || frame.contentDocument;
-      if (frameDoc) {
-        frameDoc.open();
-        frameDoc.write(htmlContent);
-        frameDoc.close();
-        setTimeout(() => {
-          try {
-            frame.contentWindow?.focus();
-            frame.contentWindow?.print();
-          } catch (err) {
-            console.warn("Frame print error:", err);
-          }
-          setTimeout(() => {
-            if (document.body.contains(frame)) {
-              document.body.removeChild(frame);
-            }
-          }, 4000);
-        }, 400);
-        return;
-      }
-    } catch (e) {
-      console.warn("Iframe print fallback:", e);
-    }
-
-    try {
-      const printWindow = window.open("", "_blank", "width=650,height=800");
-      if (printWindow) {
-        printWindow.document.open();
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
-      } else {
-        showNotification("Por favor, permita pop-ups no navegador para imprimir!", "warning");
-      }
-    } catch (e) {
-      console.error("Print window error:", e);
-      showNotification("Erro ao imprimir documento.", "error");
-    }
+  // Safe Printing Helper via centralized hidden iframe (no popup blockers, waits for images)
+  const printHtmlDocument = (htmlContent: string, label = "Documento") => {
+    executeThermalPrint(
+      htmlContent,
+      () => showNotification(`${label} enviado para a impressora! 🖨️`, "success"),
+      (err) => showNotification(typeof err === "string" ? err : "Erro ao imprimir documento.", "error")
+    );
   };
 
-  // Thermal Printing (58mm / 80mm window.print())
-  const handlePrintThermalReceipt = (orc: Orcamento, width: "58mm" | "80mm" = "80mm") => {
+  // Thermal Printing (58mm / 80mm honoring global printer config + bold contrast)
+  const handlePrintThermalReceipt = (orc: Orcamento, widthOverride?: "58mm" | "80mm") => {
+    const cfg = loadPrinterConfig();
+    const width: "58mm" | "80mm" =
+      widthOverride ||
+      (cfg.printerType === "58mm" || cfg.miniPrintPocketMode ? "58mm" : "80mm");
+    const is58mm = width === "58mm";
+    const printableWidth = is58mm ? "48mm" : "72mm";
+    const fontBasePx =
+      cfg.fontSize === "pequena"
+        ? is58mm ? 9.5 : 10.5
+        : cfg.fontSize === "grande"
+        ? is58mm ? 12 : 13.5
+        : is58mm ? 10.5 : 11.5;
+    const fontSmallPx = Math.max(8.5, fontBasePx - 1.5);
+    const fontHeaderPx = fontBasePx + 2.5;
+    const bodyWeight = cfg.highContrast !== false ? "900" : "700";
+    const resolvedStoreName = (storeName || cfg.storeName || "MEU ESTABELECIMENTO").trim();
+    const resolvedCnpj = (storeCnpj || cfg.storeCnpjCpf || "").trim();
+    const resolvedPhone = (storePhone || cfg.storePhone || "").trim();
+    const resolvedAddress = (storeAddress || cfg.storeAddress || "").trim();
 
     const itemsHtml = orc.items.map((it, idx) => `
-      <div style="display:flex; justify-content:space-between; margin-bottom: 3px; font-size: 11px;">
-        <span style="font-weight:bold; flex:1; padding-right:4px;">${idx + 1}. ${it.name}</span>
+      <div style="display:flex; justify-content:space-between; margin-bottom: 2px; font-size: ${fontBasePx}px; font-weight: 900;">
+        <span style="flex:1; padding-right:4px;">${idx + 1}. ${escapeHtml(it.name)}</span>
       </div>
-      <div style="display:flex; justify-content:space-between; margin-bottom: 5px; font-size: 10.5px; color:#333;">
-        <span>${it.quantity} ${it.unit} x R$ ${it.unitPrice.toFixed(2).replace(".", ",")}</span>
-        <span style="font-weight:bold;">R$ ${it.total.toFixed(2).replace(".", ",")}</span>
+      <div style="display:flex; justify-content:space-between; margin-bottom: 5px; font-size: ${fontSmallPx}px; font-weight: ${bodyWeight}; color:#000;">
+        <span>${it.quantity} ${escapeHtml(it.unit)} x R$ ${it.unitPrice.toFixed(2).replace(".", ",")}</span>
+        <span style="font-weight:900; font-family:monospace;">R$ ${it.total.toFixed(2).replace(".", ",")}</span>
       </div>
-      ${it.details ? `<div style="font-size:9.5px; font-style:italic; color:#555; margin-bottom:4px;">• ${it.details}</div>` : ""}
+      ${it.details ? `<div style="font-size:${Math.max(8, fontSmallPx - 1)}px; font-weight:${bodyWeight}; color:#000; margin-bottom:4px;">• ${escapeHtml(it.details)}</div>` : ""}
     `).join("");
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Notinha de Orçamento - ${orc.code}</title>
-        <style>
-          @page {
-            size: ${width === "58mm" ? "58mm auto" : "80mm auto"};
-            margin: 0;
-          }
-          body {
-            font-family: 'Courier New', Courier, monospace, monospace;
-            width: ${width === "58mm" ? "48mm" : "72mm"};
-            margin: 0 auto;
-            padding: 8px 4px;
-            color: #000;
-            background: #fff;
-            line-height: 1.25;
-          }
-          .center { text-align: center; }
-          .bold { font-weight: bold; }
-          .border-b { border-bottom: 1px dashed #000; margin: 6px 0; }
-          .double-b { border-bottom: 2px double #000; margin: 6px 0; }
-          .flex { display: flex; justify-content: space-between; }
-          .small { font-size: 9.5px; }
-          .text-xs { font-size: 11px; }
-          .title { font-size: 13px; font-weight: 900; margin-bottom: 2px; }
-          .quote-tag { font-size: 10px; font-weight: bold; background: #eee; padding: 2px 4px; display: inline-block; margin: 3px 0; }
-          @media print {
-            body { -webkit-print-color-adjust: exact; }
-          }
-        </style>
-      </head>
-      <body>
+    const renderSingleVia = (viaLabel?: string) => `
+      <div style="margin-bottom: 8px;">
         <div class="center">
-          <div class="title">${storeName.toUpperCase()}</div>
-          ${storeCnpj ? `<div class="small">CNPJ/CPF: ${storeCnpj}</div>` : ""}
-          ${storePhone ? `<div class="small">FONE: ${storePhone}</div>` : ""}
-          ${storeAddress ? `<div class="small">${storeAddress}</div>` : ""}
+          ${viaLabel ? `<div class="quote-tag" style="border:1.5px solid #000; background:#fff;">${escapeHtml(viaLabel)}</div>` : ""}
+          ${cfg.showNameOnReceipt !== false ? `<div class="title">${escapeHtml(resolvedStoreName.toUpperCase())}</div>` : ""}
+          ${cfg.showCnpjOnReceipt !== false && resolvedCnpj ? `<div class="small">CNPJ/CPF: ${escapeHtml(resolvedCnpj)}</div>` : ""}
+          ${cfg.showPhoneOnReceipt !== false && resolvedPhone ? `<div class="small">FONE: ${escapeHtml(resolvedPhone)}</div>` : ""}
+          ${cfg.showAddressOnReceipt !== false && resolvedAddress ? `<div class="small">${escapeHtml(resolvedAddress)}</div>` : ""}
         </div>
 
         <div class="double-b"></div>
@@ -702,18 +662,18 @@ export function OrcamentosModule({
         <div class="border-b"></div>
 
         <div class="text-xs">
-          <div class="flex"><span>ORÇAMENTO:</span> <span class="bold">${orc.code}</span></div>
-          <div class="flex"><span>DATA:</span> <span>${orc.date}</span></div>
-          <div class="flex"><span>VALIDADE:</span> <span class="bold">${orc.validUntil}</span></div>
-          ${orc.sellerName ? `<div class="flex"><span>ATENDENTE:</span> <span>${orc.sellerName}</span></div>` : ""}
+          <div class="flex"><span>ORÇAMENTO:</span> <span class="bold">${escapeHtml(orc.code)}</span></div>
+          <div class="flex"><span>DATA:</span> <span>${escapeHtml(orc.date)}</span></div>
+          <div class="flex"><span>VALIDADE:</span> <span class="bold">${escapeHtml(orc.validUntil)}</span></div>
+          ${orc.sellerName ? `<div class="flex"><span>ATENDENTE:</span> <span>${escapeHtml(orc.sellerName)}</span></div>` : ""}
         </div>
 
         <div class="border-b"></div>
 
         <div class="text-xs">
-          <div><span class="bold">CLIENTE:</span> ${orc.clientName.toUpperCase()}</div>
-          ${orc.clientPhone ? `<div><span class="bold">FONE:</span> ${orc.clientPhone}</div>` : ""}
-          ${orc.clientDoc ? `<div><span class="bold">DOC:</span> ${orc.clientDoc}</div>` : ""}
+          <div><span class="bold">CLIENTE:</span> ${escapeHtml(orc.clientName.toUpperCase())}</div>
+          ${orc.clientPhone ? `<div><span class="bold">FONE:</span> ${escapeHtml(orc.clientPhone)}</div>` : ""}
+          ${orc.clientDoc ? `<div><span class="bold">DOC:</span> ${escapeHtml(orc.clientDoc)}</div>` : ""}
         </div>
 
         <div class="border-b"></div>
@@ -724,12 +684,12 @@ export function OrcamentosModule({
         <div class="double-b"></div>
 
         <div class="text-xs">
-          <div class="flex"><span>SUBTOTAL:</span> <span>R$ ${orc.subtotal.toFixed(2).replace(".", ",")}</span></div>
-          ${orc.discountTotal > 0 ? `<div class="flex"><span>DESCONTO:</span> <span>- R$ ${orc.discountTotal.toFixed(2).replace(".", ",")}</span></div>` : ""}
-          ${orc.shippingOrFees > 0 ? `<div class="flex"><span>FRETE/TAXAS:</span> <span>+ R$ ${orc.shippingOrFees.toFixed(2).replace(".", ",")}</span></div>` : ""}
-          <div class="flex bold" style="font-size: 13px; margin-top: 4px;">
+          <div class="flex"><span>SUBTOTAL:</span> <span style="font-family:monospace;">R$ ${orc.subtotal.toFixed(2).replace(".", ",")}</span></div>
+          ${orc.discountTotal > 0 ? `<div class="flex"><span>DESCONTO:</span> <span style="font-family:monospace;">- R$ ${orc.discountTotal.toFixed(2).replace(".", ",")}</span></div>` : ""}
+          ${orc.shippingOrFees > 0 ? `<div class="flex"><span>FRETE/TAXAS:</span> <span style="font-family:monospace;">+ R$ ${orc.shippingOrFees.toFixed(2).replace(".", ",")}</span></div>` : ""}
+          <div class="flex bold" style="font-size: ${fontHeaderPx}px; margin-top: 4px; border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; padding: 3px 0;">
             <span>TOTAL:</span>
-            <span>R$ ${orc.total.toFixed(2).replace(".", ",")}</span>
+            <span style="font-family:monospace;">R$ ${orc.total.toFixed(2).replace(".", ",")}</span>
           </div>
         </div>
 
@@ -738,127 +698,231 @@ export function OrcamentosModule({
         ${orc.paymentConditions ? `
           <div class="small">
             <span class="bold">PAGAMENTO PROPOSTO:</span><br/>
-            ${orc.paymentConditions}
+            ${escapeHtml(orc.paymentConditions)}
           </div>
           <div class="border-b"></div>
         ` : ""}
 
         ${orc.deliveryTerms ? `
           <div class="small">
-            <span class="bold">PRAZO DE ENTREGA:</span> ${orc.deliveryTerms}
+            <span class="bold">PRAZO DE ENTREGA:</span> ${escapeHtml(orc.deliveryTerms)}
           </div>
         ` : ""}
 
         ${orc.warrantyTerms ? `
           <div class="small">
-            <span class="bold">GARANTIA:</span> ${orc.warrantyTerms}
+            <span class="bold">GARANTIA:</span> ${escapeHtml(orc.warrantyTerms)}
           </div>
         ` : ""}
 
         ${orc.notes ? `
           <div class="border-b"></div>
-          <div class="small" style="font-style: italic;">
+          <div class="small">
             <span class="bold">OBSERVAÇÕES:</span><br/>
-            ${orc.notes}
+            ${escapeHtml(orc.notes)}
           </div>
         ` : ""}
 
         <div class="double-b"></div>
 
-        <div class="center small" style="margin-top: 15px;">
-          <div style="border-top: 1px solid #000; width: 80%; margin: 25px auto 4px auto;"></div>
-          <div>Assinatura do Cliente / De Acordo</div>
-          <div style="margin-top: 8px; font-size: 8.5px; color: #555;">
-            Orçamento gerado pelo Sistema PDV Comercial
+        <div class="center small" style="margin-top: 14px;">
+          <div style="border-top: 1.5px solid #000; width: 85%; margin: 22px auto 4px auto;"></div>
+          <div class="bold">Assinatura do Cliente / De Acordo</div>
+          <div style="margin-top: 6px; font-size: ${Math.max(8, fontSmallPx - 1)}px; color: #000;">
+            ${escapeHtml(cfg.receiptFooterMsg || "Orçamento gerado pelo Sistema PDV Comercial")}
           </div>
         </div>
+      </div>
+    `;
 
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-            }, 300);
+    const copiesHtml = cfg.printTwoCopies
+      ? `${renderSingleVia("1ª VIA - CLIENTE")}
+         <div style="text-align:center; border-top:2px dashed #000; margin:12px 0; padding-top:4px; font-size:9px; font-weight:900;">--- CORTE AQUI ---</div>
+         ${renderSingleVia("2ª VIA - LOJA")}`
+      : renderSingleVia();
+
+    const feedHeightPx = (cfg.feedLines || 4) * 9;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8">
+        <title>Notinha de Orçamento - ${escapeHtml(orc.code)}</title>
+        <style>
+          @page {
+            size: ${is58mm ? "58mm auto" : "80mm auto"};
+            margin: 0mm;
           }
-        </script>
+          * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          html, body {
+            font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
+            width: ${printableWidth};
+            max-width: ${printableWidth};
+            margin: 0 auto !important;
+            padding: 6px 3px !important;
+            color: #000 !important;
+            background: #fff !important;
+            font-size: ${fontBasePx}px;
+            font-weight: ${bodyWeight};
+            line-height: 1.25;
+          }
+          .center { text-align: center; }
+          .bold { font-weight: 900; }
+          .border-b { border-bottom: 1.5px dashed #000; margin: 5px 0; }
+          .double-b { border-bottom: 2px solid #000; margin: 6px 0; }
+          .flex { display: flex; justify-content: space-between; gap: 4px; }
+          .small { font-size: ${fontSmallPx}px; font-weight: ${bodyWeight}; }
+          .text-xs { font-size: ${fontBasePx}px; font-weight: ${bodyWeight}; }
+          .title { font-size: ${fontHeaderPx}px; font-weight: 900; margin-bottom: 2px; }
+          .quote-tag { font-size: ${fontSmallPx}px; font-weight: 900; border: 1.5px solid #000; padding: 2px 6px; display: inline-block; margin: 3px 0; }
+        </style>
+      </head>
+      <body>
+        ${copiesHtml}
+        <div style="height: ${feedHeightPx}px;"></div>
+        ${cfg.autoCut ? `<span style="font-size: 0px; color: transparent; user-select: none;">&#29;&#86;&#0;</span>` : ""}
       </body>
       </html>
     `;
 
-    printHtmlDocument(htmlContent);
+    printHtmlDocument(htmlContent, `Notinha ${orc.code}`);
   };
 
-  // A4 Proposal Printing (Full standard page)
+  // Export PNG 57mm (iBleem / Fun Print) for Orçamento
+  const handleDownloadQuotePng57mm = async (orc: Orcamento) => {
+    try {
+      const cfg = loadPrinterConfig();
+      const extraMeta: string[] = [
+        `ORÇAMENTO: ${orc.code}`,
+        `VALIDADE: ${orc.validUntil}`
+      ];
+      if (orc.clientPhone) extraMeta.push(`FONE: ${orc.clientPhone}`);
+      if (orc.paymentConditions) extraMeta.push(`PGTO: ${orc.paymentConditions}`);
+      if (orc.deliveryTerms) extraMeta.push(`ENTREGA: ${orc.deliveryTerms}`);
+
+      const summaryLines: ThermalCanvasReceiptPayload["summaryLines"] = [
+        { label: "SUBTOTAL:", value: `R$ ${orc.subtotal.toFixed(2).replace(".", ",")}`, bold: true }
+      ];
+      if (orc.discountTotal > 0) {
+        summaryLines.push({ label: "DESCONTO:", value: `- R$ ${orc.discountTotal.toFixed(2).replace(".", ",")}`, bold: true });
+      }
+      if (orc.shippingOrFees > 0) {
+        summaryLines.push({ label: "FRETE/TAXAS:", value: `+ R$ ${orc.shippingOrFees.toFixed(2).replace(".", ",")}`, bold: true });
+      }
+      summaryLines.push({ label: "TOTAL ORÇAMENTO:", value: `R$ ${orc.total.toFixed(2).replace(".", ",")}`, big: true, bold: true });
+
+      const payload: ThermalCanvasReceiptPayload = {
+        title: "ORÇAMENTO / COTAÇÃO",
+        subtitle: "DOCUMENTO SEM VALOR FISCAL",
+        storeName: storeName || cfg.storeName || "MEU ESTABELECIMENTO",
+        storeCnpj: storeCnpj || cfg.storeCnpjCpf,
+        dateStr: orc.date,
+        ticketId: orc.code,
+        collaboratorName: orc.clientName,
+        statusLabel: `STATUS: ${orc.status.toUpperCase()}`,
+        extraMeta,
+        lines: orc.items.map((it) => ({
+          left: `${it.quantity}${it.unit} x ${it.name.toUpperCase()}`,
+          right: `R$ ${it.total.toFixed(2).replace(".", ",")}`,
+          detail: `Unit: R$ ${it.unitPrice.toFixed(2).replace(".", ",")}${it.details ? ` | ${it.details}` : ""}`,
+          bold: true
+        })),
+        summaryLines,
+        footerNote: cfg.receiptFooterMsg || "Orçamento válido até " + orc.validUntil,
+        singleViaBanner: "VIA ÚNICA - ORÇAMENTO",
+        copies: cfg.printTwoCopies ? 2 : 1
+      };
+
+      const blob = await generateMiniPrint57mmPngBlob(payload);
+      await shareOrDownloadReceiptPng(blob, `orcamento_${orc.code}_57mm.png`, `Orçamento ${orc.code}`, true);
+      showNotification(`Imagem 57mm do orçamento ${orc.code} baixada para iBleem / Fun Print! 🖼️✅`, "success");
+    } catch (err: any) {
+      showNotification(err?.message || "Erro ao gerar imagem 57mm do orçamento.", "error");
+    }
+  };
+
+  // A4 Proposal Printing (Full standard page via executeThermalPrint)
   const handlePrintA4Proposal = (orc: Orcamento) => {
+    const cfg = loadPrinterConfig();
+    const resolvedStoreName = (storeName || cfg.storeName || "MEU ESTABELECIMENTO").trim();
+    const resolvedCnpj = (storeCnpj || cfg.storeCnpjCpf || "").trim();
+    const resolvedPhone = (storePhone || cfg.storePhone || "").trim();
+    const resolvedAddress = (storeAddress || cfg.storeAddress || "").trim();
+
     const itemsRows = orc.items.map((it, idx) => `
-      <tr style="border-bottom: 1px solid #e2e8f0;">
-        <td style="padding: 8px; text-align: center;">${idx + 1}</td>
+      <tr style="border-bottom: 1px solid #cbd5e1;">
+        <td style="padding: 8px; text-align: center; font-weight: 700;">${idx + 1}</td>
         <td style="padding: 8px;">
-          <strong>${it.name}</strong>
-          ${it.details ? `<br/><span style="font-size: 11px; color: #64748b;">${it.details}</span>` : ""}
+          <strong style="color: #000;">${escapeHtml(it.name)}</strong>
+          ${it.details ? `<br/><span style="font-size: 11px; color: #334155;">${escapeHtml(it.details)}</span>` : ""}
         </td>
-        <td style="padding: 8px; text-align: center;">${it.quantity} ${it.unit}</td>
+        <td style="padding: 8px; text-align: center; font-weight: 700;">${it.quantity} ${escapeHtml(it.unit)}</td>
         <td style="padding: 8px; text-align: right;">R$ ${it.unitPrice.toFixed(2).replace(".", ",")}</td>
         <td style="padding: 8px; text-align: right;">${it.discount > 0 ? `- R$ ${it.discount.toFixed(2).replace(".", ",")}` : "-"}</td>
-        <td style="padding: 8px; text-align: right; font-weight: bold;">R$ ${it.total.toFixed(2).replace(".", ",")}</td>
+        <td style="padding: 8px; text-align: right; font-weight: 900;">R$ ${it.total.toFixed(2).replace(".", ",")}</td>
       </tr>
     `).join("");
 
     const a4Html = `
       <!DOCTYPE html>
-      <html>
+      <html lang="pt-BR">
       <head>
         <meta charset="utf-8">
-        <title>Proposta Comercial - ${orc.code}</title>
+        <title>Proposta Comercial - ${escapeHtml(orc.code)}</title>
         <style>
-          @page { size: A4; margin: 15mm; }
+          @page { size: A4 portrait; margin: 15mm; }
+          * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           body {
             font-family: Arial, Helvetica, sans-serif;
             margin: 0;
             padding: 10px;
-            color: #1e293b;
+            color: #000;
             background: #fff;
             line-height: 1.4;
             font-size: 13px;
+            font-weight: 600;
           }
-          .header { display: flex; justify-content: space-between; border-bottom: 2px solid #0284c7; padding-bottom: 12px; margin-bottom: 16px; }
-          .company-name { font-size: 20px; font-weight: 900; color: #0f172a; }
-          .quote-badge { background: #f0fdf4; border: 1px solid #86efac; color: #166534; padding: 4px 10px; font-weight: bold; border-radius: 6px; font-size: 12px; }
-          .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+          .header { display: flex; justify-content: space-between; border-bottom: 2.5px solid #0284c7; padding-bottom: 12px; margin-bottom: 16px; }
+          .company-name { font-size: 20px; font-weight: 900; color: #000; }
+          .quote-badge { background: #f0fdf4; border: 1.5px solid #166534; color: #166534; padding: 4px 10px; font-weight: 900; border-radius: 6px; font-size: 12px; }
+          .card { background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
           table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th { background: #f1f5f9; padding: 8px; font-size: 11px; text-transform: uppercase; color: #475569; border-bottom: 2px solid #cbd5e1; }
-          .totals-table { width: 300px; margin-left: auto; margin-top: 15px; border-collapse: collapse; }
+          th { background: #e2e8f0; padding: 8px; font-size: 11px; font-weight: 900; text-transform: uppercase; color: #000; border-bottom: 2px solid #94a3b8; }
+          .totals-table { width: 320px; margin-left: auto; margin-top: 15px; border-collapse: collapse; }
           .totals-table td { padding: 6px 8px; }
-          .signature-box { margin-top: 40px; display: flex; justify-content: space-around; text-align: center; font-size: 12px; }
-          .signature-line { border-top: 1px solid #000; width: 220px; margin-bottom: 6px; }
-          @media print {
-            body { -webkit-print-color-adjust: exact; }
-          }
+          .signature-box { margin-top: 40px; display: flex; justify-content: space-around; text-align: center; font-size: 12px; font-weight: 700; }
+          .signature-line { border-top: 1.5px solid #000; width: 220px; margin-bottom: 6px; }
         </style>
       </head>
       <body>
         <div class="header">
           <div>
-            <div class="company-name">${storeName.toUpperCase()}</div>
-            ${storeCnpj ? `<div>CNPJ/CPF: ${storeCnpj}</div>` : ""}
-            ${storePhone ? `<div>Telefone / WhatsApp: ${storePhone}</div>` : ""}
-            ${storeAddress ? `<div>Endereço: ${storeAddress}</div>` : ""}
+            <div class="company-name">${escapeHtml(resolvedStoreName.toUpperCase())}</div>
+            ${resolvedCnpj ? `<div>CNPJ/CPF: ${escapeHtml(resolvedCnpj)}</div>` : ""}
+            ${resolvedPhone ? `<div>Telefone / WhatsApp: ${escapeHtml(resolvedPhone)}</div>` : ""}
+            ${resolvedAddress ? `<div>Endereço: ${escapeHtml(resolvedAddress)}</div>` : ""}
           </div>
           <div style="text-align: right;">
             <div style="font-size: 18px; font-weight: 900; color: #0284c7;">PROPOSTA COMERCIAL</div>
-            <div style="font-size: 14px; font-weight: bold; margin-top: 2px;">${orc.code}</div>
-            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Data: ${orc.date}</div>
-            <div class="quote-badge" style="margin-top: 6px; display: inline-block;">Válido até: ${orc.validUntil}</div>
+            <div style="font-size: 14px; font-weight: 900; margin-top: 2px;">${escapeHtml(orc.code)}</div>
+            <div style="font-size: 12px; color: #334155; margin-top: 4px;">Data: ${escapeHtml(orc.date)}</div>
+            <div class="quote-badge" style="margin-top: 6px; display: inline-block;">Válido até: ${escapeHtml(orc.validUntil)}</div>
           </div>
         </div>
 
         <div class="card">
           <div style="font-weight: 900; text-transform: uppercase; font-size: 11px; color: #0284c7; margin-bottom: 6px;">DADOS DO CLIENTE</div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-            <div><strong>Nome:</strong> ${orc.clientName}</div>
-            ${orc.clientPhone ? `<div><strong>Telefone:</strong> ${orc.clientPhone}</div>` : ""}
-            ${orc.clientDoc ? `<div><strong>CPF/CNPJ:</strong> ${orc.clientDoc}</div>` : ""}
-            ${orc.clientEmail ? `<div><strong>E-mail:</strong> ${orc.clientEmail}</div>` : ""}
-            ${orc.clientAddress ? `<div style="grid-column: span 2;"><strong>Endereço:</strong> ${orc.clientAddress}</div>` : ""}
+            <div><strong>Nome:</strong> ${escapeHtml(orc.clientName)}</div>
+            ${orc.clientPhone ? `<div><strong>Telefone:</strong> ${escapeHtml(orc.clientPhone)}</div>` : ""}
+            ${orc.clientDoc ? `<div><strong>CPF/CNPJ:</strong> ${escapeHtml(orc.clientDoc)}</div>` : ""}
+            ${orc.clientEmail ? `<div><strong>E-mail:</strong> ${escapeHtml(orc.clientEmail)}</div>` : ""}
+            ${orc.clientAddress ? `<div style="grid-column: span 2;"><strong>Endereço:</strong> ${escapeHtml(orc.clientAddress)}</div>` : ""}
           </div>
         </div>
 
@@ -880,64 +944,56 @@ export function OrcamentosModule({
 
         <table class="totals-table">
           <tr>
-            <td style="color: #64748b;">Subtotal:</td>
-            <td style="text-align: right; font-weight: bold;">R$ ${orc.subtotal.toFixed(2).replace(".", ",")}</td>
+            <td>Subtotal:</td>
+            <td style="text-align: right; font-weight: 900;">R$ ${orc.subtotal.toFixed(2).replace(".", ",")}</td>
           </tr>
           ${orc.discountTotal > 0 ? `
             <tr>
-              <td style="color: #dc2626;">Descontos:</td>
-              <td style="text-align: right; color: #dc2626; font-weight: bold;">- R$ ${orc.discountTotal.toFixed(2).replace(".", ",")}</td>
+              <td style="color: #b91c1c; font-weight: 700;">Descontos:</td>
+              <td style="text-align: right; color: #b91c1c; font-weight: 900;">- R$ ${orc.discountTotal.toFixed(2).replace(".", ",")}</td>
             </tr>
           ` : ""}
           ${orc.shippingOrFees > 0 ? `
             <tr>
-              <td style="color: #64748b;">Frete / Taxas:</td>
-              <td style="text-align: right; font-weight: bold;">+ R$ ${orc.shippingOrFees.toFixed(2).replace(".", ",")}</td>
+              <td>Frete / Taxas:</td>
+              <td style="text-align: right; font-weight: 900;">+ R$ ${orc.shippingOrFees.toFixed(2).replace(".", ",")}</td>
             </tr>
           ` : ""}
-          <tr style="border-top: 2px solid #0f172a; font-size: 16px;">
-            <td style="font-weight: 900; color: #0f172a;">TOTAL GERAL:</td>
+          <tr style="border-top: 2px solid #000; font-size: 16px;">
+            <td style="font-weight: 900;">TOTAL GERAL:</td>
             <td style="text-align: right; font-weight: 900; color: #0284c7;">R$ ${orc.total.toFixed(2).replace(".", ",")}</td>
           </tr>
         </table>
 
         <div class="card" style="margin-top: 25px;">
           <div style="font-weight: 900; text-transform: uppercase; font-size: 11px; color: #0284c7; margin-bottom: 6px;">CONDIÇÕES COMERCIAIS</div>
-          ${orc.paymentConditions ? `<div style="margin-bottom: 4px;"><strong>Formas de Pagamento:</strong> ${orc.paymentConditions}</div>` : ""}
-          ${orc.deliveryTerms ? `<div style="margin-bottom: 4px;"><strong>Prazo de Entrega:</strong> ${orc.deliveryTerms}</div>` : ""}
-          ${orc.warrantyTerms ? `<div style="margin-bottom: 4px;"><strong>Garantia:</strong> ${orc.warrantyTerms}</div>` : ""}
-          ${orc.notes ? `<div style="margin-top: 6px; font-size: 11px; color: #475569;"><strong>Observações:</strong> ${orc.notes}</div>` : ""}
+          ${orc.paymentConditions ? `<div style="margin-bottom: 4px;"><strong>Formas de Pagamento:</strong> ${escapeHtml(orc.paymentConditions)}</div>` : ""}
+          ${orc.deliveryTerms ? `<div style="margin-bottom: 4px;"><strong>Prazo de Entrega:</strong> ${escapeHtml(orc.deliveryTerms)}</div>` : ""}
+          ${orc.warrantyTerms ? `<div style="margin-bottom: 4px;"><strong>Garantia:</strong> ${escapeHtml(orc.warrantyTerms)}</div>` : ""}
+          ${orc.notes ? `<div style="margin-top: 6px; font-size: 11.5px;"><strong>Observações:</strong> ${escapeHtml(orc.notes)}</div>` : ""}
         </div>
 
         <div class="signature-box">
           <div>
             <div class="signature-line"></div>
-            <div>${storeName.toUpperCase()}</div>
-            <div style="font-size: 10px; color: #64748b;">Representante Comercial</div>
+            <div>${escapeHtml(resolvedStoreName.toUpperCase())}</div>
+            <div style="font-size: 10px; color: #334155;">Representante Comercial</div>
           </div>
           <div>
             <div class="signature-line"></div>
-            <div>${orc.clientName.toUpperCase()}</div>
-            <div style="font-size: 10px; color: #64748b;">Assinatura do Cliente / Aceite</div>
+            <div>${escapeHtml(orc.clientName.toUpperCase())}</div>
+            <div style="font-size: 10px; color: #334155;">Assinatura do Cliente / Aceite</div>
           </div>
         </div>
 
-        <div style="text-align: center; margin-top: 30px; font-size: 10px; color: #94a3b8;">
+        <div style="text-align: center; margin-top: 30px; font-size: 10px; color: #334155;">
           Este documento é uma proposta comercial de prestação de serviços/venda de mercadorias. Não possui valor fiscal até a emissão do comprovante de pagamento/NFC-e.
         </div>
-
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-            }, 300);
-          }
-        </script>
       </body>
       </html>
     `;
 
-    printHtmlDocument(a4Html);
+    printHtmlDocument(a4Html, `Proposta A4 ${orc.code}`);
   };
 
   // Filtered quotes list
@@ -1259,14 +1315,24 @@ export function OrcamentosModule({
                           {/* Action Buttons */}
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex gap-1 justify-end">
-                              {/* Thermal Print */}
+                              {/* Thermal Print (uses saved 58mm / 80mm config) */}
                               <button
                                 type="button"
-                                onClick={() => handlePrintThermalReceipt(orc, "80mm")}
+                                onClick={() => handlePrintThermalReceipt(orc)}
                                 className="p-1.5 bg-slate-900 hover:bg-amber-500 hover:text-slate-950 text-amber-300 rounded-lg cursor-pointer transition-all"
-                                title="Imprimir Notinha Térmica (Bobina 58/80mm)"
+                                title="Imprimir Notinha Térmica (usa sua impressora configurada 58/80mm)"
                               >
                                 <Printer className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* PNG 57mm Fun Print */}
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadQuotePng57mm(orc)}
+                                className="p-1.5 bg-slate-900 hover:bg-cyan-500 hover:text-slate-950 text-cyan-300 rounded-lg cursor-pointer transition-all"
+                                title="Baixar Imagem PNG 57mm (iBleem / Fun Print)"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
                               </button>
 
                               {/* A4 Print */}
@@ -2033,15 +2099,25 @@ export function OrcamentosModule({
 
             {/* Modal Footer Controls */}
             <div className="p-4 bg-slate-950 border-t border-white/10 space-y-2.5">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 {/* Print Thermal */}
                 <button
                   type="button"
-                  onClick={() => handlePrintThermalReceipt(viewingOrcamento, "80mm")}
+                  onClick={() => handlePrintThermalReceipt(viewingOrcamento)}
                   className="py-2.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95"
                 >
                   <Printer className="w-4 h-4" />
                   Notinha Bobina
+                </button>
+
+                {/* PNG 57mm Fun Print */}
+                <button
+                  type="button"
+                  onClick={() => handleDownloadQuotePng57mm(viewingOrcamento)}
+                  className="py-2.5 px-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-md shadow-cyan-500/20 active:scale-95"
+                >
+                  <FileText className="w-4 h-4" />
+                  PNG 57mm
                 </button>
 
                 {/* Print A4 */}

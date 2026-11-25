@@ -36,6 +36,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { SalgadoProporcaoLivreCard } from "./SalgadoProporcaoLivreCard";
 import { SmartNumericInput } from "./SmartNumericInput";
+import { loadPrinterConfig, executeThermalPrint } from "../../utils/thermalPrinterHelper";
 
 export interface FoodIngredientItem {
   id: string;
@@ -1357,9 +1358,105 @@ export function DigitalScaleFoodPricingCalculator({
     window.open(`https://api.whatsapp.com/send?text=${encoded}`, "_blank");
   };
 
-  // Imprimir ficha técnica
+  // Imprimir ficha técnica limpa (58mm / 80mm / A4 conforme configurada)
   const handlePrintRecipe = () => {
-    window.print();
+    const cfg = loadPrinterConfig();
+    const is58mm = cfg.printerType === "58mm" || Boolean(cfg.miniPrintPocketMode);
+    const isA4 = cfg.printerType === "A4" && !cfg.miniPrintPocketMode;
+    const printableWidth = is58mm ? "48mm" : isA4 ? "100%" : "72mm";
+    const maxContainerWidth = is58mm ? "48mm" : isA4 ? "760px" : "72mm";
+    const pageSize = is58mm ? "58mm auto" : isA4 ? "A4 portrait" : "80mm auto";
+    const fontBasePx = isA4 ? 12.5 : is58mm ? 10 : 11;
+    const bodyWeight = cfg.highContrast !== false || !isA4 ? "900" : "700";
+    const esc = (s: string) =>
+      String(s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+    const ingRows = ingredientStats.detailedList
+      .map(
+        (ing) => `
+          <tr>
+            <td><strong>${esc(ing.name)}</strong><br/><span style="font-size:0.85em;">Usado: ${ing.usedQty}${esc(ing.usedUnit)} | Sobra: ${ing.leftQtyDisplay.toFixed(1).replace(".", ",")}${esc(ing.leftUnitDisplay)}</span></td>
+            <td style="text-align:right;font-family:monospace;white-space:nowrap;">${formatCurrency(ing.itemUsedCost)}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>Ficha Técnica - ${esc(activeRecipe.name)}</title>
+        <style>
+          @page { size: ${pageSize}; margin: ${isA4 ? "14mm" : "0mm"}; }
+          * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          html, body {
+            font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
+            color: #000 !important;
+            background: #fff !important;
+            width: ${printableWidth};
+            max-width: ${maxContainerWidth};
+            margin: 0 auto !important;
+            padding: ${isA4 ? "10px" : "6px 3px"} !important;
+            font-size: ${fontBasePx}px;
+            font-weight: ${bodyWeight};
+            line-height: 1.3;
+          }
+          .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 8px; }
+          .row { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 3px; }
+          .rule { border-bottom: 1.5px dashed #000; margin: 6px 0; }
+          .solid { border-bottom: 2px solid #000; margin: 6px 0; }
+          table { width: 100%; border-collapse: collapse; margin: 4px 0; font-size: ${Math.max(8.5, fontBasePx - 1)}px; }
+          td, th { padding: 3px 2px; border-bottom: 1px dashed #666; text-align: left; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          ${cfg.storeName ? `<div style="font-size:0.95em;font-weight:900;">${esc(cfg.storeName.toUpperCase())}</div>` : ""}
+          <div style="font-size:1.15em;font-weight:900;">FICHA TÉCNICA &amp; BALANÇA DIGITAL</div>
+          <div style="font-weight:900;margin-top:2px;">${esc(activeRecipe.name)}</div>
+          <div style="font-size:0.85em;">${new Date().toLocaleDateString("pt-BR")}</div>
+        </div>
+        <div class="row"><span>Peso Total Lote:</span><span style="font-family:monospace;">${(scaleStats.totalBatchWeightG / 1000).toFixed(2).replace(".", ",")} kg</span></div>
+        <div class="row"><span>Massa / Recheio:</span><span style="font-family:monospace;">${activeRecipe.massTotalWeightG}g / ${activeRecipe.fillingTotalWeightG}g</span></div>
+        <div class="row"><span>Peso Unitário:</span><span style="font-family:monospace;">${scaleStats.calculatedRealUnitWeight.toFixed(1)}g</span></div>
+        <div class="row"><span>Rendimento:</span><span style="font-family:monospace;font-weight:900;">${scaleStats.batchYield} ${esc(activeRecipe.unitTypeLabel)}</span></div>
+        <div class="rule"></div>
+        <div style="font-weight:900;margin-bottom:3px;">INGREDIENTES USADOS:</div>
+        <table>
+          <thead><tr><th>Insumo</th><th style="text-align:right;">Custo Usado</th></tr></thead>
+          <tbody>${ingRows}</tbody>
+        </table>
+        <div class="rule"></div>
+        <div class="row"><span>Custo Ingredientes:</span><span style="font-family:monospace;">${formatCurrency(ingredientStats.totalUsedRecipeCost)}</span></div>
+        <div class="row"><span>Valor Sobras (Estoque):</span><span style="font-family:monospace;">${formatCurrency(ingredientStats.totalLeftoverValue)}</span></div>
+        <div class="row"><span>Gás / Embalagem / M.Obra:</span><span style="font-family:monospace;">${formatCurrency(scaleStats.operationalCostTotal)}</span></div>
+        <div class="row"><span>Custo Total Lote:</span><span style="font-family:monospace;">${formatCurrency(scaleStats.totalBatchCost)}</span></div>
+        <div class="solid"></div>
+        <div class="row"><span>Custo Unitário:</span><span style="font-family:monospace;font-weight:900;">${formatCurrency(scaleStats.costPerUnit)}</span></div>
+        <div class="row"><span>Custo do Cento (100un):</span><span style="font-family:monospace;font-weight:900;">${formatCurrency(scaleStats.costPerHundred)}</span></div>
+        <div class="row" style="font-size:1.15em;font-weight:900;border-top:1.5px solid #000;border-bottom:1.5px solid #000;padding:4px 0;margin-top:4px;">
+          <span>VENDA SUGERIDA (UN):</span>
+          <span style="font-family:monospace;">${formatCurrency(scaleStats.suggestedSellPriceUnit)}</span>
+        </div>
+        <div class="row"><span>Venda Sugerida (Cento):</span><span style="font-family:monospace;font-weight:900;">${formatCurrency(scaleStats.suggestedSellPriceHundred)}</span></div>
+        <div class="row"><span>Lucro Líquido Lote:</span><span style="font-family:monospace;font-weight:900;">${formatCurrency(scaleStats.netProfitTotalBatch)}</span></div>
+        ${!isA4 ? `<div style="height:${(cfg.feedLines || 4) * 9}px;"></div>` : ""}
+        ${!isA4 && cfg.autoCut ? `<span style="font-size:0px;color:transparent;user-select:none;">&#29;&#86;&#0;</span>` : ""}
+      </body>
+      </html>
+    `;
+
+    executeThermalPrint(
+      htmlContent,
+      () => showFeedback("Ficha técnica enviada para impressão! 🖨️"),
+      (err) => showFeedback(typeof err === "string" ? err : "Erro ao imprimir ficha técnica.")
+    );
   };
 
   // Botões rápidos de tamanhos de coxinha / salgado na balança com persistência

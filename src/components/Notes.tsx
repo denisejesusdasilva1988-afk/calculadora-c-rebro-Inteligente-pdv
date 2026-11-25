@@ -46,6 +46,13 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { jsPDF } from "jspdf";
 import { refineSpeechText, applyLocalDictionaryCorrections } from "../utils/speechRefiner";
+import {
+  loadPrinterConfig,
+  executeThermalPrint,
+  generateMiniPrint57mmPngBlob,
+  shareOrDownloadReceiptPng,
+  ThermalCanvasReceiptPayload
+} from "../utils/thermalPrinterHelper";
 
 // Self-contained lightweight debounce function
 function debounce<T extends (...args: any[]) => void>(func: T, wait: number) {
@@ -1992,25 +1999,18 @@ Data: [Inserir Data]`;
       handleLoadNote(note.text);
     };
 
-    // Print function matching the exact requested structures and formatting
-    const handlePrintNote = (note: any) => {
-      const printWindow = window.open("", "_blank");
-      if (!printWindow) {
-        alert(
-          "Por favor, habilite a permissão de pop-up no navegador para imprimir o comprovante.",
-        );
-        return;
-      }
+    const escapeHtmlNote = (str: string) =>
+      String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
 
-      const isA4 = printFormat === "a4";
+    const resolveNoteDocMeta = (note: any) => {
       const textUpper = (note.text || "").toUpperCase();
       let docTitle = "REGISTRO DE INFORMAÇÕES";
       let docSub = "DECLARAÇÃO / COMPROVANTE";
-
-      if (
-        textUpper.includes("PROMISSÓRIA") ||
-        textUpper.includes("PROMISSORIA")
-      ) {
+      if (textUpper.includes("PROMISSÓRIA") || textUpper.includes("PROMISSORIA")) {
         docTitle = "NOTA PROMISSÓRIA JURÍDICA";
         docSub = "DECLARAÇÃO E COMPROMISSO DE DÍVIDA ATIVA";
       } else if (
@@ -2028,104 +2028,157 @@ Data: [Inserir Data]`;
         docTitle = "PROPOSTA DE ORÇAMENTO / PEDIDO";
         docSub = "DOCUMENTO COMERCIAL DE PRESTAÇÃO DE SERVIÇOS";
       }
+      return { docTitle, docSub };
+    };
+
+    // Export note / receipt / promissória as 57mm PNG (iBleem / Fun Print)
+    const handleDownloadNotePng57mm = async (note: any) => {
+      try {
+        const cfg = loadPrinterConfig();
+        const { docTitle, docSub } = resolveNoteDocMeta(note);
+        const cleanText = String(note.text || "")
+          .replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDC00-\uDFFF]/g, "");
+        const linesRaw = cleanText.split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
+
+        const payload: ThermalCanvasReceiptPayload = {
+          title: docTitle,
+          subtitle: docSub,
+          storeName: cfg.storeName || "CALCULADORA CÉREBRO PDV",
+          storeCnpj: cfg.storeCnpjCpf,
+          dateStr: note.date || new Date().toLocaleString("pt-BR"),
+          ticketId: String(note.id || Date.now()),
+          collaboratorName: note.folder || "Anotação / Registro",
+          statusLabel: "DOCUMENTO REGISTRADO",
+          lines: (linesRaw.length > 0 ? linesRaw : ["Sem conteúdo"]).map((ln: string) => ({
+            left: ln,
+            right: "",
+            bold: true
+          })),
+          summaryLines: [
+            { label: "ASSINATURA:", value: "________________", bold: true }
+          ],
+          hideItemHeader: true,
+          footerNote: "Segurança de Autenticidade Registrada",
+          singleViaBanner: "VIA ÚNICA - BLOCO DE NOTAS",
+          copies: cfg.printTwoCopies ? 2 : 1
+        };
+
+        const blob = await generateMiniPrint57mmPngBlob(payload);
+        await shareOrDownloadReceiptPng(blob, `nota_${String(note.id || Date.now()).slice(-6)}_57mm.png`, docTitle, true);
+        showNotification?.("Imagem 57mm da notinha baixada para iBleem / Fun Print! 🖼️✅", "success");
+      } catch (err: any) {
+        showNotification?.(err?.message || "Erro ao gerar imagem 57mm da nota.", "error");
+      }
+    };
+
+    // Print function honoring configured printer (58mm/80mm thermal or A4) via executeThermalPrint
+    const handlePrintNote = (note: any) => {
+      const cfg = loadPrinterConfig();
+      const isA4 = printFormat === "a4";
+      const is58mm = !isA4 && (cfg.printerType === "58mm" || Boolean(cfg.miniPrintPocketMode));
+      const thermalWidth = is58mm ? "48mm" : "72mm";
+      const thermalPageSize = is58mm ? "58mm auto" : "80mm auto";
+      const thermalBasePx =
+        cfg.fontSize === "pequena"
+          ? is58mm ? 9.5 : 10.5
+          : cfg.fontSize === "grande"
+          ? is58mm ? 12 : 13.5
+          : is58mm ? 10.5 : 11.5;
+      const bodyWeight = cfg.highContrast !== false ? "900" : "700";
+
+      const { docTitle, docSub } = resolveNoteDocMeta(note);
 
       const cleanText = (note.text || "")
         .replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDC00-\uDFFF]/g, "");
 
       const parsedPages = cleanText.includes("--- PÁGINA ")
-        ? cleanText.split(/\n*--- PÁGINA \d+ ---\n*/g).map(p => p.trim()).filter(Boolean)
+        ? cleanText.split(/\n*--- PÁGINA \d+ ---\n*/g).map((p: string) => p.trim()).filter(Boolean)
         : (note.pages && note.pages.length > 0 ? note.pages : [cleanText]);
 
-      printWindow.document.write(`
+      const feedHeightPx = !isA4 ? (cfg.feedLines || 4) * 9 : 0;
+
+      const htmlContent = `
       <!DOCTYPE html>
-      <html>
+      <html lang="pt-BR">
         <head>
-          <title>${docTitle}</title>
+          <title>${escapeHtmlNote(docTitle)}</title>
           <meta charset="utf-8">
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;750;900&display=swap');
             @page {
-              size: ${isA4 ? "A4 portrait" : "auto"};
+              size: ${isA4 ? "A4 portrait" : thermalPageSize};
               margin: ${isA4 ? "15mm" : "0mm"};
             }
-            body {
-              font-family: ${isA4 ? '"Inter", -apple-system, sans-serif' : "'Courier New', Courier, monospace"};
-              padding: 0;
-              margin: 0;
-              color: #000;
-              background-color: #fff;
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            html, body {
+              font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
+              padding: 0 !important;
+              margin: 0 auto !important;
+              color: #000 !important;
+              background-color: #fff !important;
+              font-weight: ${bodyWeight};
+              ${!isA4 ? `width: ${thermalWidth}; max-width: ${thermalWidth};` : ""}
             }
             .page-break {
               page-break-after: always;
               break-after: page;
             }
             .print-page {
-              max-width: ${isA4 ? "700px" : "320px"};
+              max-width: ${isA4 ? "700px" : thermalWidth};
               margin: 0 auto;
-              ${isA4 ? "border: 1px solid #ddd; border-radius: 20px; padding: 40px;" : "padding: 15px;"}
-              margin-bottom: 30px;
-              box-shadow: ${isA4 ? "0 4px 12px rgba(0,0,0,0.05)" : "none"};
+              padding: ${isA4 ? "20px 10px" : "6px 3px"};
               background: #fff;
-            }
-            @media print {
-              .print-page {
-                border: none !important;
-                box-shadow: none !important;
-                border-radius: 0 !important;
-                padding: ${isA4 ? "20px 0" : "0"} !important;
-                margin-bottom: 0 !important;
-              }
-              body {
-                background: none;
-              }
             }
             .header-banner {
               text-align: center;
-              font-weight: 950;
-              font-size: ${isA4 ? "18px" : "13px"};
+              font-weight: 900;
+              font-size: ${isA4 ? "18px" : `${thermalBasePx + 2}px`};
               border-bottom: 2px ${isA4 ? "solid" : "dashed"} #000;
-              padding-bottom: ${isA4 ? "12px" : "8px"};
-              margin-bottom: ${isA4 ? "25px" : "15px"};
+              padding-bottom: ${isA4 ? "10px" : "6px"};
+              margin-bottom: ${isA4 ? "20px" : "10px"};
               text-transform: uppercase;
-              letter-spacing: 0.5px;
+              letter-spacing: 0.4px;
             }
             .main-content {
               white-space: pre-wrap;
-              font-size: ${isA4 ? "13.5px" : "11px"};
-              line-height: ${isA4 ? "1.7" : "1.4"};
-              margin-bottom: 30px;
-              word-break: break-all;
+              font-size: ${isA4 ? "13.5px" : `${thermalBasePx}px`};
+              font-weight: ${isA4 ? "600" : bodyWeight};
+              line-height: ${isA4 ? "1.65" : "1.35"};
+              margin-bottom: 20px;
+              word-break: break-word;
             }
             .signature-block {
-              margin-top: 40px;
+              margin-top: ${isA4 ? "35px" : "20px"};
               text-align: center;
               display: flex;
               flex-direction: column;
               align-items: center;
             }
             .signature-line {
-              border-top: 1px solid #000;
-              margin-top: ${isA4 ? "45px" : "35px"};
+              border-top: 1.5px solid #000;
+              margin-top: ${isA4 ? "40px" : "28px"};
               padding-top: 5px;
-              font-weight: bold;
+              font-weight: 900;
               text-transform: uppercase;
-              font-size: ${isA4 ? "11px" : "9px"};
-              width: ${isA4 ? "350px" : "100%"};
-              letter-spacing: 0.5px;
+              font-size: ${isA4 ? "11px" : `${Math.max(8.5, thermalBasePx - 1.5)}px`};
+              width: ${isA4 ? "350px" : "95%"};
             }
             .signature-img {
-              max-height: ${isA4 ? "90px" : "70px"};
-              max-width: ${isA4 ? "250px" : "200px"};
+              max-height: ${isA4 ? "90px" : "65px"};
+              max-width: ${isA4 ? "250px" : "180px"};
               margin: 5px auto;
               display: block;
             }
             .footer-info {
               text-align: center;
-              font-size: ${isA4 ? "10px" : "8px"};
-              margin-top: 45px;
-              border-top: 1px dashed #000;
-              padding-top: 10px;
-              color: #444;
+              font-size: ${isA4 ? "10px" : `${Math.max(8, thermalBasePx - 2)}px`};
+              margin-top: ${isA4 ? "35px" : "18px"};
+              border-top: 1.5px dashed #000;
+              padding-top: 8px;
+              color: #000;
             }
           </style>
         </head>
@@ -2134,15 +2187,16 @@ Data: [Inserir Data]`;
             ${parsedPages.map((pageText: string, idx: number) => `
               <div class="print-page ${idx < parsedPages.length - 1 ? 'page-break' : ''}">
                 <div class="header-banner">
-                  ${docTitle}<br/>
-                  ★ ${isA4 ? `${docSub} | Livro: ${note.folder || "Geral"}` : "DOCUMENTO DE REGISTRO"} ★<br/>
-                  <span style="font-size: 11px; font-weight: normal; text-transform: none; color: #555;">Página ${idx + 1} de ${parsedPages.length}</span>
+                  ${cfg.storeName ? `<div style="font-size:${isA4 ? "12px" : `${thermalBasePx}px`};margin-bottom:2px;">${escapeHtmlNote(cfg.storeName.toUpperCase())}</div>` : ""}
+                  ${escapeHtmlNote(docTitle)}<br/>
+                  <span style="font-size:${isA4 ? "11px" : `${Math.max(8.5, thermalBasePx - 1.5)}px`};">${isA4 ? `${escapeHtmlNote(docSub)} | Livro: ${escapeHtmlNote(note.folder || "Geral")}` : "DOCUMENTO DE REGISTRO"}</span><br/>
+                  <span style="font-size: 10px; font-weight: 700; text-transform: none;">Página ${idx + 1} de ${parsedPages.length}</span>
                 </div>
-                <div class="main-content">${pageText}</div>
+                <div class="main-content">${escapeHtmlNote(pageText)}</div>
                 
                 ${note.images && note.images[idx] ? `
-                  <div style="text-align: center; margin: 20px 0;">
-                    <img src="${note.images[idx]}" style="max-width: ${note.imageSizes && note.imageSizes[idx] ? note.imageSizes[idx] : 100}%; max-height: 400px; border-radius: 12px; border: 1px solid #ddd; object-fit: contain; box-shadow: 0 4px 12px rgba(0,0,0,0.08);" />
+                  <div style="text-align: center; margin: 14px 0;">
+                    <img src="${note.images[idx]}" style="max-width: ${note.imageSizes && note.imageSizes[idx] ? note.imageSizes[idx] : 100}%; max-height: ${isA4 ? "400px" : "240px"}; border-radius: 6px; border: 1px solid #000; object-fit: contain;" />
                   </div>
                 ` : ""}
                 
@@ -2151,7 +2205,7 @@ Data: [Inserir Data]`;
                     ${
                       note.signatureImg
                         ? `
-                      <p style="font-size: 8px; text-transform: uppercase; margin: 0 0 5px 0; color: #444;">Assinatura Digital Coletada:</p>
+                      <p style="font-size: 9px; text-transform: uppercase; margin: 0 0 4px 0; font-weight: 900;">Assinatura Digital Coletada:</p>
                       <img src="${note.signatureImg}" class="signature-img" />
                       <div class="signature-line" style="border-top:none; margin-top:0;">Ass: Emitente / Cliente</div>
                     `
@@ -2163,22 +2217,23 @@ Data: [Inserir Data]`;
                 ` : ""}
 
                 <div class="footer-info">
-                  Documento formalizado e emitido em ${note.date}<br/>
-                  Segurança de Autenticidade e Assinatura Registradas 🛡️
+                  Documento emitido em ${escapeHtmlNote(note.date || new Date().toLocaleString("pt-BR"))}<br/>
+                  Segurança de Autenticidade e Assinatura Registradas
                 </div>
               </div>
             `).join("")}
           </div>
-          <script>
-            window.onload = function() {
-              window.print();
-              setTimeout(function() { window.close(); }, 600);
-            };
-          </script>
+          ${feedHeightPx > 0 ? `<div style="height: ${feedHeightPx}px;"></div>` : ""}
+          ${!isA4 && cfg.autoCut ? `<span style="font-size: 0px; color: transparent; user-select: none;">&#29;&#86;&#0;</span>` : ""}
         </body>
       </html>
-    `);
-      printWindow.document.close();
+      `;
+
+      executeThermalPrint(
+        htmlContent,
+        () => showNotification?.("Documento enviado para a impressora! 🖨️", "success"),
+        (err) => showNotification?.(typeof err === "string" ? err : "Erro ao imprimir documento.", "error")
+      );
     };
 
     return (
@@ -2242,7 +2297,7 @@ Data: [Inserir Data]`;
               </span>
               <span className="text-[10px] text-amber-800 uppercase font-bold">
                 Escolha entre folha de impressora normal (A4) ou cupom térmico
-                (80mm)
+                (58mm / 80mm configurada)
               </span>
             </div>
           </div>
@@ -2259,7 +2314,7 @@ Data: [Inserir Data]`;
               onClick={() => setPrintFormat("thermal")}
               className={`flex-1 sm:flex-none px-4 py-2 rounded-xl text-[10.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${printFormat === "thermal" ? "bg-amber-700 text-white shadow" : "text-amber-900 hover:bg-amber-200"}`}
             >
-              🧾 Cupom Térmico (80mm)
+              🧾 Cupom Térmico (58/80mm)
             </button>
           </div>
         </div>
@@ -2679,6 +2734,15 @@ Data: [Inserir Data]`;
                                 >
                                   <Printer className="w-3.5 h-3.5" />
                                   Imprimir
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadNotePng57mm(note)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-cyan-100 hover:bg-cyan-200 text-cyan-950 flex items-center justify-center gap-1 active:scale-90 transition-all font-black uppercase text-[9px] border border-cyan-300 cursor-pointer"
+                                  title="Baixar PNG 57mm para iBleem / Fun Print"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  PNG 57mm
                                 </button>
                                 <button
                                   type="button"

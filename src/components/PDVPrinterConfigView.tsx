@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   Printer, 
   Settings, 
@@ -22,7 +22,8 @@ import {
   Check,
   ShoppingCart,
   ArrowLeft,
-  Building2
+  Building2,
+  Download
 } from "lucide-react";
 import { CompanyProfileModal } from "./CompanyProfileModal";
 import { 
@@ -33,7 +34,10 @@ import {
   buildThermalReceiptHtml, 
   executeThermalPrint,
   isBluetoothPrintSupported,
-  printViaBluetoothEscPos
+  printViaBluetoothEscPos,
+  buildPdvTransactionThermalPayload,
+  generateMiniPrint57mmPngBlob,
+  downloadReceiptPngDirect
 } from "../utils/thermalPrinterHelper";
 
 export interface PDVPrinterConfigViewProps {
@@ -57,11 +61,23 @@ export function PDVPrinterConfigView({
   const [activeTab, setActiveTab] = useState<"bobina" | "loja" | "preview" | "guia">("bobina");
   const [isPrintingTest, setIsPrintingTest] = useState(false);
   const [isPrintingBt, setIsPrintingBt] = useState(false);
+  const [isGeneratingPngTest, setIsGeneratingPngTest] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const [btStatusMsg, setBtStatusMsg] = useState("");
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
 
+  useEffect(() => {
+    setLocalConfig(initialConfig);
+  }, [initialConfig]);
+
   const handleUpdate = <K extends keyof PrinterConfig>(key: K, val: PrinterConfig[K]) => {
-    setLocalConfig(prev => ({ ...prev, [key]: val }));
+    setLocalConfig((prev) => {
+      const next: PrinterConfig = { ...prev, [key]: val };
+      if (key === "printerType" && val !== "58mm") {
+        next.miniPrintPocketMode = false;
+      }
+      return next;
+    });
   };
 
   const handleSave = () => {
@@ -72,13 +88,28 @@ export function PDVPrinterConfigView({
   };
 
   const handleResetDefaults = () => {
-    if (confirm("Deseja restaurar as configurações padrão recomendadas para bobina de 80mm?")) {
-      const reset = { ...DEFAULT_PRINTER_CONFIG, storeName: localConfig.storeName, storeCnpjCpf: localConfig.storeCnpjCpf };
-      setLocalConfig(reset);
-      savePrinterConfig(reset);
-      onSaveConfig(reset);
-      showNotification("Configurações restauradas para o padrão 80mm! 🔄", "info");
+    if (!confirmingReset) {
+      setConfirmingReset(true);
+      setTimeout(() => setConfirmingReset(false), 5000);
+      return;
     }
+    setConfirmingReset(false);
+    const reset: PrinterConfig = {
+      ...DEFAULT_PRINTER_CONFIG,
+      storeName: localConfig.storeName,
+      storeCnpjCpf: localConfig.storeCnpjCpf,
+      storePhone: localConfig.storePhone,
+      storeAddress: localConfig.storeAddress,
+      storeWhatsapp: localConfig.storeWhatsapp,
+      storeInstagram: localConfig.storeInstagram,
+      storeFacebook: localConfig.storeFacebook,
+      storeWebsite: localConfig.storeWebsite,
+      storeEmail: localConfig.storeEmail,
+    };
+    setLocalConfig(reset);
+    savePrinterConfig(reset);
+    onSaveConfig(reset);
+    showNotification("Configurações restauradas para o padrão 80mm! 🔄", "info");
   };
 
   const handlePrintTest = () => {
@@ -94,11 +125,49 @@ export function PDVPrinterConfigView({
         setIsPrintingTest(false);
         showNotification("Enviando cupom de teste para a impressora bobina... 🖨️✨", "success");
       },
-      (err) => {
+      () => {
         setIsPrintingTest(false);
         showNotification("Não foi possível enviar a impressão. Verifique se o navegador bloqueou pop-up.", "error");
       }
     );
+  };
+
+  const handleDownloadPngTest = async () => {
+    setIsGeneratingPngTest(true);
+    try {
+      savePrinterConfig(localConfig);
+      onSaveConfig(localConfig);
+      const testTx = {
+        id: "TESTE_57MM",
+        type: "entrada" as const,
+        amount: 17.0,
+        description: "TESTE MINI IMPRESSORA 57MM",
+        paymentMethod: "dinheiro" as const,
+        category: "venda" as const,
+        date: new Date().toLocaleDateString("pt-BR") + " " + new Date().toLocaleTimeString("pt-BR"),
+        timestamp: Date.now(),
+        clientName: "CONSUMIDOR TESTE",
+        amountPaid: 20.0,
+        changeAmount: 3.0,
+        items: [
+          { name: "PAO FRANCES TRADICIONAL", price: 1.2, quantity: 5, unit: "un" },
+          { name: "REFRIGERANTE LATA 350ML", price: 5.5, quantity: 2, unit: "un" }
+        ]
+      };
+      const payload = buildPdvTransactionThermalPayload(
+        testTx,
+        localConfig.storeName || "MEU ESTABELECIMENTO",
+        localConfig.storeCnpjCpf || "",
+        localConfig.printTwoCopies ? 2 : 1
+      );
+      const blob = await generateMiniPrint57mmPngBlob(payload);
+      downloadReceiptPngDirect(blob, `teste_pdv_57mm_${Date.now()}.png`);
+      showNotification("Imagem de teste PNG 57mm baixada! Abra no iBleem ou Fun Print -> Imprimir Imagem. 🖼️✅", "success");
+    } catch {
+      showNotification("Erro ao gerar imagem de teste PNG 57mm.", "error");
+    } finally {
+      setIsGeneratingPngTest(false);
+    }
   };
 
   const handlePrintBluetoothTest = async () => {
@@ -245,19 +314,34 @@ export function PDVPrinterConfigView({
                 <button
                   type="button"
                   onClick={() => {
-                    const next = buildMiniPrintPocketConfig(localConfig);
-                    setLocalConfig(next);
-                    savePrinterConfig(next);
-                    onSaveConfig(next);
-                    showNotification("MiniPrint PocketTM (57×30mm / Fun Print) configurada com sucesso! 🐱🖨️", "success");
+                    if (localConfig.miniPrintPocketMode) {
+                      const next: PrinterConfig = {
+                        ...localConfig,
+                        miniPrintPocketMode: false,
+                        printerType: "80mm",
+                        autoCut: true,
+                        showQrCode: true,
+                        feedLines: 4,
+                      };
+                      setLocalConfig(next);
+                      savePrinterConfig(next);
+                      onSaveConfig(next);
+                      showNotification("Modo MiniPrint desativado. Voltando para bobina padrão 80mm.", "info");
+                    } else {
+                      const next = buildMiniPrintPocketConfig(localConfig);
+                      setLocalConfig(next);
+                      savePrinterConfig(next);
+                      onSaveConfig(next);
+                      showNotification("MiniPrint PocketTM (57×30mm / Fun Print) configurada com sucesso! 🐱🖨️", "success");
+                    }
                   }}
                   className={`min-h-[44px] px-4 py-2 rounded-xl font-black text-xs uppercase shrink-0 cursor-pointer transition-all active:scale-95 ${
                     localConfig.miniPrintPocketMode
-                      ? "bg-pink-400 text-slate-950"
+                      ? "bg-pink-400 text-slate-950 hover:bg-pink-300"
                       : "bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-400 hover:to-rose-400 text-slate-950 shadow-md"
                   }`}
                 >
-                  {localConfig.miniPrintPocketMode ? "✓ MiniPrint 57×30mm Ativa" : "⚡ Ativar MiniPrint 57×30mm"}
+                  {localConfig.miniPrintPocketMode ? "✓ MiniPrint 57×30mm Ativa (Desativar)" : "⚡ Ativar MiniPrint 57×30mm"}
                 </button>
               </div>
             </div>
@@ -585,11 +669,11 @@ export function PDVPrinterConfigView({
             {/* Realistic Paper Roll Container */}
             <div className="flex justify-center p-3 bg-slate-950/80 rounded-2xl border border-white/5 overflow-x-auto">
               <div 
-                className={`bg-white text-slate-950 p-4 shadow-2xl font-mono text-left select-none relative ${
+                className={`bg-white text-black p-4 shadow-2xl font-sans font-bold text-left select-none relative ${
                   localConfig.printerType === "58mm" ? "w-[240px] text-[10px]" : localConfig.printerType === "80mm" ? "w-[310px] text-[11px]" : "w-[360px] text-xs"
                 }`}
                 style={{
-                  fontWeight: localConfig.highContrast ? 700 : 500,
+                  fontWeight: localConfig.highContrast !== false ? 900 : 700,
                   lineHeight: 1.25
                 }}
               >
@@ -600,20 +684,27 @@ export function PDVPrinterConfigView({
 
                 {/* Header */}
                 <div className="text-center space-y-0.5">
-                  <div className="font-black text-sm uppercase leading-tight">
-                    {localConfig.storeName || "ESTABELECIMENTO COMERCIAL"}
-                  </div>
-                  {localConfig.storeCnpjCpf && (
+                  {localConfig.printTwoCopies && (
+                    <div className="inline-block border border-slate-900 px-1.5 py-0.5 text-[8px] font-black uppercase mb-1">
+                      1ª VIA - CLIENTE (MODO 2 VIAS)
+                    </div>
+                  )}
+                  {localConfig.showNameOnReceipt !== false && (
+                    <div className="font-black text-sm uppercase leading-tight">
+                      {localConfig.storeName || "ESTABELECIMENTO COMERCIAL"}
+                    </div>
+                  )}
+                  {localConfig.showCnpjOnReceipt !== false && localConfig.storeCnpjCpf && (
                     <div className="text-[9px]">CNPJ/CPF: {localConfig.storeCnpjCpf}</div>
                   )}
-                  {localConfig.storeAddress && (
+                  {localConfig.showAddressOnReceipt !== false && localConfig.storeAddress && (
                     <div className="text-[8.5px] text-slate-700">{localConfig.storeAddress}</div>
                   )}
-                  {localConfig.storePhone && (
+                  {localConfig.showPhoneOnReceipt !== false && localConfig.storePhone && (
                     <div className="text-[8.5px] text-slate-700">TEL: {localConfig.storePhone}</div>
                   )}
                   <div className="text-[9px] font-black mt-1 uppercase">
-                    *** COMPROVANTE DE TESTE ***
+                    {localConfig.miniPrintPocketMode ? "*** TESTE MINIPRINT 57MM ***" : "*** COMPROVANTE DE TESTE ***"}
                   </div>
                 </div>
 
@@ -771,7 +862,18 @@ export function PDVPrinterConfigView({
             title="Gera uma impressão de teste com régua de alinhamento para testar na sua bobina física agora"
           >
             <Printer className="w-4 h-4 text-emerald-400" />
-            <span>{isPrintingTest ? "Imprimindo..." : "🖨️ Testar Impressão na Bobina"}</span>
+            <span>{isPrintingTest ? "Imprimindo..." : "🖨️ Testar Bobina"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadPngTest}
+            disabled={isGeneratingPngTest}
+            className="px-3.5 py-2.5 bg-cyan-400/15 hover:bg-cyan-400/25 border border-cyan-400/40 text-cyan-300 font-bold text-xs uppercase rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
+            title="Baixa uma imagem de teste 57mm PNG para testar no app iBleem ou Fun Print"
+          >
+            <Download className="w-4 h-4 text-cyan-300" />
+            <span>{isGeneratingPngTest ? "Gerando..." : "PNG 57mm (iBleem/Fun Print)"}</span>
           </button>
 
           {isBluetoothPrintSupported() && (
@@ -790,10 +892,15 @@ export function PDVPrinterConfigView({
           <button
             type="button"
             onClick={handleResetDefaults}
-            className="p-2.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
-            title="Restaurar valores padrão recomendados"
+            className={`px-2.5 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold ${
+              confirmingReset
+                ? "bg-amber-500 text-slate-950"
+                : "hover:bg-white/10 text-slate-400 hover:text-white"
+            }`}
+            title="Restaurar valores padrão recomendados (80mm)"
           >
             <RotateCcw className="w-4 h-4" />
+            {confirmingReset && <span>Confirmar Padrão 80mm</span>}
           </button>
         </div>
 

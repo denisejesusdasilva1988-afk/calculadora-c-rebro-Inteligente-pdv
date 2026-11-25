@@ -63,6 +63,15 @@ export function PastaCuponsModule({
   // Loaded printer configuration
   const [printerConfig, setPrinterConfig] = useState<PrinterConfig>(() => loadPrinterConfig());
 
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const custom = ev as CustomEvent<PrinterConfig>;
+      setPrinterConfig(custom.detail || loadPrinterConfig());
+    };
+    window.addEventListener("pdv_printer_config_changed", handler);
+    return () => window.removeEventListener("pdv_printer_config_changed", handler);
+  }, []);
+
   // Archive state merged with transactions
   const [archivedReceipts, setArchivedReceipts] = useState<PDVTransaction[]>(() => {
     try {
@@ -231,9 +240,10 @@ export function PastaCuponsModule({
     const effectiveConfig: PrinterConfig = {
       ...printerConfig,
       printerType: width,
-      storeName: storeName,
-      storeCnpjCpf: storeCnpjCpf,
-      receiptFooterMsg: "Obrigado pela preferência! Volte sempre! 🛒✨"
+      miniPrintPocketMode: width === "58mm" ? printerConfig.miniPrintPocketMode : false,
+      storeName: storeName || printerConfig.storeName,
+      storeCnpjCpf: storeCnpjCpf || printerConfig.storeCnpjCpf,
+      receiptFooterMsg: printerConfig.receiptFooterMsg || "Obrigado pela preferência! Volte sempre! 🛒✨"
     };
 
     const fullHtml = buildThermalReceiptHtml({
@@ -257,9 +267,10 @@ export function PastaCuponsModule({
     const effectiveConfig: PrinterConfig = {
       ...printerConfig,
       printerType: "A4",
-      storeName: storeName,
-      storeCnpjCpf: storeCnpjCpf,
-      receiptFooterMsg: "Comprovante de venda gerado pelo Sistema PDV Comercial."
+      miniPrintPocketMode: false,
+      storeName: storeName || printerConfig.storeName,
+      storeCnpjCpf: storeCnpjCpf || printerConfig.storeCnpjCpf,
+      receiptFooterMsg: printerConfig.receiptFooterMsg || "Comprovante de venda gerado pelo Sistema PDV Comercial."
     };
 
     const fullHtml = buildThermalReceiptHtml({
@@ -295,7 +306,12 @@ export function PastaCuponsModule({
   // Baixar imagem inteira 57mm PNG (para apps iBleem / Fun Print)
   const handleDownloadPng57mm = async (tx: PDVTransaction) => {
     try {
-      const payload = buildPdvTransactionThermalPayload(tx, storeName, storeCnpjCpf, 1);
+      const payload = buildPdvTransactionThermalPayload(
+        tx,
+        storeName,
+        storeCnpjCpf,
+        printerConfig.printTwoCopies ? 2 : 1
+      );
       const blob = await generateMiniPrint57mmPngBlob(payload);
       const shortId = tx.id.slice(-6).toUpperCase();
       downloadReceiptPngDirect(blob, `notinha_pdv_${shortId}_57mm.png`);
@@ -693,7 +709,7 @@ export function PastaCuponsModule({
 
             {/* Modal Body: Realistic Receipt Paper */}
             <div className="p-4 sm:p-6 overflow-y-auto no-scrollbar bg-slate-950/40 flex justify-center">
-              <div className="w-full max-w-[340px] bg-white text-black p-5 rounded-2xl shadow-xl font-mono text-xs border border-slate-300 space-y-3">
+              <div className="w-full max-w-[340px] bg-white text-black p-5 rounded-2xl shadow-xl font-sans font-bold text-xs border border-slate-300 space-y-3">
                 {/* Header Store */}
                 <div className="text-center space-y-0.5 border-b-2 border-dashed border-black pb-3">
                   <div className="font-black text-sm uppercase tracking-wide">

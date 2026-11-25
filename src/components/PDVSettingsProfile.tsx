@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   User, 
   Mail, 
@@ -21,6 +21,7 @@ import { getAuth, updatePassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { CompanyProfileModal } from "./CompanyProfileModal";
 import { loadCompanyProfile, saveCompanyProfile } from "../utils/companyProfile";
+import { loadPrinterConfig, PrinterConfig } from "../utils/thermalPrinterHelper";
 
 interface PDVSettingsProfileProps {
   storeName: string;
@@ -54,6 +55,16 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
   onOpenPrinterConfig
 }) => {
   // Passwords Form with safety validation (CPF + RG)
+  const [printerCfg, setPrinterCfg] = useState<PrinterConfig>(() => loadPrinterConfig());
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const custom = ev as CustomEvent<PrinterConfig>;
+      setPrinterCfg(custom.detail || loadPrinterConfig());
+    };
+    window.addEventListener("pdv_printer_config_changed", handler);
+    return () => window.removeEventListener("pdv_printer_config_changed", handler);
+  }, []);
+
   const [cpfPasswordInput, setCpfPasswordInput] = useState("");
   const [rgPasswordInput, setRgPasswordInput] = useState("");
   const [newPasswordInput, setNewPasswordInput] = useState("");
@@ -698,18 +709,24 @@ export const PDVSettingsProfile: React.FC<PDVSettingsProfileProps> = ({
         </p>
 
         <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
-          <div className="flex items-center gap-2 text-[10.5px] text-slate-300">
+          <div className="flex flex-wrap items-center gap-2 text-[10.5px] text-slate-300">
             <span className="px-2 py-0.5 rounded bg-slate-900 border border-white/10 font-bold text-emerald-400 font-mono">
-              {localStorage.getItem("pdv_printer_type") || "80mm"}
+              {printerCfg.miniPrintPocketMode ? "57mm MiniPrint / Fun Print" : printerCfg.printerType}
             </span>
             <span className="text-slate-500">•</span>
             <span className="text-slate-400">
-              Guilhotina: {localStorage.getItem("pdv_printer_auto_cut") !== "false" ? "Ativada ✔️" : "Desativada"}
+              Guilhotina: {printerCfg.autoCut ? "Ativada ✔️" : "Desativada"}
             </span>
             <span className="text-slate-500">•</span>
             <span className="text-slate-400">
-              Auto-impressão: {localStorage.getItem("pdv_printer_auto_print_on_sale") === "true" ? "Sim ⚡" : "Manual"}
+              Auto-impressão: {printerCfg.autoPrintOnSale ? "Sim ⚡" : "Manual"}
             </span>
+            {printerCfg.printTwoCopies && (
+              <>
+                <span className="text-slate-500">•</span>
+                <span className="text-cyan-300 font-bold">2 Vias</span>
+              </>
+            )}
           </div>
 
           {onOpenPrinterConfig && (

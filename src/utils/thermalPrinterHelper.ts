@@ -40,7 +40,7 @@ export const DEFAULT_PRINTER_CONFIG: PrinterConfig = {
   miniPrintPocketMode: false,
   feedLines: 4,
   fontSize: "media",
-  highContrast: false,
+  highContrast: true,
   autoCut: true,
   openDrawer: true,
   printTwoCopies: false,
@@ -74,11 +74,25 @@ export function loadPrinterConfig(): PrinterConfig {
     const saved = localStorage.getItem("pdv_printer_full_config");
     if (saved) {
       const parsed = JSON.parse(saved);
+      const resolvedType: "58mm" | "80mm" | "A4" = parsed.printerType === "58mm" || parsed.printerType === "80mm" || parsed.printerType === "A4"
+        ? parsed.printerType
+        : ((localStorage.getItem("pdv_printer_type") as any) || "80mm");
       return {
         ...DEFAULT_PRINTER_CONFIG,
         ...parsed,
-        storeName: parsed.storeName || company.name || localStorage.getItem("pdv_store_name") || "",
-        storeCnpjCpf: parsed.storeCnpjCpf || company.cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "",
+        printerType: resolvedType,
+        miniPrintPocketMode: resolvedType === "58mm" ? Boolean(parsed.miniPrintPocketMode) : false,
+        storeName:
+          parsed.storeName ||
+          localStorage.getItem("pdv_store_custom_name") ||
+          company.name ||
+          localStorage.getItem("pdv_store_name") ||
+          "",
+        storeCnpjCpf:
+          parsed.storeCnpjCpf ||
+          company.cnpjCpf ||
+          localStorage.getItem("pdv_store_cnpj_cpf") ||
+          "",
         storePhone: parsed.storePhone || company.phone || localStorage.getItem("pdv_store_phone") || "",
         storeAddress: parsed.storeAddress || company.address || localStorage.getItem("pdv_store_address") || "",
         storeWhatsapp: parsed.storeWhatsapp || company.whatsapp || localStorage.getItem("pdv_store_whatsapp") || "",
@@ -86,6 +100,10 @@ export function loadPrinterConfig(): PrinterConfig {
         storeFacebook: parsed.storeFacebook || company.facebook || localStorage.getItem("pdv_store_facebook") || "",
         storeWebsite: parsed.storeWebsite || company.website || localStorage.getItem("pdv_store_website") || "",
         storeEmail: parsed.storeEmail || company.email || localStorage.getItem("pdv_store_email") || "",
+        receiptFooterMsg:
+          parsed.receiptFooterMsg ||
+          localStorage.getItem("pdv_receipt_footer_msg") ||
+          DEFAULT_PRINTER_CONFIG.receiptFooterMsg,
         showNameOnReceipt: parsed.showNameOnReceipt !== undefined ? parsed.showNameOnReceipt : company.showNameOnReceipt,
         showCnpjOnReceipt: parsed.showCnpjOnReceipt !== undefined ? parsed.showCnpjOnReceipt : company.showCnpjOnReceipt,
         showPhoneOnReceipt: parsed.showPhoneOnReceipt !== undefined ? parsed.showPhoneOnReceipt : company.showPhoneOnReceipt,
@@ -102,9 +120,11 @@ export function loadPrinterConfig(): PrinterConfig {
   }
 
   // Fallback to legacy single keys
+  const fallbackType: "58mm" | "80mm" | "A4" = (localStorage.getItem("pdv_printer_type") as any) || "80mm";
   return {
     ...DEFAULT_PRINTER_CONFIG,
-    printerType: (localStorage.getItem("pdv_printer_type") as any) || "80mm",
+    printerType: fallbackType,
+    miniPrintPocketMode: fallbackType === "58mm" && localStorage.getItem("pdv_printer_mini_pocket") === "true",
     feedLines: parseInt(localStorage.getItem("pdv_printer_feed_lines") || "4", 10),
     fontSize: (localStorage.getItem("pdv_printer_font_size") as any) || "media",
     highContrast: localStorage.getItem("pdv_printer_high_contrast") === "true",
@@ -113,7 +133,11 @@ export function loadPrinterConfig(): PrinterConfig {
     printTwoCopies: localStorage.getItem("pdv_printer_two_copies") === "true",
     showQrCode: localStorage.getItem("pdv_printer_show_qrcode") !== "false",
     autoPrintOnSale: localStorage.getItem("pdv_printer_auto_print_on_sale") === "true",
-    storeName: company.name || localStorage.getItem("pdv_store_name") || "",
+    storeName:
+      localStorage.getItem("pdv_store_custom_name") ||
+      company.name ||
+      localStorage.getItem("pdv_store_name") ||
+      "",
     storeCnpjCpf: company.cnpjCpf || localStorage.getItem("pdv_store_cnpj_cpf") || "",
     storePhone: company.phone || localStorage.getItem("pdv_store_phone") || "",
     storeAddress: company.address || localStorage.getItem("pdv_store_address") || "",
@@ -136,22 +160,33 @@ export function loadPrinterConfig(): PrinterConfig {
 }
 
 export function savePrinterConfig(config: PrinterConfig) {
+  const normalizedConfig: PrinterConfig = {
+    ...config,
+    miniPrintPocketMode: config.printerType === "58mm" ? Boolean(config.miniPrintPocketMode) : false,
+  };
   try {
-    localStorage.setItem("pdv_printer_full_config", JSON.stringify(config));
-    localStorage.setItem("pdv_printer_type", config.printerType);
-    localStorage.setItem("pdv_printer_feed_lines", config.feedLines.toString());
-    localStorage.setItem("pdv_printer_font_size", config.fontSize);
-    localStorage.setItem("pdv_printer_high_contrast", config.highContrast ? "true" : "false");
-    localStorage.setItem("pdv_printer_auto_cut", config.autoCut ? "true" : "false");
-    localStorage.setItem("pdv_printer_open_drawer", config.openDrawer ? "true" : "false");
-    localStorage.setItem("pdv_printer_two_copies", config.printTwoCopies ? "true" : "false");
-    localStorage.setItem("pdv_printer_show_qrcode", config.showQrCode ? "true" : "false");
-    localStorage.setItem("pdv_printer_auto_print_on_sale", config.autoPrintOnSale ? "true" : "false");
-    localStorage.setItem("pdv_store_custom_name", config.storeName);
-    localStorage.setItem("pdv_store_cnpj_cpf", config.storeCnpjCpf);
-    if (config.storePhone) localStorage.setItem("pdv_store_phone", config.storePhone);
-    if (config.storeAddress) localStorage.setItem("pdv_store_address", config.storeAddress);
-    localStorage.setItem("pdv_receipt_footer_msg", config.receiptFooterMsg);
+    localStorage.setItem("pdv_printer_full_config", JSON.stringify(normalizedConfig));
+    localStorage.setItem("pdv_printer_type", normalizedConfig.printerType);
+    localStorage.setItem("pdv_printer_mini_pocket", normalizedConfig.miniPrintPocketMode ? "true" : "false");
+    localStorage.setItem("pdv_printer_feed_lines", normalizedConfig.feedLines.toString());
+    localStorage.setItem("pdv_printer_font_size", normalizedConfig.fontSize);
+    localStorage.setItem("pdv_printer_high_contrast", normalizedConfig.highContrast ? "true" : "false");
+    localStorage.setItem("pdv_printer_auto_cut", normalizedConfig.autoCut ? "true" : "false");
+    localStorage.setItem("pdv_printer_open_drawer", normalizedConfig.openDrawer ? "true" : "false");
+    localStorage.setItem("pdv_printer_two_copies", normalizedConfig.printTwoCopies ? "true" : "false");
+    localStorage.setItem("pdv_printer_show_qrcode", normalizedConfig.showQrCode ? "true" : "false");
+    localStorage.setItem("pdv_printer_auto_print_on_sale", normalizedConfig.autoPrintOnSale ? "true" : "false");
+    localStorage.setItem("pdv_store_custom_name", normalizedConfig.storeName);
+    if (normalizedConfig.storeName) {
+      localStorage.setItem("pdv_store_name", normalizedConfig.storeName);
+    }
+    localStorage.setItem("pdv_store_cnpj_cpf", normalizedConfig.storeCnpjCpf);
+    if (normalizedConfig.storePhone) localStorage.setItem("pdv_store_phone", normalizedConfig.storePhone);
+    if (normalizedConfig.storeAddress) localStorage.setItem("pdv_store_address", normalizedConfig.storeAddress);
+    localStorage.setItem("pdv_receipt_footer_msg", normalizedConfig.receiptFooterMsg);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pdv_printer_config_changed", { detail: normalizedConfig }));
+    }
   } catch (e) {
     console.warn("Erro ao salvar pdv_printer_full_config:", e);
   }
@@ -189,8 +224,8 @@ export function buildThermalReceiptHtml(params: {
   // Exact printable physical widths without cutting off right margins
   // 58mm roll: printable width is ~48mm (384 dots)
   // 80mm roll: printable width is ~72mm (576 dots)
-  const is58mm = config.printerType === "58mm";
-  const isA4 = config.printerType === "A4";
+  const is58mm = config.printerType === "58mm" || Boolean(config.miniPrintPocketMode);
+  const isA4 = config.printerType === "A4" && !config.miniPrintPocketMode;
 
   const printableWidth = is58mm ? "48mm" : isA4 ? "100%" : "72mm";
   const maxContainerWidth = is58mm ? "48mm" : isA4 ? "800px" : "72mm";
@@ -201,7 +236,7 @@ export function buildThermalReceiptHtml(params: {
   const fontHeaderPx = fontBasePx + 2.5;
   const fontSmallPx = fontBasePx - 2;
 
-  const contrastWeight = config.highContrast ? "700" : "500";
+  const contrastWeight = config.highContrast !== false ? "900" : "700";
   const boldWeight = "900";
 
   const storeTitle = config.storeName.trim() || "ESTABELECIMENTO COMERCIAL";
@@ -250,7 +285,7 @@ export function buildThermalReceiptHtml(params: {
               </td>
             </tr>
             <tr style="border-bottom: 1px dotted #444;">
-              <td style="padding-bottom: 4px; font-size: ${fontSmallPx}px; color: #000;">
+              <td style="padding-bottom: 4px; font-size: ${fontSmallPx}px; font-weight: ${contrastWeight}; color: #000;">
                 ${it.quantity} ${unit} x R$ ${unitPrice} ${spec ? `(${spec})` : ''}
               </td>
               <td></td>
@@ -298,7 +333,7 @@ export function buildThermalReceiptHtml(params: {
         </div>
 
         <!-- Meta info -->
-        <div style="border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 4px 0; margin: 4px 0; font-size: ${fontSmallPx}px; line-height: 1.3;">
+        <div style="border-top: 1.5px dashed #000; border-bottom: 1.5px dashed #000; padding: 4px 0; margin: 4px 0; font-size: ${fontSmallPx}px; font-weight: ${contrastWeight}; line-height: 1.3;">
           <div style="display: flex; justify-content: space-between;">
             <span>DATA: ${effectiveTx.date}</span>
             <span>ID: ${effectiveTx.id.slice(-8).toUpperCase()}</span>
@@ -425,7 +460,7 @@ export function buildThermalReceiptHtml(params: {
             padding: 0 !important;
             background: #ffffff !important;
             color: #000000 !important;
-            font-family: 'Courier New', Courier, 'Lucida Console', Monaco, monospace;
+            font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
             font-size: ${fontBasePx}px;
             font-weight: ${contrastWeight};
             line-height: 1.25;
@@ -494,7 +529,7 @@ export function executeThermalPrint(
       frameDoc.write(fullHtml);
       frameDoc.close();
 
-      setTimeout(() => {
+      const triggerFramePrint = () => {
         try {
           printFrame.contentWindow?.focus();
           printFrame.contentWindow?.print();
@@ -503,7 +538,30 @@ export function executeThermalPrint(
           console.warn("Falha no printFrame, usando fallback:", e);
           fallbackWindowPrint(fullHtml, onSuccess, onError);
         }
-      }, 350);
+      };
+
+      // Aguarda carregamento de imagens (ex: QR Code) com timeout máximo de 1200ms
+      const imgs = Array.from(frameDoc.images || []);
+      if (imgs.length > 0) {
+        let printed = false;
+        const doOnce = () => {
+          if (printed) return;
+          printed = true;
+          triggerFramePrint();
+        };
+        const imgPromises = imgs.map((img) =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise<void>((res) => {
+                img.addEventListener("load", () => res(), { once: true });
+                img.addEventListener("error", () => res(), { once: true });
+              })
+        );
+        Promise.all(imgPromises).then(() => setTimeout(doOnce, 120));
+        setTimeout(doOnce, 1200);
+      } else {
+        setTimeout(triggerFramePrint, 350);
+      }
       return;
     }
   } catch (err) {
@@ -611,8 +669,14 @@ export async function printViaBluetoothEscPos(
 
     if (onStatus) onStatus("Formatando cupom ESC/POS...");
 
-    // Build raw ESC/POS commands
+    // Build raw ESC/POS commands (normalize diacritics to clean ASCII so ESC/POS thermal rolls never print garbled symbols)
+    const cleanEscPos = (txt: string) =>
+      String(txt || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^\x20-\x7E\n]/g, " ");
     const encoder = new TextEncoder();
+    const encodeAscii = (txt: string) => encoder.encode(cleanEscPos(txt));
     const chunks: Uint8Array[] = [];
 
     // Init ESC @
@@ -623,47 +687,9 @@ export async function printViaBluetoothEscPos(
       chunks.push(new Uint8Array([0x1B, 0x70, 0x00, 0x19, 0xFA]));
     }
 
-    // Align Center: ESC a 1
-    chunks.push(new Uint8Array([0x1B, 0x61, 0x01]));
-    if (config.showNameOnReceipt !== false) {
-      // Double height/width header: ESC ! 0x30
-      chunks.push(new Uint8Array([0x1B, 0x21, 0x30]));
-      chunks.push(encoder.encode((config.storeName || "ESTABELECIMENTO").toUpperCase() + "\n"));
-    }
-
-    // Reset font: ESC ! 0x00
-    chunks.push(new Uint8Array([0x1B, 0x21, 0x00]));
-    if (config.showCnpjOnReceipt !== false && config.storeCnpjCpf) {
-      chunks.push(encoder.encode(`CNPJ/CPF: ${config.storeCnpjCpf}\n`));
-    }
-    if (config.showAddressOnReceipt !== false && config.storeAddress) {
-      chunks.push(encoder.encode(`END: ${config.storeAddress}\n`));
-    }
-    if (config.showPhoneOnReceipt !== false && config.storePhone) {
-      chunks.push(encoder.encode(`TEL: ${config.storePhone}\n`));
-    }
-    if (config.showWhatsappOnReceipt !== false && config.storeWhatsapp) {
-      chunks.push(encoder.encode(`WHATSAPP: ${config.storeWhatsapp}\n`));
-    }
-    if (config.showInstagramOnReceipt !== false && config.storeInstagram) {
-      chunks.push(encoder.encode(`INSTA: ${config.storeInstagram}\n`));
-    }
-    if (config.showFacebookOnReceipt && config.storeFacebook) {
-      chunks.push(encoder.encode(`FACE: ${config.storeFacebook}\n`));
-    }
-    if (config.showWebsiteOnReceipt !== false && config.storeWebsite) {
-      chunks.push(encoder.encode(`SITE: ${config.storeWebsite}\n`));
-    }
-    if (config.showEmailOnReceipt && config.storeEmail) {
-      chunks.push(encoder.encode(`EMAIL: ${config.storeEmail}\n`));
-    }
-    chunks.push(encoder.encode("CUPOM DE VENDA / REGISTRO FISCAL\n"));
-
-    const divider = config.printerType === "58mm" ? "--------------------------------\n" : "------------------------------------------------\n";
-    chunks.push(encoder.encode(divider));
-
-    // Align Left: ESC a 0
-    chunks.push(new Uint8Array([0x1B, 0x61, 0x00]));
+    const divider = config.printerType === "58mm" || config.miniPrintPocketMode
+      ? "--------------------------------\n"
+      : "------------------------------------------------\n";
 
     const targetTx = tx || {
       id: "TESTE_" + Math.floor(100000 + Math.random() * 900000),
@@ -671,51 +697,123 @@ export async function printViaBluetoothEscPos(
       paymentMethod: "dinheiro",
       date: new Date().toLocaleDateString("pt-BR") + " " + new Date().toLocaleTimeString("pt-BR"),
       clientName: "CLIENTE TESTE",
+      amountPaid: 50.00,
+      changeAmount: 11.50,
       items: [
         { name: "PAO FRANCES", price: 1.20, quantity: 5, unit: "un" },
         { name: "REFRIGERANTE LATA", price: 5.50, quantity: 2, unit: "un" }
       ]
     };
 
-    chunks.push(encoder.encode(`DATA: ${targetTx.date}\n`));
-    chunks.push(encoder.encode(`ID: ${targetTx.id.slice(-8).toUpperCase()}\n`));
-    if (targetTx.clientName) {
-      chunks.push(encoder.encode(`CLIENTE: ${targetTx.clientName.toUpperCase()}\n`));
-    }
-    chunks.push(encoder.encode(divider));
-
-    // Items
-    if (targetTx.items && targetTx.items.length > 0) {
-      for (const item of targetTx.items) {
-        const line = `${item.quantity} ${item.unit || "un"} x R$ ${item.price.toFixed(2)} - ${item.name}\n`;
-        const totalLine = `   TOTAL: R$ ${(item.price * item.quantity).toFixed(2)}\n`;
-        chunks.push(encoder.encode(line));
-        chunks.push(encoder.encode(totalLine));
+    const appendEscPosCopy = (copyLabel?: string) => {
+      // Align Center: ESC a 1
+      chunks.push(new Uint8Array([0x1B, 0x61, 0x01]));
+      if (copyLabel) {
+        chunks.push(new Uint8Array([0x1B, 0x45, 0x01]));
+        chunks.push(encodeAscii(`[ ${copyLabel} ]\n`));
+        chunks.push(new Uint8Array([0x1B, 0x45, 0x00]));
       }
-    }
+      if (config.showNameOnReceipt !== false) {
+        // Double height/width header: ESC ! 0x30
+        chunks.push(new Uint8Array([0x1B, 0x21, 0x30]));
+        chunks.push(encodeAscii((config.storeName || "ESTABELECIMENTO").toUpperCase() + "\n"));
+      }
 
-    chunks.push(encoder.encode(divider));
+      // Reset font size (normal) and enforce ESC/POS Bold ON for crisp dark thermal printing
+      chunks.push(new Uint8Array([0x1B, 0x21, 0x00]));
+      if (config.highContrast !== false) {
+        chunks.push(new Uint8Array([0x1B, 0x45, 0x01]));
+      }
+      if (config.showCnpjOnReceipt !== false && config.storeCnpjCpf) {
+        chunks.push(encodeAscii(`CNPJ/CPF: ${config.storeCnpjCpf}\n`));
+      }
+      if (config.showAddressOnReceipt !== false && config.storeAddress) {
+        chunks.push(encodeAscii(`END: ${config.storeAddress}\n`));
+      }
+      if (config.showPhoneOnReceipt !== false && config.storePhone) {
+        chunks.push(encodeAscii(`TEL: ${config.storePhone}\n`));
+      }
+      if (config.showWhatsappOnReceipt !== false && config.storeWhatsapp) {
+        chunks.push(encodeAscii(`WHATSAPP: ${config.storeWhatsapp}\n`));
+      }
+      if (config.showInstagramOnReceipt !== false && config.storeInstagram) {
+        chunks.push(encodeAscii(`INSTA: ${config.storeInstagram}\n`));
+      }
+      if (config.showFacebookOnReceipt && config.storeFacebook) {
+        chunks.push(encodeAscii(`FACE: ${config.storeFacebook}\n`));
+      }
+      if (config.showWebsiteOnReceipt !== false && config.storeWebsite) {
+        chunks.push(encodeAscii(`SITE: ${config.storeWebsite}\n`));
+      }
+      if (config.showEmailOnReceipt && config.storeEmail) {
+        chunks.push(encodeAscii(`EMAIL: ${config.storeEmail}\n`));
+      }
+      chunks.push(encodeAscii("CUPOM DE VENDA / REGISTRO COMERCIAL\n"));
+      chunks.push(encodeAscii(divider));
 
-    // Total: Bold and Big
-    chunks.push(new Uint8Array([0x1B, 0x45, 0x01])); // Bold on
-    chunks.push(encoder.encode(`FORMA PGTO: ${targetTx.paymentMethod.toUpperCase()}\n`));
-    chunks.push(encoder.encode(`TOTAL R$: ${targetTx.amount.toFixed(2)}\n`));
-    chunks.push(new Uint8Array([0x1B, 0x45, 0x00])); // Bold off
+      // Align Left: ESC a 0
+      chunks.push(new Uint8Array([0x1B, 0x61, 0x00]));
+      chunks.push(encodeAscii(`DATA: ${targetTx.date}\n`));
+      chunks.push(encodeAscii(`ID: ${targetTx.id.slice(-8).toUpperCase()}\n`));
+      if (targetTx.clientName) {
+        chunks.push(encodeAscii(`CLIENTE: ${targetTx.clientName.toUpperCase()}\n`));
+      }
+      chunks.push(encodeAscii(divider));
 
-    chunks.push(encoder.encode(divider));
+      // Items
+      if (targetTx.items && targetTx.items.length > 0) {
+        for (const item of targetTx.items) {
+          const line = `${item.quantity} ${item.unit || "un"} x R$ ${item.price.toFixed(2)} - ${item.name}\n`;
+          const totalLine = `   TOTAL: R$ ${(item.price * item.quantity).toFixed(2)}\n`;
+          chunks.push(encodeAscii(line));
+          chunks.push(encodeAscii(totalLine));
+        }
+      } else if ((targetTx as any).description) {
+        chunks.push(encodeAscii(`${(targetTx as any).description}\n`));
+      }
 
-    // Align Center
-    chunks.push(new Uint8Array([0x1B, 0x61, 0x01]));
-    chunks.push(encoder.encode(`${config.receiptFooterMsg || "Obrigado pela preferência!"}\n`));
-    chunks.push(encoder.encode("SISTEMA GESTAO PROTEGIDA\n"));
+      chunks.push(encodeAscii(divider));
 
-    // Feed lines: ESC d n
-    const feed = Math.min(Math.max(config.feedLines || 4, 2), 8);
-    chunks.push(new Uint8Array([0x1B, 0x64, feed]));
+      // Total: Bold and Big
+      chunks.push(new Uint8Array([0x1B, 0x45, 0x01])); // Bold on
+      chunks.push(encodeAscii(`FORMA PGTO: ${targetTx.paymentMethod === "misto" ? "MISTO (2 FORMAS)" : String(targetTx.paymentMethod).toUpperCase()}\n`));
+      if ((targetTx as any).splitDetails) {
+        const sd = (targetTx as any).splitDetails;
+        chunks.push(encodeAscii(` - 1a (${String(sd.method1 || "DINHEIRO").toUpperCase()}): R$ ${Number(sd.amount1 || 0).toFixed(2)}\n`));
+        chunks.push(encodeAscii(` - 2a (${String(sd.method2 || "PIX").toUpperCase()}): R$ ${Number(sd.amount2 || 0).toFixed(2)}\n`));
+      }
+      chunks.push(encodeAscii(`TOTAL R$: ${targetTx.amount.toFixed(2)}\n`));
+      if ((targetTx.paymentMethod === "dinheiro" || targetTx.paymentMethod === "misto") && targetTx.amountPaid && targetTx.amountPaid > 0) {
+        chunks.push(encodeAscii(`RECEBIDO: R$ ${targetTx.amountPaid.toFixed(2)}\n`));
+        chunks.push(encodeAscii(`TROCO:    R$ ${(targetTx.changeAmount || 0).toFixed(2)}\n`));
+      }
+      if (config.highContrast === false) {
+        chunks.push(new Uint8Array([0x1B, 0x45, 0x00])); // Bold off only if explicitly disabled
+      }
 
-    // Auto Cut if configured: GS V 0
-    if (config.autoCut) {
-      chunks.push(new Uint8Array([0x1D, 0x56, 0x00]));
+      chunks.push(encodeAscii(divider));
+
+      // Align Center
+      chunks.push(new Uint8Array([0x1B, 0x61, 0x01]));
+      chunks.push(encodeAscii(`${config.receiptFooterMsg || "Obrigado pela preferencia!"}\n`));
+      chunks.push(encodeAscii("SISTEMA GESTAO COMERCIAL PROTEGIDA\n"));
+
+      // Feed lines: ESC d n
+      const feed = Math.min(Math.max(config.feedLines || 4, 2), 8);
+      chunks.push(new Uint8Array([0x1B, 0x64, feed]));
+
+      // Auto Cut if configured: GS V 0
+      if (config.autoCut) {
+        chunks.push(new Uint8Array([0x1D, 0x56, 0x00]));
+      }
+    };
+
+    if (config.printTwoCopies) {
+      appendEscPosCopy("1A VIA - CLIENTE");
+      chunks.push(encodeAscii("\n"));
+      appendEscPosCopy("2A VIA - CONTROLE LOJA");
+    } else {
+      appendEscPosCopy();
     }
 
     if (onStatus) onStatus("Transmitindo dados para a bobina...");
@@ -728,7 +826,7 @@ export async function printViaBluetoothEscPos(
       offset += c.length;
     }
 
-    const CHUNK_SIZE = 50;
+    const CHUNK_SIZE = 20;
     for (let i = 0; i < fullBuffer.length; i += CHUNK_SIZE) {
       const slice = fullBuffer.slice(i, i + CHUNK_SIZE);
       if (printChar.properties.writeWithoutResponse) {
@@ -815,7 +913,7 @@ export function buildThermalDocumentHtmlFromPayload(
   const fontHeaderPx = fontBasePx + 2;
   const fontSmallPx = Math.max(8, fontBasePx - 1.5);
   const boldWeight = "900";
-  const bodyWeight = config.highContrast || config.miniPrintPocketMode ? "700" : "500";
+  const bodyWeight = config.highContrast !== false || config.miniPrintPocketMode ? "900" : "700";
   const storeTitle = payload.storeName?.trim() || config.storeName?.trim() || "MINHA EMPRESA";
   const storeCnpj = payload.storeCnpj?.trim() || config.storeCnpjCpf?.trim() || "";
 
@@ -1051,7 +1149,7 @@ export function buildThermalDocumentHtmlFromPayload(
             padding: 0 !important;
             background: #fff !important;
             color: #000 !important;
-            font-family: 'Courier New', Courier, monospace;
+            font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
             font-size: ${fontBasePx}px;
             font-weight: ${bodyWeight};
             line-height: 1.25;
@@ -1251,20 +1349,20 @@ export async function generateMiniPrint57mmPngBlob(
 
   const isCompact = Boolean(payload.compactCleanMode);
   const FONT_TITLE = isCompact
-    ? "900 31px 'Courier New', monospace"
-    : "900 28px 'Courier New', monospace";
+    ? "900 31px Arial, Helvetica, sans-serif"
+    : "900 28px Arial, Helvetica, sans-serif";
   const FONT_BIG = isCompact
-    ? "900 29px 'Courier New', monospace"
-    : "900 26px 'Courier New', monospace";
+    ? "900 29px Arial, Helvetica, sans-serif"
+    : "900 26px Arial, Helvetica, sans-serif";
   const FONT_BOLD = isCompact
-    ? "900 26px 'Courier New', monospace"
-    : "900 22px 'Courier New', monospace";
+    ? "900 26px Arial, Helvetica, sans-serif"
+    : "900 23px Arial, Helvetica, sans-serif";
   const FONT_BODY = isCompact
-    ? "700 24px 'Courier New', monospace"
-    : "700 20px 'Courier New', monospace";
+    ? "900 24px Arial, Helvetica, sans-serif"
+    : "900 21px Arial, Helvetica, sans-serif";
   const FONT_SMALL = isCompact
-    ? "700 22px 'Courier New', monospace"
-    : "700 18px 'Courier New', monospace";
+    ? "900 22px Arial, Helvetica, sans-serif"
+    : "900 19px Arial, Helvetica, sans-serif";
 
   const addDoubleBoxBanner = (headerLines: string[], font: string, lineH = 34) => {
     const cleanLines: string[] = [];
@@ -1525,12 +1623,27 @@ export function buildPdvTransactionThermalPayload(
   tx: PDVTransaction,
   storeName?: string,
   storeCnpjCpf?: string,
-  copies: 1 | 2 = 1
+  copies?: 1 | 2
 ): ThermalCanvasReceiptPayload {
   const cfg = loadPrinterConfig();
   const prof = loadCompanyProfile();
-  const resolvedStore = (storeName || cfg.storeName || prof.name || "MEU ESTABELECIMENTO").trim();
-  const resolvedCnpj = (storeCnpjCpf || cfg.storeCnpjCpf || prof.cnpjCpf || "").trim();
+  const resolvedStore =
+    cfg.showNameOnReceipt === false
+      ? ""
+      : (storeName || cfg.storeName || prof.name || "MEU ESTABELECIMENTO").trim();
+  const resolvedCnpj =
+    cfg.showCnpjOnReceipt === false
+      ? ""
+      : (storeCnpjCpf || cfg.storeCnpjCpf || prof.cnpjCpf || "").trim();
+  const resolvedCopies: 1 | 2 = copies !== undefined ? copies : cfg.printTwoCopies ? 2 : 1;
+
+  const extraMeta: string[] = [];
+  if (cfg.showPhoneOnReceipt !== false && cfg.storePhone) {
+    extraMeta.push(`TEL: ${cfg.storePhone}`);
+  }
+  if (cfg.showAddressOnReceipt !== false && cfg.storeAddress) {
+    extraMeta.push(`END: ${cfg.storeAddress}`);
+  }
 
   const lines: ThermalCanvasReceiptPayload["lines"] =
     tx.items && tx.items.length > 0
@@ -1557,7 +1670,19 @@ export function buildPdvTransactionThermalPayload(
     }
   ];
 
-  if (tx.paymentMethod === "dinheiro" && tx.amountPaid && tx.amountPaid > 0) {
+  if ((tx as any).splitDetails) {
+    const sd = (tx as any).splitDetails;
+    summaryLines.push({
+      label: `1ª (${String(sd.method1 || "DINHEIRO").toUpperCase()}):`,
+      value: `R$ ${Number(sd.amount1 || 0).toFixed(2).replace(".", ",")}`
+    });
+    summaryLines.push({
+      label: `2ª (${String(sd.method2 || "PIX").toUpperCase().replace("_", " ")}):`,
+      value: `R$ ${Number(sd.amount2 || 0).toFixed(2).replace(".", ",")}`
+    });
+  }
+
+  if ((tx.paymentMethod === "dinheiro" || tx.paymentMethod === "misto") && tx.amountPaid && tx.amountPaid > 0) {
     summaryLines.push({
       label: "VALOR RECEBIDO:",
       value: `R$ ${Number(tx.amountPaid).toFixed(2).replace(".", ",")}`
@@ -1577,12 +1702,13 @@ export function buildPdvTransactionThermalPayload(
     dateStr: tx.date || new Date().toLocaleString("pt-BR"),
     ticketId: tx.id,
     collaboratorName: tx.clientName?.trim() || "Consumidor Balcão",
-    statusLabel: `PAGAMENTO: ${String(tx.paymentMethod || "dinheiro").toUpperCase().replace("_", " ")}`,
+    statusLabel: `PAGAMENTO: ${tx.paymentMethod === "misto" ? "2 FORMAS (MISTO)" : String(tx.paymentMethod || "dinheiro").toUpperCase().replace("_", " ")}`,
+    extraMeta: extraMeta.length > 0 ? extraMeta : undefined,
     lines,
     summaryLines,
     footerNote: cfg.receiptFooterMsg || "Obrigado pela preferência! Volte sempre!",
     singleViaBanner: "VIA ÚNICA - COMPROVANTE PDV",
-    copies
+    copies: resolvedCopies
   };
 }
 

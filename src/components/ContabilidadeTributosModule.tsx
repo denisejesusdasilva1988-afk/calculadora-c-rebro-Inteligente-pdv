@@ -28,8 +28,16 @@ import {
   Minus,
   Check,
   Zap,
-  Hammer
+  Hammer,
+  Download
 } from "lucide-react";
+import {
+  loadPrinterConfig,
+  executeThermalPrint,
+  generateMiniPrint57mmPngBlob,
+  shareOrDownloadReceiptPng,
+  ThermalCanvasReceiptPayload
+} from "../utils/thermalPrinterHelper";
 
 interface ContabilidadeTributosProps {
   key?: React.Key;
@@ -597,9 +605,331 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
     };
   }, [mlGarrafa, mlDose, precoGarrafa, precoDoseVenda, dosesServidasContador, fardoPreco, unidadesNoFardo, precoAvulso, precoBaldePromo, qtdBalde, custoGeloBalde]);
 
-  // Função para imprimir relatório / recibo
+  const escHtml = (str: string) =>
+    String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+
+  const wrapPrintableDoc = (title: string, bodyHtml: string, forceA4 = false) => {
+    const cfg = loadPrinterConfig();
+    const is58mm = !forceA4 && (cfg.printerType === "58mm" || Boolean(cfg.miniPrintPocketMode));
+    const isA4 = forceA4 || (cfg.printerType === "A4" && !cfg.miniPrintPocketMode);
+    const printableWidth = is58mm ? "48mm" : isA4 ? "100%" : "72mm";
+    const maxContainerWidth = is58mm ? "48mm" : isA4 ? "760px" : "72mm";
+    const pageSize = is58mm ? "58mm auto" : isA4 ? "A4 portrait" : "80mm auto";
+    const fontBasePx = isA4
+      ? 12.5
+      : cfg.fontSize === "pequena"
+      ? is58mm ? 9.5 : 10.5
+      : cfg.fontSize === "grande"
+      ? is58mm ? 12 : 13.5
+      : is58mm ? 10.5 : 11.5;
+    const bodyWeight = cfg.highContrast !== false || !isA4 ? "900" : "700";
+    const feedHeightPx = !isA4 ? (cfg.feedLines || 4) * 9 : 0;
+
+    return `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>${escHtml(title)}</title>
+        <style>
+          @page { size: ${pageSize}; margin: ${isA4 ? "14mm" : "0mm"}; }
+          * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          html, body {
+            font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
+            color: #000 !important;
+            background: #fff !important;
+            width: ${printableWidth};
+            max-width: ${maxContainerWidth};
+            margin: 0 auto !important;
+            padding: ${isA4 ? "10px" : "6px 3px"} !important;
+            font-size: ${fontBasePx}px;
+            font-weight: ${bodyWeight};
+            line-height: 1.3;
+          }
+          .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 8px; }
+          .row { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 3px; }
+          .rule { border-bottom: 1.5px dashed #000; margin: 6px 0; }
+          .solid { border-bottom: 2px solid #000; margin: 6px 0; }
+          table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: ${Math.max(9, fontBasePx - 1)}px; }
+          th, td { padding: 4px 2px; border-bottom: 1px dashed #666; text-align: left; }
+          .sign-grid { display: ${is58mm ? "block" : "grid"}; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 28px; text-align: center; }
+          .sign-line { border-top: 1.5px solid #000; margin-top: 28px; padding-top: 4px; font-weight: 900; font-size: ${Math.max(9, fontBasePx - 1)}px; }
+        </style>
+      </head>
+      <body>
+        ${bodyHtml}
+        ${feedHeightPx > 0 ? `<div style="height:${feedHeightPx}px;"></div>` : ""}
+        ${!isA4 && cfg.autoCut ? `<span style="font-size:0px;color:transparent;user-select:none;">&#29;&#86;&#0;</span>` : ""}
+      </body>
+      </html>
+    `;
+  };
+
+  // Recibo oficial de salário / diária via executeThermalPrint
+  const handlePrintSalaryReceipt = () => {
+    const cfg = loadPrinterConfig();
+    const storeTitle = (cfg.storeName || "EMPRESA / EMPREGADOR").trim();
+    const detalhesRows = folhaCalc.detalhes
+      .map(
+        (d) =>
+          `<tr><td>${escHtml(d.nome)}</td><td style="text-align:right;font-family:monospace;">+${formatCurrency(d.valor)}</td><td style="text-align:right;">-</td></tr>`
+      )
+      .join("");
+    const descontosRows =
+      tipoContrato === "clt"
+        ? `
+          <tr><td>INSS Previdência</td><td style="text-align:right;">-</td><td style="text-align:right;font-family:monospace;">-${formatCurrency(folhaCalc.inss || 0)}</td></tr>
+          ${valeTransporte ? `<tr><td>Vale Transporte (6%)</td><td style="text-align:right;">-</td><td style="text-align:right;font-family:monospace;">-${formatCurrency(folhaCalc.descontoVT || 0)}</td></tr>` : ""}
+          ${(folhaCalc.descontoFaltas || 0) > 0 ? `<tr><td>Faltas (${diasFalta}d)</td><td style="text-align:right;">-</td><td style="text-align:right;font-family:monospace;">-${formatCurrency(folhaCalc.descontoFaltas || 0)}</td></tr>` : ""}
+        `
+        : "";
+
+    const body = `
+      <div class="header">
+        <div style="font-size:1.15em;font-weight:900;">${escHtml(storeTitle.toUpperCase())}</div>
+        ${cfg.storeCnpjCpf ? `<div style="font-size:0.85em;">CNPJ/CPF: ${escHtml(cfg.storeCnpjCpf)}</div>` : ""}
+        <div style="font-weight:900;margin-top:3px;">RECIBO DE PAGAMENTO (${tipoContrato.toUpperCase()})</div>
+        <div style="font-size:0.85em;">Data: ${new Date().toLocaleDateString("pt-BR")}</div>
+      </div>
+      <div><strong>Colaborador:</strong> ${escHtml(nomeFuncionario)}</div>
+      <div><strong>Cargo/Função:</strong> ${escHtml(cargoFuncionario)}</div>
+      <div class="rule"></div>
+      <table>
+        <thead><tr><th>Descrição</th><th style="text-align:right;">Prov(+)</th><th style="text-align:right;">Desc(-)</th></tr></thead>
+        <tbody>${detalhesRows}${descontosRows}</tbody>
+      </table>
+      <div class="solid"></div>
+      <div class="row"><span>Total Bruto:</span><span style="font-family:monospace;">${formatCurrency(folhaCalc.bruto)}</span></div>
+      <div class="row"><span>Total Descontos:</span><span style="font-family:monospace;">-${formatCurrency(folhaCalc.descontos)}</span></div>
+      <div class="row" style="font-size:1.2em;font-weight:900;border-top:1.5px solid #000;border-bottom:1.5px solid #000;padding:4px 0;margin-top:4px;">
+        <span>VALOR LÍQUIDO:</span>
+        <span style="font-family:monospace;">${formatCurrency(folhaCalc.liquido)}</span>
+      </div>
+      <div class="sign-grid">
+        <div><div class="sign-line">Assinatura da Empresa</div></div>
+        <div><div class="sign-line">${escHtml(nomeFuncionario)}<br/><span style="font-weight:700;font-size:0.85em;">Recebi e dou plena quitação</span></div></div>
+      </div>
+    `;
+
+    executeThermalPrint(
+      wrapPrintableDoc(`Recibo - ${nomeFuncionario}`, body),
+      () => showNotification("Recibo enviado para impressão! 🖨️", "success"),
+      (err) => showNotification(typeof err === "string" ? err : "Erro ao imprimir recibo.", "error")
+    );
+  };
+
+  // PNG 57mm do Recibo Salário/Diária (iBleem / Fun Print)
+  const handleDownloadSalaryPng57mm = async () => {
+    try {
+      const cfg = loadPrinterConfig();
+      const lines: ThermalCanvasReceiptPayload["lines"] = folhaCalc.detalhes.map((d) => ({
+        left: d.nome,
+        right: `+${formatCurrency(d.valor)}`,
+        bold: true
+      }));
+      if (tipoContrato === "clt") {
+        lines.push({ left: "INSS Previdência", right: `-${formatCurrency(folhaCalc.inss || 0)}`, bold: true });
+        if (valeTransporte) {
+          lines.push({ left: "Vale Transporte (6%)", right: `-${formatCurrency(folhaCalc.descontoVT || 0)}`, bold: true });
+        }
+      }
+      const payload: ThermalCanvasReceiptPayload = {
+        title: `RECIBO ${tipoContrato.toUpperCase()}`,
+        subtitle: `CARGO: ${cargoFuncionario.toUpperCase()}`,
+        storeName: cfg.storeName || "EMPRESA / EMPREGADOR",
+        storeCnpj: cfg.storeCnpjCpf,
+        dateStr: new Date().toLocaleDateString("pt-BR"),
+        ticketId: `SAL_${Date.now()}`,
+        collaboratorName: nomeFuncionario,
+        statusLabel: "PAGAMENTO FOLHA / DIÁRIA",
+        lines,
+        summaryLines: [
+          { label: "BRUTO:", value: formatCurrency(folhaCalc.bruto) },
+          { label: "DESCONTOS:", value: `-${formatCurrency(folhaCalc.descontos)}` },
+          { label: "LÍQUIDO A RECEBER:", value: formatCurrency(folhaCalc.liquido), big: true, bold: true }
+        ],
+        footerNote: "Assinado e quitado",
+        singleViaBanner: "VIA ÚNICA - RECIBO PAGAMENTO",
+        copies: cfg.printTwoCopies ? 2 : 1
+      };
+      const blob = await generateMiniPrint57mmPngBlob(payload);
+      await shareOrDownloadReceiptPng(blob, `recibo_salario_57mm.png`, "Recibo Salário", true);
+      showNotification("Imagem 57mm do recibo baixada para iBleem / Fun Print! 🖼️✅", "success");
+    } catch (err: any) {
+      showNotification(err?.message || "Erro ao gerar imagem 57mm.", "error");
+    }
+  };
+
+  // Impressão Rescisão CLT via executeThermalPrint
+  const handlePrintRescisao = () => {
+    const cfg = loadPrinterConfig();
+    const storeTitle = (cfg.storeName || "EMPRESA / EMPREGADOR").trim();
+    const motivoLabel =
+      motivoRescisao === "sem_justa_causa"
+        ? "Dispensa Sem Justa Causa"
+        : motivoRescisao === "pedido_demissao"
+        ? "Pedido de Demissão"
+        : motivoRescisao === "com_justa_causa"
+        ? "Dispensa Com Justa Causa"
+        : "Acordo Mútuo (Art. 484-A)";
+
+    const body = `
+      <div class="header">
+        <div style="font-size:1.15em;font-weight:900;">${escHtml(storeTitle.toUpperCase())}</div>
+        <div style="font-weight:900;margin-top:3px;">DEMONSTRATIVO DE RESCISÃO (CLT)</div>
+        <div style="font-size:0.85em;">Emitido em ${new Date().toLocaleDateString("pt-BR")}</div>
+      </div>
+      <div><strong>Colaborador:</strong> ${escHtml(nomeFuncionario)}</div>
+      <div><strong>Período:</strong> ${escHtml(dataAdmissao.split("-").reverse().join("/"))} até ${escHtml(dataDemissao.split("-").reverse().join("/"))}</div>
+      <div><strong>Motivo:</strong> ${escHtml(motivoLabel)}</div>
+      <div class="rule"></div>
+      <div class="row"><span>Saldo de Salário (${rescisaoCalc.diasTrabalhadosMesRescisao}d):</span><span style="font-family:monospace;">${formatCurrency(rescisaoCalc.saldoSalario)}</span></div>
+      <div class="row"><span>13º Salário Proporcional:</span><span style="font-family:monospace;">${formatCurrency(rescisaoCalc.decimoTerceiro)}</span></div>
+      <div class="row"><span>Férias Prop. + 1/3:</span><span style="font-family:monospace;">${formatCurrency(rescisaoCalc.feriasComTerco)}</span></div>
+      ${temFeriasVencidas ? `<div class="row"><span>Férias Vencidas + 1/3:</span><span style="font-family:monospace;">${formatCurrency(rescisaoCalc.feriasVencidasComTerco)}</span></div>` : ""}
+      <div class="row"><span>Aviso Prévio (${rescisaoCalc.diasAviso}d):</span><span style="font-family:monospace;">${formatCurrency(rescisaoCalc.valorAvisoPrevio)}</span></div>
+      <div class="solid"></div>
+      <div class="row" style="font-size:1.15em;font-weight:900;"><span>TOTAL LÍQUIDO RESCISÃO:</span><span style="font-family:monospace;">${formatCurrency(rescisaoCalc.totalPagarAoFuncionario)}</span></div>
+      <div class="row"><span>Multa FGTS (GRRF):</span><span style="font-family:monospace;">${formatCurrency(rescisaoCalc.multaFgts)}</span></div>
+      <div class="row"><span>Custo Total Empresa:</span><span style="font-family:monospace;">${formatCurrency(rescisaoCalc.custoTotalComMultaFgts)}</span></div>
+      <div class="sign-grid">
+        <div><div class="sign-line">Empregador</div></div>
+        <div><div class="sign-line">${escHtml(nomeFuncionario)}</div></div>
+      </div>
+    `;
+
+    executeThermalPrint(
+      wrapPrintableDoc(`Rescisão CLT - ${nomeFuncionario}`, body),
+      () => showNotification("Demonstrativo de rescisão enviado para impressão! 🖨️", "success"),
+      (err) => showNotification(typeof err === "string" ? err : "Erro ao imprimir rescisão.", "error")
+    );
+  };
+
+  // Impressão OS da Oficina via executeThermalPrint
+  const handlePrintOficinaOS = () => {
+    const cfg = loadPrinterConfig();
+    const storeTitle = (cfg.storeName || "OFICINA MECÂNICA / PRESTAÇÃO DE SERVIÇOS").trim();
+    const body =
+      modoOficina === "rapido"
+        ? `
+          <div class="header">
+            <div style="font-size:1.15em;font-weight:900;">${escHtml(storeTitle.toUpperCase())}</div>
+            <div style="font-weight:900;margin-top:3px;">ORDEM DE SERVIÇO &amp; ORÇAMENTO</div>
+            <div style="font-size:0.85em;">${new Date().toLocaleString("pt-BR")}</div>
+          </div>
+          <div><strong>Serviço:</strong> ${escHtml(servicoNome)}</div>
+          <div class="rule"></div>
+          <div class="row"><span>Mão de Obra (${tempoMecanicoMin}m):</span><span style="font-family:monospace;">${formatCurrency(tempoDinheiroCalc.precoMaoDeObraSugerido || 0)}</span></div>
+          ${custoPecasServico > 0 ? `<div class="row"><span>Peças / Fluídos:</span><span style="font-family:monospace;">${formatCurrency(tempoDinheiroCalc.precoPecasVenda || 0)}</span></div>` : ""}
+          <div class="solid"></div>
+          <div class="row" style="font-size:1.2em;font-weight:900;"><span>TOTAL DO SERVIÇO:</span><span style="font-family:monospace;">${formatCurrency(tempoDinheiroCalc.precoTotalServico)}</span></div>
+          <div class="sign-grid">
+            <div><div class="sign-line">Responsável Oficina</div></div>
+            <div><div class="sign-line">Autorização do Cliente</div></div>
+          </div>
+        `
+        : `
+          <div class="header">
+            <div style="font-size:1.15em;font-weight:900;">${escHtml(storeTitle.toUpperCase())}</div>
+            <div style="font-weight:900;margin-top:3px;">ORÇAMENTO DE OBRA / DIÁRIA</div>
+            <div style="font-size:0.85em;">${new Date().toLocaleString("pt-BR")}</div>
+          </div>
+          <div class="row"><span>Duração Prevista:</span><span>${diasGastos} dia(s)</span></div>
+          <div class="row"><span>Ajudantes:</span><span>${numAjudantes}</span></div>
+          <div class="row"><span>Custos Operacionais:</span><span style="font-family:monospace;">${formatCurrency(tempoDinheiroCalc.custoTotalReal)}</span></div>
+          <div class="solid"></div>
+          <div class="row" style="font-size:1.2em;font-weight:900;"><span>VALOR COBRADO:</span><span style="font-family:monospace;">${formatCurrency(valorCobrado)}</span></div>
+          <div class="row"><span>Preço Justo Mínimo:</span><span style="font-family:monospace;">${formatCurrency(tempoDinheiroCalc.precoJustoMinimo)}</span></div>
+          <div class="sign-grid">
+            <div><div class="sign-line">Prestador</div></div>
+            <div><div class="sign-line">Aceite do Cliente</div></div>
+          </div>
+        `;
+
+    executeThermalPrint(
+      wrapPrintableDoc(`OS Oficina - ${servicoNome}`, body),
+      () => showNotification("OS da Oficina enviada para impressão! 🖨️", "success"),
+      (err) => showNotification(typeof err === "string" ? err : "Erro ao imprimir OS.", "error")
+    );
+  };
+
+  // Impressão do Relatório Geral da Aba Ativa via executeThermalPrint
   const handlePrintDocument = () => {
-    window.print();
+    if (activeTab === "funcionarios") {
+      handlePrintSalaryReceipt();
+      return;
+    }
+    if (activeTab === "tempo_dinheiro") {
+      handlePrintOficinaOS();
+      return;
+    }
+
+    const cfg = loadPrinterConfig();
+    const storeTitle = (cfg.storeName || "CONTABILIDADE & TRIBUTOS PDV").trim();
+    let body = "";
+
+    if (activeTab === "tributos") {
+      const detRows = tributosCalc.detalhe
+        .map((d) => `<div class="row"><span>${escHtml(d.nome)}:</span><span style="font-family:monospace;">${formatCurrency(d.valor)}</span></div>`)
+        .join("");
+      body = `
+        <div class="header">
+          <div style="font-size:1.15em;font-weight:900;">${escHtml(storeTitle.toUpperCase())}</div>
+          <div style="font-weight:900;margin-top:3px;">RELATÓRIO TRIBUTÁRIO (${escHtml(tributosCalc.impostoNome)})</div>
+          ${empresaCnpjCnae ? `<div>CNPJ/CNAE: ${escHtml(empresaCnpjCnae)}</div>` : ""}
+          <div style="font-size:0.85em;">${new Date().toLocaleString("pt-BR")}</div>
+        </div>
+        <div class="row"><span>Faturamento Mês:</span><span style="font-family:monospace;">${formatCurrency(faturamentoMes)}</span></div>
+        <div class="row"><span>Alíquota Efetiva:</span><span style="font-family:monospace;">${tributosCalc.aliquotaEfetiva.toFixed(2)}%</span></div>
+        <div class="rule"></div>
+        ${detRows}
+        <div class="solid"></div>
+        <div class="row" style="font-size:1.2em;font-weight:900;"><span>TOTAL IMPOSTO (DAS):</span><span style="font-family:monospace;">${formatCurrency(tributosCalc.impostoTotal)}</span></div>
+        <div class="rule"></div>
+        <div style="font-size:0.9em;">${escHtml(tributosCalc.alerta)}</div>
+      `;
+    } else if (activeTab === "bar_doses") {
+      body = `
+        <div class="header">
+          <div style="font-size:1.15em;font-weight:900;">${escHtml(storeTitle.toUpperCase())}</div>
+          <div style="font-weight:900;margin-top:3px;">TABELA &amp; LUCRO DE BAR / DOSES</div>
+          <div style="font-size:0.85em;">${new Date().toLocaleString("pt-BR")}</div>
+        </div>
+        <div style="font-weight:900;">${escHtml(bebidaNome)}</div>
+        <div class="row"><span>Preço Dose Balcão:</span><span style="font-family:monospace;">${formatCurrency(precoDoseVenda)}</span></div>
+        <div class="row"><span>Custo Real/Dose (${dosesServidasContador} doses):</span><span style="font-family:monospace;">${formatCurrency(barCalc.custoDoseReal)}</span></div>
+        <div class="row"><span>Lucro Limpo/Garrafa:</span><span style="font-family:monospace;">${formatCurrency(barCalc.lucroGarrafaReal)}</span></div>
+        <div class="rule"></div>
+        <div style="font-weight:900;">BALDE DE CERVEJA (${qtdBalde} un)</div>
+        <div class="row"><span>Preço Promo Balde:</span><span style="font-family:monospace;">${formatCurrency(precoBaldePromo)}</span></div>
+        <div class="row"><span>Lucro Limpo Balde:</span><span style="font-family:monospace;">${formatCurrency(barCalc.lucroBalde)} (${barCalc.margemBalde.toFixed(1)}%)</span></div>
+      `;
+    } else {
+      body = `
+        <div class="header">
+          <div style="font-size:1.15em;font-weight:900;">${escHtml(storeTitle.toUpperCase())}</div>
+          <div style="font-weight:900;margin-top:3px;">GUIA LIVRO CAIXA &amp; CDC</div>
+          <div style="font-size:0.85em;">${new Date().toLocaleString("pt-BR")}</div>
+        </div>
+        <div>1. Preço Diferente Cartão vs PIX: Placa visível obrigatória (Lei 13.455/2017).</div>
+        <div class="rule"></div>
+        <div>2. Taxa 10%: Estritamente opcional para o cliente.</div>
+        <div class="rule"></div>
+        <div>3. Preço Visível: Obrigatório em todo produto exposto (Decreto 5.903/2006).</div>
+        <div class="rule"></div>
+        <div>4. Tara na Balança: Sempre descontar peso da embalagem/isopor.</div>
+      `;
+    }
+
+    executeThermalPrint(
+      wrapPrintableDoc("Relatório Contábil & Gestão", body),
+      () => showNotification("Relatório enviado para impressão! 🖨️", "success"),
+      (err) => showNotification(typeof err === "string" ? err : "Erro ao imprimir relatório.", "error")
+    );
   };
 
   return (
@@ -1288,11 +1618,20 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
                 </button>
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={handlePrintSalaryReceipt}
                   className="py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/20 touch-manipulation min-h-[44px]"
                 >
                   <Printer className="w-4 h-4" />
                   <span>Imprimir Recibo 🖨️</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadSalaryPng57mm}
+                  className="py-3 px-3.5 bg-cyan-600 hover:bg-cyan-500 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-lg touch-manipulation min-h-[44px]"
+                  title="Baixar PNG 57mm para iBleem / Fun Print"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>PNG 57mm</span>
                 </button>
               </div>
             </div>
@@ -1465,7 +1804,7 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
 
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={handlePrintRescisao}
                   className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer border border-white/10 touch-manipulation"
                 >
                   <Printer className="w-4 h-4" />
@@ -1906,7 +2245,7 @@ export const ContabilidadeTributosModule: React.FC<ContabilidadeTributosProps> =
 
                   <button
                     type="button"
-                    onClick={() => window.print()}
+                    onClick={handlePrintOficinaOS}
                     className="py-3 px-4 bg-amber-600 hover:bg-amber-500 active:scale-95 text-slate-950 font-black text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-600/20 touch-manipulation min-h-[44px]"
                   >
                     <Printer className="w-4 h-4" />

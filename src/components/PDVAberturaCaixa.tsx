@@ -19,6 +19,13 @@ import {
   Sparkles,
   X
 } from "lucide-react";
+import {
+  loadPrinterConfig,
+  executeThermalPrint,
+  generateMiniPrint57mmPngBlob,
+  shareOrDownloadReceiptPng,
+  ThermalCanvasReceiptPayload
+} from "../utils/thermalPrinterHelper";
 
 export interface CashRegisterOpeningRecord {
   id: string;
@@ -230,7 +237,14 @@ export function PDVAberturaCaixa({
     });
   };
 
-  // Print Thermal / A4 Receipt
+  const escapeHtml = (str: string) =>
+    String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+
+  // Print Thermal / A4 Receipt honoring configured printer
   const handlePrintOpeningReceipt = (record?: CashRegisterOpeningRecord) => {
     const target = record || {
       id: `open_${Date.now()}`,
@@ -243,81 +257,178 @@ export function PDVAberturaCaixa({
       notes: observation.trim()
     };
 
+    const cfg = loadPrinterConfig();
+    const is58mm = cfg.printerType === "58mm" || Boolean(cfg.miniPrintPocketMode);
+    const isA4 = cfg.printerType === "A4" && !cfg.miniPrintPocketMode;
+    const printableWidth = is58mm ? "48mm" : isA4 ? "100%" : "72mm";
+    const maxContainerWidth = is58mm ? "48mm" : isA4 ? "620px" : "72mm";
+    const pageSize = is58mm ? "58mm auto" : isA4 ? "A4 portrait" : "80mm auto";
+    const fontBasePx =
+      cfg.fontSize === "pequena"
+        ? is58mm ? 9.5 : 10.5
+        : cfg.fontSize === "grande"
+        ? is58mm ? 12 : 13.5
+        : is58mm ? 10.5 : 11.5;
+    const fontHeaderPx = fontBasePx + 2.5;
+    const fontSmallPx = Math.max(8.5, fontBasePx - 1.5);
+    const bodyWeight = cfg.highContrast !== false ? "900" : "700";
+    const resolvedStore = (storeName || cfg.storeName || "CALCULADORA CÉREBRO PDV").trim();
+
+    const billsList = target.billCounts
+      ? Object.entries(target.billCounts)
+          .filter(([_, rawQ]) => Number(rawQ) > 0)
+          .map(([val, rawQ]) => {
+            const q = Number(rawQ);
+            return `<tr><td style="padding:2px 0;font-weight:900;">${q}x R$ ${parseFloat(val).toFixed(2).replace(".", ",")}</td><td style="text-align:right;font-family:monospace;font-weight:900;">R$ ${(parseFloat(val) * q).toFixed(2).replace(".", ",")}</td></tr>`;
+          })
+          .join("")
+      : "";
+
+    const renderVia = (viaLabel?: string) => `
+      <div style="margin-bottom: 10px;">
+        ${viaLabel ? `<div class="center" style="margin-bottom:4px;"><span style="border:1.5px solid #000;padding:1px 6px;font-size:${fontSmallPx}px;font-weight:900;">${escapeHtml(viaLabel)}</span></div>` : ""}
+        <div class="center bold" style="font-size:${fontHeaderPx}px;">${escapeHtml(resolvedStore.toUpperCase())}</div>
+        ${cfg.showCnpjOnReceipt !== false && cfg.storeCnpjCpf ? `<div class="center" style="font-size:${fontSmallPx}px;">CNPJ/CPF: ${escapeHtml(cfg.storeCnpjCpf)}</div>` : ""}
+        <div class="center bold" style="font-size:${fontSmallPx}px;margin-top:2px;">COMPROVANTE DE ABERTURA DE CAIXA</div>
+        <div class="center" style="font-size:${fontSmallPx}px;">${escapeHtml(target.timestamp)}</div>
+        <div class="line"></div>
+        <div><strong>Operador(a):</strong> ${escapeHtml(target.operatorName)}</div>
+        <div><strong>Turno:</strong> ${escapeHtml(target.shift)}</div>
+        <div><strong>Modo:</strong> ${target.mode === "conferencia" ? "Conferência Física" : "Abertura Rápida"}</div>
+        ${target.notes ? `<div><strong>Obs:</strong> ${escapeHtml(target.notes)}</div>` : ""}
+        <div class="line"></div>
+        ${billsList ? `
+          <div class="bold" style="margin-bottom:3px;">CÉDULAS & MOEDAS CONFERIDAS:</div>
+          <table>${billsList}</table>
+          <div class="line"></div>
+        ` : ""}
+        <div class="bold" style="font-size: ${fontHeaderPx + 1}px; display:flex; justify-content:space-between; border-top:1.5px solid #000; border-bottom:1.5px solid #000; padding:4px 0;">
+          <span>FUNDO INICIAL:</span>
+          <span style="font-family:monospace;">R$ ${target.openingFloat.toFixed(2).replace(".", ",")}</span>
+        </div>
+        <div class="line"></div>
+        <div class="center" style="font-size: ${fontSmallPx}px;">
+          Declaro ter conferido e recebido exatamente o valor acima descrito para o fundo de troco deste turno.
+        </div>
+        <div class="sign">Assinatura do(a) Operador(a) de Caixa</div>
+        <div class="sign">Visto do Proprietário / Gerente</div>
+      </div>
+    `;
+
+    const copiesHtml = cfg.printTwoCopies
+      ? `${renderVia("1ª VIA - OPERADOR")}
+         <div style="text-align:center;border-top:2px dashed #000;margin:12px 0;padding-top:4px;font-size:9px;font-weight:900;">--- CORTE AQUI ---</div>
+         ${renderVia("2ª VIA - GERÊNCIA")}`
+      : renderVia();
+
+    const feedHeightPx = (cfg.feedLines || 4) * 9;
+
+    const fullHtml = `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>Comprovante de Abertura de Caixa</title>
+        <style>
+          @page { size: ${pageSize}; margin: ${isA4 ? "14mm" : "0mm"}; }
+          * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          html, body {
+            font-family: Arial, Helvetica, 'Liberation Sans', sans-serif;
+            font-size: ${fontBasePx}px;
+            font-weight: ${bodyWeight};
+            line-height: 1.3;
+            margin: 0 auto !important;
+            padding: 6px 3px !important;
+            color: #000 !important;
+            background: #fff !important;
+            width: ${printableWidth};
+            max-width: ${maxContainerWidth};
+          }
+          .center { text-align: center; }
+          .bold { font-weight: 900; }
+          .line { border-bottom: 1.5px dashed #000; margin: 6px 0; }
+          table { width: 100%; border-collapse: collapse; font-size: ${fontSmallPx}px; }
+          .sign { margin-top: 30px; border-top: 1.5px solid #000; text-align: center; font-size: ${fontSmallPx}px; font-weight: 900; padding-top: 4px; }
+        </style>
+      </head>
+      <body>
+        ${copiesHtml}
+        <div style="height: ${feedHeightPx}px;"></div>
+        ${cfg.autoCut ? `<span style="font-size: 0px; color: transparent; user-select: none;">&#29;&#86;&#0;</span>` : ""}
+      </body>
+      </html>
+    `;
+
+    executeThermalPrint(
+      fullHtml,
+      () => showNotification("Comprovante de abertura enviado para impressão! 🖨️", "success"),
+      (err) => showNotification(typeof err === "string" ? err : "Erro ao imprimir comprovante.", "error")
+    );
+  };
+
+  // Export PNG 57mm (iBleem / Fun Print) for Cash Register Opening
+  const handleDownloadOpeningPng57mm = async (record?: CashRegisterOpeningRecord) => {
     try {
-      const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
-      iframe.style.border = "none";
-      document.body.appendChild(iframe);
+      const target = record || {
+        id: `open_${Date.now()}`,
+        timestamp: new Date().toLocaleString("pt-BR"),
+        openingFloat: openingMode === "conferencia" ? totalCounted : (parseFloat(expressInput.replace(",", ".")) || 0),
+        operatorName: operatorName.trim() || "Operador(a)",
+        shift,
+        mode: openingMode === "conferencia" ? "conferencia" : "express",
+        billCounts: counts,
+        notes: observation.trim()
+      };
+      const cfg = loadPrinterConfig();
 
-      const iframeDoc = iframe.contentWindow?.document;
-      if (!iframeDoc) return;
-
-      const billsList = target.billCounts
+      const billLines: ThermalCanvasReceiptPayload["lines"] = target.billCounts
         ? Object.entries(target.billCounts)
             .filter(([_, rawQ]) => Number(rawQ) > 0)
             .map(([val, rawQ]) => {
               const q = Number(rawQ);
-              return `<tr><td>${q}x R$ ${parseFloat(val).toFixed(2).replace(".", ",")}</td><td style="text-align:right">R$ ${(parseFloat(val) * q).toFixed(2).replace(".", ",")}</td></tr>`;
+              return {
+                left: `${q}x R$ ${parseFloat(val).toFixed(2).replace(".", ",")}`,
+                right: `R$ ${(parseFloat(val) * q).toFixed(2).replace(".", ",")}`,
+                bold: true
+              };
             })
-            .join("")
-        : "";
+        : [];
 
-      iframeDoc.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Comprovante de Abertura de Caixa</title>
-          <style>
-            body { font-family: monospace; font-size: 12px; margin: 0; padding: 10px; color: #000; width: 280px; }
-            .center { text-align: center; }
-            .bold { font-weight: bold; }
-            .line { border-bottom: 1px dashed #000; margin: 6px 0; }
-            table { width: 100%; font-size: 11px; }
-            .sign { margin-top: 35px; border-top: 1px solid #000; text-align: center; font-size: 10px; padding-top: 4px; }
-          </style>
-        </head>
-        <body>
-          <div class="center bold">${storeName || "CALCULADORA CÉREBRO PDV"}</div>
-          <div class="center">COMPROVANTE DE ABERTURA DE CAIXA</div>
-          <div class="center">${target.timestamp}</div>
-          <div class="line"></div>
-          <div><strong>Operador(a):</strong> ${target.operatorName}</div>
-          <div><strong>Turno:</strong> ${target.shift}</div>
-          <div><strong>Modo:</strong> ${target.mode === "conferencia" ? "Conferência Física" : "Abertura Rápida"}</div>
-          ${target.notes ? `<div><strong>Obs:</strong> ${target.notes}</div>` : ""}
-          <div class="line"></div>
-          ${billsList ? `
-            <div class="bold">DISCRIMINAÇÃO DE CÉDULAS & MOEDAS:</div>
-            <table>${billsList}</table>
-            <div class="line"></div>
-          ` : ""}
-          <div class="bold" style="font-size: 14px; text-align: right;">
-            FUNDO INICIAL: R$ ${target.openingFloat.toFixed(2).replace(".", ",")}
-          </div>
-          <div class="line"></div>
-          <div class="center" style="font-size: 10px;">
-            Declaro ter conferido e recebido exatamente o valor acima descrito para o fundo de troco deste turno.
-          </div>
-          <div class="sign">Assinatura do(a) Operador(a) de Caixa</div>
-          <div class="sign">Visto do Proprietário / Gerente</div>
-        </body>
-        </html>
-      `);
-      iframeDoc.close();
+      const extraMeta: string[] = [
+        `TURNO: ${target.shift}`,
+        `MODO: ${target.mode === "conferencia" ? "Conferência Física" : "Abertura Rápida"}`
+      ];
+      if (target.notes) extraMeta.push(`OBS: ${target.notes}`);
 
-      setTimeout(() => {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-        setTimeout(() => document.body.removeChild(iframe), 2000);
-      }, 500);
+      const payload: ThermalCanvasReceiptPayload = {
+        title: "ABERTURA DE CAIXA",
+        subtitle: "CONFERÊNCIA DE FUNDO DE TROCO",
+        storeName: storeName || cfg.storeName || "CALCULADORA CÉREBRO PDV",
+        storeCnpj: cfg.storeCnpjCpf,
+        dateStr: target.timestamp,
+        ticketId: target.id,
+        collaboratorName: target.operatorName,
+        statusLabel: "TURNO ABERTO",
+        extraMeta,
+        lines: billLines.length > 0 ? billLines : [{ left: "FUNDO DE TROCO INICIAL", right: `R$ ${target.openingFloat.toFixed(2).replace(".", ",")}`, bold: true }],
+        summaryLines: [
+          {
+            label: "FUNDO INICIAL:",
+            value: `R$ ${target.openingFloat.toFixed(2).replace(".", ",")}`,
+            big: true,
+            bold: true
+          }
+        ],
+        footerNote: "Assinado e conferido no turno",
+        singleViaBanner: "VIA ÚNICA - ABERTURA DE CAIXA",
+        copies: cfg.printTwoCopies ? 2 : 1
+      };
 
-      showNotification("Comprovante enviado para impressão! 🖨️", "success");
-    } catch (e: any) {
-      showNotification("Erro ao imprimir: " + e.message, "error");
+      const blob = await generateMiniPrint57mmPngBlob(payload);
+      await shareOrDownloadReceiptPng(blob, `abertura_caixa_${target.id.slice(-6)}_57mm.png`, "Abertura de Caixa", true);
+      showNotification("Imagem 57mm da abertura baixada para iBleem / Fun Print! 🖼️✅", "success");
+    } catch (err: any) {
+      showNotification(err?.message || "Erro ao gerar imagem 57mm.", "error");
     }
   };
 
@@ -720,6 +831,16 @@ export function PDVAberturaCaixa({
 
               <button
                 type="button"
+                onClick={() => handleDownloadOpeningPng57mm()}
+                className="px-4 py-4 bg-slate-950 hover:bg-cyan-600/20 text-cyan-300 hover:text-white border border-cyan-500/30 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
+                title="Baixar PNG 57mm para iBleem / Fun Print"
+              >
+                <FileText className="w-4 h-4 text-cyan-400" />
+                <span>PNG 57mm</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => handleShareWhatsApp()}
                 className="px-4 py-4 bg-green-600/20 hover:bg-green-600 text-green-300 hover:text-white border border-green-500/30 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
                 title="Enviar Comprovante no WhatsApp do Patrão"
@@ -963,6 +1084,16 @@ export function PDVAberturaCaixa({
               >
                 <Printer className="w-4 h-4 text-amber-400" />
                 <span>Imprimir Termo</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleDownloadOpeningPng57mm()}
+                className="px-4 py-4 bg-slate-950 hover:bg-cyan-600/20 text-cyan-300 hover:text-white border border-cyan-500/30 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
+                title="Baixar PNG 57mm para iBleem / Fun Print"
+              >
+                <FileText className="w-4 h-4 text-cyan-400" />
+                <span>PNG 57mm</span>
               </button>
 
               <button
