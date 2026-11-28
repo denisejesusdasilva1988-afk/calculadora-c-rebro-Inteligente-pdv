@@ -1,5 +1,6 @@
 import { PDVTransaction } from "../components/PDVModule";
 import { loadCompanyProfile } from "./companyProfile";
+import { formatWeightKgDetailed } from "./scrapHardwareHelper";
 
 export interface PrinterConfig {
   printerType: "58mm" | "80mm" | "A4";
@@ -995,7 +996,7 @@ export function buildThermalDocumentHtmlFromPayload(
             typeof payload.caderninhoBox.totalWeightKg === "number"
               ? `<div style="display:flex;justify-content:space-between;font-weight:900;">
                   <span>PESO ACUMULADO (${payload.caderninhoBox.totalDeliveries || 0} ent.):</span>
-                  <span>${payload.caderninhoBox.totalWeightKg.toFixed(2).replace(".", ",")} kg</span>
+                  <span>${formatWeightKgDetailed(payload.caderninhoBox.totalWeightKg)} kg</span>
                 </div>`
               : ""
           }
@@ -1027,7 +1028,7 @@ export function buildThermalDocumentHtmlFromPayload(
           }
           ${
             typeof payload.caderninhoBox.totalWeightKg === "number"
-              ? `<div style="font-size:${fontSmallPx}px;margin-top:2px;">PESO ACUM.: ${payload.caderninhoBox.totalWeightKg.toFixed(2).replace(".", ",")} kg (${payload.caderninhoBox.totalDeliveries || 0} entregas)</div>`
+              ? `<div style="font-size:${fontSmallPx}px;margin-top:2px;">PESO ACUM.: ${formatWeightKgDetailed(payload.caderninhoBox.totalWeightKg)} kg (${payload.caderninhoBox.totalDeliveries || 0} entregas)</div>`
               : ""
           }
           <div style="margin-top:4px;border-top:1px dotted #000;padding-top:3px;font-size:${Math.max(7.5, fontSmallPx - 0.5)}px;">
@@ -1505,7 +1506,7 @@ export async function generateMiniPrint57mmPngBlob(
         if (typeof payload.caderninhoBox.totalWeightKg === "number") {
           addKeyValueRow(
             `PESO (${payload.caderninhoBox.totalDeliveries || 0} ENT.):`,
-            `${payload.caderninhoBox.totalWeightKg.toFixed(2).replace(".", ",")} kg`,
+            `${formatWeightKgDetailed(payload.caderninhoBox.totalWeightKg)} kg`,
             FONT_BOLD,
             26
           );
@@ -1541,7 +1542,7 @@ export async function generateMiniPrint57mmPngBlob(
         }
         if (typeof payload.caderninhoBox.totalWeightKg === "number") {
           addLeftText(
-            `PESO ACUMULADO: ${payload.caderninhoBox.totalWeightKg.toFixed(2).replace(".", ",")} kg (${payload.caderninhoBox.totalDeliveries || 0} entregas)`,
+            `PESO ACUMULADO: ${formatWeightKgDetailed(payload.caderninhoBox.totalWeightKg)} kg (${payload.caderninhoBox.totalDeliveries || 0} entregas)`,
             FONT_SMALL,
             22
           );

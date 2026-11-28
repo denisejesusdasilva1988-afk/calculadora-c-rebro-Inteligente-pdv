@@ -75,6 +75,27 @@ service cloud.firestore {
           && data.email is string && data.email.size() <= 200;
     }
 
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidRecyclingMomentPhoto(data, ownerUid, photoId) {
+      return data.keys().hasAll(['id', 'userId', 'collaboratorId', 'collaboratorName', 'category', 'imageDataUrl', 'capturedAt', 'createdAtMs', 'createdAt', 'updatedAt'])
+          && data.keys().hasOnly(['id', 'userId', 'collaboratorId', 'collaboratorName', 'caption', 'category', 'imageDataUrl', 'capturedAt', 'createdAtMs', 'createdAt', 'updatedAt'])
+          && data.id == photoId && isValidId(data.id)
+          && data.userId is string && data.userId == ownerUid && (data.userId == request.auth.uid || isAdmin())
+          && isValidId(data.collaboratorId)
+          && data.collaboratorName is string && data.collaboratorName.size() >= 1 && data.collaboratorName.size() <= 120
+          && (!('caption' in data) || (data.caption is string && data.caption.size() <= 240))
+          && data.category in ['entrega', 'pesagem', 'coleta', 'pagamento', 'carga', 'outro']
+          && data.imageDataUrl is string && data.imageDataUrl.size() >= 20 && data.imageDataUrl.size() <= 450000
+          && data.imageDataUrl.matches('^data:image/(jpeg|jpg|png|webp);base64,.*')
+          && data.capturedAt is string && data.capturedAt.size() >= 1 && data.capturedAt.size() <= 64
+          && data.createdAtMs is int && data.createdAtMs > 0
+          && data.createdAt is timestamp
+          && data.updatedAt is timestamp;
+    }
+
     match /encartes/{encarteId} {
       allow read: if true;
       allow write: if isAdmin() && isValidEncarte(incoming());
@@ -156,6 +177,28 @@ service cloud.firestore {
 
       match /pdv_data/{docId} {
         allow read, write: if isAdmin() || (isSignedIn() && userId == request.auth.uid);
+      }
+
+      match /recycling_gallery/{photoId} {
+        allow get: if isAdmin() || (isSignedIn() && userId == request.auth.uid && isValidId(photoId));
+        allow list: if isAdmin() || (isSignedIn() && userId == request.auth.uid && resource.data.userId == request.auth.uid);
+        allow create: if (isAdmin() || (isSignedIn() && userId == request.auth.uid))
+                      && isValidId(photoId)
+                      && isValidRecyclingMomentPhoto(incoming(), userId, photoId)
+                      && incoming().createdAt == request.time
+                      && incoming().updatedAt == request.time;
+        allow update: if (isAdmin() || (isSignedIn() && userId == request.auth.uid))
+                      && isValidId(photoId)
+                      && isValidRecyclingMomentPhoto(incoming(), userId, photoId)
+                      && incoming().userId == existing().userId
+                      && incoming().id == existing().id
+                      && incoming().imageDataUrl == existing().imageDataUrl
+                      && incoming().capturedAt == existing().capturedAt
+                      && incoming().createdAt == existing().createdAt
+                      && incoming().createdAtMs == existing().createdAtMs
+                      && incoming().updatedAt == request.time
+                      && incoming().diff(existing()).affectedKeys().hasOnly(['collaboratorId', 'collaboratorName', 'caption', 'category', 'updatedAt']);
+        allow delete: if isAdmin() || (isSignedIn() && userId == request.auth.uid && isValidId(photoId));
       }
     }
 

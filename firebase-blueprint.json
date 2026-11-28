@@ -160,6 +160,25 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email"]
+    },
+    "RecyclingMomentPhoto": {
+      "title": "Recycling Moment Photo",
+      "description": "Cloud-saved photo of a recycling moment linked to a collaborator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128 },
+        "collaboratorId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "collaboratorName": { "type": "string", "maxLength": 120 },
+        "caption": { "type": "string", "maxLength": 240 },
+        "category": { "type": "string", "enum": ["entrega", "pesagem", "coleta", "pagamento", "carga", "outro"] },
+        "imageDataUrl": { "type": "string", "maxLength": 450000 },
+        "capturedAt": { "type": "string", "maxLength": 64 },
+        "createdAtMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "collaboratorId", "collaboratorName", "category", "imageDataUrl", "capturedAt", "createdAtMs", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -202,6 +221,10 @@
     "/users/{userId}/pdv_data/{docId}": {
       "schema": "UserData",
       "description": "Loyal customers and sub-collection PDV documents per user"
+    },
+    "/users/{userId}/recycling_gallery/{photoId}": {
+      "schema": "RecyclingMomentPhoto",
+      "description": "Cloud gallery of recycling moment photos per collaborator"
     }
   }
 }

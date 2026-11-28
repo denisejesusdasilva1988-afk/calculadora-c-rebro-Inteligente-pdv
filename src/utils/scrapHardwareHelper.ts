@@ -26,6 +26,58 @@ export function formatBrl(value: number): string {
   return roundCurrencyBrl(value).toFixed(2).replace(".", ",");
 }
 
+export type ScrapUnitType = "kg" | "L";
+
+export function resolveScrapMaterialUnit(mat?: {
+  unitType?: ScrapUnitType | string;
+  unitLabel?: string;
+  id?: string;
+  name?: string;
+}): ScrapUnitType {
+  if (!mat) return "kg";
+  if (mat.unitType === "L" || mat.unitLabel === "L") return "L";
+  if (mat.id === "scrap_oleo") return "L";
+  const name = String(mat.name || "");
+  if (/(\bóleo\b|\boleo\b|\(litro\)|litros?\b|\b\/l\b)/i.test(name)) return "L";
+  return "kg";
+}
+
+export function formatWeightKgDetailed(value: number, withComma = true): string {
+  const formatted = roundWeightKg(value).toFixed(3);
+  return withComma ? formatted.replace(".", ",") : formatted;
+}
+
+export function formatQuantityDetailed(
+  value: number,
+  unit: ScrapUnitType = "kg",
+  uppercaseUnit = false
+): string {
+  const numStr = formatWeightKgDetailed(value, true);
+  const unitStr = unit === "L" ? "L" : uppercaseUnit ? "KG" : "kg";
+  return `${numStr} ${unitStr}`;
+}
+
+export function splitTicketKgAndLiters(
+  items: { totalWeightKg?: number; unitLabel?: string; materialId?: string; name?: string }[] = [],
+  fallbackTotalKg = 0
+): { kgTotal: number; litersTotal: number } {
+  let kgTotal = 0;
+  let litersTotal = 0;
+  for (const it of items) {
+    const qty = roundWeightKg(Number(it?.totalWeightKg) || 0);
+    if (qty <= 0) continue;
+    if (resolveScrapMaterialUnit(it) === "L") {
+      litersTotal = roundWeightKg(litersTotal + qty);
+    } else {
+      kgTotal = roundWeightKg(kgTotal + qty);
+    }
+  }
+  if (items.length === 0 && fallbackTotalKg > 0) {
+    kgTotal = roundWeightKg(fallbackTotalKg);
+  }
+  return { kgTotal, litersTotal };
+}
+
 export interface TicketLikeForCalc {
   id: string;
   isFounder?: boolean;

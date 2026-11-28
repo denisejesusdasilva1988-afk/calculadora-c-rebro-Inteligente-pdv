@@ -155,10 +155,29 @@ export function reverseFerroVelhoEventInStorage(
         localStorage.setItem(STORAGE_KEYS.lastUpdated, String(Date.now()));
         window.dispatchEvent(new CustomEvent("dw_glass_yard_updated"));
 
+        const itemsArr = Array.isArray(ticket.items) ? ticket.items : [];
+        let kgSum = 0;
+        let litersSum = 0;
+        for (const it of itemsArr) {
+          const q = Math.max(0, Number(it?.totalWeightKg) || 0);
+          const isOil =
+            it?.unitLabel === "L" ||
+            it?.materialId === "scrap_oleo" ||
+            /(\bóleo\b|\boleo\b|\(litro\)|litros?\b|\b\/l\b)/i.test(String(it?.name || ""));
+          if (isOil) litersSum += q;
+          else kgSum += q;
+        }
+        if (itemsArr.length === 0) {
+          kgSum = Number(ticket.totalWeightKg) || 0;
+        }
+        const qtyParts: string[] = [];
+        if (kgSum > 0 || litersSum === 0) qtyParts.push(`-${kgSum.toFixed(3).replace(".", ",")} kg`);
+        if (litersSum > 0) qtyParts.push(`-${litersSum.toFixed(3).replace(".", ",")} L óleo`);
+
         return {
           reversed: true,
           kind: "purchase",
-          summary: `${ticket.collectorName || "Compra"} (-${(Number(ticket.totalWeightKg) || 0).toFixed(2)} kg)`
+          summary: `${ticket.collectorName || "Compra"} (${qtyParts.join(" + ")})`
         };
       }
     }

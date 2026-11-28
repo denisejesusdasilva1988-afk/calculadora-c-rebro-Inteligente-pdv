@@ -1,11 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Crown, Plus, Trash2, Truck, X } from "lucide-react";
-import { formatBrl, roundCurrencyBrl, roundWeightKg } from "../../utils/scrapHardwareHelper";
+import {
+  formatBrl,
+  formatWeightKgDetailed,
+  resolveScrapMaterialUnit,
+  roundCurrencyBrl,
+  roundWeightKg,
+  ScrapUnitType
+} from "../../utils/scrapHardwareHelper";
 
 export interface CarrocinhaMaterialSource {
   id: string;
   name: string;
   emoji: string;
+  unitType?: ScrapUnitType;
   stockKg: number;
   stockUnits?: number;
   buyPricePerKg: number;
@@ -102,6 +110,7 @@ export const CarrocinhaDailySaleModal: React.FC<CarrocinhaDailySaleModalProps> =
 
   const summary = useMemo(() => {
     let totalKg = 0;
+    let totalLiters = 0;
     let totalUnits = 0;
     let totalRevenue = 0;
     let totalEstimatedCost = 0;
@@ -117,7 +126,11 @@ export const CarrocinhaDailySaleModal: React.FC<CarrocinhaDailySaleModalProps> =
 
       const buyP = Math.max(0, Number(mat.buyPricePerKg) || 0);
       const cost = originType === "coleta_propria" ? 0 : roundCurrencyBrl(w * buyP);
-      totalKg = roundWeightKg(totalKg + w);
+      if (resolveScrapMaterialUnit(mat) === "L") {
+        totalLiters = roundWeightKg(totalLiters + w);
+      } else {
+        totalKg = roundWeightKg(totalKg + w);
+      }
       totalUnits += u;
       totalRevenue = roundCurrencyBrl(totalRevenue + rev);
       totalEstimatedCost = roundCurrencyBrl(totalEstimatedCost + cost);
@@ -136,6 +149,7 @@ export const CarrocinhaDailySaleModal: React.FC<CarrocinhaDailySaleModalProps> =
 
     return {
       totalKg,
+      totalLiters,
       totalUnits,
       totalRevenue,
       totalEstimatedCost,
@@ -298,6 +312,7 @@ export const CarrocinhaDailySaleModal: React.FC<CarrocinhaDailySaleModalProps> =
               if (!mat) return null;
               const sellP = Math.max(0, Number(mat.sellPricePerKg) || 0);
               const buyP = Math.max(0, Number(mat.buyPricePerKg) || 0);
+              const unit = resolveScrapMaterialUnit(mat);
 
               return (
                 <div
@@ -310,9 +325,9 @@ export const CarrocinhaDailySaleModal: React.FC<CarrocinhaDailySaleModalProps> =
                         {mat.emoji} {mat.name}
                       </div>
                       <div className="text-[11px] text-slate-400 tabular-nums">
-                        Tem hoje: <strong className="text-emerald-300">{(mat.stockKg || 0).toFixed(2)} kg</strong>
-                        {buyP > 0 ? ` · Compra R$ ${formatBrl(buyP)}/kg` : ""}
-                        {sellP > 0 ? ` · Revenda R$ ${formatBrl(sellP)}/kg` : ""}
+                        Tem hoje: <strong className="text-emerald-300">{formatWeightKgDetailed(mat.stockKg || 0)} {unit}</strong>
+                        {buyP > 0 ? ` · Compra R$ ${formatBrl(buyP)}/${unit}` : ""}
+                        {sellP > 0 ? ` · Revenda R$ ${formatBrl(sellP)}/${unit}` : ""}
                       </div>
                     </div>
                     <button
@@ -331,7 +346,7 @@ export const CarrocinhaDailySaleModal: React.FC<CarrocinhaDailySaleModalProps> =
                     <div className="flex items-center gap-1.5">
                       <div className="flex-1">
                         <label className="text-[10px] font-bold text-slate-400 block mb-0.5">
-                          Kg Baixado / Vendido
+                          {unit === "L" ? "Litros (L) Baixado / Vendido" : "Kg Baixado / Vendido"}
                         </label>
                         <input
                           type="text"
@@ -436,9 +451,10 @@ export const CarrocinhaDailySaleModal: React.FC<CarrocinhaDailySaleModalProps> =
         {/* Resumo do Fechamento da Baixa */}
         <div className="p-3.5 bg-slate-950 rounded-2xl border border-emerald-500/35 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs tabular-nums">
           <div>
-            <span className="text-slate-400 block text-[10.5px]">Peso Baixado</span>
+            <span className="text-slate-400 block text-[10.5px]">Peso / Litros Baixado</span>
             <strong className="font-mono font-black text-white text-sm">
-              {summary.totalKg.toFixed(2)} kg
+              {formatWeightKgDetailed(summary.totalKg)} kg
+              {summary.totalLiters > 0 ? ` + ${formatWeightKgDetailed(summary.totalLiters)} L` : ""}
             </strong>
           </div>
           <div>

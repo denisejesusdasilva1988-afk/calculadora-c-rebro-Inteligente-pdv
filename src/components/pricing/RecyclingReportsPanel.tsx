@@ -11,7 +11,7 @@ import {
   Truck,
   Wallet
 } from "lucide-react";
-import { formatBrl } from "../../utils/scrapHardwareHelper";
+import { formatBrl, formatWeightKgDetailed } from "../../utils/scrapHardwareHelper";
 import {
   buildDailyReportReceiptPayload,
   buildDailyReportWhatsAppText,
@@ -301,18 +301,17 @@ export const RecyclingReportsPanel: React.FC<RecyclingReportsPanelProps> = ({
             <Package className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="text-2xl font-mono font-black text-white tabular-nums">
-            {report.totalEnteredKg.toLocaleString("pt-BR", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            })}{" "}
-            kg
+            {formatWeightKgDetailed(report.totalEnteredKg)} kg
+            {report.enteredLiters > 0 && (
+              <span className="text-base text-amber-300 ml-2">+{formatWeightKgDetailed(report.enteredLiters)} L óleo</span>
+            )}
           </div>
           <div className="text-[11.5px] text-slate-300 tabular-nums">
             {report.entriesCount} lançamentos · {report.enteredGlassUnits.toLocaleString("pt-BR")} garrafas
             {report.enteredScrapUnits > 0 ? ` · ${report.enteredScrapUnits} un ferro velho` : ""}
           </div>
           <div className="text-[11px] text-slate-400 tabular-nums pt-1 border-t border-white/10">
-            Colaboradores: {report.collabEnteredKg.toFixed(1)} kg · Própria: {report.ownEnteredKg.toFixed(1)} kg
+            Colaboradores: {formatWeightKgDetailed(report.collabEnteredKg)} kg · Própria: {formatWeightKgDetailed(report.ownEnteredKg)} kg
           </div>
         </div>
 
@@ -343,7 +342,8 @@ export const RecyclingReportsPanel: React.FC<RecyclingReportsPanelProps> = ({
             R$ {formatBrl(report.soldTotalRevenue)}
           </div>
           <div className="text-[11.5px] text-slate-300 tabular-nums">
-            Baixado/Vendido: <strong>{report.soldTotalKg.toFixed(2)} kg</strong> · {report.salesCount} vendas/cargas
+            Baixado/Vendido: <strong>{formatWeightKgDetailed(report.soldTotalKg)} kg</strong>
+            {report.soldLiters > 0 ? ` + ${formatWeightKgDetailed(report.soldLiters)} L óleo` : ""} · {report.salesCount} vendas/cargas
           </div>
           <div className="text-[11px] text-slate-400 tabular-nums pt-1 border-t border-white/10">
             Carrocinha/Ferro: R$ {formatBrl(report.soldScrapRevenue)} · Vidros: R$ {formatBrl(report.soldGlassRevenue)}
@@ -357,14 +357,13 @@ export const RecyclingReportsPanel: React.FC<RecyclingReportsPanelProps> = ({
             <Package className="w-4 h-4 text-cyan-400" />
           </div>
           <div className="text-2xl font-mono font-black text-white tabular-nums">
-            {report.currentTotalStockKg.toLocaleString("pt-BR", {
-              minimumFractionDigits: 1,
-              maximumFractionDigits: 2
-            })}{" "}
-            kg
+            {formatWeightKgDetailed(report.currentTotalStockKg)} kg
+            {report.currentStockLiters > 0 && (
+              <span className="text-base text-amber-300 ml-2">+{formatWeightKgDetailed(report.currentStockLiters)} L óleo</span>
+            )}
           </div>
           <div className="text-[11.5px] text-slate-300 tabular-nums">
-            Ferro Velho: {report.currentScrapStockKg.toFixed(1)} kg · Vidros: {report.currentGlassStockUnits.toLocaleString("pt-BR")} un ({report.currentGlassStockKg.toFixed(1)} kg)
+            Ferro Velho: {formatWeightKgDetailed(report.currentScrapStockKg)} kg · Vidros: {report.currentGlassStockUnits.toLocaleString("pt-BR")} un ({formatWeightKgDetailed(report.currentGlassStockKg)} kg)
           </div>
           <div className="text-[11px] text-emerald-300 tabular-nums pt-1 border-t border-white/10">
             Previsto se vender tudo hoje: <strong>R$ {formatBrl(report.currentTotalStockResaleValue)}</strong>
@@ -381,7 +380,8 @@ export const RecyclingReportsPanel: React.FC<RecyclingReportsPanelProps> = ({
             R$ {formatBrl(report.own100PercentValue)}
           </div>
           <div className="text-[11.5px] text-slate-300 tabular-nums">
-            {report.ownEnteredKg.toFixed(2)} kg · {report.ownEntriesCount} coletas · R$ 0,00 pago a terceiros
+            {formatWeightKgDetailed(report.ownEnteredKg)} kg
+            {report.ownEnteredLiters > 0 ? ` + ${formatWeightKgDetailed(report.ownEnteredLiters)} L óleo` : ""} · {report.ownEntriesCount} coletas · R$ 0,00 pago a terceiros
           </div>
           <div className="text-[11px] text-slate-400 tabular-nums pt-1 border-t border-white/10">
             {report.ownGlassUnits > 0 ? `${report.ownGlassUnits} garrafas próprias · ` : ""}100% de revenda para você
@@ -426,7 +426,10 @@ export const RecyclingReportsPanel: React.FC<RecyclingReportsPanelProps> = ({
           <div className="grid grid-cols-2 gap-2 text-xs tabular-nums">
             <div className="p-2.5 bg-slate-950 rounded-xl border border-white/5">
               <span className="text-slate-400 block text-[11px]">Peso Comprado</span>
-              <strong className="text-sm font-mono text-white">{report.collabEnteredKg.toFixed(2)} kg</strong>
+              <strong className="text-sm font-mono text-white">
+                {formatWeightKgDetailed(report.collabEnteredKg)} kg
+                {report.collabEnteredLiters > 0 ? ` · ${formatWeightKgDetailed(report.collabEnteredLiters)} L` : ""}
+              </strong>
             </div>
             <div className="p-2.5 bg-slate-950 rounded-xl border border-white/5">
               <span className="text-slate-400 block text-[11px]">Quantidades</span>
@@ -457,7 +460,10 @@ export const RecyclingReportsPanel: React.FC<RecyclingReportsPanelProps> = ({
           <div className="grid grid-cols-2 gap-2 text-xs tabular-nums">
             <div className="p-2.5 bg-slate-950 rounded-xl border border-white/5">
               <span className="text-slate-400 block text-[11px]">Peso Coletado Próprio</span>
-              <strong className="text-sm font-mono text-white">{report.ownEnteredKg.toFixed(2)} kg</strong>
+              <strong className="text-sm font-mono text-white">
+                {formatWeightKgDetailed(report.ownEnteredKg)} kg
+                {report.ownEnteredLiters > 0 ? ` · ${formatWeightKgDetailed(report.ownEnteredLiters)} L` : ""}
+              </strong>
             </div>
             <div className="p-2.5 bg-slate-950 rounded-xl border border-white/5">
               <span className="text-slate-400 block text-[11px]">Quantidades Próprias</span>
@@ -534,15 +540,21 @@ export const RecyclingReportsPanel: React.FC<RecyclingReportsPanelProps> = ({
                   <div className="grid grid-cols-3 gap-2 text-[11px]">
                     <div>
                       <span className="text-slate-400 block">Entrou</span>
-                      <strong className="font-mono text-white">{row.enteredKg.toFixed(1)} kg</strong>
+                      <strong className="font-mono text-white">
+                        {formatWeightKgDetailed(row.enteredKg)} {row.unitType || "kg"}
+                      </strong>
                     </div>
                     <div>
                       <span className="text-slate-400 block">Vendeu/Baixa</span>
-                      <strong className="font-mono text-cyan-300">{row.soldKg.toFixed(1)} kg</strong>
+                      <strong className="font-mono text-cyan-300">
+                        {formatWeightKgDetailed(row.soldKg)} {row.unitType || "kg"}
+                      </strong>
                     </div>
                     <div>
                       <span className="text-slate-400 block">Tem Hoje</span>
-                      <strong className="font-mono text-emerald-300">{row.remainingStockKg.toFixed(1)} kg</strong>
+                      <strong className="font-mono text-emerald-300">
+                        {formatWeightKgDetailed(row.remainingStockKg)} {row.unitType || "kg"}
+                      </strong>
                     </div>
                   </div>
                   <div className="flex items-center justify-between pt-1.5 border-t border-white/5 text-[11px]">
@@ -562,7 +574,7 @@ export const RecyclingReportsPanel: React.FC<RecyclingReportsPanelProps> = ({
                 <thead>
                   <tr className="border-b border-white/10 text-[11px] text-slate-400 font-bold">
                     <th className="py-2.5 pr-3">Material</th>
-                    <th className="py-2.5 px-2 text-right">Entrou (kg / un)</th>
+                    <th className="py-2.5 px-2 text-right">Entrou (kg / L / un)</th>
                     <th className="py-2.5 px-2 text-right">Baixa / Vendeu</th>
                     <th className="py-2.5 px-2 text-right">Tem Hoje</th>
                     <th className="py-2.5 px-2 text-right">Gasto Pagando</th>
@@ -579,24 +591,24 @@ export const RecyclingReportsPanel: React.FC<RecyclingReportsPanelProps> = ({
                         <span>{row.name}</span>
                         {row.ownKg > 0 && (
                           <span className="block text-[10px] font-normal text-amber-300">
-                            Inclui {row.ownKg.toFixed(1)} kg coleta própria (R$ {formatBrl(row.own100Value)})
+                            Inclui {formatWeightKgDetailed(row.ownKg)} {row.unitType || "kg"} coleta própria (R$ {formatBrl(row.own100Value)})
                           </span>
                         )}
                       </td>
                       <td className="py-2.5 px-2 text-right font-mono text-white">
-                        {row.enteredKg.toFixed(2)} kg
+                        {formatWeightKgDetailed(row.enteredKg)} {row.unitType || "kg"}
                         {row.enteredUnits > 0 && (
                           <span className="block text-[10px] text-slate-400">{row.enteredUnits} un</span>
                         )}
                       </td>
                       <td className="py-2.5 px-2 text-right font-mono text-cyan-300">
-                        {row.soldKg.toFixed(2)} kg
+                        {formatWeightKgDetailed(row.soldKg)} {row.unitType || "kg"}
                         {row.soldUnits > 0 && (
                           <span className="block text-[10px] text-slate-400">{row.soldUnits} un</span>
                         )}
                       </td>
                       <td className="py-2.5 px-2 text-right font-mono font-bold text-emerald-300">
-                        {row.remainingStockKg.toFixed(2)} kg
+                        {formatWeightKgDetailed(row.remainingStockKg)} {row.unitType || "kg"}
                         {row.remainingStockUnits > 0 && (
                           <span className="block text-[10px] text-slate-400">{row.remainingStockUnits} un</span>
                         )}
@@ -694,9 +706,11 @@ export const RecyclingReportsPanel: React.FC<RecyclingReportsPanelProps> = ({
                   </div>
                 </div>
                 <div className="flex items-center gap-3 sm:text-right shrink-0 tabular-nums font-mono">
-                  {ev.weightKg > 0 && (
+                  {(ev.weightKg > 0 || (ev.liters || 0) > 0) && (
                     <span className="text-slate-300 font-bold">
-                      {ev.weightKg.toFixed(2)} kg
+                      {ev.weightKg > 0 ? `${formatWeightKgDetailed(ev.weightKg)} kg` : ""}
+                      {ev.weightKg > 0 && (ev.liters || 0) > 0 ? " + " : ""}
+                      {(ev.liters || 0) > 0 ? `${formatWeightKgDetailed(ev.liters || 0)} L` : ""}
                       {ev.units > 0 ? ` (${ev.units} un)` : ""}
                     </span>
                   )}

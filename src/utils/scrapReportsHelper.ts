@@ -1,8 +1,12 @@
 import {
   formatBrl,
+  formatWeightKgDetailed,
   getTicketEffectiveMonetaryValue,
+  resolveScrapMaterialUnit,
   roundCurrencyBrl,
-  roundWeightKg
+  roundWeightKg,
+  ScrapUnitType,
+  splitTicketKgAndLiters
 } from "./scrapHardwareHelper";
 import { ThermalCanvasReceiptPayload } from "./thermalPrinterHelper";
 
@@ -22,6 +26,7 @@ export interface ReportScrapMaterialItem {
   id: string;
   name: string;
   emoji: string;
+  unitType?: ScrapUnitType;
   stockKg: number;
   stockUnits?: number;
   buyPricePerKg: number;
@@ -42,9 +47,11 @@ export interface ReportPurchaseTicket {
     totalWeightKg: number;
     costPaid: number;
     materialId?: string;
+    unitLabel?: ScrapUnitType;
   }[];
   totalBottles: number;
   totalWeightKg: number;
+  totalLiters?: number;
   bonusAmount?: number;
   discountAmount?: number;
   totalPaid: number;
@@ -59,6 +66,7 @@ export interface ReportScrapSaleRecord {
   materialId: string;
   materialName: string;
   emoji: string;
+  unitType?: ScrapUnitType;
   weightKg: number;
   units: number;
   buyPricePerKgAtSale: number;
@@ -170,6 +178,7 @@ export interface MaterialReportRow {
   id: string;
   name: string;
   emoji: string;
+  unitType: ScrapUnitType;
   sector: "ferro_velho" | "vidros";
   enteredKg: number;
   enteredUnits: number;
@@ -196,6 +205,7 @@ export interface ReportTimelineItem {
   title: string;
   subtitle: string;
   weightKg: number;
+  liters?: number;
   units: number;
   amount: number;
   profitAmount?: number;
@@ -210,6 +220,7 @@ export interface ComputedRecyclingReport {
   activeDateKeys: string[];
   // Entradas Acumuladas
   totalEnteredKg: number;
+  enteredLiters: number;
   enteredGlassKg: number;
   enteredGlassUnits: number;
   enteredScrapKg: number;
@@ -218,6 +229,7 @@ export interface ComputedRecyclingReport {
   // Compras de Colaboradores (Gastos)
   collabEntriesCount: number;
   collabEnteredKg: number;
+  collabEnteredLiters: number;
   collabGlassUnits: number;
   collabScrapUnits: number;
   collabSpentTotal: number;
@@ -229,12 +241,14 @@ export interface ComputedRecyclingReport {
   // Coletas Próprias (100% Lucro)
   ownEntriesCount: number;
   ownEnteredKg: number;
+  ownEnteredLiters: number;
   ownGlassUnits: number;
   ownScrapUnits: number;
   own100PercentValue: number;
   // Vendas / Baixas / Revendas
   salesCount: number;
   soldScrapKg: number;
+  soldLiters: number;
   soldScrapUnits: number;
   soldScrapRevenue: number;
   soldScrapCost: number;
@@ -248,6 +262,7 @@ export interface ComputedRecyclingReport {
   soldTotalProfit: number;
   // Estoque Atual Hoje (O que tem no dia agora)
   currentScrapStockKg: number;
+  currentStockLiters: number;
   currentScrapStockUnits: number;
   currentScrapBuyCost: number;
   currentScrapResaleValue: number;
@@ -353,11 +368,16 @@ export function computeRecyclingPeriodReport({
   // Inicializa mapa de materiais para consolidar entradas, baixas e estoque atual
   const rowMap = new Map<string, MaterialReportRow>();
 
-  const ensureScrapRow = (matId: string, name: string, emoji: string): MaterialReportRow => {
+  const ensureScrapRow = (matId: string, name: string, emoji: string, unitHint?: ScrapUnitType): MaterialReportRow => {
     const key = `fv:${matId}`;
     const existing = rowMap.get(key);
     if (existing) return existing;
     const matObj = otherScrapMaterials.find((m) => m.id === matId);
+    const resolvedUnit = resolveScrapMaterialUnit({
+      unitType: matObj?.unitType || unitHint,
+      id: matObj?.id || matId,
+      name: matObj?.name || name
+    });
     const remKg = roundWeightKg(Number(matObj?.stockKg) || 0);
     const remUn = Math.max(0, Math.round(Number(matObj?.stockUnits) || 0));
     const sellP = Math.max(0, Number(matObj?.sellPricePerKg) || 0);
@@ -365,6 +385,7 @@ export function computeRecyclingPeriodReport({
       id: key,
       name: matObj?.name || name,
       emoji: matObj?.emoji || emoji || "♻️",
+      unitType: resolvedUnit,
       sector: "ferro_velho",
       enteredKg: 0,
       enteredUnits: 0,
@@ -387,11 +408,12 @@ export function computeRecyclingPeriodReport({
 
   if (sectorFilter !== "vidros") {
     otherScrapMaterials.forEach((m) => {
-      ensureScrapRow(m.id, m.name, m.emoji);
+      ensureScrapRow(m.id, m.name, m.emoji, m.unitType);
     });
   }
 
   let totalEnteredKg = 0;
+  let enteredLiters = 0;
   let enteredGlassKg = 0;
   let enteredGlassUnits = 0;
   let enteredScrapKg = 0;
@@ -399,6 +421,7 @@ export function computeRecyclingPeriodReport({
 
   let collabEntriesCount = 0;
   let collabEnteredKg = 0;
+  let collabEnteredLiters = 0;
   let collabGlassUnits = 0;
   let collabScrapUnits = 0;
   let collabSpentTotal = 0;
@@ -407,6 +430,7 @@ export function computeRecyclingPeriodReport({
 
   let ownEntriesCount = 0;
   let ownEnteredKg = 0;
+  let ownEnteredLiters = 0;
   let ownGlassUnits = 0;
   let ownScrapUnits = 0;
   let own100PercentValue = 0;
@@ -416,12 +440,17 @@ export function computeRecyclingPeriodReport({
   // Processar Entradas (Compras + Coletas Próprias)
   filteredPurchases.forEach((tk) => {
     const dk = parsePtBrDateKey(tk.timestamp, tk.id);
-    const tkKg = roundWeightKg(Number(tk.totalWeightKg) || 0);
-    const tkUnits = Math.max(0, Math.round(Number(tk.totalBottles) || 0));
     const isScrap = Boolean(tk.isScrapPurchase);
+    const split = isScrap
+      ? splitTicketKgAndLiters(tk.items || [], Number(tk.totalWeightKg) || 0)
+      : { kgTotal: roundWeightKg(Number(tk.totalWeightKg) || 0), litersTotal: 0 };
+    const tkKg = split.kgTotal;
+    const tkLiters = split.litersTotal;
+    const tkUnits = Math.max(0, Math.round(Number(tk.totalBottles) || 0));
     const effectiveVal = getTicketEffectiveMonetaryValue(tk);
 
     totalEnteredKg = roundWeightKg(totalEnteredKg + tkKg);
+    enteredLiters = roundWeightKg(enteredLiters + tkLiters);
     if (isScrap) {
       enteredScrapKg = roundWeightKg(enteredScrapKg + tkKg);
       enteredScrapUnits += tkUnits;
@@ -433,6 +462,7 @@ export function computeRecyclingPeriodReport({
     if (tk.isFounder) {
       ownEntriesCount += 1;
       ownEnteredKg = roundWeightKg(ownEnteredKg + tkKg);
+      ownEnteredLiters = roundWeightKg(ownEnteredLiters + tkLiters);
       if (isScrap) ownScrapUnits += tkUnits;
       else ownGlassUnits += tkUnits;
       own100PercentValue = roundCurrencyBrl(own100PercentValue + effectiveVal);
@@ -444,8 +474,9 @@ export function computeRecyclingPeriodReport({
         kind: "entrada_propria",
         sector: isScrap ? "ferro_velho" : "vidros",
         title: `👑 Coleta Própria (100%): ${tk.collectorName}`,
-        subtitle: tk.items.map((i) => i.name.replace(/\s*\(R\$\s*[\d.,]+\/kg\)/gi, "").trim()).join(" + "),
+        subtitle: tk.items.map((i) => i.name.replace(/\s*\(R\$\s*[\d.,]+\/(?:kg|L)\)/gi, "").trim()).join(" + "),
         weightKg: tkKg,
+        liters: tkLiters,
         units: tkUnits,
         amount: effectiveVal,
         profitAmount: effectiveVal,
@@ -454,6 +485,7 @@ export function computeRecyclingPeriodReport({
     } else {
       collabEntriesCount += 1;
       collabEnteredKg = roundWeightKg(collabEnteredKg + tkKg);
+      collabEnteredLiters = roundWeightKg(collabEnteredLiters + tkLiters);
       if (isScrap) collabScrapUnits += tkUnits;
       else collabGlassUnits += tkUnits;
       const paidVal = roundCurrencyBrl(Number(tk.totalPaid) || 0);
@@ -473,8 +505,9 @@ export function computeRecyclingPeriodReport({
         title: `👤 Compra: ${tk.collectorName}`,
         subtitle: `${
           tk.paymentStatus === "pago_na_hora" ? "Pago na hora" : "Caderninho"
-        } · ${tk.items.map((i) => i.name.replace(/\s*\(R\$\s*[\d.,]+\/kg\)/gi, "").trim()).join(" + ")}`,
+        } · ${tk.items.map((i) => i.name.replace(/\s*\(R\$\s*[\d.,]+\/(?:kg|L)\)/gi, "").trim()).join(" + ")}`,
         weightKg: tkKg,
+        liters: tkLiters,
         units: tkUnits,
         amount: paidVal
       });
@@ -488,8 +521,13 @@ export function computeRecyclingPeriodReport({
           otherScrapMaterials.find((m) => it.name.toLowerCase().includes(m.name.toLowerCase()));
         const matId = matchedMat?.id || it.materialId || `outro_${it.name.slice(0, 20)}`;
         const cleanName =
-          matchedMat?.name || it.name.replace(/\s*\(R\$\s*[\d.,]+\/kg\)/gi, "").trim();
-        const row = ensureScrapRow(matId, cleanName, matchedMat?.emoji || "♻️");
+          matchedMat?.name || it.name.replace(/\s*\(R\$\s*[\d.,]+\/(?:kg|L)\)/gi, "").trim();
+        const itemUnit = resolveScrapMaterialUnit({
+          unitType: matchedMat?.unitType || it.unitLabel,
+          id: matId,
+          name: cleanName
+        });
+        const row = ensureScrapRow(matId, cleanName, matchedMat?.emoji || "♻️", itemUnit);
         const itemKg = roundWeightKg(Number(it.totalWeightKg) || 0);
         const itemUnits = Math.max(0, Math.round(Number(it.quantity) || 0));
         const itemCost = roundCurrencyBrl(Number(it.costPaid) || 0);
@@ -516,6 +554,7 @@ export function computeRecyclingPeriodReport({
           id: glassRowId,
           name: "Vidros / Garrafas (Pátio Usina)",
           emoji: "🍾",
+          unitType: "kg",
           sector: "vidros",
           enteredKg: 0,
           enteredUnits: 0,
@@ -557,6 +596,7 @@ export function computeRecyclingPeriodReport({
         id: "vidros:geral",
         name: "Vidros / Garrafas (Pátio Usina)",
         emoji: "🍾",
+        unitType: "kg",
         sector: "vidros",
         enteredKg: 0,
         enteredUnits: 0,
@@ -578,6 +618,7 @@ export function computeRecyclingPeriodReport({
 
   // Processar Vendas / Baixas Ferro Velho & Carrocinha
   let soldScrapKg = 0;
+  let soldLiters = 0;
   let soldScrapUnits = 0;
   let soldScrapRevenue = 0;
   let soldScrapCost = 0;
@@ -591,14 +632,23 @@ export function computeRecyclingPeriodReport({
     const isOwn = sale.originType === "coleta_propria";
     const cost = isOwn ? 0 : roundCurrencyBrl(Number(sale.estimatedBuyCost) || 0);
     const profit = isOwn ? rev : Number((rev - cost).toFixed(2));
+    const saleUnit = resolveScrapMaterialUnit({
+      unitType: sale.unitType,
+      id: sale.materialId,
+      name: sale.materialName
+    });
 
-    soldScrapKg = roundWeightKg(soldScrapKg + w);
+    if (saleUnit === "L") {
+      soldLiters = roundWeightKg(soldLiters + w);
+    } else {
+      soldScrapKg = roundWeightKg(soldScrapKg + w);
+    }
     soldScrapUnits += u;
     soldScrapRevenue = roundCurrencyBrl(soldScrapRevenue + rev);
     soldScrapCost = roundCurrencyBrl(soldScrapCost + cost);
     soldScrapProfit = Number((soldScrapProfit + profit).toFixed(2));
 
-    const row = ensureScrapRow(sale.materialId, sale.materialName, sale.emoji);
+    const row = ensureScrapRow(sale.materialId, sale.materialName, sale.emoji, saleUnit);
     row.soldKg = roundWeightKg(row.soldKg + w);
     row.soldUnits += u;
     row.soldRevenue = roundCurrencyBrl(row.soldRevenue + rev);
@@ -613,7 +663,8 @@ export function computeRecyclingPeriodReport({
       sector: "ferro_velho",
       title: `🚚 Venda/Baixa: ${sale.emoji} ${sale.materialName}`,
       subtitle: `${isOwn ? "👑 100% Coleta Própria" : "Comprador"}: ${sale.buyerName || "Revenda"}`,
-      weightKg: w,
+      weightKg: saleUnit === "L" ? 0 : w,
+      liters: saleUnit === "L" ? w : 0,
       units: u,
       amount: rev,
       profitAmount: profit,
@@ -682,20 +733,25 @@ export function computeRecyclingPeriodReport({
 
   // Estoque Atual Vivo Hoje (O que sobrou / tem disponível no dia)
   let currentScrapStockKg = 0;
+  let currentStockLiters = 0;
   let currentScrapStockUnits = 0;
   let currentScrapBuyCost = 0;
   let currentScrapResaleValue = 0;
 
   if (sectorFilter !== "vidros") {
     otherScrapMaterials.forEach((m) => {
-      const kg = roundWeightKg(Number(m.stockKg) || 0);
+      const qty = roundWeightKg(Number(m.stockKg) || 0);
       const un = Math.max(0, Math.round(Number(m.stockUnits) || 0));
       const buyP = Math.max(0, Number(m.buyPricePerKg) || 0);
       const sellP = Math.max(0, Number(m.sellPricePerKg) || 0);
-      currentScrapStockKg = roundWeightKg(currentScrapStockKg + kg);
+      if (resolveScrapMaterialUnit(m) === "L") {
+        currentStockLiters = roundWeightKg(currentStockLiters + qty);
+      } else {
+        currentScrapStockKg = roundWeightKg(currentScrapStockKg + qty);
+      }
       currentScrapStockUnits += un;
-      currentScrapBuyCost = roundCurrencyBrl(currentScrapBuyCost + kg * buyP);
-      currentScrapResaleValue = roundCurrencyBrl(currentScrapResaleValue + kg * sellP);
+      currentScrapBuyCost = roundCurrencyBrl(currentScrapBuyCost + qty * buyP);
+      currentScrapResaleValue = roundCurrencyBrl(currentScrapResaleValue + qty * sellP);
     });
   }
 
@@ -771,6 +827,7 @@ export function computeRecyclingPeriodReport({
     todayKey,
     activeDateKeys,
     totalEnteredKg,
+    enteredLiters,
     enteredGlassKg,
     enteredGlassUnits,
     enteredScrapKg,
@@ -778,6 +835,7 @@ export function computeRecyclingPeriodReport({
     entriesCount: collabEntriesCount + ownEntriesCount,
     collabEntriesCount,
     collabEnteredKg,
+    collabEnteredLiters,
     collabGlassUnits,
     collabScrapUnits,
     collabSpentTotal,
@@ -788,11 +846,13 @@ export function computeRecyclingPeriodReport({
     totalCashPaidOut,
     ownEntriesCount,
     ownEnteredKg,
+    ownEnteredLiters,
     ownGlassUnits,
     ownScrapUnits,
     own100PercentValue,
     salesCount: filteredScrapSales.length + filteredShipments.length,
     soldScrapKg,
+    soldLiters,
     soldScrapUnits,
     soldScrapRevenue,
     soldScrapCost,
@@ -805,6 +865,7 @@ export function computeRecyclingPeriodReport({
     soldTotalRevenue,
     soldTotalProfit,
     currentScrapStockKg,
+    currentStockLiters,
     currentScrapStockUnits,
     currentScrapBuyCost,
     currentScrapResaleValue,
@@ -835,36 +896,38 @@ export function buildDailyReportWhatsAppText(report: ComputedRecyclingReport): s
     `Setor: *${sectorTitle}*`,
     ``,
     `📥 *ENTRADAS NO PERÍODO:*`,
-    `• Peso Acumulado Entrada: *${report.totalEnteredKg.toFixed(2)} kg* (${report.entriesCount} lançamentos)`,
-    ...(report.enteredGlassUnits > 0 ? [`• Garrafas Vidro: *${report.enteredGlassUnits} un* (${report.enteredGlassKg.toFixed(2)} kg)`] : []),
+    `• Peso Acumulado Entrada: *${formatWeightKgDetailed(report.totalEnteredKg)} kg* (${report.entriesCount} lançamentos)`,
+    ...(report.enteredLiters > 0 ? [`• Óleo Acumulado Entrada: *${formatWeightKgDetailed(report.enteredLiters)} L*`] : []),
+    ...(report.enteredGlassUnits > 0 ? [`• Garrafas Vidro: *${report.enteredGlassUnits} un* (${formatWeightKgDetailed(report.enteredGlassKg)} kg)`] : []),
     ...(report.enteredScrapUnits > 0 ? [`• Unidades Ferro Velho: *${report.enteredScrapUnits} un*`] : []),
     ``,
     `💸 *GASTOS PAGANDO COLABORADORES:*`,
-    `• Total Comprado: *R$ ${formatBrl(report.collabSpentTotal)}* (${report.collabEnteredKg.toFixed(2)} kg)`,
+    `• Total Comprado: *R$ ${formatBrl(report.collabSpentTotal)}* (${formatWeightKgDetailed(report.collabEnteredKg)} kg${report.collabEnteredLiters > 0 ? ` + ${formatWeightKgDetailed(report.collabEnteredLiters)} L` : ""})`,
     `• Pago na Hora: R$ ${formatBrl(report.collabPaidImmediate)} | Caderninho: R$ ${formatBrl(report.collabAddedCaderninho)}`,
     ...(report.caderninhoSettlementsPaid > 0
       ? [`• Acertos Pagos do Caderninho: *R$ ${formatBrl(report.caderninhoSettlementsPaid)}* (${report.caderninhoSettlementsCount}x)`]
       : []),
     ``,
     `👑 *COLETAS PRÓPRIAS (100% LUCRO):*`,
-    `• Peso Próprio: *${report.ownEnteredKg.toFixed(2)} kg* (${report.ownEntriesCount} coletas)`,
+    `• Peso Próprio: *${formatWeightKgDetailed(report.ownEnteredKg)} kg*${report.ownEnteredLiters > 0 ? ` + *${formatWeightKgDetailed(report.ownEnteredLiters)} L*` : ""} (${report.ownEntriesCount} coletas)`,
     `• Valor 100% Lucro: *R$ ${formatBrl(report.own100PercentValue)}*`,
     ``,
     `🚚 *VENDAS / BAIXAS DO DIA (CARROCINHA & CARGAS):*`,
-    `• Total Baixado/Vendido: *${report.soldTotalKg.toFixed(2)} kg* (${report.salesCount} vendas)`,
+    `• Total Baixado/Vendido: *${formatWeightKgDetailed(report.soldTotalKg)} kg*${report.soldLiters > 0 ? ` + *${formatWeightKgDetailed(report.soldLiters)} L*` : ""} (${report.salesCount} vendas)`,
     `• Entrou em Dinheiro/Pix: *R$ ${formatBrl(report.soldTotalRevenue)}*`,
     `• Lucro das Vendas/Baixas: *R$ ${formatBrl(report.soldTotalProfit)}*`,
     ``,
     `📦 *SOBRA HOJE NO ESTOQUE (TEM NO DIA):*`,
-    `• Estoque Atual: *${report.currentTotalStockKg.toFixed(2)} kg*${report.currentGlassStockUnits > 0 ? ` (${report.currentGlassStockUnits} garrafas)` : ""}`,
+    `• Estoque Atual: *${formatWeightKgDetailed(report.currentTotalStockKg)} kg*${report.currentStockLiters > 0 ? ` + *${formatWeightKgDetailed(report.currentStockLiters)} L óleo*` : ""}${report.currentGlassStockUnits > 0 ? ` (${report.currentGlassStockUnits} garrafas)` : ""}`,
     `• Valor Estimado de Revenda: *R$ ${formatBrl(report.currentTotalStockResaleValue)}*`
   ];
 
   if (report.materialRows.length > 0) {
     lines.push(``, `📋 *POR MATERIAL:*`);
     report.materialRows.slice(0, 12).forEach((r) => {
+      const u = r.unitType || "kg";
       lines.push(
-        `• ${r.emoji} ${r.name}: Entrou ${r.enteredKg.toFixed(1)}kg | Baixa ${r.soldKg.toFixed(1)}kg | Tem ${r.remainingStockKg.toFixed(1)}kg | Venda R$ ${formatBrl(r.soldRevenue)}`
+        `• ${r.emoji} ${r.name}: Entrou ${formatWeightKgDetailed(r.enteredKg)} ${u} | Baixa ${formatWeightKgDetailed(r.soldKg)} ${u} | Tem ${formatWeightKgDetailed(r.remainingStockKg)} ${u} | Venda R$ ${formatBrl(r.soldRevenue)}`
       );
     });
   }
@@ -884,8 +947,8 @@ export function buildDailyReportReceiptPayload({
   const lines: ThermalCanvasReceiptPayload["lines"] = [
     {
       left: `ENTRADAS (${report.entriesCount}x)`,
-      right: `${report.totalEnteredKg.toFixed(2)} KG`,
-      detail: `Colab: ${report.collabEnteredKg.toFixed(2)}kg | Própria: ${report.ownEnteredKg.toFixed(2)}kg`,
+      right: `${formatWeightKgDetailed(report.totalEnteredKg)} KG`,
+      detail: `Colab: ${formatWeightKgDetailed(report.collabEnteredKg)} kg | Própria: ${formatWeightKgDetailed(report.ownEnteredKg)} kg${report.enteredLiters > 0 ? ` | Óleo: ${formatWeightKgDetailed(report.enteredLiters)} L` : ""}`,
       bold: true
     },
     {
@@ -907,28 +970,29 @@ export function buildDailyReportReceiptPayload({
     {
       left: `COLETA PROPRIA 100%`,
       right: `R$ ${formatBrl(report.own100PercentValue)}`,
-      detail: `${report.ownEnteredKg.toFixed(2)} kg (100% seu)`,
+      detail: `${formatWeightKgDetailed(report.ownEnteredKg)} kg${report.ownEnteredLiters > 0 ? ` + ${formatWeightKgDetailed(report.ownEnteredLiters)} L` : ""} (100% seu)`,
       bold: true
     },
     {
       left: `VENDAS / BAIXAS (${report.salesCount}x)`,
       right: `R$ ${formatBrl(report.soldTotalRevenue)}`,
-      detail: `Baixado: ${report.soldTotalKg.toFixed(2)} kg`,
+      detail: `Baixado: ${formatWeightKgDetailed(report.soldTotalKg)} kg${report.soldLiters > 0 ? ` + ${formatWeightKgDetailed(report.soldLiters)} L` : ""}`,
       bold: true
     },
     {
       left: `ESTOQUE HOJE`,
-      right: `${report.currentTotalStockKg.toFixed(2)} KG`,
-      detail: `Prev. Revenda: R$ ${formatBrl(report.currentTotalStockResaleValue)}`,
+      right: `${formatWeightKgDetailed(report.currentTotalStockKg)} KG`,
+      detail: `${report.currentStockLiters > 0 ? `Óleo: ${formatWeightKgDetailed(report.currentStockLiters)} L | ` : ""}Prev. Revenda: R$ ${formatBrl(report.currentTotalStockResaleValue)}`,
       bold: true
     }
   ];
 
-  report.materialRows.slice(0, 8).forEach((r) => {
+  report.materialRows.slice(0, 10).forEach((r) => {
+    const u = r.unitType || "kg";
     lines.push({
       left: `${r.name.toUpperCase().slice(0, 22)}`,
       right: `V: R$ ${formatBrl(r.soldRevenue)}`,
-      detail: `Ent ${r.enteredKg.toFixed(1)}kg | Sobra ${r.remainingStockKg.toFixed(1)}kg`,
+      detail: `Ent ${formatWeightKgDetailed(r.enteredKg)}${u} | Sobra ${formatWeightKgDetailed(r.remainingStockKg)}${u}`,
       bold: false
     });
   });
@@ -950,8 +1014,8 @@ export function buildDailyReportReceiptPayload({
     collaboratorName: sectorLabel,
     statusLabel: `FECHAMENTO ${report.periodLabel.toUpperCase()}`,
     extraMeta: [
-      `ENTRADAS: ${report.entriesCount}x (${report.totalEnteredKg.toFixed(2)} kg)`,
-      `VENDAS/BAIXAS: ${report.salesCount}x (${report.soldTotalKg.toFixed(2)} kg)`
+      `ENTRADAS: ${report.entriesCount}x (${formatWeightKgDetailed(report.totalEnteredKg)} kg${report.enteredLiters > 0 ? ` + ${formatWeightKgDetailed(report.enteredLiters)} L` : ""})`,
+      `VENDAS/BAIXAS: ${report.salesCount}x (${formatWeightKgDetailed(report.soldTotalKg)} kg${report.soldLiters > 0 ? ` + ${formatWeightKgDetailed(report.soldLiters)} L` : ""})`
     ],
     lines,
     summaryLines: [
