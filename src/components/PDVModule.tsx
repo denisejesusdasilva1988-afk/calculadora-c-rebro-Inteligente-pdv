@@ -4806,7 +4806,30 @@ export const PDVModule: React.FC<PDVModuleProps> = React.memo(({
   const handleSyncFerroVelhoEventToPDV = useCallback((evt: PdvSyncedFinancialEvent) => {
     if (!evt || !evt.id || evt.amount <= 0) return;
     setTransactions((prev) => {
-      if (prev.some((t) => t.id === evt.id)) return prev;
+      const existing = prev.find((t) => t.id === evt.id);
+      if (existing) {
+        if (!existing.isDeleted) return prev;
+        const cleanDesc =
+          evt.description ||
+          existing.description.replace(/^\[ESTORNADO FERRO VELHO\]\s*/i, "");
+        const nextTxs = prev.map((tx) =>
+          tx.id === evt.id
+            ? {
+                ...tx,
+                isDeleted: false,
+                deletedAt: undefined,
+                amount: Number(evt.amount.toFixed(2)),
+                description: cleanDesc,
+                paymentMethod: evt.paymentMethod || tx.paymentMethod,
+                category: evt.category || tx.category,
+                clientName: evt.clientName || tx.clientName
+              }
+            : tx
+        );
+        saveToLocalStorage(nextTxs, initialCash, customProducts, selectedNiche, productOverrides, customNiches, productStockData);
+        pushToCloud(nextTxs, initialCash, customProducts, productOverrides, customNiches, productStockData);
+        return nextTxs;
+      }
       const now = new Date();
       const newTx: PDVTransaction = {
         id: evt.id,

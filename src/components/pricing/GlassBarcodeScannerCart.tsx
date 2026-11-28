@@ -1619,8 +1619,12 @@ export function GlassBarcodeScannerCart({
   const [latestSettledReceipt, setLatestSettledReceipt] = useState<CollaboratorPaymentReceipt | null>(null);
   const [cancellingTicketId, setCancellingTicketId] = useState<string | null>(null);
   const [cancelTicketReasonDraft, setCancelTicketReasonDraft] = useState<string>("");
+  const [restoringTicketId, setRestoringTicketId] = useState<string | null>(null);
+  const [recentCancelledTicketId, setRecentCancelledTicketId] = useState<string | null>(null);
   const [cancellingPaymentId, setCancellingPaymentId] = useState<string | null>(null);
+  const [restoringPaymentId, setRestoringPaymentId] = useState<string | null>(null);
   const [cancellingScrapSaleId, setCancellingScrapSaleId] = useState<string | null>(null);
+  const [restoringScrapSaleId, setRestoringScrapSaleId] = useState<string | null>(null);
   const [showZeroOnlyScrapConfirm, setShowZeroOnlyScrapConfirm] = useState<boolean>(false);
   const [printerConfigState, setPrinterConfigState] = useState<PrinterConfig>(() => loadPrinterConfig());
 
@@ -6358,6 +6362,7 @@ export function GlassBarcodeScannerCart({
 
     setCancellingTicketId(null);
     setCancelTicketReasonDraft("");
+    setRecentCancelledTicketId(ticket.id);
     playScannerBeep(520, 0.12);
 
     if (showNotification) {
@@ -6370,8 +6375,171 @@ export function GlassBarcodeScannerCart({
         cancelQtyParts.push(`-${formatWeightKgDetailed(cancelLitersTotal)} L óleo`);
       }
       showNotification(
-        `Compra cancelada e estornada! Estoque (${cancelQtyParts.join(" / ")}), Caderninho e Caixa do PDV revertidos. 🚫✅`,
+        `Compra cancelada e estornada! Estoque (${cancelQtyParts.join(" / ")}), Caderninho e Caixa do PDV revertidos. Caso tenha sido por engano, clique em "Voltar Atrás" na notinha. 🚫✅`,
         "info"
+      );
+    }
+  };
+
+  // Voltar atrás / Restaurar uma compra cancelada por engano (devolve Estoque + Caderninho + PDV)
+  const handleRestoreCancelledPurchaseTicket = (ticket: CompletedPurchaseTicket) => {
+    if (!ticket || !ticket.isCancelled) return;
+
+    markLocalYardMutation();
+
+    // 1. Devolver estoque (Ferro Velho materiais ou Vidros do Pátio)
+    if (ticket.isScrapPurchase) {
+      setOtherScrapMaterials((prev) =>
+        prev.map((m) => {
+          const matchedItems = ticket.items.filter((it) => {
+            if (it.addedToStock === false) return false;
+            if (it.materialId) return it.materialId === m.id;
+            return it.name.toLowerCase().includes(m.name.toLowerCase());
+          });
+          if (matchedItems.length === 0) return m;
+          const addKg = matchedItems.reduce((s, it) => s + Math.max(0, it.totalWeightKg || 0), 0);
+          const addUn = matchedItems.reduce((s, it) => s + Math.max(0, it.stockUnitsAdded || 0), 0);
+          return {
+            ...m,
+            stockKg: Number((m.stockKg + addKg).toFixed(3)),
+            stockUnits: (m.stockUnits || 0) + addUn
+          };
+        })
+      );
+    } else {
+      commitCatalogUpdate((prev) =>
+        prev.map((b) => {
+          const matchedItems = ticket.items.filter(
+            (it) =>
+              (it.barcode && it.barcode !== "BALANCA" && (b.barcode === it.barcode || b.additionalBarcodes?.includes(it.barcode))) ||
+              (b.name === it.name && b.volumeMl === it.volumeMl)
+          );
+          if (matchedItems.length === 0) return b;
+          const addUnits = matchedItems.reduce((s, it) => s + Math.max(0, it.quantity || 0), 0);
+          return {
+            ...b,
+            stockUnits: b.stockUnits + addUnits
+          };
+        })
+      );
+    }
+
+    // 2. Restaurar saldo/histórico no Caderninho do Colaborador
+    setCollaborators((prev) =>
+      prev.map((c) => {
+        const matches =
+          (ticket.collaboratorId && c.id === ticket.collaboratorId) ||
+          (!ticket.collaboratorId && c.name.toLowerCase() === ticket.collectorName.toLowerCase());
+        if (!matches) return c;
+
+        const founderBase = ticket.items.reduce((s, it) => s + (it.costPaid || 0), 0);
+        const founderEquiv = Math.max(0, founderBase + (ticket.bonusAmount || 0) - (ticket.discountAmount || 0));
+        const addEarnedAmt = c.isFounder ? founderEquiv : ticket.totalPaid;
+        const newDeliveries = c.totalDeliveries + 1;
+        const newBottles = c.totalBottles + (ticket.totalBottles || 0);
+        const newWeight = Number((c.totalWeightKg + (ticket.totalWeightKg || 0)).toFixed(3));
+        const newEarned = Number((c.totalEarned + addEarnedAmt).toFixed(2));
+
+        if (c.isFounder) {
+          return {
+            ...c,
+            totalDeliveries: newDeliveries,
+            totalBottles: newBottles,
+            totalWeightKg: newWeight,
+            totalEarned: newEarned,
+            totalPaid: 0,
+            balancePending: 0
+          };
+        }
+
+        const addPaidAmt = ticket.paymentStatus === "pago_na_hora" ? ticket.totalPaid : 0;
+        const newPaid = Number((c.totalPaid + addPaidAmt).toFixed(2));
+        const newPending = Math.max(0, Number((newEarned - newPaid).toFixed(2)));
+        return {
+          ...c,
+          totalDeliveries: newDeliveries,
+          totalBottles: newBottles,
+          totalWeightKg: newWeight,
+          totalEarned: newEarned,
+          totalPaid: newPaid,
+          balancePending: newPending
+        };
+      })
+    );
+
+    // 3. Reativar a notinha no histórico e no comprovante em tela
+    setPurchaseHistory((prev) =>
+      prev.map((t) =>
+        t.id === ticket.id
+          ? { ...t, isCancelled: false, cancelledAt: undefined, cancelReason: undefined }
+          : t
+      )
+    );
+    if (lastPurchaseReceipt?.id === ticket.id) {
+      setLastPurchaseReceipt((prev) =>
+        prev ? { ...prev, isCancelled: false, cancelledAt: undefined, cancelReason: undefined } : null
+      );
+    }
+
+    // 4. Re-sincronizar saída no Caixa / Relatórios do PDV (se paga na hora)
+    const targetPdvEventId =
+      ticket.syncedPdvEventId ||
+      (ticket.isScrapPurchase ? `pdv_fv_scrap_${ticket.id}` : `pdv_fv_buy_${ticket.id}`);
+    if (
+      syncToPdvCash &&
+      onSyncFinancialEventToPDV &&
+      !ticket.isFounder &&
+      ticket.paymentStatus === "pago_na_hora" &&
+      ticket.totalPaid > 0
+    ) {
+      if (ticket.isScrapPurchase) {
+        const itemsSummary = ticket.items
+          .map((it) => `${it.name} (${formatQuantityDetailed(it.totalWeightKg, resolveScrapMaterialUnit(it))})`)
+          .join(" + ");
+        onSyncFinancialEventToPDV({
+          id: targetPdvEventId,
+          type: "saida",
+          amount: ticket.totalPaid,
+          description: `COMPRA RECICLAGEM: ${ticket.collectorName.toUpperCase()} — ${itemsSummary}`,
+          paymentMethod: "dinheiro",
+          category: "despesa",
+          clientName: ticket.collectorName
+        });
+      } else {
+        onSyncFinancialEventToPDV({
+          id: targetPdvEventId,
+          type: "saida",
+          amount: ticket.totalPaid,
+          description: `COMPRA VIDROS PORTÃO: ${ticket.collectorName.toUpperCase()} (${ticket.totalBottles} un / ${formatWeightKgDetailed(ticket.totalWeightKg)} kg)`,
+          paymentMethod: "dinheiro",
+          category: "despesa",
+          clientName: ticket.collectorName
+        });
+      }
+    }
+
+    setRestoringTicketId(null);
+    if (recentCancelledTicketId === ticket.id) {
+      setRecentCancelledTicketId(null);
+    }
+    playScannerBeep(2100, 0.14);
+
+    if (voiceAnnouncerEnabled) {
+      speakYardAnnouncement(`Compra de ${ticket.collectorName} restaurada com sucesso.`);
+    }
+
+    if (showNotification) {
+      const { kgTotal: restoreKgTotal, litersTotal: restoreLitersTotal } = splitTicketKgAndLiters(ticket.items, ticket.totalWeightKg);
+      const restoreQtyParts: string[] = [];
+      if (restoreKgTotal > 0 || restoreLitersTotal === 0) {
+        restoreQtyParts.push(`+${formatWeightKgDetailed(restoreKgTotal)} kg`);
+      }
+      if (restoreLitersTotal > 0) {
+        restoreQtyParts.push(`+${formatWeightKgDetailed(restoreLitersTotal)} L óleo`);
+      }
+      showNotification(
+        `Compra restaurada! Estoque (${restoreQtyParts.join(" / ")}), Caderninho e Caixa do PDV voltaram ao normal. ↩️✅`,
+        "success"
       );
     }
   };
@@ -6425,6 +6593,53 @@ export function GlassBarcodeScannerCart({
     }
   };
 
+  // Voltar atrás / Restaurar um Acerto/Pagamento estornado por engano
+  const handleRestoreCancelledPaymentReceipt = (receipt: CollaboratorPaymentReceipt) => {
+    if (!receipt || !receipt.isCancelled) return;
+    markLocalYardMutation();
+
+    setCollaborators((prev) =>
+      prev.map((c) => {
+        if (c.id !== receipt.collaboratorId) return c;
+        const newPaid = Number((c.totalPaid + (receipt.amountPaid || 0)).toFixed(2));
+        const newPending = c.isFounder ? 0 : Math.max(0, Number((c.totalEarned - newPaid).toFixed(2)));
+        return {
+          ...c,
+          totalPaid: c.isFounder ? 0 : newPaid,
+          balancePending: newPending
+        };
+      })
+    );
+
+    setPaymentHistory((prev) =>
+      prev.map((p) =>
+        p.id === receipt.id ? { ...p, isCancelled: false, cancelledAt: undefined, cancelReason: undefined } : p
+      )
+    );
+
+    const targetPdvEventId = receipt.syncedPdvEventId || `pdv_fv_pay_${receipt.id}`;
+    if (syncToPdvCash && onSyncFinancialEventToPDV && receipt.amountPaid > 0) {
+      onSyncFinancialEventToPDV({
+        id: targetPdvEventId,
+        type: "saida",
+        amount: receipt.amountPaid,
+        description: `ACERTO CADERNINHO RECICLAGEM: ${receipt.collaboratorName.toUpperCase()}`,
+        paymentMethod: receipt.methodLabel?.toLowerCase().includes("pix") ? "pix" : "dinheiro",
+        category: "despesa",
+        clientName: receipt.collaboratorName
+      });
+    }
+
+    setRestoringPaymentId(null);
+    playScannerBeep(2100, 0.14);
+    if (showNotification) {
+      showNotification(
+        `Acerto de R$ ${receipt.amountPaid.toFixed(2)} restaurado no Caderninho e no Caixa do PDV! ↩️✅`,
+        "success"
+      );
+    }
+  };
+
   // Estornar / Cancelar uma Venda/Baixa do Centro de Reciclagem (Ferro Velho) devolvendo o kg para o estoque
   const handleCancelScrapSale = (
     sale: ScrapSaleRecord,
@@ -6467,6 +6682,62 @@ export function GlassBarcodeScannerCart({
       showNotification(
         `Venda de ${sale.materialName} estornada! +${formatQuantityDetailed(sale.weightKg, saleUnit)} devolvido ao estoque do Ferro Velho. 🚫✅`,
         "info"
+      );
+    }
+  };
+
+  // Voltar atrás / Restaurar uma Venda/Baixa estornada por engano
+  const handleRestoreCancelledScrapSale = (sale: ScrapSaleRecord) => {
+    if (!sale || !sale.isCancelled) return;
+    markLocalYardMutation();
+
+    setOtherScrapMaterials((prev) =>
+      prev.map((m) =>
+        m.id === sale.materialId
+          ? {
+              ...m,
+              stockKg: Math.max(0, Number((m.stockKg - Math.max(0, sale.weightKg || 0)).toFixed(3))),
+              stockUnits: Math.max(0, (m.stockUnits || 0) - Math.max(0, sale.units || 0))
+            }
+          : m
+      )
+    );
+
+    setScrapSalesHistory((prev) =>
+      prev.map((s) =>
+        s.id === sale.id ? { ...s, isCancelled: false, cancelledAt: undefined, cancelReason: undefined } : s
+      )
+    );
+
+    const saleUnit = resolveScrapMaterialUnit({ unitType: sale.unitType, id: sale.materialId, name: sale.materialName });
+    const saleQtyFormatted = formatQuantityDetailed(sale.weightKg, saleUnit);
+    const targetPdvEventId = sale.syncedPdvEventId || `pdv_fv_sale_${sale.id}`;
+    if (syncToPdvCash && onSyncFinancialEventToPDV && sale.revenueReceived > 0) {
+      onSyncFinancialEventToPDV({
+        id: targetPdvEventId,
+        type: "entrada",
+        amount: sale.revenueReceived,
+        description: `VENDA RECICLAGEM: ${sale.materialName.toUpperCase()} (${saleQtyFormatted}${sale.units > 0 ? ` / ${sale.units} un` : ""})`,
+        paymentMethod: sale.paymentMethod || "dinheiro",
+        category: "venda",
+        clientName: sale.buyerName || "Centro de Reciclagem",
+        items: [
+          {
+            name: `${sale.emoji} ${sale.materialName} (${saleQtyFormatted})`,
+            price: sale.revenueReceived,
+            quantity: 1,
+            unit: "lote"
+          }
+        ]
+      });
+    }
+
+    setRestoringScrapSaleId(null);
+    playScannerBeep(2100, 0.14);
+    if (showNotification) {
+      showNotification(
+        `Venda de ${sale.materialName} restaurada! Estoque e Caixa do PDV atualizados. ↩️✅`,
+        "success"
       );
     }
   };
@@ -11610,7 +11881,7 @@ export function GlassBarcodeScannerCart({
                           </div>
                         </div>
 
-                        {!sale.isCancelled && (
+                        {!sale.isCancelled ? (
                           cancellingScrapSaleId === sale.id ? (
                             <div className="flex items-center gap-1.5">
                               <button
@@ -11637,6 +11908,31 @@ export function GlassBarcodeScannerCart({
                               🚫 Estornar Venda
                             </button>
                           )
+                        ) : restoringScrapSaleId === sale.id ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleRestoreCancelledScrapSale(sale)}
+                              className="min-h-[36px] px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] rounded-lg cursor-pointer"
+                            >
+                              ✓ Sim, Voltar Atrás
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRestoringScrapSaleId(null)}
+                              className="min-h-[36px] px-2.5 bg-slate-800 text-slate-200 font-bold text-[11px] rounded-lg cursor-pointer"
+                            >
+                              Fechar
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setRestoringScrapSaleId(sale.id)}
+                            className="min-h-[38px] px-3 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-200 hover:text-slate-950 font-black text-[11px] rounded-xl border border-emerald-400/50 cursor-pointer shrink-0"
+                          >
+                            ↩️ Voltar Atrás (Restaurar)
+                          </button>
                         )}
                       </div>
                     ))}
@@ -11873,6 +12169,43 @@ export function GlassBarcodeScannerCart({
       {/* ========================================================= */}
       {activeTab === "cargas" && (
         <div className="space-y-5">
+          {/* BANNER RÁPIDO DE DESFAZER CANCELAMENTO POR ENGANO */}
+          {(() => {
+            if (!recentCancelledTicketId) return null;
+            const recentTicket = purchaseHistory.find((t) => t.id === recentCancelledTicketId && t.isCancelled);
+            if (!recentTicket) return null;
+            const recentVal = getTicketEffectiveMonetaryValue(recentTicket);
+            return (
+              <div className="p-4 bg-gradient-to-r from-emerald-950/80 via-slate-900 to-cyan-950/70 border-2 border-emerald-400/60 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+                <div className="text-xs space-y-0.5">
+                  <div className="font-black text-emerald-300 text-sm">
+                    ↩️ Cancelou por engano? Dá para voltar atrás!
+                  </div>
+                  <div className="text-slate-200">
+                    Compra de <strong>{recentTicket.collectorName}</strong> (
+                    <strong className="text-emerald-300 font-mono">R$ {recentVal.toFixed(2).replace(".", ",")}</strong>) cancelada há pouco.
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleRestoreCancelledPurchaseTicket(recentTicket)}
+                    className="min-h-[42px] px-4 py-2 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none"
+                  >
+                    ↩️ Voltar Atrás Agora
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRecentCancelledTicketId(null)}
+                    className="min-h-[42px] px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* BARRA DA IMPRESSORA MINIPRINT POCKETTM (57x30MM / FUN PRINT) & CONTROLE DE VIAS */}
           <div className="bg-gradient-to-br from-pink-950/35 via-slate-900 to-slate-900 border-2 border-pink-500/40 rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -12407,17 +12740,45 @@ export function GlassBarcodeScannerCart({
                                   </button>
                                 )
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    markLocalYardMutation();
-                                    setPaymentHistory((prev) => prev.filter((p) => p.id !== rec.id));
-                                  }}
-                                  className="min-h-[40px] px-2.5 bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 rounded-xl border border-white/10 cursor-pointer"
-                                  title="Remover estorno da lista"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                <>
+                                  {restoringPaymentId === rec.id ? (
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRestoreCancelledPaymentReceipt(rec)}
+                                        className="min-h-[40px] px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] rounded-xl cursor-pointer"
+                                      >
+                                        ✓ Sim, Voltar Atrás
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setRestoringPaymentId(null)}
+                                        className="min-h-[40px] px-2 py-1.5 bg-slate-800 text-slate-200 font-bold text-[11px] rounded-xl cursor-pointer"
+                                      >
+                                        Não
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setRestoringPaymentId(rec.id)}
+                                      className="min-h-[40px] px-2.5 py-1.5 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-200 hover:text-slate-950 font-black text-[11px] rounded-xl border border-emerald-400/50 cursor-pointer"
+                                    >
+                                      ↩️ Voltar Atrás
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      markLocalYardMutation();
+                                      setPaymentHistory((prev) => prev.filter((p) => p.id !== rec.id));
+                                    }}
+                                    className="min-h-[40px] px-2.5 bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 rounded-xl border border-white/10 cursor-pointer"
+                                    title="Remover estorno da lista"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
                               )}
                             </div>
                           </div>
@@ -12531,7 +12892,7 @@ export function GlassBarcodeScannerCart({
                                   >
                                     WhatsApp
                                   </button>
-                                  {!ticket.isCancelled && (
+                                  {!ticket.isCancelled ? (
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -12542,9 +12903,43 @@ export function GlassBarcodeScannerCart({
                                     >
                                       🚫 Cancelar
                                     </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setRestoringTicketId(restoringTicketId === ticket.id ? null : ticket.id)
+                                      }
+                                      className="min-h-[40px] px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500 active:scale-95 text-emerald-200 hover:text-slate-950 font-black text-[11px] rounded-xl border border-emerald-400/50 cursor-pointer touch-manipulation select-none"
+                                    >
+                                      ↩️ Voltar Atrás (Restaurar)
+                                    </button>
                                   )}
                                 </div>
                               </div>
+
+                              {restoringTicketId === ticket.id && ticket.isCancelled && (
+                                <div className="p-3 bg-emerald-950/40 border border-emerald-400/50 rounded-xl space-y-2">
+                                  <div className="text-[11px] font-black text-emerald-200">
+                                    ↩️ Restaurar esta compra cancelada por engano? Vai devolver {tkSplit.kgTotal > 0 ? `${formatWeightKgDetailed(tkSplit.kgTotal)} kg` : ""}{tkSplit.kgTotal > 0 && tkSplit.litersTotal > 0 ? " + " : ""}{tkSplit.litersTotal > 0 ? `${formatWeightKgDetailed(tkSplit.litersTotal)} L óleo` : ""} ao estoque, atualizar o Caderninho e o Caixa do PDV.
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRestoreCancelledPurchaseTicket(ticket)}
+                                      className="min-h-[40px] px-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl cursor-pointer touch-manipulation select-none"
+                                    >
+                                      ✓ Sim, Voltar Atrás
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setRestoringTicketId(null)}
+                                      className="min-h-[40px] px-3 bg-slate-800 text-slate-200 font-bold text-xs rounded-xl cursor-pointer"
+                                    >
+                                      Fechar
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
 
                               {isConfirmingCancel && !ticket.isCancelled && (
                                 <div className="p-3 bg-rose-950/35 border border-rose-500/40 rounded-xl space-y-2">
@@ -12863,20 +13258,56 @@ export function GlassBarcodeScannerCart({
                               <span>Cancelar Compra</span>
                             </button>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                markLocalYardMutation();
-                                setPurchaseHistory((prev) => prev.filter((t) => t.id !== ticket.id));
-                              }}
-                              className="min-h-[42px] px-3 bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 font-bold text-xs rounded-xl border border-white/10 flex items-center gap-1 cursor-pointer"
-                              title="Remover registro cancelado da lista"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setRestoringTicketId(restoringTicketId === ticket.id ? null : ticket.id)
+                                }
+                                className="min-h-[42px] px-3 py-2 bg-emerald-500/20 hover:bg-emerald-500 active:scale-95 text-emerald-200 hover:text-slate-950 font-black text-xs rounded-xl border border-emerald-400/50 flex items-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                              >
+                                <RotateCcw className="w-4 h-4" />
+                                <span>↩️ Voltar Atrás (Restaurar)</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  markLocalYardMutation();
+                                  setPurchaseHistory((prev) => prev.filter((t) => t.id !== ticket.id));
+                                }}
+                                className="min-h-[42px] px-3 bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 font-bold text-xs rounded-xl border border-white/10 flex items-center gap-1 cursor-pointer"
+                                title="Remover registro cancelado da lista"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
+
+                      {restoringTicketId === ticket.id && ticket.isCancelled && (
+                        <div className="p-3 bg-emerald-950/40 border border-emerald-400/50 rounded-xl space-y-2">
+                          <div className="text-[11px] font-black text-emerald-200">
+                            ↩️ Restaurar esta compra cancelada por engano? Vai devolver {tkSplit.kgTotal > 0 ? `${formatWeightKgDetailed(tkSplit.kgTotal)} kg` : ""}{tkSplit.kgTotal > 0 && tkSplit.litersTotal > 0 ? " + " : ""}{tkSplit.litersTotal > 0 ? `${formatWeightKgDetailed(tkSplit.litersTotal)} L óleo` : ""} ao estoque, atualizar o Caderninho e restaurar o lançamento no PDV.
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleRestoreCancelledPurchaseTicket(ticket)}
+                              className="min-h-[42px] px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase rounded-xl cursor-pointer touch-manipulation select-none"
+                            >
+                              ✓ Sim, Voltar Atrás
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRestoringTicketId(null)}
+                              className="min-h-[42px] px-3 bg-slate-800 text-slate-200 font-bold text-xs rounded-xl cursor-pointer"
+                            >
+                              Fechar
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {isConfirmingCancel && !ticket.isCancelled && (
                         <div className="p-3 bg-rose-950/35 border border-rose-500/40 rounded-xl space-y-2">
@@ -15127,9 +15558,19 @@ export function GlassBarcodeScannerCart({
             </div>
 
             {lastPurchaseReceipt.isCancelled && (
-              <div className="p-3 bg-rose-950/60 border border-rose-500/50 rounded-2xl text-xs font-black text-rose-200 text-center">
-                🚫 COMPRA CANCELADA / ESTORNADA
-                {lastPurchaseReceipt.cancelReason ? ` (${lastPurchaseReceipt.cancelReason})` : ""} — Estoque, Caderninho &amp; PDV revertidos!
+              <div className="p-3 bg-rose-950/60 border border-rose-500/50 rounded-2xl text-xs font-black text-rose-200 text-center space-y-2">
+                <div>
+                  🚫 COMPRA CANCELADA / ESTORNADA
+                  {lastPurchaseReceipt.cancelReason ? ` (${lastPurchaseReceipt.cancelReason})` : ""} — Estoque, Caderninho &amp; PDV revertidos!
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRestoreCancelledPurchaseTicket(lastPurchaseReceipt)}
+                  className="w-full min-h-[42px] py-2 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-xs uppercase rounded-xl flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation select-none"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>↩️ Cancelou por engano? Voltar Atrás (Restaurar Compra)</span>
+                </button>
               </div>
             )}
 
